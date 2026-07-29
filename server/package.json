@@ -7,11 +7,13 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@vidcut/shared": "*",
     "express": "^5.0.0",
     "immer": "^10.1.0",
     "nanoid": "^5.0.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
