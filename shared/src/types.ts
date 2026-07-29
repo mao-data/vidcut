@@ -141,6 +141,16 @@ export type Command =
 
 export type CommandResult = { ok: true; version: number } | { ok: false; error: string };
 
+// ---- 審核與編輯脈絡 ----
+export type ReviewOutcome = 'approved' | 'rejected' | 'approved_with_notes' | 'timeout';
+
+/** 人在 UI 的當前脈絡（ephemeral，非 project.json 一部分）。get_editor_context 回傳。 */
+export interface EditorContextData {
+  selection: { kind: 'clip' | 'overlay' | 'caption'; id: string } | null;
+  playhead: number;
+  range: { start: number; end: number } | null;
+}
+
 // ---- WS 協議（spec §4.1）----
 // patch 用 immer 的 Patch 形狀（{op, path: (string|number)[], value?}），UI 端 applyPatches 直接可用。
 export interface JsonPatch {
@@ -173,7 +183,9 @@ export type WsServerMsg =
 
 export type WsClientMsg =
   | { type: 'resync' }
-  | { type: 'command'; cmd: Command; reqId?: string };
+  | { type: 'command'; cmd: Command; reqId?: string }
+  | { type: 'context'; context: EditorContextData }
+  | { type: 'reviewResolve'; id: string; outcome: ReviewOutcome; note?: string };
 
 export function createEmptyProject(id: string, name: string): Project {
   return {
