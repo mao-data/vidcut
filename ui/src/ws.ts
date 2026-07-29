@@ -1,4 +1,4 @@
-import type { Command, WsServerMsg } from '@vidcut/shared';
+import type { Command, EditorContextData, ReviewOutcome, WsServerMsg } from '@vidcut/shared';
 import { useProject } from './stores/project.js';
 import { useToast } from './stores/toast.js';
 
@@ -9,13 +9,27 @@ export function mediaUrl(m: { proxyPath?: string; path: string }): string {
 
 let socket: WebSocket | null = null;
 
+function sendMsg(msg: unknown, offlineWarning?: string): void {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(msg));
+  } else if (offlineWarning) {
+    useToast.getState().show(offlineWarning);
+  }
+}
+
 /** 送編輯命令給 server（localhost 直接等 server echo，不做樂觀更新）。 */
 export function sendCommand(cmd: Command, reqId?: string): void {
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'command', cmd, reqId }));
-  } else {
-    useToast.getState().show('未連線，無法送出編輯');
-  }
+  sendMsg({ type: 'command', cmd, reqId }, '未連線，無法送出編輯');
+}
+
+/** 回報人在 UI 的脈絡（選取/playhead/範圍）給 AI 的 get_editor_context 讀。 */
+export function sendContext(context: EditorContextData): void {
+  sendMsg({ type: 'context', context });
+}
+
+/** 人核准/退回 AI 的 request_review。 */
+export function sendReviewResolve(id: string, outcome: ReviewOutcome, note?: string): void {
+  sendMsg({ type: 'reviewResolve', id, outcome, note }, '未連線，無法回覆審核');
 }
 
 /** 連 WS：斷線指數退避（1s→10s）重連，重連成功即發 resync 取全量。 */

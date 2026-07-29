@@ -1,11 +1,14 @@
 import { useEffect } from 'react';
 import { useProject } from './stores/project.js';
 import { useToast } from './stores/toast.js';
+import { useSelection } from './stores/selection.js';
+import { usePlayback } from './stores/playback.js';
 import { Player } from './player/Player.js';
 import { Timeline } from './timeline/Timeline.js';
 import { Inspector } from './panels/Inspector.js';
 import { Activity } from './panels/Activity.js';
-import { sendCommand } from './ws.js';
+import { ReviewBar } from './panels/ReviewBar.js';
+import { sendCommand, sendContext } from './ws.js';
 
 function Toast() {
   const message = useToast((s) => s.message);
@@ -39,6 +42,8 @@ export function App() {
   const doc = useProject((s) => s.doc);
   const version = useProject((s) => s.version);
   const connected = useProject((s) => s.connected);
+  const selection = useSelection((s) => s.selected);
+  const playhead = usePlayback((s) => s.time);
 
   // Cmd/Ctrl+Z → undo
   useEffect(() => {
@@ -52,11 +57,18 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // 回報編輯脈絡給 AI（get_editor_context）。playhead 用防抖避免洗頻。
+  useEffect(() => {
+    const t = setTimeout(() => sendContext({ selection, playhead, range: null }), 150);
+    return () => clearTimeout(t);
+  }, [selection, playhead]);
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '6px 12px', borderBottom: '1px solid #333', fontSize: 13 }}>
         {connected ? '🟢' : '🔴'} {doc?.name ?? '—'} v{version}
       </div>
+      <ReviewBar />
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '260px 1fr 300px', minHeight: 0 }}>
         {/* 左：Inspector */}
         <div style={{ borderRight: '1px solid #333', overflowY: 'auto' }}>
