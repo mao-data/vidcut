@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { applyPatches, enablePatches, type Patch } from 'immer';
 import type { Project, WsServerMsg } from '@vidcut/shared';
+import { useActivity } from './activity.js';
 
 enablePatches();
 
@@ -21,11 +22,19 @@ export const useProject = create<ProjectState>((set, get) => ({
   applyServerMsg: (msg) => {
     if (msg.type === 'full') {
       set({ doc: msg.doc, version: msg.version });
+      useActivity.getState().seed(msg.history);
+      return 'ok';
+    }
+    if (msg.type === 'commandError') {
+      // 由 ws.ts 轉給 toast；這裡不改狀態
       return 'ok';
     }
     const { doc, version } = get();
     if (!doc || msg.version !== version + 1) return 'resync';
     set({ doc: applyPatches(doc, msg.patches as Patch[]), version: msg.version });
+    useActivity
+      .getState()
+      .push({ version: msg.version, label: msg.label, source: msg.source, ts: msg.ts });
     return 'ok';
   },
 }));
