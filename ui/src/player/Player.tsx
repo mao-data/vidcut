@@ -1,0 +1,165 @@
+import { useEffect, useRef, type CSSProperties } from 'react';
+import { totalDuration } from '@vidcut/shared';
+import { useProject } from '../stores/project.js';
+import { usePlayback } from '../stores/playback.js';
+import { planAt } from './plan.js';
+
+const DRIFT_TOLERANCE = 0.06; // 60ms
+const PRELAUNCH = 0.05; // 邊界前 50ms 啟動 next
+
+/**
+ * 雙 <video> A/B 無縫引擎（spec §7）。active 出聲、spare premount 下一片段並靜音；
+ * 邊界前 50ms 靜音啟動 spare，到點交換可見性。rAF + performance.now() 為主時鐘。
+ */
+export function Player() {
+  const doc = useProject((s) => s.doc);
+  const time = usePlayback((s) => s.time);
+  const playing = usePlayback((s) => s.playing);
+  const vA = useRef<HTMLVideoElement>(null);
+  const vB = useRef<HTMLVideoElement>(null);
+  const activeIsA = useRef(true);
+  const mountedClip = useRef<{ a: string | null; b: string | null }>({ a: null, b: null });
+
+  useEffect(() => {
+    if (doc) usePlayback.getState().setTotal(totalDuration(doc));
+  }, [doc]);
+
+  // 主時鐘：rAF + performance.now() 差分
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    let last = performance.now();
+    const loop = (now: number) => {
+      usePlayback.getState().tick(usePlayback.getState().time, (now - last) / 1000);
+      last = now;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
+
+  // 每次 time/doc 變化：對齊 video 元素
+  useEffect(() => {
+    if (!doc) return;
+    const plan = planAt(doc, time);
+    const act = activeIsA.current ? vA.current : vB.current;
+    const spare = activeIsA.current ? vB.current : vA.current;
+    const key = activeIsA.current ? 'a' : 'b';
+    const spareKey = activeIsA.current ? 'b' : 'a';
+    if (!act || !spare) return;
+
+    if (!plan.active) {
+      act.pause();
+      spare.pause();
+      return;
+    }
+
+    // 換 clip：spare 已 premount 同一 clip → 交換；否則硬切
+    if (mountedClip.current[key] !== plan.active.clipId) {
+      if (mountedClip.current[spareKey] === plan.active.clipId) {
+        activeIsA.current = !activeIsA.current;
+        act.pause();
+        act.muted = true;
+        spare.muted = false;
+        if (playing) void spare.play().catch(() => {});
+        return; // 下一輪 effect 以新 active 繼續
+      }
+      act.src = plan.active.src;
+      act.currentTime = plan.active.sourceTime;
+      mountedClip.current[key] = plan.active.clipId;
+    }
+
+    // 漂移校正
+    if (Math.abs(act.currentTime - plan.active.sourceTime) > DRIFT_TOLERANCE) {
+      act.currentTime = plan.active.sourceTime;
+    }
+    act.muted = false;
+    if (playing && act.paused) void act.play().catch(() => {});
+    if (!playing && !act.paused) act.pause();
+
+    // premount + 預啟動 next
+    if (plan.next && mountedClip.current[spareKey] !== plan.next.clipId) {
+      spare.src = plan.next.src;
+      spare.currentTime = plan.next.sourceTime;
+      spare.muted = true;
+      mountedClip.current[spareKey] = plan.next.clipId;
+    }
+    if (plan.next && playing) {
+      const clipEnd = doc.tracks.video
+        .slice(0, plan.active.clipIndex + 1)
+        .reduce((s, c) => s + c.duration, 0);
+      if (clipEnd - time < PRELAUNCH && spare.paused) void spare.play().catch(() => {});
+    }
+  }, [doc, time, playing]);
+
+  if (!doc) return null;
+  const plan = planAt(doc, time);
+  const vidStyle = (visible: boolean): CSSProperties => ({
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',
+    opacity: visible ? 1 : 0,
+  });
+  return (
+    <div>
+      <div
+        style={{
+          position: 'relative',
+          aspectRatio: '9/16',
+          maxHeight: '70vh',
+          margin: '0 auto',
+          background: '#000',
+        }}
+      >
+        <video ref={vA} muted playsInline style={vidStyle(activeIsA.current)} />
+        <video ref={vB} muted playsInline style={vidStyle(!activeIsA.current)} />
+        {plan.overlays.map((o) => (
+          <img
+            key={o.id}
+            src={o.src}
+            alt=""
+            style={{
+              position: 'absolute',
+              left: `${o.position.x * 100}%`,
+              top: `${o.position.y * 100}%`,
+              transform: `translate(-50%, 0) scale(${o.position.scale})`,
+              maxWidth: '90%',
+              pointerEvents: 'none',
+            }}
+          />
+        ))}
+        {plan.captions.map((c) => (
+          <div
+            key={c.id}
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: `${c.style.y * 100}%`,
+              textAlign: 'center',
+              fontFamily: c.style.fontFamily,
+              fontSize: c.style.fontSize / 3,
+              color: c.style.fill,
+              WebkitTextStroke: c.style.stroke ? `1px ${c.style.stroke}` : undefined,
+              pointerEvents: 'none',
+            }}
+          >
+            {c.text}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', padding: 8 }}>
+        <button
+          onClick={() =>
+            playing ? usePlayback.getState().pause() : usePlayback.getState().play()
+          }
+        >
+          {playing ? '⏸' : '▶'}
+        </button>
+        <span>{time.toFixed(2)}s</span>
+      </div>
+    </div>
+  );
+}
