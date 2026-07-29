@@ -116,6 +116,31 @@ export interface Project {
   render: RenderState;
 }
 
+// ---- 命令層（人類 UI 與 MCP 工具共用的唯一寫入語意來源）----
+export type Command =
+  | {
+      name: 'updateClip';
+      clipId: string;
+      patch: Partial<Pick<VideoClip, 'in' | 'duration' | 'volume' | 'label'>>;
+    }
+  | { name: 'reorderClips'; order: string[] }
+  | { name: 'removeClip'; clipId: string }
+  | {
+      name: 'updateOverlay';
+      id: string;
+      patch: Partial<Pick<OverlayItem, 'start' | 'duration' | 'position'>>;
+    }
+  | {
+      name: 'updateCaption';
+      id: string;
+      patch: Partial<Pick<CaptionItem, 'text' | 'start' | 'duration' | 'style'>>;
+    }
+  | { name: 'setOverlays'; overlays: OverlayItem[] }
+  | { name: 'setCaptions'; captions: CaptionItem[] }
+  | { name: 'undo'; steps?: number };
+
+export type CommandResult = { ok: true; version: number } | { ok: false; error: string };
+
 // ---- WS 協議（spec §4.1）----
 // patch 用 immer 的 Patch 形狀（{op, path: (string|number)[], value?}），UI 端 applyPatches 直接可用。
 export interface JsonPatch {
@@ -126,17 +151,29 @@ export interface JsonPatch {
 
 export type MutationSource = 'ai' | 'human';
 
+/** 活動記錄 / history 條目的精簡形（廣播與 UI 顯示用）。 */
+export interface HistoryBrief {
+  version: number;
+  label: string;
+  source: MutationSource;
+  ts: string;
+}
+
 export type WsServerMsg =
-  | { type: 'full'; version: number; doc: Project }
+  | { type: 'full'; version: number; doc: Project; history: HistoryBrief[] }
   | {
       type: 'patch';
       version: number;
       patches: JsonPatch[];
       source: MutationSource;
       label: string;
-    };
+      ts: string;
+    }
+  | { type: 'commandError'; reqId?: string; error: string };
 
-export type WsClientMsg = { type: 'resync' };
+export type WsClientMsg =
+  | { type: 'resync' }
+  | { type: 'command'; cmd: Command; reqId?: string };
 
 export function createEmptyProject(id: string, name: string): Project {
   return {

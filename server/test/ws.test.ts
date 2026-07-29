@@ -33,6 +33,7 @@ describe('ws sync', () => {
     expect(full.type).toBe('full');
     if (full.type !== 'full') throw new Error('unreachable');
     expect(full.version).toBe(0);
+    expect(Array.isArray(full.history)).toBe(true);
 
     const patchP = nextMsg(ws);
     store.mutate('ai', 'rename', (d) => {
@@ -41,11 +42,13 @@ describe('ws sync', () => {
     const patch = await patchP;
     expect(patch).toMatchObject({ type: 'patch', version: 1, source: 'ai', label: 'rename' });
 
-    // resync
+    // resync：full 應含剛才那筆 history
     const fullP = nextMsg(ws);
     ws.send(JSON.stringify({ type: 'resync' }));
     const full2 = await fullP;
     expect(full2).toMatchObject({ type: 'full', version: 1 });
+    if (full2.type !== 'full') throw new Error('unreachable');
+    expect(full2.history.at(-1)).toMatchObject({ version: 1, label: 'rename', source: 'ai' });
     ws.close();
 
     // /media Range

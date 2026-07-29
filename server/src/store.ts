@@ -30,6 +30,7 @@ export interface ChangeEvent {
   patches: JsonPatch[];
   source: MutationSource;
   label: string;
+  ts: string;
 }
 
 const HISTORY_MAX = 200;
@@ -85,11 +86,12 @@ export class ProjectStore {
     if (patches.length === 0) return { version: this.#version, patches: [] };
     this.#doc = next;
     this.#version += 1;
+    const ts = new Date().toISOString();
     this.#history.push({
       version: this.#version,
       label,
       source,
-      ts: new Date().toISOString(),
+      ts,
       patches: patches as JsonPatch[],
       inversePatches: inversePatches as JsonPatch[],
     });
@@ -102,6 +104,7 @@ export class ProjectStore {
       patches: patches as JsonPatch[],
       source,
       label,
+      ts,
     };
     for (const cb of this.#listeners) cb(evt);
     return { version: this.#version, patches: patches as JsonPatch[] };
