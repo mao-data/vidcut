@@ -1,5 +1,9 @@
-_skill_extracted/
 node_modules/
+dist/
+projects/
+_skill_extracted/
+*.skill
 media/
 proxies/
 .DS_Store
+*.tsbuildinfo

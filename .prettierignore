@@ -1,0 +1,5 @@
+node_modules
+dist
+projects
+_skill_extracted
+*.skill
