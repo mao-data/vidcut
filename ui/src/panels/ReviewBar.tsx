@@ -37,9 +37,19 @@ export function ReviewBar() {
         placeholder="留言（退回時必填）"
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        style={{ padding: 6, minWidth: 180, background: '#1a2436', color: '#eee', border: '1px solid #456', borderRadius: 4 }}
+        style={{
+          padding: 6,
+          minWidth: 180,
+          background: '#1a2436',
+          color: '#eee',
+          border: '1px solid #456',
+          borderRadius: 4,
+        }}
       />
-      <button onClick={() => resolve('approved')} style={{ background: '#2a6', color: '#fff', padding: '6px 12px' }}>
+      <button
+        onClick={() => resolve('approved')}
+        style={{ background: '#2a6', color: '#fff', padding: '6px 12px' }}
+      >
         ✓ 核准
       </button>
       <button

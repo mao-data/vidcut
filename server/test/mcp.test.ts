@@ -20,7 +20,13 @@ async function connect(timeoutMs = 900_000) {
   const store = await ProjectStore.load(join(dir, 'project.json'));
   const editorContext = new EditorContext();
   const reviews = new ReviewManager(store, timeoutMs);
-  const deps: McpDeps = { store, projectDir: dir, editorContext, reviews, baseUrl: 'http://127.0.0.1:3845' };
+  const deps: McpDeps = {
+    store,
+    projectDir: dir,
+    editorContext,
+    reviews,
+    baseUrl: 'http://127.0.0.1:3845',
+  };
   const server = createMcpServer(deps);
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await server.connect(serverT);
@@ -47,34 +53,30 @@ describe('mcp tools', () => {
     expect(r.structuredContent).toMatchObject({ version: 0 });
   });
 
-  it(
-    'imports media, sets timeline, and edits a clip via aiWrite',
-    async () => {
-      const { dir, store, client } = await connect();
-      await makeVideo(dir, 'a.mp4', { duration: 6, withAudio: true });
-      const imp = (await client.callTool({
-        name: 'import_media',
-        arguments: { relPath: 'a.mp4', label: 'N1' },
-      })) as Structured;
-      const mediaId = (imp.structuredContent as { mediaId: string }).mediaId;
-      expect(mediaId).toBeTruthy();
+  it('imports media, sets timeline, and edits a clip via aiWrite', async () => {
+    const { dir, store, client } = await connect();
+    await makeVideo(dir, 'a.mp4', { duration: 6, withAudio: true });
+    const imp = (await client.callTool({
+      name: 'import_media',
+      arguments: { relPath: 'a.mp4', label: 'N1' },
+    })) as Structured;
+    const mediaId = (imp.structuredContent as { mediaId: string }).mediaId;
+    expect(mediaId).toBeTruthy();
 
-      await client.callTool({
-        name: 'set_timeline',
-        arguments: { clips: [{ mediaId, in: 1, duration: 3, label: 'No.1' }] },
-      });
-      expect(store.doc.tracks.video).toHaveLength(1);
-      const clipId = store.doc.tracks.video[0]!.id;
+    await client.callTool({
+      name: 'set_timeline',
+      arguments: { clips: [{ mediaId, in: 1, duration: 3, label: 'No.1' }] },
+    });
+    expect(store.doc.tracks.video).toHaveLength(1);
+    const clipId = store.doc.tracks.video[0]!.id;
 
-      const upd = await client.callTool({
-        name: 'update_clip',
-        arguments: { clipId, patch: { duration: 4 } },
-      });
-      expect(textOf(upd)).toMatch(/ok, version=/);
-      expect(store.doc.tracks.video[0]!.duration).toBe(4);
-    },
-    60_000,
-  );
+    const upd = await client.callTool({
+      name: 'update_clip',
+      arguments: { clipId, patch: { duration: 4 } },
+    });
+    expect(textOf(upd)).toMatch(/ok, version=/);
+    expect(store.doc.tracks.video[0]!.duration).toBe(4);
+  }, 60_000);
 
   it('reports editor context set via the holder', async () => {
     const { editorContext, client } = await connect();

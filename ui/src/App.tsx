@@ -70,7 +70,9 @@ export function App() {
         {connected ? '🟢' : '🔴'} {doc?.name ?? '—'} v{version}
       </div>
       <ReviewBar />
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '260px 1fr 300px', minHeight: 0 }}>
+      <div
+        style={{ flex: 1, display: 'grid', gridTemplateColumns: '260px 1fr 300px', minHeight: 0 }}
+      >
         {/* 左：Inspector */}
         <div style={{ borderRight: '1px solid #333', overflowY: 'auto' }}>
           <Inspector />

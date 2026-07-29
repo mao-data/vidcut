@@ -152,9 +152,7 @@ export function Player() {
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', padding: 8 }}>
         <button
-          onClick={() =>
-            playing ? usePlayback.getState().pause() : usePlayback.getState().play()
-          }
+          onClick={() => (playing ? usePlayback.getState().pause() : usePlayback.getState().play())}
         >
           {playing ? '⏸' : '▶'}
         </button>

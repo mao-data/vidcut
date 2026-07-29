@@ -55,10 +55,7 @@ function located(p: Project, clipIndex: number, offsetInClip: number): Located |
  * 解析 overlay 的時間窗。anchor 指向不存在的 clip 回 null；
  * duration:null 表示到片尾。
  */
-export function overlayWindow(
-  p: Project,
-  o: OverlayItem,
-): { start: number; end: number } | null {
+export function overlayWindow(p: Project, o: OverlayItem): { start: number; end: number } | null {
   let start: number;
   if (o.anchor) {
     const idx = p.tracks.video.findIndex((c) => c.id === o.anchor!.clipId);

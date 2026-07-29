@@ -63,20 +63,25 @@ describe('applyCommand', () => {
 
   it('updateClip rejects negative in and tiny duration', async () => {
     const store = await storeWithClips();
-    expect(applyCommand(store, 'human', { name: 'updateClip', clipId: 'c1', patch: { in: -1 } }).ok).toBe(
-      false,
-    );
     expect(
-      applyCommand(store, 'human', { name: 'updateClip', clipId: 'c1', patch: { duration: 0.01 } }).ok,
+      applyCommand(store, 'human', { name: 'updateClip', clipId: 'c1', patch: { in: -1 } }).ok,
+    ).toBe(false);
+    expect(
+      applyCommand(store, 'human', { name: 'updateClip', clipId: 'c1', patch: { duration: 0.01 } })
+        .ok,
     ).toBe(false);
   });
 
   it('reorderClips requires a permutation', async () => {
     const store = await storeWithClips();
-    expect(applyCommand(store, 'human', { name: 'reorderClips', order: ['c2', 'c1'] }).ok).toBe(true);
+    expect(applyCommand(store, 'human', { name: 'reorderClips', order: ['c2', 'c1'] }).ok).toBe(
+      true,
+    );
     expect(store.doc.tracks.video.map((c) => c.id)).toEqual(['c2', 'c1']);
     expect(applyCommand(store, 'human', { name: 'reorderClips', order: ['c1'] }).ok).toBe(false);
-    expect(applyCommand(store, 'human', { name: 'reorderClips', order: ['c1', 'c1'] }).ok).toBe(false);
+    expect(applyCommand(store, 'human', { name: 'reorderClips', order: ['c1', 'c1'] }).ok).toBe(
+      false,
+    );
   });
 
   it('removeClip removes existing and rejects missing', async () => {

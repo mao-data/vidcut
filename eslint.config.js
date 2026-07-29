@@ -20,6 +20,8 @@ export default [
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
+      // TypeScript 自己就會檢查未定義變數（含 DOM/Node globals），關掉重複且會誤報的 no-undef。
+      'no-undef': 'off',
     },
   },
   prettier,

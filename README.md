@@ -18,14 +18,14 @@ npm run dev:ui              # 另開終端機 → http://localhost:5173
 
 ## 開發指令
 
-| 指令 | 作用 |
-|---|---|
-| `npm test` | 跑所有 workspace 的 vitest |
-| `npm run typecheck` | 三個 workspace 的 tsc --noEmit |
-| `npm run lint` | ESLint |
-| `npm run format` | Prettier 寫入 |
-| `npm run dev:server -- <projectDir>` | 起 server 服務某專案 |
-| `npm run dev:ui` | 起 Vite dev server（proxy 到 :3845） |
+| 指令                                 | 作用                                 |
+| ------------------------------------ | ------------------------------------ |
+| `npm test`                           | 跑所有 workspace 的 vitest           |
+| `npm run typecheck`                  | 三個 workspace 的 tsc --noEmit       |
+| `npm run lint`                       | ESLint                               |
+| `npm run format`                     | Prettier 寫入                        |
+| `npm run dev:server -- <projectDir>` | 起 server 服務某專案                 |
+| `npm run dev:ui`                     | 起 Vite dev server（proxy 到 :3845） |
 
 ## 架構
 
@@ -42,6 +42,17 @@ ui/       @vidcut/ui      React：ws client、A/B 播放器、時間軸
 ## 里程碑
 
 - **M1 看得到** ✅ — ProjectStore + WS 同步 + ingest + 唯讀時間軸 + A/B 無縫預覽
-- **M2 改得動** — trim 拖拉、排序、overlay/caption 編輯、undo、活動面板
-- **M3 AI 接上** — MCP server + 工具層 + request_review 審核流程
-- **M4 渲染** — ffmpeg 從 project.json 輸出成品 + skill 改寫
+- **M2 改得動** ✅ — 命令層 + trim 拖拉、排序、Inspector 編輯、undo、活動面板
+- **M3 AI 接上** ✅ — MCP server（15 工具）+ request_review 審核閉環 + 編輯脈絡回報
+- **M4 渲染** ✅ — ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + 渲染 UI
+
+全部里程碑的核心功能已實作並自動化驗證。親眼驗收與 Claude Code 實連步驟見 [`HANDOFF.md`](HANDOFF.md)。
+
+## 接 Claude Code
+
+```bash
+npm run dev:server -- projects/demo          # 先起 server
+claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
+```
+
+然後在 Claude Code 裡請它用 vidcut 剪片；你在瀏覽器 UI 即時看到並可介入。

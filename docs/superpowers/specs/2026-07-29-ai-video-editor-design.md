@@ -67,16 +67,16 @@ stdio 模式下每個 MCP client 會各自 spawn 一份 server 程序，狀態�
 
 ### 2.3 技術選型
 
-| 層 | 選擇 | 理由 |
-|---|---|---|
-| MCP SDK | `@modelcontextprotocol/server` v2（2.0.0） | 官方新專案推薦；`input_required` + legacy shim 同時服務新舊 client，是 request_review 的最乾淨解 |
-| HTTP | Express 5 + 官方 `@modelcontextprotocol/express` adapter | `createMcpExpressApp` 自帶 Host/Origin 驗證（防 DNS rebinding）；`express.static` 原生支援 Range requests |
-| WS | `ws` | 事實標準、零依賴；不用 socket.io（單機 app 過重） |
-| 狀態 | Immer `produceWithPatches` | 一次得到新 doc、廣播用 patches、undo 用 inversePatches |
-| 前端 | React 19 + Vite + zustand | 使用者熟悉的生態；zustand 分 store（timeline/playback/media）學 OpenCut classic |
-| 影音處理 | Node 端原生 ffmpeg（brew 安裝） | 比 ffmpeg.wasm 快 10 倍以上、無記憶體限制 |
-| 波形 | ffmpeg raw PCM → Node 分桶取峰值 | 免額外依賴（audiowaveform 為升級選項） |
-| 渲染引擎 | 不用 Remotion | 授權綁定風險（≥4 人公司嵌 Player 觸發 $100/月起）；我們的合成需求（片段序列+PNG overlay+字幕）用不到它 |
+| 層       | 選擇                                                     | 理由                                                                                                      |
+| -------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| MCP SDK  | `@modelcontextprotocol/server` v2（2.0.0）               | 官方新專案推薦；`input_required` + legacy shim 同時服務新舊 client，是 request_review 的最乾淨解          |
+| HTTP     | Express 5 + 官方 `@modelcontextprotocol/express` adapter | `createMcpExpressApp` 自帶 Host/Origin 驗證（防 DNS rebinding）；`express.static` 原生支援 Range requests |
+| WS       | `ws`                                                     | 事實標準、零依賴；不用 socket.io（單機 app 過重）                                                         |
+| 狀態     | Immer `produceWithPatches`                               | 一次得到新 doc、廣播用 patches、undo 用 inversePatches                                                    |
+| 前端     | React 19 + Vite + zustand                                | 使用者熟悉的生態；zustand 分 store（timeline/playback/media）學 OpenCut classic                           |
+| 影音處理 | Node 端原生 ffmpeg（brew 安裝）                          | 比 ffmpeg.wasm 快 10 倍以上、無記憶體限制                                                                 |
+| 波形     | ffmpeg raw PCM → Node 分桶取峰值                         | 免額外依賴（audiowaveform 為升級選項）                                                                    |
+| 渲染引擎 | 不用 Remotion                                            | 授權綁定風險（≥4 人公司嵌 Player 觸發 $100/月起）；我們的合成需求（片段序列+PNG overlay+字幕）用不到它    |
 
 授權紅線（不 fork、不引入）：`@designcombo/timeline` 等核心包（閉源無授權宣告）、Twick（SUL 不可再散布）、Remotion 內核。可安心學/用：OpenCut classic（MIT）、omniclip（MIT）、mediabunny（MPL-2.0，日後瀏覽器內處理需要時再引入）。
 
@@ -87,57 +87,63 @@ stdio 模式下每個 MCP client 會各自 spawn 一份 server 程序，狀態�
 ```ts
 interface Project {
   schemaVersion: 1;
-  id: string;                  // 專案 id
+  id: string; // 專案 id
   name: string;
   canvas: { width: 1080; height: 1920; fps: 30 };
-  media: MediaAsset[];         // 素材登記表
+  media: MediaAsset[]; // 素材登記表
   tracks: {
-    video: VideoClip[];        // 主軌：磁性（無 gap，順序即時間）
-    overlays: OverlayItem[];   // PNG/圖片 overlay（絕對時間或錨定片段）
-    captions: CaptionItem[];   // 文字字幕（渲染時燒錄）
-    audio: AudioItem[];        // 旁白/BGM（絕對時間）
+    video: VideoClip[]; // 主軌：磁性（無 gap，順序即時間）
+    overlays: OverlayItem[]; // PNG/圖片 overlay（絕對時間或錨定片段）
+    captions: CaptionItem[]; // 文字字幕（渲染時燒錄）
+    audio: AudioItem[]; // 旁白/BGM（絕對時間）
   };
-  review: ReviewState | null;  // 當前待審核請求（見 §6）
-  render: { lastOutput?: string; status: 'idle'|'running'|'done'|'error'; progress?: number };
+  review: ReviewState | null; // 當前待審核請求（見 §6）
+  render: { lastOutput?: string; status: 'idle' | 'running' | 'done' | 'error'; progress?: number };
 }
 
 interface MediaAsset {
-  id: string;                  // 穩定 id，clip 以此引用
-  path: string;                // 原始檔（相對專案資料夾）
-  proxyPath?: string;          // 540×960 GOP15 proxy（ingest 產出）
-  filmstripPath?: string;      // 縮圖條 sprite
-  peaksPath?: string;          // 波形峰值 JSON
-  probe: { duration: number; width: number; height: number; fps: number;
-           hasAudio: boolean; rotation: number };
-  label?: string;              // 例 "N3 @fruit.centre5 (TikTok)"
-  meta?: Record<string, unknown>;  // AI 自由欄位（來源 URL、觀看數、outlier 倍率…）
+  id: string; // 穩定 id，clip 以此引用
+  path: string; // 原始檔（相對專案資料夾）
+  proxyPath?: string; // 540×960 GOP15 proxy（ingest 產出）
+  filmstripPath?: string; // 縮圖條 sprite
+  peaksPath?: string; // 波形峰值 JSON
+  probe: {
+    duration: number;
+    width: number;
+    height: number;
+    fps: number;
+    hasAudio: boolean;
+    rotation: number;
+  };
+  label?: string; // 例 "N3 @fruit.centre5 (TikTok)"
+  meta?: Record<string, unknown>; // AI 自由欄位（來源 URL、觀看數、outlier 倍率…）
 }
 
 interface VideoClip {
   id: string;
   mediaId: string;
-  in: number;                  // 來源內起點（秒，= 現有腳本的 ss）
-  duration: number;            // = 現有腳本的 t
-  label?: string;              // 例 "No.3"
-  volume: number;              // 0–2，預設 1
-  meta?: Record<string, unknown>;  // 峰值來源 audio|motion、rank 等
+  in: number; // 來源內起點（秒，= 現有腳本的 ss）
+  duration: number; // = 現有腳本的 t
+  label?: string; // 例 "No.3"
+  volume: number; // 0–2，預設 1
+  meta?: Record<string, unknown>; // 峰值來源 audio|motion、rank 等
 }
 
 interface OverlayItem {
   id: string;
-  imagePath: string;           // make_overlays.py 產出的 PNG
+  imagePath: string; // make_overlays.py 產出的 PNG
   // 錨定二選一：
-  anchor?: { clipId: string; offset: number };  // 跟著片段（片段被拖動時 overlay 跟著走）
-  start?: number;              // 或絕對時間
-  duration: number;            // Infinity 表示到片尾（常駐排行榜）
+  anchor?: { clipId: string; offset: number }; // 跟著片段（片段被拖動時 overlay 跟著走）
+  start?: number; // 或絕對時間
+  duration: number; // Infinity 表示到片尾（常駐排行榜）
   position: { x: number; y: number; scale: number };
 }
 
 interface ReviewState {
   id: string;
-  summary: string;             // AI 對這輪工作的說明（顯示在審核條）
-  focus?: string[];            // 要高亮的 clipId
-  sinceVersion: number;        // 這輪 AI 工作的起始 version（退回時的回滾範圍、核准時的 feedback 範圍）
+  summary: string; // AI 對這輪工作的說明（顯示在審核條）
+  focus?: string[]; // 要高亮的 clipId
+  sinceVersion: number; // 這輪 AI 工作的起始 version（退回時的回滾範圍、核准時的 feedback 範圍）
   requestedAt: string;
 }
 // resolve 後 review 置回 null，結果（approved/rejected/timeout + 留言）寫入 review 歷史供 get_feedback 讀取
@@ -145,18 +151,19 @@ interface ReviewState {
 interface CaptionItem {
   id: string;
   text: string;
-  start: number; duration: number;
-  style: { fontFamily: string; fontSize: number; fill: string;
-           stroke?: string; y: number };       // 直式短片：垂直位置為主
+  start: number;
+  duration: number;
+  style: { fontFamily: string; fontSize: number; fill: string; stroke?: string; y: number }; // 直式短片：垂直位置為主
 }
 
 interface AudioItem {
   id: string;
-  mediaId: string;             // 旁白 mp3 / BGM 也登記進 media
-  start: number;               // 絕對時間
-  in: number; duration: number;
+  mediaId: string; // 旁白 mp3 / BGM 也登記進 media
+  start: number; // 絕對時間
+  in: number;
+  duration: number;
   volume: number;
-  ducking?: boolean;           // 渲染時對主軌音量 sidechain 壓低（第一版可只做固定比例）
+  ducking?: boolean; // 渲染時對主軌音量 sidechain 壓低（第一版可只做固定比例）
 }
 ```
 
@@ -196,20 +203,20 @@ store.mutate(source: 'ai'|'human', label: string, recipe: (draft) => void)
 
 意圖級工具，~15 個（AWS/Resolve 調研共識：不要 1:1 映射 API 也不要包山包海）。所有工具回傳 `structuredContent`（含新 `version` 與變更摘要）+ 文字摘要；讀取工具回裁剪視圖（Claude Code 輸出上限 25k tokens）；媒體一律回 URL 不回 base64。
 
-| 工具 | 說明 |
-|---|---|
-| `get_project` | 裁剪後的專案總覽（片段列表含 in/duration/label、overlay/caption 摘要、version）。`{full:true}` 才回完整 JSON |
-| `import_media` | 登記素材檔 → 觸發 ingest 管線（ffprobe → proxy → filmstrip → peaks），回傳 mediaId + probe 結果。支援批次 |
-| `set_timeline` | 整組設定影片主軌（初次排片用）：`[{mediaId,in,duration,label,meta}...]` |
-| `update_clip` / `reorder_clips` / `remove_clip` | 片段級修改 |
-| `set_overlays` / `set_captions` / `set_audio` | 各軌整組替換（這些軌的項目少，整組替換比逐項 CRUD 對 LLM 更不易出錯） |
-| `request_review` | 見 §6。參數：`{summary, focus?: clipId[]}` |
-| `get_feedback` | 回傳自指定 version 以來的人類變更摘要（diff 語意化：「No.3 出點 -1.2s」「標題第 2 行改為…」）+ 使用者留言 |
-| `get_editor_context` | 人類在 UI 的當前選取、playhead 位置、拖選的時間範圍——使用者說「幫我改這段」時的空間指涉來源（Vyra 驗證過的最便宜有效的人→AI 回流機制） |
-| `get_frame` | 回傳指定時間點的合成畫面（片段 + overlay + 字幕）JPEG URL——AI 的「眼睛」，用於驗證 overlay 疊加與字幕位置（Vyra 的 canvas 截圖工具同款） |
-| `undo` | `{steps}` 或 `{toVersion}` |
-| `render` | 觸發渲染，回傳 job id；以 progress notification 回報進度，完成回輸出路徑 |
-| `get_history` | AI 活動記錄 + 人類變更記錄 |
+| 工具                                            | 說明                                                                                                                                     |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_project`                                   | 裁剪後的專案總覽（片段列表含 in/duration/label、overlay/caption 摘要、version）。`{full:true}` 才回完整 JSON                             |
+| `import_media`                                  | 登記素材檔 → 觸發 ingest 管線（ffprobe → proxy → filmstrip → peaks），回傳 mediaId + probe 結果。支援批次                                |
+| `set_timeline`                                  | 整組設定影片主軌（初次排片用）：`[{mediaId,in,duration,label,meta}...]`                                                                  |
+| `update_clip` / `reorder_clips` / `remove_clip` | 片段級修改                                                                                                                               |
+| `set_overlays` / `set_captions` / `set_audio`   | 各軌整組替換（這些軌的項目少，整組替換比逐項 CRUD 對 LLM 更不易出錯）                                                                    |
+| `request_review`                                | 見 §6。參數：`{summary, focus?: clipId[]}`                                                                                               |
+| `get_feedback`                                  | 回傳自指定 version 以來的人類變更摘要（diff 語意化：「No.3 出點 -1.2s」「標題第 2 行改為…」）+ 使用者留言                                |
+| `get_editor_context`                            | 人類在 UI 的當前選取、playhead 位置、拖選的時間範圍——使用者說「幫我改這段」時的空間指涉來源（Vyra 驗證過的最便宜有效的人→AI 回流機制）   |
+| `get_frame`                                     | 回傳指定時間點的合成畫面（片段 + overlay + 字幕）JPEG URL——AI 的「眼睛」，用於驗證 overlay 疊加與字幕位置（Vyra 的 canvas 截圖工具同款） |
+| `undo`                                          | `{steps}` 或 `{toVersion}`                                                                                                               |
+| `render`                                        | 觸發渲染，回傳 job id；以 progress notification 回報進度，完成回輸出路徑                                                                 |
+| `get_history`                                   | AI 活動記錄 + 人類變更記錄                                                                                                               |
 
 另曝露 read-only resource `vidcut://project`（專案快照，Claude Code 可 `@` 引用）。server instructions（≤2KB）說明工作流程：import → set_timeline → request_review → 依 feedback 修改 → render。
 
@@ -235,6 +242,7 @@ store.mutate(source: 'ai'|'human', label: string, recipe: (draft) => void)
    - **留言不擋**：附註想法但讓 AI 繼續（resolve 為 `approved_with_notes`）。
 
    此外，**不限審核期間**，UI 隨時可對任一片段/overlay 留言（右鍵→留言），寫入 note 佇列，由 `get_feedback` 一併回傳——人的想法不必等 AI 開審核才能表達。
+
 4. **保活與逾時**：等待期間每 20 秒送 progress notification（躲 Claude Code 5 分鐘 idle timeout）；預設 15 分鐘逾時回傳 `timeout`（AI 可決定續等或先做別的）；`ctx.mcpReq.signal` 中止時清理 pendingReview。
 
 ### 6.3 審核期間的寫入規則
@@ -312,21 +320,21 @@ skill 之外，任何 MCP client 拿到 server instructions 就能操作同一�
 
 ## 12. 里程碑
 
-| 里程碑 | 內容 | 完成標準 |
-|---|---|---|
-| **M1 看得到** | ProjectStore + WS 同步 + UI 時間軸唯讀顯示 + 預覽播放器 + ingest 管線 | 手寫 project.json，UI 能無縫播放 5 段 proxy + overlay |
-| **M2 改得動** | trim 拖拉、排序、overlay/caption 編輯、undo、活動面板 | 人類全鍵鼠完成一次時間軸調整 |
-| **M3 AI 接上** | MCP server + 全部工具 + request_review（elicitation URL + 阻塞 fallback）+ 審核規則 | Claude Code 走完 §1.4 成功標準（渲染除外） |
-| **M4 渲染** | render 管線 + 進度回報 + skill 改寫 | §1.4 成功標準全程通過，成品品質 ≥ assemble.py |
+| 里程碑         | 內容                                                                                | 完成標準                                              |
+| -------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| **M1 看得到**  | ProjectStore + WS 同步 + UI 時間軸唯讀顯示 + 預覽播放器 + ingest 管線               | 手寫 project.json，UI 能無縫播放 5 段 proxy + overlay |
+| **M2 改得動**  | trim 拖拉、排序、overlay/caption 編輯、undo、活動面板                               | 人類全鍵鼠完成一次時間軸調整                          |
+| **M3 AI 接上** | MCP server + 全部工具 + request_review（elicitation URL + 阻塞 fallback）+ 審核規則 | Claude Code 走完 §1.4 成功標準（渲染除外）            |
+| **M4 渲染**    | render 管線 + 進度回報 + skill 改寫                                                 | §1.4 成功標準全程通過，成品品質 ≥ assemble.py         |
 
 M1/M2 期間用手寫 fixture 專案開發，不依賴 MCP——確保每階段獨立可驗證。
 
 ## 13. 風險與緩解
 
-| 風險 | 緩解 |
-|---|---|
-| 無縫播放在實機上有感知 gap | proxy 短 GOP + premount + 提前靜音啟播已是業界驗證組合；仍有 gap 時退而求其次：邊界 1 幀黑場淡切（短片觀感可接受），或後續升級 WebCodecs 合成器 |
-| MCP SDK v2 太新（2.0.0 剛轉正） | 工具層薄、狀態都在 ProjectStore；必要時降級 v1 `@modelcontextprotocol/sdk@1.30.0` + `elicitInput`，官方有 codemod 雙向遷移 |
-| elicitation URL mode 行為與預期不符 | 三層退化：URL mode → 阻塞等待 UI 按鈕（+保活）→ 輪詢工具 |
-| drawtext 中文字型/emoji 渲染品質 | 字幕改走 ASS（libass）燒錄；emoji 沿用現有 make_overlays.py 的 twemoji PNG 方案 |
-| ffmpeg filter_complex 複雜度失控 | 渲染器輸入是結構固定的四軌模型，filtergraph 生成器可窮舉測試；不支援的組合直接報錯而非默默出錯 |
+| 風險                                | 緩解                                                                                                                                            |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 無縫播放在實機上有感知 gap          | proxy 短 GOP + premount + 提前靜音啟播已是業界驗證組合；仍有 gap 時退而求其次：邊界 1 幀黑場淡切（短片觀感可接受），或後續升級 WebCodecs 合成器 |
+| MCP SDK v2 太新（2.0.0 剛轉正）     | 工具層薄、狀態都在 ProjectStore；必要時降級 v1 `@modelcontextprotocol/sdk@1.30.0` + `elicitInput`，官方有 codemod 雙向遷移                      |
+| elicitation URL mode 行為與預期不符 | 三層退化：URL mode → 阻塞等待 UI 按鈕（+保活）→ 輪詢工具                                                                                        |
+| drawtext 中文字型/emoji 渲染品質    | 字幕改走 ASS（libass）燒錄；emoji 沿用現有 make_overlays.py 的 twemoji PNG 方案                                                                 |
+| ffmpeg filter_complex 複雜度失控    | 渲染器輸入是結構固定的四軌模型，filtergraph 生成器可窮舉測試；不支援的組合直接報錯而非默默出錯                                                  |

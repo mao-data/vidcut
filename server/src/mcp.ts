@@ -38,10 +38,26 @@ function projectSummary(store: ProjectStore) {
     canvas: d.canvas,
     total: totalDuration(d),
     review: d.review,
-    media: d.media.map((m) => ({ id: m.id, label: m.label, duration: m.probe.duration, hasAudio: m.probe.hasAudio })),
-    clips: d.tracks.video.map((c) => ({ id: c.id, mediaId: c.mediaId, in: c.in, duration: c.duration, label: c.label })),
+    media: d.media.map((m) => ({
+      id: m.id,
+      label: m.label,
+      duration: m.probe.duration,
+      hasAudio: m.probe.hasAudio,
+    })),
+    clips: d.tracks.video.map((c) => ({
+      id: c.id,
+      mediaId: c.mediaId,
+      in: c.in,
+      duration: c.duration,
+      label: c.label,
+    })),
     overlays: d.tracks.overlays.length,
-    captions: d.tracks.captions.map((c) => ({ id: c.id, text: c.text, start: c.start, duration: c.duration })),
+    captions: d.tracks.captions.map((c) => ({
+      id: c.id,
+      text: c.text,
+      start: c.start,
+      duration: c.duration,
+    })),
     audio: d.tracks.audio.length,
   };
 }
@@ -110,13 +126,21 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'get_project',
     {
-      description: '取得專案裁剪總覽（clips/captions/media/version/review）；full:true 回完整 JSON。',
+      description:
+        '取得專案裁剪總覽（clips/captions/media/version/review）；full:true 回完整 JSON。',
       inputSchema: { full: z.boolean().optional() },
     },
     async ({ full }) => {
-      if (full) return result({ version: store.version, doc: store.doc } as Record<string, unknown>, 'full project');
+      if (full)
+        return result(
+          { version: store.version, doc: store.doc } as Record<string, unknown>,
+          'full project',
+        );
       const s = projectSummary(store);
-      return result(s as unknown as Record<string, unknown>, `v${s.version}: ${s.clips.length} clips, total ${s.total.toFixed(1)}s`);
+      return result(
+        s as unknown as Record<string, unknown>,
+        `v${s.version}: ${s.clips.length} clips, total ${s.total.toFixed(1)}s`,
+      );
     },
   );
 
@@ -127,7 +151,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { limit: z.number().optional() },
     },
     async ({ limit }) => {
-      const h = store.history().slice(-(limit ?? 30)).map((e): HistoryBrief => ({ version: e.version, label: e.label, source: e.source, ts: e.ts }));
+      const h = store
+        .history()
+        .slice(-(limit ?? 30))
+        .map((e): HistoryBrief => ({
+          version: e.version,
+          label: e.label,
+          source: e.source,
+          ts: e.ts,
+        }));
       return result({ history: h }, `${h.length} entries`);
     },
   );
@@ -143,7 +175,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
         .history()
         .filter((h) => h.version > sinceVersion && h.source === 'human')
         .map((h) => ({ version: h.version, label: h.label, ts: h.ts }));
-      return result({ sinceVersion, currentVersion: store.version, humanChanges: changes }, `${changes.length} human changes since v${sinceVersion}`);
+      return result(
+        { sinceVersion, currentVersion: store.version, humanChanges: changes },
+        `${changes.length} human changes since v${sinceVersion}`,
+      );
     },
   );
 
@@ -155,14 +190,18 @@ export function createMcpServer(deps: McpDeps): McpServer {
     },
     async () => {
       const c = editorContext.get();
-      return result(c as unknown as Record<string, unknown>, `playhead=${c.playhead.toFixed(2)}s selection=${c.selection?.id ?? 'none'}`);
+      return result(
+        c as unknown as Record<string, unknown>,
+        `playhead=${c.playhead.toFixed(2)}s selection=${c.selection?.id ?? 'none'}`,
+      );
     },
   );
 
   server.registerTool(
     'get_frame',
     {
-      description: '抽出指定時間點的畫面 JPEG（AI 的「眼睛」；M3 僅片段畫面，M4 加 overlay 合成）。',
+      description:
+        '抽出指定時間點的畫面 JPEG（AI 的「眼睛」；M3 僅片段畫面，M4 加 overlay 合成）。',
       inputSchema: { time: z.number() },
     },
     async ({ time }) => {
@@ -177,13 +216,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'import_media',
     {
       description: '登記素材檔（須已放進專案資料夾）並產生 proxy/filmstrip/peaks。回 mediaId。',
-      inputSchema: { relPath: z.string(), label: z.string().optional(), meta: z.record(z.unknown()).optional() },
+      inputSchema: {
+        relPath: z.string(),
+        label: z.string().optional(),
+        meta: z.record(z.unknown()).optional(),
+      },
     },
     async ({ relPath, label, meta }) => {
       try {
         const id = await ingestMedia(store, projectDir, relPath, { label, meta });
         const m = store.doc.media.find((x) => x.id === id)!;
-        return result({ mediaId: id, probe: m.probe }, `imported ${relPath} as ${id} (${m.probe.duration.toFixed(1)}s)`);
+        return result(
+          { mediaId: id, probe: m.probe },
+          `imported ${relPath} as ${id} (${m.probe.duration.toFixed(1)}s)`,
+        );
       } catch (e) {
         return text(`import failed: ${(e as Error).message}`);
       }
@@ -199,7 +245,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     async ({ clips, ifVersion }) => {
       // 用 aiWrite 的守衛，但 set_timeline 不是既有 command；先檢查守衛條件再直接 mutate
       if (store.doc.review !== null) return text('error: a review is in progress');
-      if (ifVersion !== undefined && ifVersion !== store.version) return text(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
+      if (ifVersion !== undefined && ifVersion !== store.version)
+        return text(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
       // 驗證 mediaId 存在
       for (const c of clips) {
         const media = store.doc.media.find((m) => m.id === c.mediaId);
@@ -219,7 +266,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
           ...(c.meta ? { meta: c.meta } : {}),
         }));
       });
-      return result({ version: r.version, clips: clips.length }, `set ${clips.length} clips, v${r.version}`);
+      return result(
+        { version: r.version, clips: clips.length },
+        `set ${clips.length} clips, v${r.version}`,
+      );
     },
   );
 
@@ -228,7 +278,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_clip',
     {
       description: '修改片段 in/duration/volume/label（會驗證 trim 邊界）。',
-      inputSchema: { clipId: z.string(), patch: z.object(clipPatchShape), ifVersion: z.number().optional() },
+      inputSchema: {
+        clipId: z.string(),
+        patch: z.object(clipPatchShape),
+        ifVersion: z.number().optional(),
+      },
     },
     async ({ clipId, patch, ifVersion }) =>
       text(writeResultText(aiWrite(store, { name: 'updateClip', clipId, patch }, ifVersion))),
@@ -246,7 +300,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
 
   server.registerTool(
     'remove_clip',
-    { description: '移除片段。', inputSchema: { clipId: z.string(), ifVersion: z.number().optional() } },
+    {
+      description: '移除片段。',
+      inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
+    },
     async ({ clipId, ifVersion }) =>
       text(writeResultText(aiWrite(store, { name: 'removeClip', clipId }, ifVersion))),
   );
@@ -258,7 +315,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { overlays: z.array(overlaySchema), ifVersion: z.number().optional() },
     },
     async ({ overlays, ifVersion }) =>
-      text(writeResultText(aiWrite(store, { name: 'setOverlays', overlays: overlays as OverlayItem[] }, ifVersion))),
+      text(
+        writeResultText(
+          aiWrite(store, { name: 'setOverlays', overlays: overlays as OverlayItem[] }, ifVersion),
+        ),
+      ),
   );
 
   server.registerTool(
@@ -268,7 +329,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { captions: z.array(captionSchema), ifVersion: z.number().optional() },
     },
     async ({ captions, ifVersion }) =>
-      text(writeResultText(aiWrite(store, { name: 'setCaptions', captions: captions as CaptionItem[] }, ifVersion))),
+      text(
+        writeResultText(
+          aiWrite(store, { name: 'setCaptions', captions: captions as CaptionItem[] }, ifVersion),
+        ),
+      ),
   );
 
   server.registerTool(
@@ -303,7 +368,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
       try {
         const r = await reviews.request(summary, focus);
         return result(
-          { outcome: r.outcome, note: r.note, humanChanges: r.humanChanges, version: store.version },
+          {
+            outcome: r.outcome,
+            note: r.note,
+            humanChanges: r.humanChanges,
+            version: store.version,
+          },
           `review ${r.outcome}${r.note ? `: ${r.note}` : ''} (${r.humanChanges.length} human changes)`,
         );
       } finally {
@@ -328,7 +398,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const s = stamp ?? `render_${store.version}`;
         const res = await render(store, projectDir, s);
         return result(
-          { output: res.outPath, url: `${baseUrl}/media/${res.outPath}`, captionsBurned: res.captionsBurned },
+          {
+            output: res.outPath,
+            url: `${baseUrl}/media/${res.outPath}`,
+            captionsBurned: res.captionsBurned,
+          },
           `rendered → ${baseUrl}/media/${res.outPath}${res.captionsBurned ? '' : ' (captions not burned: no drawtext)'}`,
         );
       } catch (e) {

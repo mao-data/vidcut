@@ -1,10 +1,4 @@
-import {
-  enablePatches,
-  produceWithPatches,
-  applyPatches,
-  freeze,
-  type Patch,
-} from 'immer';
+import { enablePatches, produceWithPatches, applyPatches, freeze, type Patch } from 'immer';
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { dirname, basename, join } from 'node:path';
 import {
@@ -117,7 +111,10 @@ export class ProjectStore {
   undo(steps = 1): { version: number } | null {
     const n = Math.min(steps, this.#history.length);
     if (n === 0) return null;
-    const inverse = this.#history.slice(-n).reverse().flatMap((h) => h.inversePatches);
+    const inverse = this.#history
+      .slice(-n)
+      .reverse()
+      .flatMap((h) => h.inversePatches);
     const r = this.mutate('human', 'undo', (draft) => {
       applyPatches(draft, inverse as Patch[]);
     });

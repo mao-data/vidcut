@@ -35,7 +35,10 @@ describe('useProject store', () => {
     });
     expect(useProject.getState().doc?.name).toBe('renamed');
     expect(useProject.getState().version).toBe(2);
-    expect(useActivity.getState().entries.at(-1)).toMatchObject({ label: 'rename', source: 'human' });
+    expect(useActivity.getState().entries.at(-1)).toMatchObject({
+      label: 'rename',
+      source: 'human',
+    });
   });
 
   it('gapped patch version triggers resync request instead of applying', () => {

@@ -7,7 +7,15 @@ export function Activity() {
   const recent = [...entries].reverse().slice(0, 40);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, borderBottom: '1px solid #333' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: 8,
+          borderBottom: '1px solid #333',
+        }}
+      >
         <strong style={{ fontSize: 13 }}>活動</strong>
         <button onClick={() => sendCommand({ name: 'undo', steps: 1 })} title="Cmd+Z">
           ↶ 復原
@@ -18,7 +26,12 @@ export function Activity() {
         {recent.map((e) => (
           <div
             key={e.version}
-            style={{ display: 'flex', gap: 6, padding: '2px 0', color: e.source === 'ai' ? '#8cf' : '#cec' }}
+            style={{
+              display: 'flex',
+              gap: 6,
+              padding: '2px 0',
+              color: e.source === 'ai' ? '#8cf' : '#cec',
+            }}
           >
             <span style={{ opacity: 0.6, minWidth: 28 }}>v{e.version}</span>
             <span style={{ minWidth: 30, opacity: 0.7 }}>{e.source === 'ai' ? 'AI' : '你'}</span>

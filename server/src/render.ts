@@ -11,7 +11,9 @@ let drawtextAvailable: boolean | null = null;
 export async function hasDrawtext(): Promise<boolean> {
   if (drawtextAvailable !== null) return drawtextAvailable;
   drawtextAvailable = await new Promise<boolean>((resolve) => {
-    const child = spawn('ffmpeg', ['-hide_banner', '-filters'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn('ffmpeg', ['-hide_banner', '-filters'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     let out = '';
     child.stdout.on('data', (d) => {
       out += d;
@@ -57,7 +59,14 @@ export function buildRenderArgs(
   for (const clip of clips) {
     const media = project.media.find((m) => m.id === clip.mediaId);
     if (!media) throw new Error(`render: media not found for clip ${clip.id}`);
-    args.push('-ss', String(clip.in), '-t', String(clip.duration), '-i', join(projectDir, media.path));
+    args.push(
+      '-ss',
+      String(clip.in),
+      '-t',
+      String(clip.duration),
+      '-i',
+      join(projectDir, media.path),
+    );
   }
   // overlay PNG inputs（在 clip inputs 之後）
   const overlayInputBase = clips.length;
@@ -82,9 +91,7 @@ export function buildRenderArgs(
     if (media.probe.hasAudio) {
       fc.push(`[${i}:a]volume=${clip.volume},asetpts=PTS-STARTPTS,aresample=44100[a${i}]`);
     } else {
-      fc.push(
-        `anullsrc=channel_layout=stereo:sample_rate=44100:d=${clip.duration}[a${i}]`,
-      );
+      fc.push(`anullsrc=channel_layout=stereo:sample_rate=44100:d=${clip.duration}[a${i}]`);
     }
   });
   const alabels = clips.map((_c, i) => `[a${i}]`).join('');

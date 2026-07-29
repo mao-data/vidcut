@@ -282,7 +282,12 @@ export function Timeline() {
         onPointerUp={onPointerUp}
       >
         <div
-          style={{ position: 'relative', height: 20, borderBottom: '1px solid #444', cursor: 'text' }}
+          style={{
+            position: 'relative',
+            height: 20,
+            borderBottom: '1px solid #444',
+            cursor: 'text',
+          }}
           onClick={onRulerClick}
         >
           {Array.from({ length: Math.ceil(total) + 1 }, (_, s) => (
@@ -317,13 +322,16 @@ export function Timeline() {
               win && (
                 <div
                   key={o.id}
-                  onPointerDown={() => useSelection.getState().select({ kind: 'overlay', id: o.id })}
+                  onPointerDown={() =>
+                    useSelection.getState().select({ kind: 'overlay', id: o.id })
+                  }
                   style={{
                     position: 'absolute',
                     left: timeToPx(win.start),
                     width: timeToPx(win.end - win.start),
                     height: 20,
-                    background: selected?.kind === 'overlay' && selected.id === o.id ? '#7c6' : '#5a4',
+                    background:
+                      selected?.kind === 'overlay' && selected.id === o.id ? '#7c6' : '#5a4',
                     borderRadius: 3,
                     fontSize: 10,
                     paddingLeft: 4,

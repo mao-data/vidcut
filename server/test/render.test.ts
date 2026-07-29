@@ -27,7 +27,13 @@ function demoLikeProject(): Project {
     { id: 'c2', mediaId: 'm2', in: 0, duration: 2, volume: 1 },
   ];
   p.tracks.overlays = [
-    { id: 'o1', imagePath: 'title.png', start: 0, duration: null, position: { x: 0.5, y: 0.06, scale: 1 } },
+    {
+      id: 'o1',
+      imagePath: 'title.png',
+      start: 0,
+      duration: null,
+      position: { x: 0.5, y: 0.06, scale: 1 },
+    },
   ];
   return p;
 }
@@ -53,7 +59,13 @@ describe('buildRenderArgs', () => {
   it('burns captions only when drawtext available', () => {
     const p = demoLikeProject();
     p.tracks.captions = [
-      { id: 'cap1', text: 'hi', start: 0, duration: 2, style: { fontFamily: 's', fontSize: 48, fill: '#fff', y: 0.8 } },
+      {
+        id: 'cap1',
+        text: 'hi',
+        start: 0,
+        duration: 2,
+        style: { fontFamily: 's', fontSize: 48, fill: '#fff', y: 0.8 },
+      },
     ];
     expect(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }).captionsBurned).toBe(false);
     const withText = buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: true });
@@ -64,23 +76,19 @@ describe('buildRenderArgs', () => {
 });
 
 describe('render (integration)', () => {
-  it(
-    'renders the demo project to a valid 1080x1920 mp4 with audio',
-    async () => {
-      const dir = await mkdtemp(join(tmpdir(), 'vidcut-render-'));
-      await buildDemoProject(dir);
-      const store = await ProjectStore.load(join(dir, 'project.json'));
-      const res = await render(store, dir, 'test');
-      const info = await probe(join(dir, res.outPath));
-      expect(info.width).toBe(1080);
-      expect(info.height).toBe(1920);
-      expect(info.hasAudio).toBe(true);
-      // demo 5 clips × 3s = 15s
-      expect(info.duration).toBeGreaterThan(14);
-      expect(info.duration).toBeLessThan(16);
-      expect(store.doc.render.status).toBe('done');
-      expect(store.doc.render.lastOutput).toBe(res.outPath);
-    },
-    180_000,
-  );
+  it('renders the demo project to a valid 1080x1920 mp4 with audio', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-render-'));
+    await buildDemoProject(dir);
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    const res = await render(store, dir, 'test');
+    const info = await probe(join(dir, res.outPath));
+    expect(info.width).toBe(1080);
+    expect(info.height).toBe(1920);
+    expect(info.hasAudio).toBe(true);
+    // demo 5 clips × 3s = 15s
+    expect(info.duration).toBeGreaterThan(14);
+    expect(info.duration).toBeLessThan(16);
+    expect(store.doc.render.status).toBe('done');
+    expect(store.doc.render.lastOutput).toBe(res.outPath);
+  }, 180_000);
 });

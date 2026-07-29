@@ -5,7 +5,14 @@ import { useSelection } from '../stores/selection.js';
 import { sendCommand } from '../ws.js';
 
 const labelStyle = { display: 'block', fontSize: 12, color: '#aaa', marginTop: 8 };
-const inputStyle = { width: '100%', padding: 4, background: '#222', color: '#eee', border: '1px solid #444', borderRadius: 3 };
+const inputStyle = {
+  width: '100%',
+  padding: 4,
+  background: '#222',
+  color: '#eee',
+  border: '1px solid #444',
+  borderRadius: 3,
+};
 
 function num(e: ChangeEvent<HTMLInputElement>): number {
   return Number(e.target.value);
@@ -15,7 +22,11 @@ export function Inspector() {
   const doc = useProject((s) => s.doc);
   const selected = useSelection((s) => s.selected);
   if (!doc || !selected) {
-    return <div style={{ padding: 12, color: '#777', fontSize: 13 }}>選一個片段 / 字幕 / overlay 來編輯</div>;
+    return (
+      <div style={{ padding: 12, color: '#777', fontSize: 13 }}>
+        選一個片段 / 字幕 / overlay 來編輯
+      </div>
+    );
   }
 
   const send = (cmd: Command) => sendCommand(cmd);
@@ -30,7 +41,9 @@ export function Inspector() {
         <input
           style={inputStyle}
           value={clip.label ?? ''}
-          onChange={(e) => send({ name: 'updateClip', clipId: clip.id, patch: { label: e.target.value } })}
+          onChange={(e) =>
+            send({ name: 'updateClip', clipId: clip.id, patch: { label: e.target.value } })
+          }
         />
         <label style={labelStyle}>起點 in（秒）</label>
         <input
@@ -46,7 +59,9 @@ export function Inspector() {
           step="0.1"
           style={inputStyle}
           value={clip.duration}
-          onChange={(e) => send({ name: 'updateClip', clipId: clip.id, patch: { duration: num(e) } })}
+          onChange={(e) =>
+            send({ name: 'updateClip', clipId: clip.id, patch: { duration: num(e) } })
+          }
         />
         <label style={labelStyle}>音量（0–2）</label>
         <input
@@ -81,7 +96,9 @@ export function Inspector() {
         <textarea
           style={{ ...inputStyle, minHeight: 48 }}
           value={cap.text}
-          onChange={(e) => send({ name: 'updateCaption', id: cap.id, patch: { text: e.target.value } })}
+          onChange={(e) =>
+            send({ name: 'updateCaption', id: cap.id, patch: { text: e.target.value } })
+          }
         />
         <label style={labelStyle}>起點（秒）</label>
         <input
@@ -105,7 +122,11 @@ export function Inspector() {
           style={inputStyle}
           value={cap.style.fontSize}
           onChange={(e) =>
-            send({ name: 'updateCaption', id: cap.id, patch: { style: { ...cap.style, fontSize: num(e) } } })
+            send({
+              name: 'updateCaption',
+              id: cap.id,
+              patch: { style: { ...cap.style, fontSize: num(e) } },
+            })
           }
         />
         <label style={labelStyle}>顏色</label>
@@ -114,7 +135,11 @@ export function Inspector() {
           style={inputStyle}
           value={cap.style.fill}
           onChange={(e) =>
-            send({ name: 'updateCaption', id: cap.id, patch: { style: { ...cap.style, fill: e.target.value } } })
+            send({
+              name: 'updateCaption',
+              id: cap.id,
+              patch: { style: { ...cap.style, fill: e.target.value } },
+            })
           }
         />
         <label style={labelStyle}>垂直位置 y（0–1）</label>
@@ -126,7 +151,11 @@ export function Inspector() {
           style={inputStyle}
           value={cap.style.y}
           onChange={(e) =>
-            send({ name: 'updateCaption', id: cap.id, patch: { style: { ...cap.style, y: num(e) } } })
+            send({
+              name: 'updateCaption',
+              id: cap.id,
+              patch: { style: { ...cap.style, y: num(e) } },
+            })
           }
         />
       </div>
@@ -146,7 +175,11 @@ export function Inspector() {
         style={inputStyle}
         value={ov.position.x}
         onChange={(e) =>
-          send({ name: 'updateOverlay', id: ov.id, patch: { position: { ...ov.position, x: num(e) } } })
+          send({
+            name: 'updateOverlay',
+            id: ov.id,
+            patch: { position: { ...ov.position, x: num(e) } },
+          })
         }
       />
       <label style={labelStyle}>y（0–1）</label>
@@ -156,7 +189,11 @@ export function Inspector() {
         style={inputStyle}
         value={ov.position.y}
         onChange={(e) =>
-          send({ name: 'updateOverlay', id: ov.id, patch: { position: { ...ov.position, y: num(e) } } })
+          send({
+            name: 'updateOverlay',
+            id: ov.id,
+            patch: { position: { ...ov.position, y: num(e) } },
+          })
         }
       />
       <label style={labelStyle}>縮放</label>
@@ -166,7 +203,11 @@ export function Inspector() {
         style={inputStyle}
         value={ov.position.scale}
         onChange={(e) =>
-          send({ name: 'updateOverlay', id: ov.id, patch: { position: { ...ov.position, scale: num(e) } } })
+          send({
+            name: 'updateOverlay',
+            id: ov.id,
+            patch: { position: { ...ov.position, scale: num(e) } },
+          })
         }
       />
     </div>

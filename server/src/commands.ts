@@ -69,7 +69,8 @@ function updateClip(
   const nextIn = cmd.patch.in ?? clip.in;
   const nextDur = cmd.patch.duration ?? clip.duration;
   if (nextIn < 0) return { ok: false, error: 'in must be >= 0' };
-  if (nextDur < MIN_CLIP_DURATION) return { ok: false, error: `duration must be >= ${MIN_CLIP_DURATION}` };
+  if (nextDur < MIN_CLIP_DURATION)
+    return { ok: false, error: `duration must be >= ${MIN_CLIP_DURATION}` };
   if (nextIn + nextDur > srcDur + 1e-6) {
     return { ok: false, error: `in+duration (${nextIn + nextDur}) exceeds source ${srcDur}` };
   }
