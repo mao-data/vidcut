@@ -26,7 +26,7 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const app = createApp(store, projectDir, uiDist);
   // MCP 需要能讀 req.body（JSON），StreamableHTTP 會自己處理 SSE。
   const server = createServer(app);
-  attachWs(server, { store, editorContext, reviews });
+  attachWs(server, { store, editorContext, reviews, projectDir });
 
   // baseUrl 在 listen 後才知道實際 port；先用預留位，listen 後補。
   const deps = { store, projectDir, editorContext, reviews, baseUrl: `http://127.0.0.1:${port}` };

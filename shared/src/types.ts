@@ -185,7 +185,8 @@ export type WsClientMsg =
   | { type: 'resync' }
   | { type: 'command'; cmd: Command; reqId?: string }
   | { type: 'context'; context: EditorContextData }
-  | { type: 'reviewResolve'; id: string; outcome: ReviewOutcome; note?: string };
+  | { type: 'reviewResolve'; id: string; outcome: ReviewOutcome; note?: string }
+  | { type: 'render'; stamp?: string };
 
 export function createEmptyProject(id: string, name: string): Project {
   return {

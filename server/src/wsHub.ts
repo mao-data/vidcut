@@ -5,6 +5,7 @@ import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import { applyCommand } from './commands.js';
+import { render } from './render.js';
 
 const HISTORY_IN_FULL = 50;
 
@@ -12,6 +13,7 @@ export interface WsDeps {
   store: ProjectStore;
   editorContext?: EditorContext;
   reviews?: ReviewManager;
+  projectDir?: string;
 }
 
 /**
@@ -20,7 +22,7 @@ export interface WsDeps {
  * 收 context 更新 EditorContext；收 reviewResolve 交給 ReviewManager。
  */
 export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
-  const { store, editorContext, reviews } = deps;
+  const { store, editorContext, reviews, projectDir } = deps;
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
   const send = (ws: WebSocket, msg: WsServerMsg) => {
@@ -68,6 +70,15 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
         editorContext?.set(msg.context);
       } else if (msg.type === 'reviewResolve') {
         reviews?.resolve(msg.id, msg.outcome, msg.note);
+      } else if (msg.type === 'render') {
+        if (projectDir && store.doc.render.status !== 'running') {
+          const stamp = msg.stamp ?? `render_${store.version}`;
+          render(store, projectDir, stamp).catch((e: unknown) => {
+            store.mutate('ai', 'render error', (d) => {
+              d.render = { status: 'error', error: (e as Error).message };
+            });
+          });
+        }
       }
     });
   });

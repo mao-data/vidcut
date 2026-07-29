@@ -8,6 +8,7 @@ import { Timeline } from './timeline/Timeline.js';
 import { Inspector } from './panels/Inspector.js';
 import { Activity } from './panels/Activity.js';
 import { ReviewBar } from './panels/ReviewBar.js';
+import { RenderBar } from './panels/RenderBar.js';
 import { sendCommand, sendContext } from './ws.js';
 
 function Toast() {
@@ -83,10 +84,11 @@ export function App() {
           <Activity />
         </div>
       </div>
-      {/* 底：時間軸 */}
+      {/* 底：時間軸 + 渲染 */}
       <div style={{ borderTop: '1px solid #333', padding: 8 }}>
         <Timeline />
       </div>
+      <RenderBar />
       <Toast />
     </div>
   );

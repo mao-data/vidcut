@@ -32,6 +32,11 @@ export function sendReviewResolve(id: string, outcome: ReviewOutcome, note?: str
   sendMsg({ type: 'reviewResolve', id, outcome, note }, '未連線，無法回覆審核');
 }
 
+/** 觸發渲染成品。 */
+export function sendRender(): void {
+  sendMsg({ type: 'render' }, '未連線，無法渲染');
+}
+
 /** 連 WS：斷線指數退避（1s→10s）重連，重連成功即發 resync 取全量。 */
 export function connectWs(url = `ws://${location.host}/ws`): void {
   let delay = 1000;

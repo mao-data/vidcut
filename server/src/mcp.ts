@@ -10,6 +10,7 @@ import type { ReviewManager } from './reviews.js';
 import { aiWrite } from './aiWrite.js';
 import { ingestMedia } from './ingest.js';
 import { extractFrame } from './frame.js';
+import { render } from './render.js';
 
 export interface McpDeps {
   store: ProjectStore;
@@ -311,11 +312,32 @@ export function createMcpServer(deps: McpDeps): McpServer {
     },
   );
 
-  // ---- 渲染（M4）----
+  // ---- 渲染 ----
   server.registerTool(
     'render',
-    { description: '（M4 才實作）從專案輸出成品 mp4。', inputSchema: {} },
-    async () => text('render is implemented in milestone M4; not available yet'),
+    {
+      description:
+        '從專案輸出成品 mp4（1080×1920，重新編碼）。回傳輸出路徑與 URL。' +
+        '本機 ffmpeg 若無 drawtext，字幕不會燒錄（captionsBurned=false）——重度文字請用 overlay PNG。',
+      inputSchema: { stamp: z.string().optional() },
+      annotations: { title: 'Render final video' },
+    },
+    async ({ stamp }) => {
+      if (store.doc.review !== null) return text('error: a review is in progress');
+      try {
+        const s = stamp ?? `render_${store.version}`;
+        const res = await render(store, projectDir, s);
+        return result(
+          { output: res.outPath, url: `${baseUrl}/media/${res.outPath}`, captionsBurned: res.captionsBurned },
+          `rendered → ${baseUrl}/media/${res.outPath}${res.captionsBurned ? '' : ' (captions not burned: no drawtext)'}`,
+        );
+      } catch (e) {
+        store.mutate('ai', 'render error', (d) => {
+          d.render = { status: 'error', error: (e as Error).message };
+        });
+        return text(`render failed: ${(e as Error).message}`);
+      }
+    },
   );
 
   return server;
