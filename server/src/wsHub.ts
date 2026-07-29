@@ -2,15 +2,25 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'node:http';
 import type { HistoryBrief, WsClientMsg, WsServerMsg } from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
+import type { EditorContext } from './editorContext.js';
+import type { ReviewManager } from './reviews.js';
 import { applyCommand } from './commands.js';
 
 const HISTORY_IN_FULL = 50;
 
+export interface WsDeps {
+  store: ProjectStore;
+  editorContext?: EditorContext;
+  reviews?: ReviewManager;
+}
+
 /**
  * WS 面（spec §4.1）：連上即發 full（含最近 history）；store 變更廣播 patch；
- * 收 resync 回 full；收 command 走 applyCommand('human')，失敗回 commandError。
+ * 收 resync 回 full；收 command 走 applyCommand('human')；
+ * 收 context 更新 EditorContext；收 reviewResolve 交給 ReviewManager。
  */
-export function attachWs(httpServer: Server, store: ProjectStore): WebSocketServer {
+export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
+  const { store, editorContext, reviews } = deps;
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
   const send = (ws: WebSocket, msg: WsServerMsg) => {
@@ -54,6 +64,10 @@ export function attachWs(httpServer: Server, store: ProjectStore): WebSocketServ
       } else if (msg.type === 'command') {
         const result = applyCommand(store, 'human', msg.cmd);
         if (!result.ok) send(ws, { type: 'commandError', reqId: msg.reqId, error: result.error });
+      } else if (msg.type === 'context') {
+        editorContext?.set(msg.context);
+      } else if (msg.type === 'reviewResolve') {
+        reviews?.resolve(msg.id, msg.outcome, msg.note);
       }
     });
   });
