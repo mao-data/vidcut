@@ -17,8 +17,11 @@ export function Player() {
   const playing = usePlayback((s) => s.playing);
   const vA = useRef<HTMLVideoElement>(null);
   const vB = useRef<HTMLVideoElement>(null);
+  /** blur 填充模式的背景層（只是背景，容許些許漂移——模糊會蓋掉） */
+  const vBg = useRef<HTMLVideoElement>(null);
   const activeIsA = useRef(true);
   const mountedClip = useRef<{ a: string | null; b: string | null }>({ a: null, b: null });
+  const blurFill = doc?.canvas.fit === 'blur';
 
   useEffect(() => {
     if (doc) usePlayback.getState().setTotal(totalDuration(doc));
@@ -73,9 +76,15 @@ export function Player() {
     if (Math.abs(act.currentTime - plan.active.sourceTime) > DRIFT_TOLERANCE) {
       act.currentTime = plan.active.sourceTime;
     }
-    act.muted = false;
-    if (playing && act.paused) void act.play().catch(() => {});
-    if (!playing && !act.paused) act.pause();
+    if (plan.active.frozen) {
+      // 定格幀：停在該格、不出聲，避免反覆 seek
+      act.muted = true;
+      if (!act.paused) act.pause();
+    } else {
+      act.muted = false;
+      if (playing && act.paused) void act.play().catch(() => {});
+      if (!playing && !act.paused) act.pause();
+    }
 
     // premount + 預啟動 next
     if (plan.next && mountedClip.current[spareKey] !== plan.next.clipId) {
@@ -90,7 +99,18 @@ export function Player() {
         .reduce((s, c) => s + c.duration, 0);
       if (clipEnd - time < PRELAUNCH && spare.paused) void spare.play().catch(() => {});
     }
-  }, [doc, time, playing]);
+
+    // blur 背景層：跟著 active 來源，容忍 0.3s 漂移（模糊看不出來）
+    const bg = vBg.current;
+    if (blurFill && bg) {
+      if (!bg.src.endsWith(plan.active.src)) bg.src = plan.active.src;
+      if (Math.abs(bg.currentTime - plan.active.sourceTime) > 0.3) {
+        bg.currentTime = plan.active.sourceTime;
+      }
+      if (playing && bg.paused) void bg.play().catch(() => {});
+      if (!playing && !bg.paused) bg.pause();
+    }
+  }, [doc, time, playing, blurFill]);
 
   if (!doc) return null;
   const plan = planAt(doc, time);
@@ -113,6 +133,22 @@ export function Player() {
           background: '#000',
         }}
       >
+        {blurFill && (
+          <video
+            ref={vBg}
+            muted
+            playsInline
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              filter: 'blur(24px)',
+              transform: 'scale(1.15)',
+            }}
+          />
+        )}
         <video ref={vA} muted playsInline style={vidStyle(activeIsA.current)} />
         <video ref={vB} muted playsInline style={vidStyle(!activeIsA.current)} />
         {plan.overlays.map((o) => (

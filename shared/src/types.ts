@@ -177,7 +177,7 @@ export type ReviewOutcome = 'approved' | 'rejected' | 'approved_with_notes' | 't
 
 /** 人在 UI 的當前脈絡（ephemeral，非 project.json 一部分）。get_editor_context 回傳。 */
 export interface EditorContextData {
-  selection: { kind: 'clip' | 'overlay' | 'caption'; id: string } | null;
+  selection: { kind: 'clip' | 'overlay' | 'caption' | 'audio'; id: string } | null;
   playhead: number;
   range: { start: number; end: number } | null;
 }

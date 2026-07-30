@@ -3,6 +3,7 @@ import { useProject } from './stores/project.js';
 import { useToast } from './stores/toast.js';
 import { useSelection } from './stores/selection.js';
 import { usePlayback } from './stores/playback.js';
+import { useView } from './stores/view.js';
 import { Player } from './player/Player.js';
 import { Timeline } from './timeline/Timeline.js';
 import { Inspector } from './panels/Inspector.js';
@@ -46,12 +47,69 @@ export function App() {
   const selection = useSelection((s) => s.selected);
   const playhead = usePlayback((s) => s.time);
 
-  // Cmd/Ctrl+Z → undo
+  // 編輯快捷鍵（CapCut 慣例）。在輸入框內打字時全部不作用。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      const at = usePlayback.getState().time;
+      const key = e.key.toLowerCase();
+
+      if (mod && key === 'z') {
         e.preventDefault();
         sendCommand({ name: 'undo', steps: 1 });
+        return;
+      }
+      if (mod && key === 'b') {
+        e.preventDefault();
+        sendCommand({ name: 'splitAt', time: at });
+        return;
+      }
+      if (mod) return; // 其餘帶修飾鍵的交給瀏覽器
+
+      switch (key) {
+        case ' ':
+          e.preventDefault();
+          if (usePlayback.getState().playing) usePlayback.getState().pause();
+          else usePlayback.getState().play();
+          break;
+        case 's':
+          e.preventDefault();
+          sendCommand({ name: 'splitAt', time: at });
+          break;
+        case 'q':
+          e.preventDefault();
+          sendCommand({ name: 'deleteBefore', time: at });
+          break;
+        case 'w':
+          e.preventDefault();
+          sendCommand({ name: 'deleteAfter', time: at });
+          break;
+        case 'f':
+          e.preventDefault();
+          sendCommand({ name: 'freezeFrame', time: at });
+          break;
+        case 'n':
+          e.preventDefault();
+          useView.getState().toggleSnap();
+          break;
+        case 'z':
+          if (e.shiftKey) {
+            e.preventDefault();
+            (window as unknown as { __vidcutFit?: () => void }).__vidcutFit?.();
+          }
+          break;
+        case 'arrowleft':
+        case 'arrowright': {
+          e.preventDefault();
+          const fps = useProject.getState().doc?.canvas.fps ?? 30;
+          const step = (e.shiftKey ? 10 : 1) / fps;
+          usePlayback.getState().seek(at + (key === 'arrowleft' ? -step : step));
+          break;
+        }
       }
     };
     window.addEventListener('keydown', onKey);

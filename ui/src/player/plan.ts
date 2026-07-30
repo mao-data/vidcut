@@ -11,8 +11,10 @@ export interface ActiveSource {
   clipIndex: number;
   clipId: string;
   src: string;
-  /** clip.in + clip 內偏移 */
+  /** clip.in + clip 內偏移（定格幀固定為 clip.in） */
   sourceTime: number;
+  /** 定格幀：畫面凍結，播放器不應推進此來源 */
+  frozen: boolean;
 }
 
 export interface PlayerPlan {
@@ -38,7 +40,8 @@ function sourceFor(p: Project, clipIndex: number, offsetInClip: number): ActiveS
     clipIndex,
     clipId: clip.id,
     src: mediaUrl(media),
-    sourceTime: clip.in + offsetInClip,
+    sourceTime: clip.frozen ? clip.in : clip.in + offsetInClip,
+    frozen: clip.frozen === true,
   };
 }
 

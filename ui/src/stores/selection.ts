@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type SelectionKind = 'clip' | 'overlay' | 'caption';
+export type SelectionKind = 'clip' | 'overlay' | 'caption' | 'audio';
 export interface Selection {
   kind: SelectionKind;
   id: string;
