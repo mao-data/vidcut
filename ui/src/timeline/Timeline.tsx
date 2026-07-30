@@ -127,6 +127,7 @@ function ClipBlock({
   };
   return (
     <div
+      className="clipblk"
       onPointerDown={(e) => {
         onSelect(clip.id);
         onMoveStart(e, clip);

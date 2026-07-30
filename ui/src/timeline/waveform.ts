@@ -33,17 +33,20 @@ export function drawWaveform(cv: HTMLCanvasElement, pf: PeaksFile, opts: Wavefor
   const count = Math.max(1, opts.duration * bps);
   const mid = H / 2;
   const pad = 1;
+  // 感知縮放：實測素材的正規化振幅常在 0.1–0.3，線性映射會退化成一條細線。
+  // sqrt 讓小聲內容仍可辨識（0.09→0.3、0.25→0.5），且保持單調（比較關係不變）。
+  const scale = (v: number) => Math.sqrt(v);
 
   const fill = (data: number[], color: string) => {
     ctx.beginPath();
     ctx.moveTo(0, mid);
     for (let x = 0; x < W; x++) {
       const v = data[first + Math.floor((x / W) * count)] ?? 0;
-      ctx.lineTo(x, mid - v * (mid - pad));
+      ctx.lineTo(x, mid - scale(v) * (mid - pad));
     }
     for (let x = W - 1; x >= 0; x--) {
       const v = data[first + Math.floor((x / W) * count)] ?? 0;
-      ctx.lineTo(x, mid + v * (mid - pad));
+      ctx.lineTo(x, mid + scale(v) * (mid - pad));
     }
     ctx.closePath();
     ctx.fillStyle = color;

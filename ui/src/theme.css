@@ -191,13 +191,17 @@ a {
   width: 100%;
 }
 
-/* 時間軸 trim handle（hover 提亮） */
+/* 時間軸 trim handle：預設隱形（常駐白條在片段交界看起來像破圖），
+ * hover 到片段才浮現、直接 hover 到 handle 最亮（CapCut 慣例）。 */
 .handle {
-  background: rgba(255, 255, 255, 0.22);
+  background: transparent;
   transition: background 0.12s ease;
 }
-.handle:hover {
-  background: rgba(255, 255, 255, 0.45);
+.clipblk:hover .handle {
+  background: rgba(255, 255, 255, 0.28);
+}
+.clipblk .handle:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 /* 列表列（字幕/活動）通用 hover */

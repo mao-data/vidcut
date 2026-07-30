@@ -19,8 +19,15 @@ function fmt(t: number): string {
  * 改字時若該句有逐詞時間戳，會**清掉 tokens**——原本的詞邊界對新文字已經沒有意義，
  * 硬留著會讓高亮跟著錯的詞跑。要重新取得逐詞高亮就再跑一次 auto_caption。
  */
+/**
+ * selector 的 fallback 必須是模組級常數：zustand v5 直接用 useSyncExternalStore，
+ * selector 每次回傳新 reference（如 `?? []`）會被判定 snapshot 不穩定 →
+ * 同步無限重渲染 → React #185，整個 app 在 doc 尚未載入時（每次冷載入）白屏。
+ */
+const NO_CAPTIONS: CaptionItem[] = [];
+
 export function CaptionList() {
-  const captions = useProject((s) => s.doc?.tracks.captions ?? []);
+  const captions = useProject((s) => s.doc?.tracks.captions ?? NO_CAPTIONS);
   const time = usePlayback((s) => s.time);
   const selected = useSelection((s) => s.selected);
   const [draft, setDraft] = useState<{ id: string; text: string } | null>(null);
