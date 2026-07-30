@@ -10,6 +10,7 @@ import {
   clipStartTimes,
   overlayWindow,
   totalDuration,
+  type PeaksFile,
   type Project,
   type VideoClip,
 } from '@vidcut/shared';
@@ -24,11 +25,7 @@ import { trimIn, trimOut, reorderByDrag, layoutByOrder, MIN_CLIP_DURATION } from
 const ROW_H = 56;
 const SUB_ROW_H = 24;
 
-interface Peaks {
-  samplesPerBucket: number;
-  sampleRate: number;
-  peaks: number[];
-}
+type Peaks = PeaksFile;
 const peaksCache = new Map<string, Peaks>();
 
 type DragState =

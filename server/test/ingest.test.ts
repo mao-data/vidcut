@@ -33,11 +33,28 @@ describe('ingestMedia', () => {
       samplesPerBucket: number;
       sampleRate: number;
       peaks: number[];
+      rms?: number[];
     };
     expect(peaks.sampleRate).toBe(8000);
-    // 4 秒 × 8000Hz ÷ 160 樣本/桶 ≈ 200 桶
-    expect(peaks.peaks.length).toBeGreaterThan(150);
+    // 100 桶/秒（8000 ÷ 80）；4 秒 ≈ 400 桶
+    expect(peaks.sampleRate / peaks.samplesPerBucket).toBe(100);
+    expect(peaks.peaks.length).toBeGreaterThan(300);
     expect(Math.max(...peaks.peaks)).toBeLessThanOrEqual(1);
+
+    // RMS：與 peaks 等長、逐桶 ≤ peak
+    expect(peaks.rms).toBeDefined();
+    expect(peaks.rms!.length).toBe(peaks.peaks.length);
+    for (let i = 0; i < peaks.peaks.length; i++) {
+      expect(peaks.rms![i]!).toBeLessThanOrEqual(peaks.peaks[i]! + 1e-9);
+    }
+    // 正弦波 RMS ≈ peak/√2 ≈ 0.707：抽最響的桶（≥80% 最大峰值）驗證比值合理
+    const maxPeak = Math.max(...peaks.peaks);
+    expect(maxPeak).toBeGreaterThan(0);
+    const loud = peaks.peaks
+      .map((p, i) => [p, peaks.rms![i]!] as const)
+      .filter(([p]) => p >= maxPeak * 0.8);
+    expect(loud.length).toBeGreaterThan(0);
+    for (const [p, r] of loud) expect(r / p).toBeGreaterThan(0.4);
   }, 60_000);
 
   it('injects silent audio track for mute sources', async () => {

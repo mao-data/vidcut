@@ -11,7 +11,8 @@ export interface IngestOpts {
   meta?: Record<string, unknown>;
 }
 
-const PEAK_SAMPLES_PER_BUCKET = 160;
+// 80 樣本/桶 @8kHz = 100 桶/秒：時間軸放大時波形仍有解析度
+const PEAK_SAMPLES_PER_BUCKET = 80;
 const PEAK_SAMPLE_RATE = 8000;
 
 /**
@@ -100,14 +101,22 @@ export async function ingestMedia(
     pcmFile,
   ]);
   const pcm = await readFile(pcmFile);
+  // 每桶同時取 max（峰值包絡）與 RMS（能量核心）——雙層波形靠這兩個陣列
   const peaks: number[] = [];
+  const rms: number[] = [];
   const step = PEAK_SAMPLES_PER_BUCKET * 2; // 2 bytes/sample
   for (let i = 0; i + 1 < pcm.length; i += step) {
     let max = 0;
+    let sumSq = 0;
+    let n = 0;
     for (let j = i; j < Math.min(i + step, pcm.length - 1); j += 2) {
-      max = Math.max(max, Math.abs(pcm.readInt16LE(j)));
+      const v = pcm.readInt16LE(j);
+      max = Math.max(max, Math.abs(v));
+      sumSq += v * v;
+      n++;
     }
     peaks.push(Number((max / 32768).toFixed(4)));
+    rms.push(Number((Math.sqrt(sumSq / Math.max(1, n)) / 32768).toFixed(4)));
   }
   await writeFile(
     join(derivedAbs, 'peaks.json'),
@@ -115,6 +124,7 @@ export async function ingestMedia(
       samplesPerBucket: PEAK_SAMPLES_PER_BUCKET,
       sampleRate: PEAK_SAMPLE_RATE,
       peaks,
+      rms,
     }),
   );
 

@@ -23,6 +23,16 @@ export interface MediaAsset {
   meta?: Record<string, unknown>;
 }
 
+/** peaks.json 的形狀（ingest 產出、UI 波形繪製消費）。rms 舊檔沒有 → 繪製退回單層。 */
+export interface PeaksFile {
+  sampleRate: number;
+  samplesPerBucket: number;
+  /** 每桶 max|amp|，0–1 */
+  peaks: number[];
+  /** 每桶 RMS，0–1（2026-07-30 起新 ingest 才有） */
+  rms?: number[];
+}
+
 export interface VideoClip {
   id: string;
   mediaId: string;
