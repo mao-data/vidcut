@@ -14,6 +14,17 @@ import {
   type Project,
   type VideoClip,
 } from '@vidcut/shared';
+import {
+  Magnet,
+  Maximize2,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Snowflake,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
@@ -21,9 +32,17 @@ import { useView } from '../stores/view.js';
 import { sendCommand } from '../ws.js';
 import { pxToTime, snapTime, timeToPx } from './scale.js';
 import { trimIn, trimOut, reorderByDrag, layoutByOrder, MIN_CLIP_DURATION } from './dragMath.js';
+import { drawWaveform, CLIP_WAVE, AUDIO_WAVE } from './waveform.js';
 
-const ROW_H = 56;
+const ROW_H = 64;
 const SUB_ROW_H = 24;
+const AUDIO_ROW_H = 30;
+
+function fmt(t: number): string {
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
+}
 
 type Peaks = PeaksFile;
 const peaksCache = new Map<string, Peaks>();
@@ -84,34 +103,26 @@ function ClipBlock({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peaks = useWaveform(clip.frozen ? undefined : media?.peaksPath);
   const w = timeToPx(clip.duration, pps);
+  /** 下緣波形帶高度（約 40%，定案於 spec §3） */
+  const bandH = Math.round(ROW_H * 0.4);
 
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !peaks) return;
-    const ctx = cv.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, cv.width, cv.height);
-    ctx.fillStyle = 'rgba(120,200,120,0.7)';
-    const bucketsPerSec = peaks.sampleRate / peaks.samplesPerBucket;
-    const from = Math.floor(clip.in * bucketsPerSec);
-    const count = Math.max(1, Math.floor(clip.duration * bucketsPerSec));
-    for (let x = 0; x < cv.width; x++) {
-      const v = peaks.peaks[from + Math.floor((x / cv.width) * count)] ?? 0;
-      const h = v * cv.height;
-      ctx.fillRect(x, cv.height - h, 1, h);
-    }
+    drawWaveform(cv, peaks, { from: clip.in, duration: clip.duration, ...CLIP_WAVE });
   }, [peaks, clip.in, clip.duration, w]);
 
   const filmstrip = media?.filmstripPath ? `/media/${media.filmstripPath}` : undefined;
-  const frameW = media ? (80 * media.probe.width) / media.probe.height : 45;
+  const filmH = ROW_H - bandH;
+  const frameW = media ? (filmH * media.probe.width) / media.probe.height : 45;
   const bgOffset = -(clip.in * frameW);
+  const muted = clip.volume === 0;
   const handle: CSSProperties = {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 8,
+    width: 6,
     cursor: 'ew-resize',
-    background: 'rgba(255,255,255,0.35)',
     zIndex: 2,
   };
   return (
@@ -128,28 +139,78 @@ function ClipBlock({
         left: leftPx,
         width: w,
         height: ROW_H,
-        border: selected ? '2px solid #4af' : '1px solid #555',
-        borderRadius: 4,
+        borderRadius: 'var(--r-card)',
         overflow: 'hidden',
         cursor: floating ? 'grabbing' : 'grab',
-        backgroundImage: clip.frozen || !filmstrip ? undefined : `url(${filmstrip})`,
-        backgroundPosition: `${bgOffset}px 0`,
-        backgroundSize: 'auto 100%',
-        backgroundRepeat: 'repeat-x',
-        backgroundColor: clip.frozen ? '#3a4a5a' : '#333',
+        background: 'var(--card)',
+        boxShadow: selected
+          ? 'inset 0 0 0 1.5px var(--accent), 0 0 14px rgba(139, 92, 246, 0.35)'
+          : 'inset 0 0 0 1px var(--line-strong)',
         // 讓位動畫：只有「不是被拖的那個」才滑動，被拖的要 1:1 跟手
-        transition: animate ? 'left 120ms ease' : undefined,
+        transition: animate ? 'left 120ms ease' : 'box-shadow 0.15s ease',
         ...(floating
           ? {
               zIndex: 20,
               opacity: 0.9,
               transform: 'scale(1.02)',
-              boxShadow: '0 6px 16px rgba(0,0,0,0.6)',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.65), inset 0 0 0 1.5px var(--accent)',
             }
           : null),
       }}
     >
+      {/* 上：filmstrip 縮圖區 */}
       <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: filmH,
+          backgroundImage: clip.frozen || !filmstrip ? undefined : `url(${filmstrip})`,
+          backgroundPosition: `${bgOffset}px 0`,
+          backgroundSize: 'auto 100%',
+          backgroundRepeat: 'repeat-x',
+          backgroundColor: clip.frozen ? '#2d3a52' : undefined,
+        }}
+      />
+      {/* 下：波形帶（frozen＝平線） */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: bandH,
+          background: 'rgba(0, 0, 0, 0.32)',
+        }}
+      >
+        {clip.frozen ? (
+          <div
+            style={{
+              position: 'absolute',
+              left: 6,
+              right: 6,
+              top: '50%',
+              height: 1.5,
+              background: 'rgba(255, 255, 255, 0.15)',
+            }}
+          />
+        ) : (
+          <canvas
+            ref={canvasRef}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              pointerEvents: 'none',
+              opacity: muted ? 0.35 : 1,
+            }}
+          />
+        )}
+      </div>
+      <div
+        className="handle"
         style={{ ...handle, left: 0 }}
         onPointerDown={(e) => {
           e.stopPropagation();
@@ -158,6 +219,7 @@ function ClipBlock({
         }}
       />
       <div
+        className="handle"
         style={{ ...handle, right: 0 }}
         onPointerDown={(e) => {
           e.stopPropagation();
@@ -168,31 +230,106 @@ function ClipBlock({
       <span
         style={{
           position: 'absolute',
-          top: 2,
-          left: 10,
+          top: 3,
+          left: 9,
           fontSize: 11,
-          textShadow: '0 0 3px #000',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 3,
+          textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+          pointerEvents: 'none',
+          maxWidth: 'calc(100% - 18px)',
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {clip.frozen && <Snowflake size={11} />}
+        {clip.label ?? clip.id}
+      </span>
+    </div>
+  );
+}
+
+/** 音訊軌項目：青色全高波形 chip。 */
+function AudioChip({
+  p,
+  id,
+  label,
+  ducking,
+  volume,
+  start,
+  inSec,
+  duration,
+  mediaId,
+  pps,
+  selected,
+}: {
+  p: Project;
+  id: string;
+  label: string;
+  ducking: boolean;
+  volume: number;
+  start: number;
+  inSec: number;
+  duration: number;
+  mediaId: string;
+  pps: number;
+  selected: boolean;
+}) {
+  const media = p.media.find((m) => m.id === mediaId);
+  const peaks = useWaveform(media?.peaksPath);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const w = timeToPx(duration, pps);
+
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv || !peaks) return;
+    drawWaveform(cv, peaks, { from: inSec, duration, midline: false, ...AUDIO_WAVE });
+  }, [peaks, inSec, duration, w]);
+
+  return (
+    <div
+      onPointerDown={() => useSelection.getState().select({ kind: 'audio', id })}
+      title={`${label} vol=${volume}${ducking ? ' (ducking)' : ''}`}
+      style={{
+        position: 'absolute',
+        left: timeToPx(start, pps),
+        width: w,
+        height: AUDIO_ROW_H - 4,
+        top: 2,
+        borderRadius: 6,
+        overflow: 'hidden',
+        cursor: 'pointer',
+        background: 'rgba(14, 165, 233, 0.12)',
+        boxShadow: selected
+          ? 'inset 0 0 0 1.5px var(--audio-bright), 0 0 10px rgba(14, 165, 233, 0.35)'
+          : 'inset 0 0 0 1px rgba(14, 165, 233, 0.35)',
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+        }}
+      />
+      <span
+        style={{
+          position: 'absolute',
+          left: 6,
+          top: 2,
+          fontSize: 10,
+          color: 'var(--audio-bright)',
+          textShadow: '0 1px 2px rgba(0,0,0,0.8)',
           pointerEvents: 'none',
         }}
       >
-        {clip.frozen ? '❄ ' : ''}
-        {clip.label ?? clip.id}
+        {ducking ? '🔉 ' : ''}
+        {label}
       </span>
-      {!clip.frozen && (
-        <canvas
-          ref={canvasRef}
-          width={Math.max(1, Math.floor(w))}
-          height={16}
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            width: '100%',
-            height: 16,
-            pointerEvents: 'none',
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -200,6 +337,7 @@ function ClipBlock({
 export function Timeline() {
   const doc = useProject((s) => s.doc);
   const time = usePlayback((s) => s.time);
+  const playing = usePlayback((s) => s.playing);
   const selected = useSelection((s) => s.selected);
   const pps = useView((s) => s.pxPerSecond);
   const snapEnabled = useView((s) => s.snapEnabled);
@@ -390,15 +528,17 @@ export function Timeline() {
   const rowStyle: CSSProperties = {
     position: 'relative',
     height: ROW_H,
-    borderBottom: '1px solid #222',
+    borderBottom: '1px solid var(--line)',
   };
   const subRow: CSSProperties = { ...rowStyle, height: SUB_ROW_H };
   const chip: CSSProperties = {
     position: 'absolute',
     height: SUB_ROW_H - 4,
-    borderRadius: 3,
+    top: 2,
+    borderRadius: 5,
     fontSize: 10,
-    paddingLeft: 4,
+    paddingLeft: 6,
+    lineHeight: `${SUB_ROW_H - 4}px`,
     overflow: 'hidden',
     whiteSpace: 'nowrap',
     cursor: 'pointer',
@@ -406,47 +546,85 @@ export function Timeline() {
 
   return (
     <div>
-      {/* 工具列：縮放 / 吸附 */}
+      {/* 工具列：transport＋時間碼（左）／縮放＋吸附（右） */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 6,
-          padding: '2px 4px',
+          padding: '2px 4px 6px',
           fontSize: 11,
-          color: '#aaa',
+          color: 'var(--text-2)',
         }}
       >
-        <button onClick={() => useView.getState().zoomBy(1 / 1.4)} title="縮小 (Ctrl+-)">
-          −
-        </button>
-        <button onClick={() => useView.getState().zoomBy(1.4)} title="放大 (Ctrl++)">
-          ＋
+        <button className="icon-btn" onClick={() => usePlayback.getState().seek(0)} title="回到開頭">
+          <SkipBack size={13} />
         </button>
         <button
-          onClick={() => {
-            const el = scrollRef.current;
-            if (el) useView.getState().fit(total, el.clientWidth);
-          }}
-          title="整條塞進畫面 (Shift+Z)"
+          className="icon-btn"
+          onClick={() =>
+            playing ? usePlayback.getState().pause() : usePlayback.getState().play()
+          }
+          title="播放/暫停（空白鍵）"
+          style={{ padding: '5px 12px' }}
         >
-          ⤢ Fit
+          {playing ? <Pause size={14} /> : <Play size={14} />}
         </button>
         <button
-          onClick={() => useView.getState().toggleSnap()}
-          title="吸附開關 (N)"
-          style={{ color: snapEnabled ? '#6f6' : '#888' }}
+          className="icon-btn"
+          onClick={() => usePlayback.getState().seek(total)}
+          title="跳到結尾"
         >
-          🧲 {snapEnabled ? '吸附開' : '吸附關'}
+          <SkipForward size={13} />
         </button>
-        <span style={{ marginLeft: 'auto', opacity: 0.6 }}>
-          {pps.toFixed(0)} px/s · {total.toFixed(2)}s
+        <span className="mono" style={{ color: '#c4b5fd', marginLeft: 4 }}>
+          {fmt(time)} <span className="tag">/ {fmt(total)}</span>
+        </span>
+
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          <button
+            className="icon-btn"
+            onClick={() => useView.getState().zoomBy(1 / 1.4)}
+            title="縮小 (Ctrl+滾輪)"
+          >
+            <ZoomOut size={13} />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => useView.getState().zoomBy(1.4)}
+            title="放大 (Ctrl+滾輪)"
+          >
+            <ZoomIn size={13} />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => {
+              const el = scrollRef.current;
+              if (el) useView.getState().fit(total, el.clientWidth);
+            }}
+            title="整條塞進畫面 (Shift+Z)"
+          >
+            <Maximize2 size={13} />
+          </button>
+          <button
+            className={`icon-btn seg${snapEnabled ? ' on' : ''}`}
+            onClick={() => useView.getState().toggleSnap()}
+            title="吸附開關 (N)"
+          >
+            <Magnet size={13} /> 吸附
+          </button>
         </span>
       </div>
 
       <div
         ref={scrollRef}
-        style={{ overflowX: 'auto', border: '1px solid #333', userSelect: 'none' }}
+        style={{
+          overflowX: 'auto',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--r-panel)',
+          background: 'rgba(0, 0, 0, 0.18)',
+          userSelect: 'none',
+        }}
       >
         <div
           ref={contentRef}
@@ -459,7 +637,7 @@ export function Timeline() {
             style={{
               position: 'relative',
               height: 20,
-              borderBottom: '1px solid #444',
+              borderBottom: '1px solid var(--line-strong)',
               cursor: 'text',
             }}
             onClick={onRulerClick}
@@ -469,11 +647,12 @@ export function Timeline() {
               return (
                 <span
                   key={t}
+                  className="mono"
                   style={{
                     position: 'absolute',
-                    left: timeToPx(t, pps),
-                    fontSize: 10,
-                    color: '#888',
+                    left: timeToPx(t, pps) + 3,
+                    fontSize: 9.5,
+                    color: 'var(--text-3)',
                   }}
                 >
                   {t}s
@@ -506,6 +685,7 @@ export function Timeline() {
           <div style={subRow}>
             {doc.tracks.overlays.map((o) => {
               const win = overlayWindow(doc, o);
+              const isSel = selected?.kind === 'overlay' && selected.id === o.id;
               return (
                 win && (
                   <div
@@ -517,8 +697,11 @@ export function Timeline() {
                       ...chip,
                       left: timeToPx(win.start, pps),
                       width: timeToPx(win.end - win.start, pps),
-                      background:
-                        selected?.kind === 'overlay' && selected.id === o.id ? '#7c6' : '#5a4',
+                      color: '#6ee7b7',
+                      background: 'rgba(52, 211, 153, 0.14)',
+                      boxShadow: isSel
+                        ? 'inset 0 0 0 1.5px var(--ok)'
+                        : 'inset 0 0 0 1px rgba(52, 211, 153, 0.35)',
                     }}
                   >
                     {o.imagePath.split('/').pop()}
@@ -529,39 +712,47 @@ export function Timeline() {
           </div>
           {/* captions 軌 */}
           <div style={subRow}>
-            {doc.tracks.captions.map((c) => (
-              <div
-                key={c.id}
-                onPointerDown={() => useSelection.getState().select({ kind: 'caption', id: c.id })}
-                style={{
-                  ...chip,
-                  left: timeToPx(c.start, pps),
-                  width: timeToPx(c.duration, pps),
-                  background:
-                    selected?.kind === 'caption' && selected.id === c.id ? '#68c' : '#46a',
-                }}
-              >
-                {c.text}
-              </div>
-            ))}
+            {doc.tracks.captions.map((c) => {
+              const isSel = selected?.kind === 'caption' && selected.id === c.id;
+              return (
+                <div
+                  key={c.id}
+                  onPointerDown={() =>
+                    useSelection.getState().select({ kind: 'caption', id: c.id })
+                  }
+                  style={{
+                    ...chip,
+                    left: timeToPx(c.start, pps),
+                    width: timeToPx(c.duration, pps),
+                    color: '#c4b5fd',
+                    background: 'rgba(139, 92, 246, 0.14)',
+                    boxShadow: isSel
+                      ? 'inset 0 0 0 1.5px var(--accent)'
+                      : 'inset 0 0 0 1px rgba(139, 92, 246, 0.35)',
+                  }}
+                >
+                  {c.text}
+                </div>
+              );
+            })}
           </div>
-          {/* audio 軌 */}
-          <div style={subRow}>
+          {/* audio 軌（全高青色波形） */}
+          <div style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}>
             {doc.tracks.audio.map((a) => (
-              <div
+              <AudioChip
                 key={a.id}
-                onPointerDown={() => useSelection.getState().select({ kind: 'audio', id: a.id })}
-                title={`${a.label ?? a.mediaId} vol=${a.volume}${a.ducking ? ' (ducking)' : ''}`}
-                style={{
-                  ...chip,
-                  left: timeToPx(a.start, pps),
-                  width: timeToPx(a.duration, pps),
-                  background: selected?.kind === 'audio' && selected.id === a.id ? '#d86' : '#a64',
-                }}
-              >
-                {a.ducking ? '🔉 ' : ''}
-                {a.label ?? a.mediaId}
-              </div>
+                p={doc}
+                id={a.id}
+                label={a.label ?? a.mediaId}
+                ducking={a.ducking === true}
+                volume={a.volume}
+                start={a.start}
+                inSec={a.in}
+                duration={a.duration}
+                mediaId={a.mediaId}
+                pps={pps}
+                selected={selected?.kind === 'audio' && selected.id === a.id}
+              />
             ))}
           </div>
           {/* 吸附指示線 */}
@@ -573,23 +764,37 @@ export function Timeline() {
                 bottom: 0,
                 left: timeToPx(snapLine, pps),
                 width: 1,
-                background: '#ff0',
+                background: 'var(--accent)',
+                boxShadow: '0 0 6px rgba(139, 92, 246, 0.8)',
                 pointerEvents: 'none',
               }}
             />
           )}
-          {/* playhead */}
+          {/* playhead：紫漸層＋光暈＋圓頭 */}
           <div
             style={{
               position: 'absolute',
               top: 0,
               bottom: 0,
-              left: timeToPx(time, pps),
+              left: timeToPx(time, pps) - 1,
               width: 2,
-              background: 'red',
+              background: 'linear-gradient(#a78bfa, #6366f1)',
+              borderRadius: 1,
+              boxShadow: '0 0 10px rgba(139, 92, 246, 0.7)',
               pointerEvents: 'none',
             }}
-          />
+          >
+            <div
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                background: '#a78bfa',
+                margin: '-1px 0 0 -3.5px',
+                boxShadow: '0 0 8px rgba(139, 92, 246, 0.9)',
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>
