@@ -46,7 +46,8 @@ describe('buildRenderArgs', () => {
     // 2 clip inputs (-ss/-t/-i ×2) + 1 overlay input
     expect(plan.args.filter((a) => a === '-i')).toHaveLength(3);
     expect(fc).toContain('concat=n=2:v=1:a=0[vcat]');
-    expect(fc).toContain('concat=n=2:v=0:a=1[aout]');
+    expect(fc).toContain('concat=n=2:v=0:a=1[aclips]');
+    expect(fc).toContain('[aclips]anull[aout]'); // 無獨立音訊項時直接接出
     expect(fc).toContain('scale=1080:1920');
     // 無聲片段補 anullsrc
     expect(fc).toContain('anullsrc');

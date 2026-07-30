@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CaptionItem, Project } from '@vidcut/shared';
 import { overlayWindow, totalDuration } from '@vidcut/shared';
+import { runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 
 let drawtextAvailable: boolean | null = null;
@@ -80,6 +81,16 @@ export interface RenderPlan {
   captionsBurned: boolean;
 }
 
+/** 定格幀靜圖的固定位置（buildRenderArgs 與 render 共用同一推導）。 */
+export function frozenFramePath(clipId: string): string {
+  return join('derived', 'frozen', `${clipId}.jpg`);
+}
+
+/** blur 填充的模糊半徑（對 1080 寬的畫布視覺上剛好）。 */
+const BLUR_RADIUS = 24;
+/** ducking 時影片主軌被壓到的音量比例。 */
+const DUCK_LEVEL = 0.25;
+
 /**
  * 由 project.json 建構 ffmpeg 參數（spec §8.2）。
  * 影片：每片段 input-level -ss/-t 精確剪（一律重新編碼，不用 -c copy）→ scale/pad 1080×1920 → concat。
@@ -94,26 +105,39 @@ export function buildRenderArgs(
   opts: { hasDrawtext: boolean; captionCards?: CaptionCard[] },
 ): RenderPlan {
   const { width, height, fps } = project.canvas;
+  const fit = project.canvas.fit ?? 'contain';
   const clips = project.tracks.video;
   const overlays = project.tracks.overlays;
+  const audioItems = project.tracks.audio;
   const captionCards = opts.captionCards ?? [];
   // drawtext 可用就原生燒字；否則走 PNG 字卡（overlay）
   const useCards = !opts.hasDrawtext && captionCards.length > 0;
   const total = totalDuration(project);
 
   const args: string[] = [];
-  // 每個 clip 一個 input（input-level trim）
+  // 每個 clip 一個 input。定格幀改吃靜圖（-loop 1 -t D）；一般片段 input-level trim
   for (const clip of clips) {
     const media = project.media.find((m) => m.id === clip.mediaId);
     if (!media) throw new Error(`render: media not found for clip ${clip.id}`);
-    args.push(
-      '-ss',
-      String(clip.in),
-      '-t',
-      String(clip.duration),
-      '-i',
-      join(projectDir, media.path),
-    );
+    if (clip.frozen) {
+      args.push(
+        '-loop',
+        '1',
+        '-t',
+        String(clip.duration),
+        '-i',
+        join(projectDir, frozenFramePath(clip.id)),
+      );
+    } else {
+      args.push(
+        '-ss',
+        String(clip.in),
+        '-t',
+        String(clip.duration),
+        '-i',
+        join(projectDir, media.path),
+      );
+    }
   }
   // overlay PNG inputs（在 clip inputs 之後）
   const overlayInputBase = clips.length;
@@ -127,29 +151,93 @@ export function buildRenderArgs(
       args.push('-i', join(projectDir, cc.relPath));
     }
   }
+  // 獨立音訊項 inputs（旁白/BGM/抽出的聲音）
+  const audioInputBase = captionInputBase + (useCards ? captionCards.length : 0);
+  for (const a of audioItems) {
+    const media = project.media.find((m) => m.id === a.mediaId);
+    if (!media) throw new Error(`render: media not found for audio ${a.id}`);
+    args.push('-i', join(projectDir, media.path));
+  }
 
   const fc: string[] = [];
-  // 影片鏈
+  // 影片鏈：contain = 黑邊；blur = 模糊放大填滿再把原比例疊在中央
   clips.forEach((_clip, i) => {
-    fc.push(
-      `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},setpts=PTS-STARTPTS[v${i}]`,
-    );
+    if (fit === 'blur') {
+      fc.push(
+        `[${i}:v]split=2[bg${i}][fg${i}]`,
+        `[bg${i}]scale=${width}:${height}:force_original_aspect_ratio=increase,` +
+          `crop=${width}:${height},boxblur=${BLUR_RADIUS}:1[bgb${i}]`,
+        `[fg${i}]scale=${width}:${height}:force_original_aspect_ratio=decrease[fgs${i}]`,
+        `[bgb${i}][fgs${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=${fps},setpts=PTS-STARTPTS[v${i}]`,
+      );
+    } else {
+      fc.push(
+        `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},setpts=PTS-STARTPTS[v${i}]`,
+      );
+    }
   });
   const vlabels = clips.map((_c, i) => `[v${i}]`).join('');
   fc.push(`${vlabels}concat=n=${clips.length}:v=1:a=0[vcat]`);
 
-  // 音訊鏈
+  // 音訊鏈：片段原聲（定格幀與無聲素材補靜音軌）
   clips.forEach((clip, i) => {
     const media = project.media.find((m) => m.id === clip.mediaId)!;
-    if (media.probe.hasAudio) {
+    if (media.probe.hasAudio && !clip.frozen) {
       fc.push(`[${i}:a]volume=${clip.volume},asetpts=PTS-STARTPTS,aresample=44100[a${i}]`);
     } else {
       fc.push(`anullsrc=channel_layout=stereo:sample_rate=44100:d=${clip.duration}[a${i}]`);
     }
   });
   const alabels = clips.map((_c, i) => `[a${i}]`).join('');
-  fc.push(`${alabels}concat=n=${clips.length}:v=0:a=1[aout]`);
+  fc.push(`${alabels}concat=n=${clips.length}:v=0:a=1[aclips]`);
+
+  // 主軌 ducking：有 ducking 的音訊項播放期間把片段原聲壓低
+  let acur = '[aclips]';
+  audioItems
+    .filter((a) => a.ducking)
+    .forEach((a, k) => {
+      const next = `[aduck${k}]`;
+      const end = a.start + a.duration;
+      // volume 的表達式內逗號要轉義（filter_complex 用逗號分隔濾鏡）
+      fc.push(
+        `${acur}volume=volume='if(between(t\\,${a.start}\\,${end})\\,${DUCK_LEVEL}\\,1)':eval=frame${next}`,
+      );
+      acur = next;
+    });
+
+  // 獨立音訊項：atrim 取段 → 音量/淡入淡出 → adelay 移到絕對時間
+  const audioLabels: string[] = [];
+  audioItems.forEach((a, k) => {
+    const inputIdx = audioInputBase + k;
+    const label = `aud${k}`;
+    const chain = [
+      `atrim=start=${a.in}:duration=${a.duration}`,
+      'asetpts=PTS-STARTPTS',
+      'aresample=44100',
+      `volume=${a.volume}`,
+    ];
+    if (a.fadeIn && a.fadeIn > 0) chain.push(`afade=t=in:st=0:d=${a.fadeIn}`);
+    if (a.fadeOut && a.fadeOut > 0) {
+      chain.push(`afade=t=out:st=${Math.max(0, a.duration - a.fadeOut)}:d=${a.fadeOut}`);
+    }
+    const delayMs = Math.round(a.start * 1000);
+    if (delayMs > 0) chain.push(`adelay=${delayMs}|${delayMs}`);
+    fc.push(`[${inputIdx}:a]${chain.join(',')}[${label}]`);
+    audioLabels.push(`[${label}]`);
+  });
+
+  // 混音並截到成片長度（adelay 可能讓音軌超出畫面長度）
+  if (audioLabels.length > 0) {
+    fc.push(
+      `${acur}${audioLabels.join('')}amix=inputs=${audioLabels.length + 1}:normalize=0:` +
+        `dropout_transition=0,atrim=duration=${total},asetpts=PTS-STARTPTS[aout]`,
+    );
+  } else if (acur !== '[aclips]') {
+    fc.push(`${acur}anull[aout]`);
+  } else {
+    fc.push(`[aclips]anull[aout]`);
+  }
 
   // overlay 鏈
   let vcur = '[vcat]';
@@ -242,6 +330,28 @@ export async function render(
   const outPath = join(projectDir, outRel);
 
   const drawtext = await hasDrawtext();
+
+  // 定格幀：先從來源抽出該時刻的靜圖
+  const frozen = project.tracks.video.filter((c) => c.frozen);
+  if (frozen.length > 0) {
+    await mkdir(join(projectDir, 'derived', 'frozen'), { recursive: true });
+    for (const clip of frozen) {
+      const media = project.media.find((m) => m.id === clip.mediaId);
+      if (!media) throw new Error(`render: media not found for frozen clip ${clip.id}`);
+      await runFfmpeg([
+        '-ss',
+        String(clip.in),
+        '-i',
+        join(projectDir, media.path),
+        '-frames:v',
+        '1',
+        '-q:v',
+        '2',
+        join(projectDir, frozenFramePath(clip.id)),
+      ]);
+    }
+  }
+
   // 無 drawtext 且有字幕 → 先用 Pillow 產字卡 PNG
   let captionCards: CaptionCard[] = [];
   if (!drawtext && project.tracks.captions.length > 0) {

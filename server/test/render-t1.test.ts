@@ -1,0 +1,176 @@
+import { describe, it, expect } from 'vitest';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createEmptyProject, type Project } from '@vidcut/shared';
+import { buildRenderArgs, frozenFramePath, render } from '../src/render.js';
+import { ProjectStore } from '../src/store.js';
+import { probe } from '../src/ffmpeg.js';
+import { makeVideo } from './fixtures.js';
+
+function base(): Project {
+  const p = createEmptyProject('p', 't');
+  p.media = [
+    {
+      id: 'm1',
+      path: 'a.mp4',
+      probe: { duration: 10, width: 1920, height: 1080, fps: 30, hasAudio: true, rotation: 0 },
+    },
+  ];
+  p.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 1, duration: 3, volume: 1 }];
+  return p;
+}
+
+function fcOf(plan: { args: string[] }): string {
+  return plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+}
+
+describe('canvas fit: blur', () => {
+  it('contain (default) pads with black bars', () => {
+    const fc = fcOf(buildRenderArgs(base(), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    expect(fc).toContain('pad=1080:1920');
+    expect(fc).not.toContain('boxblur');
+  });
+
+  it('blur fills with a scaled-up blurred copy behind the contained frame', () => {
+    const p = base();
+    p.canvas.fit = 'blur';
+    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }));
+    expect(fc).toContain('split=2[bg0][fg0]');
+    // 背景放大裁滿 + 模糊
+    expect(fc).toMatch(
+      /\[bg0\]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=/,
+    );
+    // 前景維持原比例，疊在中央
+    expect(fc).toContain('force_original_aspect_ratio=decrease[fgs0]');
+    expect(fc).toContain('[bgb0][fgs0]overlay=(W-w)/2:(H-h)/2');
+    expect(fc).not.toContain('pad=1080:1920');
+  });
+});
+
+describe('frozen clips', () => {
+  it('uses a looped still image input and a silent audio branch', () => {
+    const p = base();
+    p.tracks.video.push({
+      id: 'fz',
+      mediaId: 'm1',
+      in: 2,
+      duration: 1.5,
+      volume: 0,
+      frozen: true,
+    });
+    const plan = buildRenderArgs(p, '/proj', '/proj/o.mp4', { hasDrawtext: false });
+    // 定格片段吃 -loop 1 -t D -i <frozen path>
+    expect(plan.args).toContain('-loop');
+    expect(plan.args).toContain(join('/proj', frozenFramePath('fz')));
+    // 定格段即使來源有聲也走 anullsrc
+    expect(fcOf(plan)).toContain('anullsrc=channel_layout=stereo:sample_rate=44100:d=1.5');
+    expect(plan.totalDuration).toBeCloseTo(4.5);
+  });
+});
+
+describe('audio track mixing', () => {
+  it('trims, fades, delays and mixes independent audio items', () => {
+    const p = base();
+    p.media.push({
+      id: 'bgm',
+      path: 'bgm.mp3',
+      probe: { duration: 60, width: 0, height: 0, fps: 0, hasAudio: true, rotation: 0 },
+    });
+    p.tracks.audio = [
+      {
+        id: 'a1',
+        mediaId: 'bgm',
+        start: 0.5,
+        in: 10,
+        duration: 2,
+        volume: 0.6,
+        fadeIn: 0.3,
+        fadeOut: 0.4,
+      },
+    ];
+    const plan = buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false });
+    const fc = fcOf(plan);
+    // 1 clip input + 1 audio input
+    expect(plan.args.filter((a) => a === '-i')).toHaveLength(2);
+    expect(fc).toContain('atrim=start=10:duration=2');
+    expect(fc).toContain('volume=0.6');
+    expect(fc).toContain('afade=t=in:st=0:d=0.3');
+    expect(fc).toContain('afade=t=out:st=1.6:d=0.4');
+    expect(fc).toContain('adelay=500|500');
+    expect(fc).toContain('amix=inputs=2:normalize=0');
+    // 截到成片長度
+    expect(fc).toContain('atrim=duration=3');
+  });
+
+  it('ducks the clip audio while a ducking item plays', () => {
+    const p = base();
+    p.media.push({
+      id: 'vo',
+      path: 'vo.mp3',
+      probe: { duration: 30, width: 0, height: 0, fps: 0, hasAudio: true, rotation: 0 },
+    });
+    p.tracks.audio = [
+      { id: 'a1', mediaId: 'vo', start: 1, in: 0, duration: 1.5, volume: 1, ducking: true },
+    ];
+    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }));
+    expect(fc).toMatch(
+      /\[aclips\]volume=volume='if\(between\(t\\,1\\,2\.5\)\\,0\.25\\,1\)':eval=frame\[aduck0\]/,
+    );
+  });
+
+  it('omits the amix stage when there are no audio items', () => {
+    const fc = fcOf(buildRenderArgs(base(), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    expect(fc).not.toContain('amix');
+    expect(fc).toContain('[aclips]anull[aout]');
+  });
+});
+
+describe('render integration: blur + frozen + audio', () => {
+  it('renders a project with all three features to a valid mp4', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-rt1-'));
+    // 橫向素材（測 blur 填充）+ 一支當 BGM 的有聲素材
+    await makeVideo(dir, 'wide.mp4', { duration: 6, withAudio: true });
+    await makeVideo(dir, 'bgm.mp4', { duration: 6, withAudio: true, freq: 220 });
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    store.mutate('ai', 'seed', (d) => {
+      d.canvas.fit = 'blur';
+      d.media = [
+        {
+          id: 'mv',
+          path: 'wide.mp4',
+          probe: { duration: 6, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+        },
+        {
+          id: 'mb',
+          path: 'bgm.mp4',
+          probe: { duration: 6, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+        },
+      ];
+      d.tracks.video = [
+        { id: 'c1', mediaId: 'mv', in: 0, duration: 2, volume: 1 },
+        { id: 'fz', mediaId: 'mv', in: 3, duration: 1, volume: 0, frozen: true },
+      ];
+      d.tracks.audio = [
+        {
+          id: 'a1',
+          mediaId: 'mb',
+          start: 0,
+          in: 0,
+          duration: 3,
+          volume: 0.5,
+          fadeIn: 0.3,
+          fadeOut: 0.3,
+          ducking: true,
+        },
+      ];
+    });
+    const res = await render(store, dir, 't1');
+    const info = await probe(join(dir, res.outPath));
+    expect(info.width).toBe(1080);
+    expect(info.height).toBe(1920);
+    expect(info.hasAudio).toBe(true);
+    expect(info.duration).toBeGreaterThan(2.5);
+    expect(info.duration).toBeLessThan(3.6);
+  }, 180_000);
+});
