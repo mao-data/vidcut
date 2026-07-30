@@ -183,6 +183,19 @@ a {
   color: #c4b5fd;
 }
 
+/* 表單面板（Inspector）：label 與滿寬輸入 */
+.form .field {
+  display: block;
+  font-size: 11px;
+  color: var(--text-2);
+  margin: 10px 0 4px;
+}
+.form input,
+.form textarea,
+.form select {
+  width: 100%;
+}
+
 /* 時間軸 trim handle（hover 提亮） */
 .handle {
   background: rgba(255, 255, 255, 0.22);

@@ -1,4 +1,5 @@
-import { type ChangeEvent } from 'react';
+import { useState, type ChangeEvent } from 'react';
+import { AudioWaveform, CircleHelp, Scissors, Snowflake, Trash2 } from 'lucide-react';
 import type { AudioItem, Command } from '@vidcut/shared';
 
 type AudioPatch = Partial<
@@ -9,15 +10,6 @@ import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
 import { sendCommand } from '../ws.js';
 
-const labelStyle = { display: 'block', fontSize: 12, color: '#aaa', marginTop: 8 };
-const inputStyle = {
-  width: '100%',
-  padding: 4,
-  background: '#222',
-  color: '#eee',
-  border: '1px solid #444',
-  borderRadius: 3,
-};
 
 function num(e: ChangeEvent<HTMLInputElement>): number {
   return Number(e.target.value);
@@ -27,26 +19,56 @@ function num(e: ChangeEvent<HTMLInputElement>): number {
 function CanvasFitRow() {
   const fit = useProject((s) => s.doc?.canvas.fit ?? 'contain');
   return (
-    <div style={{ padding: 12, borderBottom: '1px solid #333' }}>
-      <label style={{ ...labelStyle, marginTop: 0 }}>畫布填充（未填滿時）</label>
+    <div style={{ padding: 12, borderBottom: '1px solid var(--line)' }}>
+      <label className="field" style={{ marginTop: 0 }}>畫布填充（未填滿時）</label>
       <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
         {(['contain', 'blur'] as const).map((f) => (
           <button
             key={f}
+            className={`seg${fit === f ? ' on' : ''}`}
             onClick={() => sendCommand({ name: 'setCanvasFit', fit: f })}
-            style={{
-              flex: 1,
-              padding: '4px 6px',
-              background: fit === f ? '#4af' : '#222',
-              color: fit === f ? '#000' : '#ccc',
-              border: '1px solid #444',
-              borderRadius: 3,
-            }}
+            style={{ flex: 1 }}
           >
             {f === 'contain' ? '黑邊' : '模糊填充'}
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** 快捷鍵表：收進「?」彈出層，省 Inspector 高度。 */
+function ShortcutHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 12, position: 'relative' }}>
+      <button className="icon-btn" onClick={() => setOpen((o) => !o)}>
+        <CircleHelp size={14} /> 快捷鍵
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            left: 0,
+            zIndex: 20,
+            width: 216,
+            padding: 10,
+            borderRadius: 'var(--r-ctl)',
+            background: '#1a1d2e',
+            border: '1px solid var(--line-strong)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+            lineHeight: 1.9,
+            fontSize: 12,
+            color: 'var(--text-2)',
+          }}
+        >
+          空白 播放/暫停 · S 分割
+          <br />Q 刪左 · W 刪右 · F 定格
+          <br />N 吸附 · Shift+Z 全覽 · ←/→ 逐幀
+          <br />Ctrl+滾輪 縮放 · Cmd+Z 復原
+        </div>
+      )}
     </div>
   );
 }
@@ -57,17 +79,11 @@ export function Inspector() {
   if (!doc) return null;
   if (!selected) {
     return (
-      <div>
+      <div className="form">
         <CanvasFitRow />
-        <div style={{ padding: 12, color: '#777', fontSize: 13 }}>
+        <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 12 }}>
           選一個片段 / 字幕 / overlay / 音訊來編輯
-          <div style={{ marginTop: 12, lineHeight: 1.8, fontSize: 12 }}>
-            <div style={{ color: '#999' }}>快捷鍵</div>
-            空白 播放/暫停 · S 分割 · Q 刪左 · W 刪右
-            <br />F 定格 · N 吸附 · Shift+Z 全覽 · ←/→ 逐幀
-            <br />
-            Ctrl+滾輪 縮放 · Cmd+Z 復原
-          </div>
+          <ShortcutHelp />
         </div>
       </div>
     );
@@ -79,68 +95,66 @@ export function Inspector() {
     const clip = doc.tracks.video.find((c) => c.id === selected.id);
     if (!clip) return null;
     return (
-      <div style={{ padding: 12 }}>
+      <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>片段 {clip.label ?? clip.id}</h3>
-        <label style={labelStyle}>標題</label>
+        <label className="field">標題</label>
         <input
-          style={inputStyle}
           value={clip.label ?? ''}
           onChange={(e) =>
             send({ name: 'updateClip', clipId: clip.id, patch: { label: e.target.value } })
           }
         />
-        <label style={labelStyle}>起點 in（秒）</label>
+        <label className="field">起點 in（秒）</label>
         <input
           type="number"
           step="0.1"
-          style={inputStyle}
           value={clip.in}
           onChange={(e) => send({ name: 'updateClip', clipId: clip.id, patch: { in: num(e) } })}
         />
-        <label style={labelStyle}>長度 duration（秒）</label>
+        <label className="field">長度 duration（秒）</label>
         <input
           type="number"
           step="0.1"
-          style={inputStyle}
           value={clip.duration}
           onChange={(e) =>
             send({ name: 'updateClip', clipId: clip.id, patch: { duration: num(e) } })
           }
         />
-        <label style={labelStyle}>音量（0–2）</label>
+        <label className="field">音量（0–2）</label>
         <input
           type="number"
           step="0.1"
           min="0"
           max="2"
-          style={inputStyle}
           value={clip.volume}
           onChange={(e) => send({ name: 'updateClip', clipId: clip.id, patch: { volume: num(e) } })}
         />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
           <button
+            className="icon-btn"
             onClick={() => send({ name: 'splitAt', time: usePlayback.getState().time })}
             title="S"
           >
-            ✂ 分割
+            <Scissors size={13} /> 分割
           </button>
           <button
+            className="icon-btn"
             onClick={() => send({ name: 'freezeFrame', time: usePlayback.getState().time })}
             title="F"
           >
-            ❄ 定格
+            <Snowflake size={13} /> 定格
           </button>
-          <button onClick={() => send({ name: 'extractAudio', clipId: clip.id })}>
-            🔊 抽出聲音
+          <button className="icon-btn" onClick={() => send({ name: 'extractAudio', clipId: clip.id })}>
+            <AudioWaveform size={13} /> 抽出聲音
           </button>
           <button
-            style={{ color: '#f66' }}
+            className="btn-danger icon-btn"
             onClick={() => {
               send({ name: 'removeClip', clipId: clip.id });
               useSelection.getState().select(null);
             }}
           >
-            刪除片段
+            <Trash2 size={13} /> 刪除片段
           </button>
         </div>
       </div>
@@ -152,61 +166,55 @@ export function Inspector() {
     if (!a) return null;
     const upd = (patch: AudioPatch) => send({ name: 'updateAudio', id: a.id, patch });
     return (
-      <div style={{ padding: 12 }}>
+      <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>音訊 {a.label ?? a.mediaId}</h3>
-        <label style={labelStyle}>時間軸起點（秒）</label>
+        <label className="field">時間軸起點（秒）</label>
         <input
           type="number"
           step="0.1"
-          style={inputStyle}
           value={a.start}
           onChange={(e) => upd({ start: num(e) })}
         />
-        <label style={labelStyle}>來源起點 in（秒）</label>
+        <label className="field">來源起點 in（秒）</label>
         <input
           type="number"
           step="0.1"
-          style={inputStyle}
           value={a.in}
           onChange={(e) => upd({ in: num(e) })}
         />
-        <label style={labelStyle}>長度（秒）</label>
+        <label className="field">長度（秒）</label>
         <input
           type="number"
           step="0.1"
-          style={inputStyle}
           value={a.duration}
           onChange={(e) => upd({ duration: num(e) })}
         />
-        <label style={labelStyle}>音量（0–2）</label>
+        <label className="field">音量（0–2）</label>
         <input
           type="number"
           step="0.1"
           min="0"
           max="2"
-          style={inputStyle}
           value={a.volume}
           onChange={(e) => upd({ volume: num(e) })}
         />
-        <label style={labelStyle}>淡入（秒）</label>
+        <label className="field">淡入（秒）</label>
         <input
           type="number"
           step="0.1"
           min="0"
-          style={inputStyle}
           value={a.fadeIn ?? 0}
           onChange={(e) => upd({ fadeIn: num(e) })}
         />
-        <label style={labelStyle}>淡出（秒）</label>
+        <label className="field">淡出（秒）</label>
         <input
           type="number"
           step="0.1"
           min="0"
-          style={inputStyle}
           value={a.fadeOut ?? 0}
           onChange={(e) => upd({ fadeOut: num(e) })}
         />
-        <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <input
             type="checkbox"
             checked={a.ducking === true}
@@ -215,13 +223,14 @@ export function Inspector() {
           播放時壓低影片原聲（ducking）
         </label>
         <button
-          style={{ marginTop: 12, color: '#f66' }}
+          className="btn-danger icon-btn"
+          style={{ marginTop: 12 }}
           onClick={() => {
             send({ name: 'removeAudio', id: a.id });
             useSelection.getState().select(null);
           }}
         >
-          刪除音訊
+          <Trash2 size={13} /> 刪除音訊
         </button>
       </div>
     );
@@ -231,36 +240,33 @@ export function Inspector() {
     const cap = doc.tracks.captions.find((c) => c.id === selected.id);
     if (!cap) return null;
     return (
-      <div style={{ padding: 12 }}>
+      <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>字幕</h3>
-        <label style={labelStyle}>文字</label>
+        <label className="field">文字</label>
         <textarea
-          style={{ ...inputStyle, minHeight: 48 }}
+          style={{ minHeight: 48 }}
           value={cap.text}
           onChange={(e) =>
             send({ name: 'updateCaption', id: cap.id, patch: { text: e.target.value } })
           }
         />
-        <label style={labelStyle}>起點（秒）</label>
+        <label className="field">起點（秒）</label>
         <input
           type="number"
           step="0.1"
-          style={inputStyle}
           value={cap.start}
           onChange={(e) => send({ name: 'updateCaption', id: cap.id, patch: { start: num(e) } })}
         />
-        <label style={labelStyle}>長度（秒）</label>
+        <label className="field">長度（秒）</label>
         <input
           type="number"
           step="0.1"
-          style={inputStyle}
           value={cap.duration}
           onChange={(e) => send({ name: 'updateCaption', id: cap.id, patch: { duration: num(e) } })}
         />
-        <label style={labelStyle}>字級</label>
+        <label className="field">字級</label>
         <input
           type="number"
-          style={inputStyle}
           value={cap.style.fontSize}
           onChange={(e) =>
             send({
@@ -270,10 +276,9 @@ export function Inspector() {
             })
           }
         />
-        <label style={labelStyle}>顏色</label>
+        <label className="field">顏色</label>
         <input
           type="color"
-          style={inputStyle}
           value={cap.style.fill}
           onChange={(e) =>
             send({
@@ -283,13 +288,12 @@ export function Inspector() {
             })
           }
         />
-        <label style={labelStyle}>垂直位置 y（0–1）</label>
+        <label className="field">垂直位置 y（0–1）</label>
         <input
           type="number"
           step="0.05"
           min="0"
           max="1"
-          style={inputStyle}
           value={cap.style.y}
           onChange={(e) =>
             send({
@@ -307,13 +311,12 @@ export function Inspector() {
   const ov = doc.tracks.overlays.find((o) => o.id === selected.id);
   if (!ov) return null;
   return (
-    <div style={{ padding: 12 }}>
+    <div className="form" style={{ padding: 12 }}>
       <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Overlay {ov.imagePath.split('/').pop()}</h3>
-      <label style={labelStyle}>x（0–1）</label>
+      <label className="field">x（0–1）</label>
       <input
         type="number"
         step="0.05"
-        style={inputStyle}
         value={ov.position.x}
         onChange={(e) =>
           send({
@@ -323,11 +326,10 @@ export function Inspector() {
           })
         }
       />
-      <label style={labelStyle}>y（0–1）</label>
+      <label className="field">y（0–1）</label>
       <input
         type="number"
         step="0.05"
-        style={inputStyle}
         value={ov.position.y}
         onChange={(e) =>
           send({
@@ -337,11 +339,10 @@ export function Inspector() {
           })
         }
       />
-      <label style={labelStyle}>縮放</label>
+      <label className="field">縮放</label>
       <input
         type="number"
         step="0.1"
-        style={inputStyle}
         value={ov.position.scale}
         onChange={(e) =>
           send({

@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { useProject } from './stores/project.js';
 import { useToast } from './stores/toast.js';
 import { useSelection } from './stores/selection.js';
@@ -10,7 +11,7 @@ import { Inspector } from './panels/Inspector.js';
 import { Activity } from './panels/Activity.js';
 import { CaptionList } from './panels/CaptionList.js';
 import { ReviewBar } from './panels/ReviewBar.js';
-import { RenderBar } from './panels/RenderBar.js';
+import { ExportMenu } from './panels/ExportMenu.js';
 import { sendCommand, sendContext } from './ws.js';
 
 function Toast() {
@@ -29,10 +30,12 @@ function Toast() {
         bottom: 16,
         left: '50%',
         transform: 'translateX(-50%)',
-        background: '#832',
-        color: '#fff',
+        background: '#2a1620',
+        border: '1px solid rgba(248,113,113,0.4)',
+        color: 'var(--text-1)',
         padding: '8px 16px',
-        borderRadius: 6,
+        borderRadius: 'var(--r-ctl)',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
         zIndex: 100,
       }}
     >
@@ -47,6 +50,10 @@ export function App() {
   const connected = useProject((s) => s.connected);
   const selection = useSelection((s) => s.selected);
   const playhead = usePlayback((s) => s.time);
+  const leftOpen = useView((s) => s.leftOpen);
+  const rightOpen = useView((s) => s.rightOpen);
+  const [tab, setTab] = useState<'captions' | 'activity'>('captions');
+  const captionCount = doc?.tracks.captions.length ?? 0;
 
   // 編輯快捷鍵（CapCut 慣例）。在輸入框內打字時全部不作用。
   useEffect(() => {
@@ -125,43 +132,154 @@ export function App() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '6px 12px', borderBottom: '1px solid #333', fontSize: 13 }}>
-        {connected ? '🟢' : '🔴'} {doc?.name ?? '—'} v{version}
-      </div>
-      <ReviewBar />
-      <div
-        style={{ flex: 1, display: 'grid', gridTemplateColumns: '260px 1fr 320px', minHeight: 0 }}
+      {/* 頂欄：品牌 / 專案 / 連線 / 匯出 */}
+      <header
+        className="glass"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '7px 14px',
+          position: 'relative',
+          zIndex: 30,
+        }}
       >
-        {/* 左：Inspector */}
-        <div style={{ borderRight: '1px solid #333', overflowY: 'auto' }}>
-          <Inspector />
-        </div>
-        {/* 中：預覽 */}
-        <div style={{ overflowY: 'auto', padding: 12 }}>
-          <Player />
-        </div>
-        {/* 右：字幕列表 + 活動（上下分割，兩者各自捲動） */}
-        <div
+        <b
           style={{
-            borderLeft: '1px solid #333',
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 0,
+            fontSize: 15,
+            background: 'linear-gradient(90deg, #a78bfa, #60a5fa)',
+            WebkitBackgroundClip: 'text',
+            color: 'transparent',
           }}
         >
-          <div style={{ flex: '1.3 1 0', minHeight: 0, borderBottom: '1px solid #333' }}>
-            <CaptionList />
+          vidcut
+        </b>
+        <span className="tag">
+          {doc?.name ?? '—'} · v{version}
+        </span>
+        <span className="tag" style={{ marginLeft: 'auto' }}>
+          <span style={{ color: connected ? 'var(--ok)' : 'var(--danger)' }}>●</span>{' '}
+          {connected ? '已連線' : '未連線'}
+        </span>
+        <ExportMenu />
+      </header>
+
+      {/* 內容區：審核條 overlay 蓋在上面，不擠壓版面 */}
+      <div
+        style={{
+          position: 'relative',
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0,
+        }}
+      >
+        <ReviewBar />
+        <div
+          style={{
+            flex: 1,
+            display: 'grid',
+            gridTemplateColumns: `${leftOpen ? '260px' : '0px'} 1fr ${rightOpen ? '320px' : '0px'}`,
+            minHeight: 0,
+            transition: 'grid-template-columns 0.25s ease',
+          }}
+        >
+          {/* 左：屬性（外層 hidden、內層固定寬 → 收合時內容不變形） */}
+          <div style={{ overflow: 'hidden', borderRight: leftOpen ? '1px solid var(--line)' : 'none' }}>
+            <div style={{ width: 260, height: '100%', overflowY: 'auto' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '8px 12px 0',
+                }}
+              >
+                <span className="panel-head">屬性</span>
+                <button
+                  className="icon-btn"
+                  onClick={() => useView.getState().toggleLeft()}
+                  title="收合屬性欄"
+                  style={{ marginLeft: 'auto', padding: '3px 5px' }}
+                >
+                  <PanelLeftClose size={14} />
+                </button>
+              </div>
+              <Inspector />
+            </div>
           </div>
-          <div style={{ flex: '1 1 0', minHeight: 0 }}>
-            <Activity />
+
+          {/* 中：預覽（含收合後的展開鈕） */}
+          <div style={{ overflowY: 'auto', padding: 12, position: 'relative' }}>
+            {!leftOpen && (
+              <button
+                className="icon-btn"
+                onClick={() => useView.getState().toggleLeft()}
+                title="展開屬性欄"
+                style={{ position: 'absolute', left: 8, top: 8, zIndex: 5 }}
+              >
+                <PanelLeftOpen size={14} />
+              </button>
+            )}
+            {!rightOpen && (
+              <button
+                className="icon-btn"
+                onClick={() => useView.getState().toggleRight()}
+                title="展開字幕/活動欄"
+                style={{ position: 'absolute', right: 8, top: 8, zIndex: 5 }}
+              >
+                <PanelRightOpen size={14} />
+              </button>
+            )}
+            <Player />
+          </div>
+
+          {/* 右：字幕 ⇄ 活動分頁 */}
+          <div style={{ overflow: 'hidden', borderLeft: rightOpen ? '1px solid var(--line)' : 'none' }}>
+            <div
+              style={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column' }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '8px 10px',
+                  borderBottom: '1px solid var(--line)',
+                }}
+              >
+                <button
+                  className={`seg${tab === 'captions' ? ' on' : ''}`}
+                  onClick={() => setTab('captions')}
+                >
+                  字幕 {captionCount > 0 && <span className="badge">{captionCount}</span>}
+                </button>
+                <button
+                  className={`seg${tab === 'activity' ? ' on' : ''}`}
+                  onClick={() => setTab('activity')}
+                >
+                  活動
+                </button>
+                <button
+                  className="icon-btn"
+                  onClick={() => useView.getState().toggleRight()}
+                  title="收合"
+                  style={{ marginLeft: 'auto', padding: '3px 5px' }}
+                >
+                  <PanelRightClose size={14} />
+                </button>
+              </div>
+              <div data-tab-body style={{ flex: 1, minHeight: 0 }}>
+                {tab === 'captions' ? <CaptionList /> : <Activity />}
+              </div>
+            </div>
           </div>
         </div>
       </div>
-      {/* 底：時間軸 + 渲染 */}
-      <div style={{ borderTop: '1px solid #333', padding: 8 }}>
+
+      {/* 底：時間軸 */}
+      <div style={{ borderTop: '1px solid var(--line)', padding: 8 }}>
         <Timeline />
       </div>
-      <RenderBar />
       <Toast />
     </div>
   );

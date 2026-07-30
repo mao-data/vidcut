@@ -60,38 +60,34 @@ export function CaptionList() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: 8,
-          borderBottom: '1px solid #333',
-          flexWrap: 'wrap',
-        }}
-      >
-        <strong style={{ fontSize: 13 }}>字幕</strong>
-        <span style={{ fontSize: 12, color: '#888' }}>{captions.length} 句</span>
-        {captions.length > 0 && (
-          <>
-            <button
-              onClick={() => applyStyleToAll(captions[0]!.style)}
-              title="把第一句的樣式套用到全部"
-            >
-              樣式套全部
+      {captions.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: 8,
+            borderBottom: '1px solid var(--line)',
+            flexWrap: 'wrap',
+          }}
+        >
+          <button
+            onClick={() => applyStyleToAll(captions[0]!.style)}
+            title="把第一句的樣式套用到全部"
+          >
+            樣式套全部
+          </button>
+          {hasTokens && (
+            <button onClick={toggleKaraoke} title="移除逐詞時間戳（改回整句顯示）">
+              關閉逐詞高亮
             </button>
-            {hasTokens && (
-              <button onClick={toggleKaraoke} title="移除逐詞時間戳（改回整句顯示）">
-                關閉逐詞高亮
-              </button>
-            )}
-          </>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       <div style={{ overflowY: 'auto', flex: 1, fontSize: 12 }}>
         {captions.length === 0 && (
-          <div style={{ padding: 8, color: '#777' }}>
+          <div style={{ padding: 10, color: 'var(--text-3)' }}>
             尚無字幕。請 AI 跑 <code>auto_caption</code>（whisper 辨識 → 自動斷句 → 逐詞高亮）。
           </div>
         )}
@@ -102,13 +98,18 @@ export function CaptionList() {
           return (
             <div
               key={cap.id}
+              className="rowline"
               onClick={() => useSelection.getState().select({ kind: 'caption', id: cap.id })}
               style={{
                 display: 'flex',
                 gap: 8,
                 padding: '4px 8px',
-                borderBottom: '1px solid #262626',
-                background: isSelected ? '#2b3550' : isCurrent ? '#23281f' : undefined,
+                borderBottom: '1px solid var(--line)',
+                background: isSelected
+                  ? 'var(--accent-soft)'
+                  : isCurrent
+                    ? 'rgba(139, 92, 246, 0.08)'
+                    : undefined,
                 cursor: 'pointer',
               }}
             >
@@ -118,7 +119,8 @@ export function CaptionList() {
                   usePlayback.getState().seek(cap.start);
                 }}
                 title="跳到這句"
-                style={{ minWidth: 54, fontVariantNumeric: 'tabular-nums' }}
+                className="mono"
+                style={{ minWidth: 54 }}
               >
                 {fmt(cap.start)}
               </button>

@@ -1,3 +1,4 @@
+import { Undo2 } from 'lucide-react';
 import { useActivity } from '../stores/activity.js';
 import { sendCommand } from '../ws.js';
 
@@ -13,16 +14,19 @@ export function Activity() {
           alignItems: 'center',
           gap: 8,
           padding: 8,
-          borderBottom: '1px solid #333',
+          borderBottom: '1px solid var(--line)',
         }}
       >
-        <strong style={{ fontSize: 13 }}>活動</strong>
-        <button onClick={() => sendCommand({ name: 'undo', steps: 1 })} title="Cmd+Z">
-          ↶ 復原
+        <button
+          className="icon-btn"
+          onClick={() => sendCommand({ name: 'undo', steps: 1 })}
+          title="Cmd+Z"
+        >
+          <Undo2 size={13} /> 復原
         </button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: 8, fontSize: 12 }}>
-        {recent.length === 0 && <div style={{ color: '#777' }}>尚無變更</div>}
+        {recent.length === 0 && <div style={{ color: 'var(--text-3)' }}>尚無變更</div>}
         {recent.map((e) => (
           <div
             key={e.version}
@@ -30,7 +34,7 @@ export function Activity() {
               display: 'flex',
               gap: 6,
               padding: '2px 0',
-              color: e.source === 'ai' ? '#8cf' : '#cec',
+              color: e.source === 'ai' ? '#c4b5fd' : 'var(--audio-bright)',
             }}
           >
             <span style={{ opacity: 0.6, minWidth: 28 }}>v{e.version}</span>

@@ -151,9 +151,12 @@ export function Player() {
         style={{
           position: 'relative',
           aspectRatio: '9/16',
-          maxHeight: '70vh',
+          maxHeight: '72vh',
           margin: '0 auto',
           background: '#000',
+          borderRadius: 10,
+          overflow: 'hidden',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px var(--line-strong)',
         }}
       >
         {blurFill && (
@@ -208,14 +211,6 @@ export function Player() {
             {c.tokens && c.tokens.length > 0 ? <Karaoke cap={c} time={time} /> : c.text}
           </div>
         ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', padding: 8 }}>
-        <button
-          onClick={() => (playing ? usePlayback.getState().pause() : usePlayback.getState().play())}
-        >
-          {playing ? '⏸' : '▶'}
-        </button>
-        <span>{time.toFixed(2)}s</span>
       </div>
     </div>
   );
