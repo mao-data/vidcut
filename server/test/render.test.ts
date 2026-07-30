@@ -90,7 +90,14 @@ describe('buildRenderArgs', () => {
     // 有字卡 → 以 overlay 合成
     const withCards = buildRenderArgs(p, '/x', '/x/o.mp4', {
       hasDrawtext: false,
-      captionCards: [{ cap: p.tracks.captions[0]!, relPath: 'derived/captions/cap1.png' }],
+      captionCards: [
+        {
+          cap: p.tracks.captions[0]!,
+          relPath: 'derived/captions/cap1.png',
+          start: 1,
+          end: 3,
+        },
+      ],
     });
     expect(withCards.captionsBurned).toBe(true);
     // clip inputs(2) + overlay input(1) + caption card input(1) = 4

@@ -59,6 +59,18 @@ export interface CaptionStyle {
   stroke?: string;
   /** 垂直位置 0–1（直式短片以此為主） */
   y: number;
+  /** 逐詞高亮色：已唸到的詞用這色（僅在 caption 有 tokens 時生效） */
+  highlight?: string;
+}
+
+/**
+ * 逐詞時間戳。時間為**時間軸絕對秒數**（與 CaptionItem.start 同座標），
+ * 不是相對 caption 起點——省掉每次讀取都要加減 start 的機會錯誤。
+ */
+export interface CaptionToken {
+  text: string;
+  start: number;
+  end: number;
 }
 
 export interface CaptionItem {
@@ -67,6 +79,8 @@ export interface CaptionItem {
   start: number;
   duration: number;
   style: CaptionStyle;
+  /** 有值時預覽與渲染都做逐詞 karaoke 高亮（渲染改走 PNG 字卡，見 render.ts） */
+  tokens?: CaptionToken[];
 }
 
 export interface AudioItem {
@@ -159,7 +173,8 @@ export type Command =
   | {
       name: 'updateCaption';
       id: string;
-      patch: Partial<Pick<CaptionItem, 'text' | 'start' | 'duration' | 'style'>>;
+      /** tokens 給空陣列＝清除逐詞時間戳（JSON 無法傳 undefined，需要可序列化的「清除」） */
+      patch: Partial<Pick<CaptionItem, 'text' | 'start' | 'duration' | 'style' | 'tokens'>>;
     }
   | { name: 'setOverlays'; overlays: OverlayItem[] }
   | { name: 'setCaptions'; captions: CaptionItem[] }

@@ -8,6 +8,7 @@ import { Player } from './player/Player.js';
 import { Timeline } from './timeline/Timeline.js';
 import { Inspector } from './panels/Inspector.js';
 import { Activity } from './panels/Activity.js';
+import { CaptionList } from './panels/CaptionList.js';
 import { ReviewBar } from './panels/ReviewBar.js';
 import { RenderBar } from './panels/RenderBar.js';
 import { sendCommand, sendContext } from './ws.js';
@@ -129,7 +130,7 @@ export function App() {
       </div>
       <ReviewBar />
       <div
-        style={{ flex: 1, display: 'grid', gridTemplateColumns: '260px 1fr 300px', minHeight: 0 }}
+        style={{ flex: 1, display: 'grid', gridTemplateColumns: '260px 1fr 320px', minHeight: 0 }}
       >
         {/* 左：Inspector */}
         <div style={{ borderRight: '1px solid #333', overflowY: 'auto' }}>
@@ -139,9 +140,21 @@ export function App() {
         <div style={{ overflowY: 'auto', padding: 12 }}>
           <Player />
         </div>
-        {/* 右：活動 */}
-        <div style={{ borderLeft: '1px solid #333' }}>
-          <Activity />
+        {/* 右：字幕列表 + 活動（上下分割，兩者各自捲動） */}
+        <div
+          style={{
+            borderLeft: '1px solid #333',
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+          }}
+        >
+          <div style={{ flex: '1.3 1 0', minHeight: 0, borderBottom: '1px solid #333' }}>
+            <CaptionList />
+          </div>
+          <div style={{ flex: '1 1 0', minHeight: 0 }}>
+            <Activity />
+          </div>
         </div>
       </div>
       {/* 底：時間軸 + 渲染 */}

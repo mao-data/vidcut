@@ -1,11 +1,34 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { totalDuration } from '@vidcut/shared';
+import { activeTokenIndex, totalDuration, type CaptionItem } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { planAt } from './plan.js';
 
 const DRIFT_TOLERANCE = 0.06; // 60ms
 const PRELAUNCH = 0.05; // 邊界前 50ms 啟動 next
+
+/**
+ * 逐詞高亮。預覽端只是把每個詞包成 span 依 playhead 換顏色——
+ * 渲染端要一個詞一張 PNG 字卡，但這裡幾乎免費，所以預覽是「真的所見即所得」。
+ * 排版交給瀏覽器換行，與 text_card.py 的貪婪換行不會完全一致（字型度量不同），
+ * 位置與斷行的最終依據是成片。
+ */
+function Karaoke({ cap, time }: { cap: CaptionItem; time: number }) {
+  const active = activeTokenIndex(cap, time);
+  return (
+    <>
+      {cap.tokens!.map((tok, i) => (
+        <span
+          key={i}
+          style={{ color: i <= active ? (cap.style.highlight ?? cap.style.fill) : cap.style.fill }}
+        >
+          {i > 0 && /\w$/.test(cap.tokens![i - 1]!.text) && /^\w/.test(tok.text) ? ' ' : ''}
+          {tok.text}
+        </span>
+      ))}
+    </>
+  );
+}
 
 /**
  * 雙 <video> A/B 無縫引擎（spec §7）。active 出聲、spare premount 下一片段並靜音；
@@ -182,7 +205,7 @@ export function Player() {
               pointerEvents: 'none',
             }}
           >
-            {c.text}
+            {c.tokens && c.tokens.length > 0 ? <Karaoke cap={c} time={time} /> : c.text}
           </div>
         ))}
       </div>

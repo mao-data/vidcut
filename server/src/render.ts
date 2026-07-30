@@ -15,18 +15,33 @@ export interface CaptionCard {
   cap: CaptionItem;
   /** 相對專案資料夾的透明 PNG 路徑 */
   relPath: string;
+  /** 這張卡的顯示時間窗（逐詞高亮時＝該詞的時間窗，否則＝整條 caption） */
+  start: number;
+  end: number;
 }
 
 /**
+ * 字卡總數上限。逐詞高亮是「一個詞一張卡」，每張卡都是一個 ffmpeg input +
+ * 一個 overlay 濾鏡，太多會撞到 ffmpeg 的實際限制且拖慢渲染。
+ */
+const MAX_CAPTION_CARDS = 600;
+
+/**
  * 用 Pillow 把一條 caption 畫成透明 PNG 字卡（繞過 ffmpeg 無 drawtext）。
- * 回傳相對專案資料夾的路徑。
+ * 給 tokenIndex 時畫成逐詞高亮的第 N 個狀態。回傳相對專案資料夾的路徑。
  */
 export function renderCaptionCard(
   projectDir: string,
   cap: CaptionItem,
   canvasWidth: number,
+  tokenIndex?: number,
 ): Promise<string> {
-  const relPath = join('derived', 'captions', `${cap.id}.png`);
+  const karaoke = tokenIndex !== undefined && cap.tokens && cap.tokens.length > 0;
+  const relPath = join(
+    'derived',
+    'captions',
+    karaoke ? `${cap.id}_${tokenIndex}.png` : `${cap.id}.png`,
+  );
   const outPath = join(projectDir, relPath);
   const payload = JSON.stringify({
     out: outPath,
@@ -35,6 +50,13 @@ export function renderCaptionCard(
     fill: cap.style.fill,
     stroke: cap.style.stroke ?? null,
     width: canvasWidth,
+    ...(karaoke
+      ? {
+          tokens: cap.tokens!.map((t) => t.text),
+          activeIndex: tokenIndex,
+          highlight: cap.style.highlight ?? cap.style.fill,
+        }
+      : null),
   });
   return new Promise<string>((resolve, reject) => {
     const child = spawn('python3', [TEXT_CARD_PY], { stdio: ['pipe', 'ignore', 'pipe'] });
@@ -50,6 +72,40 @@ export function renderCaptionCard(
     child.stdin.write(payload);
     child.stdin.end();
   });
+}
+
+/**
+ * 一條 caption → 要疊上去的字卡們。
+ * 沒有 tokens：一張卡蓋整條 caption。
+ * 有 tokens（karaoke）：一個詞一張卡，時間窗＝相鄰詞的邊界；因為排版是確定性的，
+ * 這些卡幾何完全對齊，播起來就是同一行字逐詞變色。
+ */
+export async function renderCaptionCards(
+  projectDir: string,
+  cap: CaptionItem,
+  canvasWidth: number,
+): Promise<CaptionCard[]> {
+  const end = cap.start + cap.duration;
+  const tokens = cap.tokens;
+  if (!tokens || tokens.length === 0) {
+    return [
+      {
+        cap,
+        relPath: await renderCaptionCard(projectDir, cap, canvasWidth),
+        start: cap.start,
+        end,
+      },
+    ];
+  }
+  return Promise.all(
+    tokens.map(async (tok, k) => ({
+      cap,
+      relPath: await renderCaptionCard(projectDir, cap, canvasWidth, k),
+      // 用下一個詞的起點當結束，讓高亮期間沒有空隙
+      start: Math.max(cap.start, tok.start),
+      end: tokens[k + 1] ? Math.max(tok.start, tokens[k + 1]!.start) : end,
+    })),
+  );
 }
 
 /** 偵測本機 ffmpeg 是否有 drawtext（libfreetype）。快取結果。 */
@@ -96,7 +152,7 @@ const DUCK_LEVEL = 0.25;
  * 影片：每片段 input-level -ss/-t 精確剪（一律重新編碼，不用 -c copy）→ scale/pad 1080×1920 → concat。
  * overlay PNG：overlay 濾鏡（time enable、位置由 0–1 換算）。
  * 音訊：有聲用片段聲音、無聲補 anullsrc → concat。
- * captions：drawtext 可用才燒（否則跳過並回報）。
+ * captions：有字卡就疊字卡（逐詞高亮只能走這條），否則用原生 drawtext。
  */
 export function buildRenderArgs(
   project: Project,
@@ -111,8 +167,8 @@ export function buildRenderArgs(
   const overlays = project.tracks.overlays;
   const audioItems = project.tracks.audio;
   const captionCards = opts.captionCards ?? [];
-  // drawtext 可用就原生燒字；否則走 PNG 字卡（overlay）
-  const useCards = !opts.hasDrawtext && captionCards.length > 0;
+  // 有字卡就用字卡（呼叫端已判斷需不需要）；沒有字卡才退回原生 drawtext
+  const useCards = captionCards.length > 0;
   const total = totalDuration(project);
 
   const args: string[] = [];
@@ -254,9 +310,20 @@ export function buildRenderArgs(
     vcur = next;
   });
 
-  // captions：drawtext 可用 → 原生燒字；否則 → PNG 字卡（overlay）
+  // captions：有字卡就疊字卡（逐詞高亮只能走這條）；否則用原生 drawtext
   let captionsBurned = false;
-  if (opts.hasDrawtext && project.tracks.captions.length > 0) {
+  if (useCards) {
+    // 字卡 PNG 全寬、水平已置中；overlay 於 x=0、y=H*style.y，依各自時間窗 enable
+    captionCards.forEach((cc, k) => {
+      const inputIdx = captionInputBase + k;
+      const next = `[capc${k}]`;
+      const enable = `enable='between(t\\,${cc.start}\\,${cc.end})'`;
+      const y = `(H*${cc.cap.style.y})`;
+      fc.push(`${vcur}[${inputIdx}:v]overlay=x=0:y=${y}:${enable}${next}`);
+      vcur = next;
+    });
+    captionsBurned = true;
+  } else if (opts.hasDrawtext && project.tracks.captions.length > 0) {
     for (const cap of project.tracks.captions) {
       const next = `[cap_${cap.id}]`;
       const yExpr = `(h*${cap.style.y})`;
@@ -268,17 +335,6 @@ export function buildRenderArgs(
       );
       vcur = next;
     }
-    captionsBurned = true;
-  } else if (useCards) {
-    // 字卡 PNG 全寬、水平已置中；overlay 於 x=0、y=H*style.y，依時間 enable
-    captionCards.forEach((cc, k) => {
-      const inputIdx = captionInputBase + k;
-      const next = `[capc${k}]`;
-      const enable = `enable='between(t\\,${cc.cap.start}\\,${cc.cap.start + cc.cap.duration})'`;
-      const y = `(H*${cc.cap.style.y})`;
-      fc.push(`${vcur}[${inputIdx}:v]overlay=x=0:y=${y}:${enable}${next}`);
-      vcur = next;
-    });
     captionsBurned = true;
   }
 
@@ -359,16 +415,24 @@ export async function render(
     }
   }
 
-  // 無 drawtext 且有字幕 → 先用 Pillow 產字卡 PNG
+  // 需要字卡的兩種情況：本機沒有 drawtext，或有逐詞高亮（drawtext 做不到逐詞著色）
+  const captions = project.tracks.captions;
+  const karaoke = captions.some((c) => c.tokens && c.tokens.length > 0);
   let captionCards: CaptionCard[] = [];
-  if (!drawtext && project.tracks.captions.length > 0) {
+  if (captions.length > 0 && (!drawtext || karaoke)) {
+    // 先估數量再產圖——否則超量時會先寫上千張 PNG 才報錯
+    const expected = captions.reduce((n, c) => n + Math.max(1, c.tokens?.length ?? 1), 0);
+    if (expected > MAX_CAPTION_CARDS) {
+      throw new Error(
+        `字卡數 ${expected} 超過上限 ${MAX_CAPTION_CARDS}（逐詞高亮＝一詞一張卡）。` +
+          '請減少字幕數、關掉 karaoke（auto_caption 的 karaoke:false），或分段渲染。',
+      );
+    }
     await mkdir(join(projectDir, 'derived', 'captions'), { recursive: true });
-    captionCards = await Promise.all(
-      project.tracks.captions.map(async (cap) => ({
-        cap,
-        relPath: await renderCaptionCard(projectDir, cap, project.canvas.width),
-      })),
+    const perCaption = await Promise.all(
+      captions.map((cap) => renderCaptionCards(projectDir, cap, project.canvas.width)),
     );
+    captionCards = perCaption.flat();
   }
   const plan = buildRenderArgs(project, projectDir, outPath, {
     export: exportOpts,

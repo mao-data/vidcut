@@ -151,9 +151,9 @@ describe('audio item editing', () => {
     expect(store.doc.tracks.audio[0]).toMatchObject({ volume: 0.4, fadeIn: 0.5, fadeOut: 1 });
 
     // fade 超過長度、in+duration 超出來源、音量越界 → 全部拒絕
-    expect(applyCommand(store, 'human', { name: 'updateAudio', id, patch: { fadeIn: 99 } }).ok).toBe(
-      false,
-    );
+    expect(
+      applyCommand(store, 'human', { name: 'updateAudio', id, patch: { fadeIn: 99 } }).ok,
+    ).toBe(false);
     expect(
       applyCommand(store, 'human', { name: 'updateAudio', id, patch: { in: 19, duration: 5 } }).ok,
     ).toBe(false);

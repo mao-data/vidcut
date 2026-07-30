@@ -2,7 +2,7 @@ import {
   locate,
   overlayWindow,
   totalDuration,
-  type CaptionStyle,
+  type CaptionItem,
   type Project,
 } from '@vidcut/shared';
 import { mediaUrl } from '../ws.js';
@@ -26,7 +26,8 @@ export interface PlayerPlan {
     src: string;
     position: { x: number; y: number; scale: number };
   }>;
-  captions: Array<{ id: string; text: string; style: CaptionStyle }>;
+  /** 直接給整條 CaptionItem：逐詞高亮需要 tokens，另投影一份只會漏欄位 */
+  captions: CaptionItem[];
   /** t 已達片尾 */
   done: boolean;
 }
@@ -58,8 +59,6 @@ export function planAt(p: Project, t: number): PlayerPlan {
       return w && t >= w.start && t < w.end;
     })
     .map((o) => ({ id: o.id, src: `/media/${o.imagePath}`, position: o.position }));
-  const captions = p.tracks.captions
-    .filter((c) => t >= c.start && t < c.start + c.duration)
-    .map((c) => ({ id: c.id, text: c.text, style: c.style }));
+  const captions = p.tracks.captions.filter((c) => t >= c.start && t < c.start + c.duration);
   return { active, next, overlays, captions, done };
 }

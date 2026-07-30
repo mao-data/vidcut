@@ -20,33 +20,33 @@
 
 ## Tier 1 — 快贏（每項數小時，體感立刻升級）
 
-| # | 功能 | 做法 | 成本 |
-|---|---|---|---|
-| 1 | **Canvas blur 背景填充** | 橫素材放進 9:16 的標配（官方都說比黑邊好看）。ffmpeg `split→scale放大→boxblur→overlay`；預覽端 CSS filter。9:16 產品剛需 | 低 |
-| 2 | **時間軸手感三件套** | Ctrl+滾輪縮放（`pxPerSecond` 變 state）、snap 吸附（playhead/片段邊緣/整秒/beat 點，8px 閾值＋垂直指示線）、Shift+Z zoom-to-fit | 低 |
-| 3 | **播放頭分割＋刪左刪右** | S/Ctrl+B 在 playhead 切開選中片段（資料層＝複製 clip 改兩者 in/duration）；Q/W 刪播放頭左/右段（磁性自動閉合）。粗剪最短路徑 | 低 |
-| 4 | **音訊完成度** | AudioItem 型別已預留：接 amix（旁白/BGM 進渲染）、fade in/out 滑桿、片段右鍵 Extract audio（ffmpeg 一行）、BGM 對白時段壓低（固定比例 ducking） | 低–中 |
-| 5 | **匯出選項＋封面** | 解析度/fps/位元率下拉（ffmpeg 參數映射）；封面＝從影片選一幀存獨立圖（我們已有抽幀能力） | 低 |
-| 6 | **Freeze frame** | 右鍵定格：抽單幀成 image clip 插入主軌 | 低–中 |
+| #   | 功能                     | 做法                                                                                                                                            | 成本  |
+| --- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| 1   | **Canvas blur 背景填充** | 橫素材放進 9:16 的標配（官方都說比黑邊好看）。ffmpeg `split→scale放大→boxblur→overlay`；預覽端 CSS filter。9:16 產品剛需                        | 低    |
+| 2   | **時間軸手感三件套**     | Ctrl+滾輪縮放（`pxPerSecond` 變 state）、snap 吸附（playhead/片段邊緣/整秒/beat 點，8px 閾值＋垂直指示線）、Shift+Z zoom-to-fit                 | 低    |
+| 3   | **播放頭分割＋刪左刪右** | S/Ctrl+B 在 playhead 切開選中片段（資料層＝複製 clip 改兩者 in/duration）；Q/W 刪播放頭左/右段（磁性自動閉合）。粗剪最短路徑                    | 低    |
+| 4   | **音訊完成度**           | AudioItem 型別已預留：接 amix（旁白/BGM 進渲染）、fade in/out 滑桿、片段右鍵 Extract audio（ffmpeg 一行）、BGM 對白時段壓低（固定比例 ducking） | 低–中 |
+| 5   | **匯出選項＋封面**       | 解析度/fps/位元率下拉（ffmpeg 參數映射）；封面＝從影片選一幀存獨立圖（我們已有抽幀能力）                                                        | 低    |
+| 6   | **Freeze frame**         | 右鍵定格：抽單幀成 image clip 插入主軌                                                                                                          | 低–中 |
 
 ## Tier 2 — AI-native 殺手鐧（vidcut 的差異化本體，MCP 工具為主）
 
-| # | 功能 | 做法 | 成本 |
-|---|---|---|---|
-| 7 | **偵測工具組（MCP）** | `detect_silence`（ffmpeg silencedetect）、`detect_scenes`（scdet/PySceneDetect）、`detect_beats`（librosa/aubio → beat 時間戳＋BPM）。全部回傳時間戳給 AI 決策，不黑箱自動剪。UI 把 beat/scene 畫成時間軸標記點，snap 可吸附 | 中 |
-| 8 | **逐字稿＋自動字幕（ROI 之王）** | whisper.cpp 本機跑 → `transcribe` MCP 工具回 word-level 時間戳 JSON → AI 排字幕/選段；UI 加「字幕 list view」（逐句改字比時間軸快得多，CapCut 的關鍵 UX）；樣式 preset 與文字分離、一鍵套全。進階：逐字 karaoke 高亮（PNG 字卡逐 word 渲染） | 中–高 |
-| 9 | **模板化＋批次** | `create_template`（時間軸→帶時長約束的素材槽位 JSON）＋`apply_template`（綁新素材）＋`batch_render`（模板×素材矩陣）。ranking 片天然是模板場景：同一套 overlay/節奏，每週換素材 | 中 |
-| 10 | **Transcript-based 長轉短** | 組合 #7＋#8＋LLM 判斷：AI 讀逐字稿選 highlight、每段給可解釋理由，request_review 給人核可。勝過 CapCut 場景式抽取的內容理解 | 中（無新模型） |
+| #   | 功能                             | 做法                                                                                                                                                                                                                                         | 成本           |
+| --- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| 7   | **偵測工具組（MCP）**            | `detect_silence`（ffmpeg silencedetect）、`detect_scenes`（scdet/PySceneDetect）、`detect_beats`（librosa/aubio → beat 時間戳＋BPM）。全部回傳時間戳給 AI 決策，不黑箱自動剪。UI 把 beat/scene 畫成時間軸標記點，snap 可吸附                 | 中             |
+| 8   | **逐字稿＋自動字幕（ROI 之王）** | whisper.cpp 本機跑 → `transcribe` MCP 工具回 word-level 時間戳 JSON → AI 排字幕/選段；UI 加「字幕 list view」（逐句改字比時間軸快得多，CapCut 的關鍵 UX）；樣式 preset 與文字分離、一鍵套全。進階：逐字 karaoke 高亮（PNG 字卡逐 word 渲染） | 中–高          |
+| 9   | **模板化＋批次**                 | `create_template`（時間軸→帶時長約束的素材槽位 JSON）＋`apply_template`（綁新素材）＋`batch_render`（模板×素材矩陣）。ranking 片天然是模板場景：同一套 overlay/節奏，每週換素材                                                              | 中             |
+| 10  | **Transcript-based 長轉短**      | 組合 #7＋#8＋LLM 判斷：AI 讀逐字稿選 highlight、每段給可解釋理由，request_review 給人核可。勝過 CapCut 場景式抽取的內容理解                                                                                                                  | 中（無新模型） |
 
 ## Tier 3 — 表現力（中型，體感差異大但非地基）
 
-| # | 功能 | 做法 | 成本 |
-|---|---|---|---|
-| 11 | **In/Out 動畫 preset** | 「給不懂 keyframe 的人用的 keyframe」——fade/slide/zoom 進出場，點選即套＋時長滑桿。底層建極簡插值，UI 不出 keyframe 編輯器 | 中 |
-| 12 | **Punch-in/zoom** | 現代短影音用 zoom 硬切取代轉場（workflow 文章共識）。片段級靜態 crop/scale＋「zoom-in 動畫」preset；渲染端 zoompan/crop | 中 |
-| 13 | **轉場（只做 5–8 種）** | cross-dissolve/黑場/滑動/zoom，「拖到接縫」的互動；渲染端 xfade。注意：A/B 預覽器要同時顯示兩段（opacity 疊化近似） | 中–高 |
-| 14 | **常速變速＋倒放** | setpts/atempo（0.5x–2x 先做）；曲線變速不做（高成本低頻） | 中 |
-| 15 | **片段級簡易調色** | 一個濾鏡＋亮度/對比/飽和三滑桿＋apply to all（ffmpeg eq；預覽 CSS filter 近似）。HSL/curves 不做 | 中 |
+| #   | 功能                    | 做法                                                                                                                       | 成本  |
+| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----- |
+| 11  | **In/Out 動畫 preset**  | 「給不懂 keyframe 的人用的 keyframe」——fade/slide/zoom 進出場，點選即套＋時長滑桿。底層建極簡插值，UI 不出 keyframe 編輯器 | 中    |
+| 12  | **Punch-in/zoom**       | 現代短影音用 zoom 硬切取代轉場（workflow 文章共識）。片段級靜態 crop/scale＋「zoom-in 動畫」preset；渲染端 zoompan/crop    | 中    |
+| 13  | **轉場（只做 5–8 種）** | cross-dissolve/黑場/滑動/zoom，「拖到接縫」的互動；渲染端 xfade。注意：A/B 預覽器要同時顯示兩段（opacity 疊化近似）        | 中–高 |
+| 14  | **常速變速＋倒放**      | setpts/atempo（0.5x–2x 先做）；曲線變速不做（高成本低頻）                                                                  | 中    |
+| 15  | **片段級簡易調色**      | 一個濾鏡＋亮度/對比/飽和三滑桿＋apply to all（ffmpeg eq；預覽 CSS filter 近似）。HSL/curves 不做                           | 中    |
 
 ## 明確不做（YAGNI，調研佐證）
 

@@ -3,7 +3,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import type { AudioItem, HistoryBrief, OverlayItem, CaptionItem } from '@vidcut/shared';
-import { totalDuration } from '@vidcut/shared';
+import { totalDuration, buildCaptionPages, DEFAULT_CAPTION_STYLE } from '@vidcut/shared';
+import { transcribe } from './asr.js';
 import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
@@ -92,7 +93,12 @@ const captionSchema = z
       fill: z.string(),
       stroke: z.string().optional(),
       y: z.number(),
+      highlight: z.string().optional().describe('逐詞高亮色（有 tokens 時，已唸到的詞用這色）'),
     }),
+    tokens: z
+      .array(z.object({ text: z.string(), start: z.number(), end: z.number() }))
+      .optional()
+      .describe('逐詞時間戳（時間軸絕對秒數）。有值時渲染會做 karaoke 逐詞高亮。'),
   })
   .strict();
 
@@ -133,11 +139,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
       instructions:
         'vidcut 直式短影音時間軸編輯器（1080×1920）。典型流程：import_media 匯入素材 → ' +
         'set_timeline 排片 → timeline_op 粗剪（split/deleteBefore/deleteAfter/freeze）→ ' +
-        'set_overlays / set_captions 上字 → set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
+        'set_overlays / set_captions 上字（講話類影片直接用 auto_caption 自動上字幕＋逐詞高亮）→ ' +
+        'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
-        'get_frame 可看某時刻的畫面。' +
+        'get_frame 可看某時刻的畫面；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
         '寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；審核進行中寫入會被拒。',
     },
   );
@@ -362,6 +369,85 @@ export function createMcpServer(deps: McpDeps): McpServer {
     async ({ steps }) => text(writeResultText(aiWrite(store, { name: 'undo', steps }))),
   );
 
+  // ---- 逐字稿與自動字幕 ----
+
+  server.registerTool(
+    'transcribe',
+    {
+      description:
+        '對「時間軸目前的混音」跑語音辨識（whisper.cpp），回傳逐詞時間戳。' +
+        '時間是時間軸絕對秒數，可直接當字幕時間用，不必換算來源時間。' +
+        '只讀不寫。要直接上字幕請用 auto_caption。',
+      inputSchema: {
+        language: z
+          .string()
+          .optional()
+          .describe("'auto'（預設）或語言碼，如 zh / en / ja。指定語言通常比自動偵測準"),
+      },
+    },
+    async ({ language }) => {
+      const r = await transcribe(store.doc, projectDir, { language });
+      return result(
+        {
+          language: r.language,
+          wordCount: r.words.length,
+          words: r.words,
+          text: r.text,
+          jsonPath: r.jsonPath,
+        },
+        `逐字稿：${r.words.length} 個詞（語言 ${r.language}）\n${r.text.slice(0, 400)}`,
+      );
+    },
+  );
+
+  server.registerTool(
+    'auto_caption',
+    {
+      description:
+        '一鍵自動字幕：辨識 → 分頁 → 寫入字幕軌（整組替換）。' +
+        'karaoke 預設開啟（逐詞高亮，渲染時一個詞一張字卡）。' +
+        '想自己控制斷句就改用 transcribe + set_captions。',
+      inputSchema: {
+        language: z.string().optional(),
+        karaoke: z.boolean().optional().describe('逐詞高亮，預設 true'),
+        maxGapMs: z.number().optional().describe('詞間停頓超過此值換頁（預設 400）'),
+        maxDurationMs: z.number().optional().describe('單頁最長毫秒（預設 2500）'),
+        maxUnits: z.number().optional().describe('單頁寬度上限，中文字計 2（預設 24）'),
+        style: z
+          .object({
+            fontFamily: z.string().optional(),
+            fontSize: z.number().optional(),
+            fill: z.string().optional(),
+            stroke: z.string().optional(),
+            y: z.number().optional(),
+            highlight: z.string().optional(),
+          })
+          .optional()
+          .describe('覆寫字幕樣式；省略的欄位用預設'),
+        ifVersion: z.number().optional(),
+      },
+    },
+    async ({ language, karaoke, maxGapMs, maxDurationMs, maxUnits, style, ifVersion }) => {
+      const r = await transcribe(store.doc, projectDir, { language });
+      const captions = buildCaptionPages(
+        r.words,
+        { karaoke, maxGapMs, maxDurationMs, maxUnits },
+        { ...DEFAULT_CAPTION_STYLE, ...style },
+      );
+      const write = aiWrite(store, { name: 'setCaptions', captions }, ifVersion);
+      return result(
+        {
+          language: r.language,
+          wordCount: r.words.length,
+          captionCount: captions.length,
+          captions,
+          write: write.ok ? { version: write.version } : { error: write.error },
+        },
+        `${writeResultText(write)}｜自動字幕 ${captions.length} 句 / ${r.words.length} 詞（${r.language}）`,
+      );
+    },
+  );
+
   // ---- 播放頭操作（粗剪主力）----
   server.registerTool(
     'timeline_op',
@@ -513,7 +599,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '從專案輸出成品 mp4（1080×1920，重新編碼）。回傳輸出路徑與 URL。' +
-        '本機 ffmpeg 若無 drawtext，字幕不會燒錄（captionsBurned=false）——重度文字請用 overlay PNG。',
+        '字幕會燒錄（本機無 drawtext 或有逐詞高亮時自動走 PNG 字卡）。' +
+        '逐詞高亮＝一個詞一張字卡，字幕很多時渲染會變慢。',
       inputSchema: {
         stamp: z.string().optional(),
         width: z.number().optional().describe('輸出寬（預設用專案畫布 1080）'),

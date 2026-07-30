@@ -227,6 +227,12 @@ function updateCaption(
       if (cmd.patch.start !== undefined) c.start = cmd.patch.start;
       if (cmd.patch.duration !== undefined) c.duration = cmd.patch.duration;
       if (cmd.patch.style !== undefined) c.style = cmd.patch.style;
+      if (cmd.patch.tokens !== undefined) {
+        // 空陣列＝清除逐詞時間戳。JSON 傳不了 undefined（鍵會整個消失），
+        // 所以「清除」必須有一個能被序列化的表示法。
+        if (cmd.patch.tokens.length === 0) delete c.tokens;
+        else c.tokens = cmd.patch.tokens;
+      }
     }),
   );
 }

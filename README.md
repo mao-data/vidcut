@@ -33,7 +33,7 @@ npm run dev:ui              # 另開終端機 → http://localhost:5173
 
 ```
 shared/   @vidcut/shared  型別 + 純函數（server/ui 共用）
-server/   @vidcut/server  ProjectStore、ffmpeg、ingest、http/ws、（M3）MCP、（M4）render
+server/   @vidcut/server  ProjectStore、ffmpeg、ingest、http/ws、MCP、render、asr（whisper）
 ui/       @vidcut/ui      React：ws client、A/B 播放器、時間軸
 ```
 
@@ -47,6 +47,7 @@ ui/       @vidcut/ui      React：ws client、A/B 播放器、時間軸
 - **M4 渲染** ✅ — ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + 渲染 UI
 
 - **T1 CapCut 快贏** ✅ — 播放頭分割/刪左右/定格、時間軸縮放吸附、音訊混音與 ducking、blur 填充、匯出選項、封面
+- **T2 #8 自動字幕** ✅ — whisper.cpp 逐字稿（`transcribe`）、一鍵自動字幕（`auto_caption`）、逐詞高亮、字幕列表 UI
 
 全部里程碑的核心功能已實作並自動化驗證。親眼驗收與 Claude Code 實連步驟見 [`HANDOFF.md`](HANDOFF.md)。
 

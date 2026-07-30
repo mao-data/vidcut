@@ -1,7 +1,7 @@
 # HANDOFF — vidcut 開發交接
 
 > 目前做到哪、怎麼驗、已知限制、下一步。
-> 最後更新：M1–M4 + T1 全部完成（tags `m1-done`…`m4-done`、`t1-done`）。
+> 最後更新：M1–M4 + T1 + T2#8（自動字幕）完成。
 
 ## 現況總覽
 
@@ -12,8 +12,9 @@
 | M3 AI 接上     | ✅ `m3-done` | MCP server（15 工具）+ request_review 審核閉環 + 編輯脈絡回報      |
 | M4 渲染        | ✅ `m4-done` | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕      |
 | T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                             |
+| T2 #8 自動字幕 | ✅           | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節         |
 
-**自動化狀態全綠**：97 個測試（shared 5 / server 65 / ui 27）、typecheck 三 workspace 乾淨、ESLint 0 問題、UI 可 build。全部走真 ffmpeg 與真 MCP/WS transport 驗證過。
+**自動化狀態全綠**：143 個測試（shared 27 / server 86 / ui 30）、typecheck 三 workspace 乾淨、ESLint 0 問題、UI 可 build。全部走真 ffmpeg、真 whisper 與真 MCP/WS transport 驗證過。
 
 ## T1（參考 CapCut 的快贏功能，tag `t1-done`）
 
@@ -26,9 +27,26 @@
 - **Canvas blur 填充**：橫素材放進 9:16 時用模糊放大填滿代替黑邊（渲染 boxblur + 預覽端獨立背景層）。
 - **匯出選項**：1080/720/4K 檔位、畫質（crf 18/20/24）、fps（24/30/60）、hevc；合成一律在畫布尺寸做完才縮放，overlay/字卡不會錯位。
 - **封面**：任意時間點設封面；已有成品時從成片抽（所見即所得）。
-- **新 MCP 工具（共 21 個）**：`timeline_op`（split/deleteBefore/deleteAfter/freeze 四合一）、`extract_audio`、`set_audio`、`update_audio`、`set_canvas_fit`、`set_cover`，`render` 新增匯出參數。
+- **新 MCP 工具**：`timeline_op`（split/deleteBefore/deleteAfter/freeze 四合一）、`extract_audio`、`set_audio`、`update_audio`、`set_canvas_fit`、`set_cover`，`render` 新增匯出參數。
 
-**下一步（Tier 2 AI-native 殺手鐧）**：偵測工具組（`detect_silence`/`detect_scenes`/`detect_beats` → 回傳時間戳給 AI 決策）、whisper 逐字稿＋自動字幕＋字幕 list view、**模板化＋批次渲染**、transcript 式長轉短。優先建議：beat 偵測 + 模板化（對 ranking 片管線立刻有感）。
+## T2 #8：自動字幕與逐詞高亮
+
+計畫見 [`docs/superpowers/plans/2026-07-30-vidcut-t2-captions.md`](docs/superpowers/plans/2026-07-30-vidcut-t2-captions.md)。
+
+- **新 MCP 工具**：`transcribe`（只讀，回逐詞時間戳）、`auto_caption`（辨識→斷句→寫入字幕軌，一步到位）。
+- **時間座標是時間軸絕對秒數**：ASR 吃的是「時間軸混音」，所以詞時間可直接當字幕時間，不必做來源↔時間軸換算。
+- **逐詞高亮（karaoke）**：`CaptionItem.tokens` 存逐詞時間戳。渲染時**一個詞一張 PNG 字卡**（排版確定性，所以 N 張卡幾何完全對齊，看起來就是同一行字在變色）；預覽端只是 DOM span 換顏色，幾乎免費。
+- **字幕列表面板**（右上）：點時間跳播、雙擊改字、刪除、樣式套全部。改字會自動清掉該句的 tokens——舊詞邊界對新文字沒有意義。
+- **依賴**：`brew install whisper-cpp` + 模型放 `~/.cache/whisper.cpp/`（現用 `ggml-large-v3-turbo-q5_0.bin`，547MB）。或用 `VIDCUT_WHISPER_MODEL` 指定路徑。沒裝時錯誤訊息會直接給安裝指令。
+
+**踩過的坑（whisper.cpp 1.9.1 實測，別重犯）**
+
+1. **不要用 `-ml 1 -sow`（一段一詞）取逐詞時間**。看起來最直覺，但 segment offsets 在長句尾段會**整批退化**成「全部等於音訊結尾」，最後一個詞還會拿到 **30 秒**（內部補齊的區塊邊界）。
+2. **正確來源是 `-ojf` 的 token 層 `t_dtw`**。同一次辨識裡它是正確且單調的（實測尾段 8.84→9.04→…→12.36，而 offsets 全是 12.39）。
+3. **DTW 要搭 `-nfa`**：whisper.cpp 的 flash attention 與 DTW 互斥，開著會**靜默停用** DTW（log 只有一行 `dtw_token_timestamps is not supported with flash_attn - disabling`）。
+4. **短音訊（約 4 秒以下）時間戳本來就會爛**，這不是我們的音訊管線問題（純 ffmpeg 轉的 wav 一樣）。`normalizeWords()` 會把擠在一點的詞攤開、把超出片長的夾回來。
+
+**下一步（Tier 2 其餘）**：偵測工具組（`detect_silence`/`detect_scenes`/`detect_beats` → 回傳時間戳給 AI 決策）、**模板化＋批次渲染**、transcript 式長轉短。優先建議：beat 偵測 + 模板化（對 ranking 片管線立刻有感）。
 
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
@@ -46,8 +64,9 @@ npm run dev:ui      # 終端機 B：http://localhost:5173
 
 1. 時間軸 5 clip（縮圖 + 波形；No.3 無音軌 → 平線），按 ▶ **切換有無黑幀/停頓**（M1 最關鍵）。
 2. 拖 clip 左右邊緣 trim、拖 clip 本體換順序、點 clip 在左欄改屬性、Cmd+Z 復原、右欄活動記錄。
-3. 底部「🎬 渲染成品」→ 進度條 → 完成後「開啟成品」連結播放，確認畫面/音訊/overlay。
-   （字幕不會燒進成品——見下方限制。）
+3. 底部「🎬 渲染成品」→ 進度條 → 完成後「開啟成品」連結播放，確認畫面/音訊/overlay/字幕。
+4. **自動字幕**：素材要有人聲才有意義。請 AI 跑 `auto_caption`，右上字幕列表會出現句子，
+   播放時預覽的字會逐詞亮起；渲染後成品也應該逐詞亮（我用像素數驗過，但觀感要你看）。
 
 ### B. 接 Claude Code（M3 的重點價值）
 
@@ -71,6 +90,14 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 
 需要 `pip3 install pillow`（已裝，12.3.0）。哪天換成含 freetype 的 ffmpeg，會自動改走原生 drawtext，不用改碼。重度文字（排名標題、迷因標籤）仍走 overlay PNG（與 `make_overlays.py` 一致），這條本來就正常。
 
+**本機 ffmpeg 濾鏡清單（2026-07-30 實測，避免重複調查）**
+
+| 有                                                                                                     | 沒有                                                                               |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `xfade`（轉場）、`zoompan`／`crop`（punch-in）、`geq`（逐像素表達式）、`sendcmd`、`overlay`、`boxblur` | `drawtext`／`libfreetype`、`ass`／`subtitles`（無 libass）、`frei0r`、`libplacebo` |
+
+意義：**Tier 3 的 punch-in/zoom 與轉場不需要新依賴**，本機 ffmpeg 就做得到。反之 ASS 字幕（`\k` 逐詞卡拉 OK、`\t()` 屬性插值）在這台機器上完全走不通，PNG 字卡不是次佳解而是唯一解；逐詞亮起要靠「一句話出 N 張字卡」實作，不是 ASS。
+
 ## 已知取捨（非 bug）
 
 - `undo` 為逐步 undo，「撤 undo = redo」是簡化；要正式 redo stack 之後再擴。
@@ -87,15 +114,17 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 ```
 shared/src/types.ts       全部型別（spec §3）+ Command/WS 協議
 shared/src/timeline.ts    純時間軸計算（locate/overlayWindow…）
+shared/src/captions.ts    逐字稿→字幕分頁、逐詞高亮索引、ASR 時間戳修正（純函數）★
 server/src/store.ts       ProjectStore：唯一真相來源、immer patch、history、undo、原子存檔
 server/src/commands.ts    applyCommand：人機共用的驗證過的編輯命令層 ★
 server/src/aiWrite.ts     AI 寫入守衛（審核中擋 + ifVersion 過期偵測）→ commands
 server/src/reviews.ts     ReviewManager：request_review 的核心（阻塞/核准/退回回滾/逾時）
 server/src/editorContext.ts 人的選取/playhead（給 get_editor_context）
-server/src/mcp.ts         21 個 MCP 工具 + /mcp 掛載 ★
+server/src/mcp.ts         23 個 MCP 工具 + /mcp 掛載 ★
 server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）
 server/src/render.ts      project.json → ffmpeg filter_complex 成品 + blur/定格/音訊混音/匯出選項/封面 ★
-server/scripts/text_card.py  文字 → 透明 PNG 字卡（Pillow）
+server/src/asr.ts         whisper.cpp 介接：時間軸混音→wav→逐詞時間戳（含 DTW 取用）★
+server/scripts/text_card.py  文字 → 透明 PNG 字卡（Pillow，含逐詞著色與貪婪換行）
 server/src/ffmpeg.ts      runFfmpeg/probe
 server/src/frame.ts       抽幀給 AI「看」
 server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render
@@ -104,7 +133,7 @@ ui/src/stores/            project（patch 套用）/ playback / selection / view
 ui/src/ws.ts              WS client：命令/脈絡/審核/渲染 送出 + 重連
 ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎）
 ui/src/timeline/          scale + dragMath（純函數）+ Timeline（trim/排序/選取/縮放/吸附）
-ui/src/panels/            Inspector / Activity / ReviewBar / RenderBar
+ui/src/panels/            Inspector / Activity / ReviewBar / RenderBar / CaptionList（字幕列表）
 ```
 
 ★ = 改動時最常碰、最核心的檔案。
@@ -114,7 +143,7 @@ ui/src/panels/            Inspector / Activity / ReviewBar / RenderBar
 ## 開發指令
 
 ```bash
-npm test          # 全部（含真 ffmpeg，約 15 秒）
+npm test          # 全部（含真 ffmpeg 與真 whisper，約 25 秒）
 npm run typecheck # 三 workspace tsc
 npm run lint      # ESLint（目前 0 問題）
 npm run format    # Prettier 寫入
@@ -125,7 +154,7 @@ npm run dev:ui    # Vite dev（proxy 到 :3845）
 ## 下一步建議（依價值排序）
 
 1. **親驗播放體感 + Claude Code 實連**（上面 A、B）。有問題記錄現象給我。
-2. **Tier 2 AI-native 殺手鐧**（見 gap analysis）：優先 **beat 偵測**（切點對拍，質感立刻上檔次）與 **模板化 + 批次渲染**（ranking 片變成換素材就好）。
+2. **Tier 2 其餘**（見 gap analysis；#8 自動字幕已完成）：優先 **beat 偵測**（切點對拍，質感立刻上檔次）與 **模板化 + 批次渲染**（ranking 片變成換素材就好）。
 3. **skill 整合**：把 `ranking-video-generator` 步驟 3–5 尾段改走 vidcut（import_media → set_timeline → set_overlays → request_review → render）；掃描/峰值/選段不動。詳見 `docs/superpowers/plans/2026-07-29-vidcut-m4.md` 末節。
 4. 其他增強：whisper 逐字稿＋自動字幕、**elicitation URL mode**、多分頁綁定（Vyra 式 Connect MCP）。
 
