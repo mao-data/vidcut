@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,8 +48,15 @@ if (isMain) {
     console.error('usage: dev -- <projectDir>');
     process.exit(1);
   }
-  const { server } = await startServer(resolve(dir));
+  const absDir = resolve(dir);
+  // 防呆：路徑打錯時會靜默開一個空專案，很難察覺——明確告知
+  if (!existsSync(join(absDir, 'project.json'))) {
+    console.warn(`⚠ ${join(absDir, 'project.json')} 不存在，將建立新的空專案。`);
+    console.warn('  若你想開既有專案，請確認路徑（相對路徑是相對於你執行指令的目錄）。');
+  }
+  const { server, store } = await startServer(absDir);
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : DEFAULT_PORT;
   console.log(`vidcut server on http://127.0.0.1:${port}  (MCP at /mcp)`);
+  console.log(`專案：${absDir}（${store.doc.tracks.video.length} 個片段）`);
 }
