@@ -1,0 +1,228 @@
+/* vidcut 設計系統（spec §1）。
+ * 策略：直接樣式化原生元素（button/select/input/textarea），
+ * 讓元件「刪掉 inline style 就變好看」；元件級只補少量佈局 class。
+ * 動態值（位置/寬度/進度）仍留在元件的 inline style。 */
+
+:root {
+  --bg: #0d0e16;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-2: rgba(255, 255, 255, 0.08);
+  --card: #272d49;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --text-1: #e6e7f0;
+  --text-2: #9ba0b8;
+  --text-3: #5d6275;
+  --accent: #8b5cf6;
+  --accent-2: #6366f1;
+  --accent-soft: rgba(139, 92, 246, 0.2);
+  --audio: #0ea5e9;
+  --audio-bright: #7dd3fc;
+  --ok: #34d399;
+  --danger: #f87171;
+  --hl: #fbbf24;
+  --r-panel: 10px;
+  --r-card: 9px;
+  --r-ctl: 7px;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #151726 0%, var(--bg) 40%);
+  color: var(--text-1);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'PingFang TC',
+    'Noto Sans TC',
+    sans-serif;
+  font-size: 13px;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 原生控件全面接管 ---- */
+button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    transform 0.12s ease;
+}
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+button:active:not(:disabled) {
+  transform: translateY(0);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: 1px solid transparent;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.35);
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #9a70f8, #7478f3);
+  border-color: transparent;
+}
+.btn-danger {
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+.btn-danger:hover:not(:disabled) {
+  border-color: rgba(248, 113, 113, 0.6);
+  background: rgba(248, 113, 113, 0.08);
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  line-height: 1;
+}
+.icon-btn svg {
+  flex: none;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-1);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 5px 8px;
+  transition: border-color 0.12s ease;
+}
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--line-strong);
+}
+input[type='color'] {
+  padding: 2px;
+  height: 28px;
+}
+input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+input[type='range'] {
+  accent-color: var(--accent);
+  padding: 0;
+  background: none;
+  border: none;
+}
+a {
+  color: #a5b4fc;
+}
+
+/* ---- 佈局積木 ---- */
+.glass {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.panel-head {
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--text-3);
+  text-transform: uppercase;
+}
+.tag {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.seg {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+}
+.seg.on {
+  background: var(--accent-soft);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #c4b5fd;
+}
+.badge {
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: #c4b5fd;
+}
+
+/* 時間軸 trim handle（hover 提亮） */
+.handle {
+  background: rgba(255, 255, 255, 0.22);
+  transition: background 0.12s ease;
+}
+.handle:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+/* 列表列（字幕/活動）通用 hover */
+.rowline {
+  transition: background 0.15s ease;
+}
+.rowline:hover {
+  background: var(--surface);
+}
+
+/* ---- 捲軸 ---- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
