@@ -1,13 +1,42 @@
+import { nanoid } from 'nanoid';
 import type {
+  AudioItem,
   Command,
   CommandResult,
   MutationSource,
   OverlayItem,
   CaptionItem,
+  VideoClip,
 } from '@vidcut/shared';
+import { totalDuration } from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
 
 const MIN_CLIP_DURATION = 0.1;
+const DEFAULT_FREEZE_DURATION = 3;
+
+/** 主軌是磁性的：片段起點 = 前面所有片段長度累加。 */
+function startsOf(clips: VideoClip[]): number[] {
+  const out: number[] = [];
+  let t = 0;
+  for (const c of clips) {
+    out.push(t);
+    t += c.duration;
+  }
+  return out;
+}
+
+/** 找出時間軸絕對時間落在哪個片段，回傳索引與片段內偏移。 */
+function clipAt(
+  clips: VideoClip[],
+  time: number,
+): { index: number; offset: number; start: number } | null {
+  if (time < 0) return null;
+  const starts = startsOf(clips);
+  for (let i = clips.length - 1; i >= 0; i--) {
+    if (time >= starts[i]!) return { index: i, offset: time - starts[i]!, start: starts[i]! };
+  }
+  return null;
+}
 
 /**
  * 人類 UI 與 MCP 工具共用的唯一寫入語意來源（OpenChatCut EditorCore 模式）。
@@ -39,6 +68,40 @@ export function applyCommand(
       return ok(
         store.mutate(source, 'set captions', (d) => {
           d.tracks.captions = cmd.captions as CaptionItem[];
+        }),
+      );
+    case 'splitAt':
+      return splitAt(store, source, cmd.time);
+    case 'deleteBefore':
+      return deleteSide(store, source, cmd.time, 'before');
+    case 'deleteAfter':
+      return deleteSide(store, source, cmd.time, 'after');
+    case 'freezeFrame':
+      return freezeFrame(store, source, cmd.time, cmd.duration ?? DEFAULT_FREEZE_DURATION);
+    case 'extractAudio':
+      return extractAudio(store, source, cmd.clipId);
+    case 'updateAudio':
+      return updateAudio(store, source, cmd);
+    case 'removeAudio': {
+      if (!store.doc.tracks.audio.some((a) => a.id === cmd.id)) {
+        return { ok: false, error: `audio not found: ${cmd.id}` };
+      }
+      return ok(
+        store.mutate(source, 'remove audio', (d) => {
+          d.tracks.audio = d.tracks.audio.filter((a) => a.id !== cmd.id);
+        }),
+      );
+    }
+    case 'setAudio':
+      return ok(
+        store.mutate(source, 'set audio', (d) => {
+          d.tracks.audio = cmd.audio as AudioItem[];
+        }),
+      );
+    case 'setCanvasFit':
+      return ok(
+        store.mutate(source, `canvas fit: ${cmd.fit}`, (d) => {
+          d.canvas.fit = cmd.fit;
         }),
       );
     case 'undo': {
@@ -164,6 +227,202 @@ function updateCaption(
       if (cmd.patch.start !== undefined) c.start = cmd.patch.start;
       if (cmd.patch.duration !== undefined) c.duration = cmd.patch.duration;
       if (cmd.patch.style !== undefined) c.style = cmd.patch.style;
+    }),
+  );
+}
+
+/** 在時間軸絕對時間切開片段（playhead 分割）。切點須嚴格落在片段內部。 */
+function splitAt(store: ProjectStore, source: MutationSource, time: number): CommandResult {
+  const clips = store.doc.tracks.video;
+  const hit = clipAt(clips, time);
+  if (!hit) return { ok: false, error: `no clip at ${time}s` };
+  const clip = clips[hit.index]!;
+  const left = hit.offset;
+  const right = clip.duration - hit.offset;
+  if (left < MIN_CLIP_DURATION || right < MIN_CLIP_DURATION) {
+    return { ok: false, error: `split point too close to clip edge (${left}s / ${right}s)` };
+  }
+  return ok(
+    store.mutate(source, `split ${clip.label ?? clip.id}`, (d) => {
+      const c = d.tracks.video[hit.index]!;
+      const second: VideoClip = {
+        ...c,
+        id: nanoid(6),
+        in: c.in + left,
+        duration: right,
+      };
+      c.duration = left;
+      d.tracks.video.splice(hit.index + 1, 0, second);
+    }),
+  );
+}
+
+/**
+ * 刪除 playhead 一側的畫面（CapCut 的 Q / W）。磁性主軌自動閉合。
+ * 只影響影片主軌；overlay/字幕/音訊不動（與 CapCut 同語意）。
+ */
+function deleteSide(
+  store: ProjectStore,
+  source: MutationSource,
+  time: number,
+  side: 'before' | 'after',
+): CommandResult {
+  const clips = store.doc.tracks.video;
+  const total = totalDuration(store.doc);
+  if (clips.length === 0) return { ok: false, error: 'timeline is empty' };
+  if (side === 'before' && time <= 0) return { ok: false, error: 'nothing before 0' };
+  if (side === 'after' && time >= total) return { ok: false, error: 'nothing after the end' };
+  if (side === 'before' && time >= total) return { ok: false, error: 'would delete everything' };
+  if (side === 'after' && time <= 0) return { ok: false, error: 'would delete everything' };
+
+  const starts = startsOf(clips);
+  const kept: VideoClip[] = [];
+  clips.forEach((c, i) => {
+    const s = starts[i]!;
+    const e = s + c.duration;
+    if (side === 'before') {
+      if (e <= time) return; // 整段在左側 → 丟掉
+      if (s < time) {
+        const cut = time - s; // 片段被切掉的前半
+        const rest = c.duration - cut;
+        if (rest < MIN_CLIP_DURATION) return;
+        kept.push({ ...c, in: c.in + cut, duration: rest });
+        return;
+      }
+      kept.push(c);
+    } else {
+      if (s >= time) return; // 整段在右側 → 丟掉
+      if (e > time) {
+        const rest = time - s;
+        if (rest < MIN_CLIP_DURATION) return;
+        kept.push({ ...c, duration: rest });
+        return;
+      }
+      kept.push(c);
+    }
+  });
+  if (kept.length === 0) return { ok: false, error: 'would delete everything' };
+  return ok(
+    store.mutate(
+      source,
+      side === 'before' ? 'delete before playhead' : 'delete after playhead',
+      (d) => {
+        d.tracks.video = kept;
+      },
+    ),
+  );
+}
+
+/** 在 time 處插入一段定格幀（畫面凍結，渲染時抽單幀成靜圖）。 */
+function freezeFrame(
+  store: ProjectStore,
+  source: MutationSource,
+  time: number,
+  duration: number,
+): CommandResult {
+  if (duration < MIN_CLIP_DURATION) return { ok: false, error: 'freeze duration too short' };
+  const clips = store.doc.tracks.video;
+  const hit = clipAt(clips, time);
+  if (!hit) return { ok: false, error: `no clip at ${time}s` };
+  const clip = clips[hit.index]!;
+  const atSource = clip.in + hit.offset; // 要凍結的來源時間點
+
+  return ok(
+    store.mutate(source, `freeze frame @${time.toFixed(2)}s`, (d) => {
+      const frozen: VideoClip = {
+        id: nanoid(6),
+        mediaId: clip.mediaId,
+        in: atSource,
+        duration,
+        volume: 0, // 定格段無聲
+        frozen: true,
+        label: `❄ ${clip.label ?? clip.id}`,
+      };
+      const c = d.tracks.video[hit.index]!;
+      if (hit.offset < MIN_CLIP_DURATION) {
+        // 貼在片段開頭 → 直接插在它前面，不切
+        d.tracks.video.splice(hit.index, 0, frozen);
+      } else if (clip.duration - hit.offset < MIN_CLIP_DURATION) {
+        // 貼在片段結尾 → 插在它後面
+        d.tracks.video.splice(hit.index + 1, 0, frozen);
+      } else {
+        // 中間 → 切成兩段，定格插在中間
+        const second: VideoClip = {
+          ...clip,
+          id: nanoid(6),
+          in: clip.in + hit.offset,
+          duration: clip.duration - hit.offset,
+        };
+        c.duration = hit.offset;
+        d.tracks.video.splice(hit.index + 1, 0, frozen, second);
+      }
+    }),
+  );
+}
+
+/**
+ * 把片段的聲音抽成獨立音訊項（片段轉靜音），之後可單獨調音量/淡化/刪除。
+ * 音訊項用絕對時間，抽出後不跟隨片段搬動（與 CapCut 同語意）。
+ */
+function extractAudio(store: ProjectStore, source: MutationSource, clipId: string): CommandResult {
+  const clips = store.doc.tracks.video;
+  const index = clips.findIndex((c) => c.id === clipId);
+  if (index === -1) return { ok: false, error: `clip not found: ${clipId}` };
+  const clip = clips[index]!;
+  const media = store.doc.media.find((m) => m.id === clip.mediaId);
+  if (!media) return { ok: false, error: `media not found: ${clip.mediaId}` };
+  if (!media.probe.hasAudio) return { ok: false, error: 'clip has no audio to extract' };
+  const start = startsOf(clips)[index]!;
+
+  return ok(
+    store.mutate(source, `extract audio from ${clip.label ?? clip.id}`, (d) => {
+      d.tracks.audio.push({
+        id: nanoid(6),
+        mediaId: clip.mediaId,
+        start,
+        in: clip.in,
+        duration: clip.duration,
+        volume: clip.volume || 1,
+        label: `🔊 ${clip.label ?? clip.id}`,
+      });
+      d.tracks.video[index]!.volume = 0;
+    }),
+  );
+}
+
+function updateAudio(
+  store: ProjectStore,
+  source: MutationSource,
+  cmd: Extract<Command, { name: 'updateAudio' }>,
+): CommandResult {
+  const item = store.doc.tracks.audio.find((a) => a.id === cmd.id);
+  if (!item) return { ok: false, error: `audio not found: ${cmd.id}` };
+  const media = store.doc.media.find((m) => m.id === item.mediaId);
+  const nextIn = cmd.patch.in ?? item.in;
+  const nextDur = cmd.patch.duration ?? item.duration;
+  if (nextIn < 0) return { ok: false, error: 'in must be >= 0' };
+  if (nextDur <= 0) return { ok: false, error: 'duration must be > 0' };
+  if (media && nextIn + nextDur > media.probe.duration + 1e-6) {
+    return { ok: false, error: `in+duration exceeds source ${media.probe.duration}` };
+  }
+  if (cmd.patch.start !== undefined && cmd.patch.start < 0) {
+    return { ok: false, error: 'start must be >= 0' };
+  }
+  if (cmd.patch.volume !== undefined && (cmd.patch.volume < 0 || cmd.patch.volume > 2)) {
+    return { ok: false, error: 'volume must be within 0..2' };
+  }
+  for (const k of ['fadeIn', 'fadeOut'] as const) {
+    const v = cmd.patch[k];
+    if (v !== undefined && (v < 0 || v > nextDur)) {
+      return { ok: false, error: `${k} must be within 0..duration` };
+    }
+  }
+  return ok(
+    store.mutate(source, `edit audio ${item.label ?? item.id}`, (d) => {
+      Object.assign(
+        d.tracks.audio.find((a) => a.id === cmd.id)!,
+        cmd.patch,
+      );
     }),
   );
 }

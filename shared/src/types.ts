@@ -33,6 +33,8 @@ export interface VideoClip {
   label?: string;
   /** 0–2，預設 1 */
   volume: number;
+  /** 定格幀：畫面凍結在 in 這一刻，持續 duration（渲染時抽單幀成靜圖） */
+  frozen?: boolean;
   /** 峰值來源 audio|motion、rank 等 */
   meta?: Record<string, unknown>;
 }
@@ -75,8 +77,14 @@ export interface AudioItem {
   in: number;
   duration: number;
   volume: number;
-  /** 渲染時對主軌音量壓低（第一版可只做固定比例） */
+  /** 淡入秒數 */
+  fadeIn?: number;
+  /** 淡出秒數 */
+  fadeOut?: number;
+  /** 播放期間把影片主軌音量壓低（固定比例，見 render.ts DUCK_LEVEL） */
   ducking?: boolean;
+  /** 用途標記，UI 顯示用（旁白 / BGM…） */
+  label?: string;
 }
 
 export interface ReviewState {
@@ -104,11 +112,14 @@ export interface ProjectTracks {
   audio: AudioItem[];
 }
 
+/** 素材未填滿畫布時的填充方式：contain = 黑邊；blur = 模糊放大填充（9:16 標配） */
+export type CanvasFit = 'contain' | 'blur';
+
 export interface Project {
   schemaVersion: 1;
   id: string;
   name: string;
-  canvas: { width: number; height: number; fps: number };
+  canvas: { width: number; height: number; fps: number; fit?: CanvasFit };
   media: MediaAsset[];
   tracks: ProjectTracks;
   /** 當前待審核請求（見 spec §6）；resolve 後置回 null */
@@ -137,6 +148,26 @@ export type Command =
     }
   | { name: 'setOverlays'; overlays: OverlayItem[] }
   | { name: 'setCaptions'; captions: CaptionItem[] }
+  /** 在時間軸絕對時間切開該處片段（playhead 分割） */
+  | { name: 'splitAt'; time: number }
+  /** 刪除 time 之前的所有畫面（磁性主軌自動閉合） */
+  | { name: 'deleteBefore'; time: number }
+  /** 刪除 time 之後的所有畫面 */
+  | { name: 'deleteAfter'; time: number }
+  /** 在 time 處插入一段定格幀 */
+  | { name: 'freezeFrame'; time: number; duration?: number }
+  /** 把片段的聲音抽成獨立音訊項（片段本身靜音），可單獨編輯 */
+  | { name: 'extractAudio'; clipId: string }
+  | {
+      name: 'updateAudio';
+      id: string;
+      patch: Partial<
+        Pick<AudioItem, 'start' | 'in' | 'duration' | 'volume' | 'fadeIn' | 'fadeOut' | 'ducking'>
+      >;
+    }
+  | { name: 'removeAudio'; id: string }
+  | { name: 'setAudio'; audio: AudioItem[] }
+  | { name: 'setCanvasFit'; fit: CanvasFit }
   | { name: 'undo'; steps?: number };
 
 export type CommandResult = { ok: true; version: number } | { ok: false; error: string };
