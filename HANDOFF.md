@@ -1,7 +1,7 @@
 # HANDOFF — vidcut 開發交接
 
 > 目前做到哪、怎麼驗、已知限制、下一步。
-> 最後更新：M1–M4 + T1 + T2#8（自動字幕）完成。
+> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計完成。
 
 ## 現況總覽
 
@@ -13,6 +13,7 @@
 | M4 渲染        | ✅ `m4-done` | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕      |
 | T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                             |
 | T2 #8 自動字幕 | ✅           | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節         |
+| UI 重設計      | ✅           | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節             |
 
 **自動化狀態全綠**：143 個測試（shared 27 / server 86 / ui 30）、typecheck 三 workspace 乾淨、ESLint 0 問題、UI 可 build。全部走真 ffmpeg、真 whisper 與真 MCP/WS transport 驗證過。
 
@@ -47,6 +48,18 @@
 4. **短音訊（約 4 秒以下）時間戳本來就會爛**，這不是我們的音訊管線問題（純 ffmpeg 轉的 wav 一樣）。`normalizeWords()` 會把擠在一點的詞攤開、把超出片長的夾回來。
 
 **下一步（Tier 2 其餘）**：偵測工具組（`detect_silence`/`detect_scenes`/`detect_beats` → 回傳時間戳給 AI 決策）、**模板化＋批次渲染**、transcript 式長轉短。優先建議：beat 偵測 + 模板化（對 ranking 片管線立刻有感）。
+
+## UI 重設計（2026-07-30 夜間）
+
+spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md)（brainstorm 含瀏覽器 mockup 比選，使用者逐步定案：C 現代 web 視覺 × 保守版面 × 峰值+RMS 波形）。
+
+- **設計系統 `ui/src/theme.css`**：CSS 變數 token（紫 #8b5cf6 強調、青 #0ea5e9 音訊、深藍紫玻璃層級）；**原生 button/select/input 直接被 theme 接管**，元件端大量刪 inline style；lucide-react 取代 emoji 圖示。
+- **版面**：RenderBar 刪除 → 頂欄 ExportMenu（匯出鈕+下拉+3px 進度條）；右欄改「字幕⇄活動」分頁；播放控制+時間碼移進時間軸工具列；審核條改事件式 overlay 卡（GSAP 彈性滑入）；左右面板可收合（grid-template-columns 動畫）。
+- **時間軸**：片段卡片化（上 60% filmstrip、下 40% 波形帶）；**峰值+RMS 雙層鏡像波形**（`ui/src/timeline/waveform.ts`，DPR 級解析度）；ingest 升級 **100 桶/秒＋rms 陣列**（`PeaksFile` 共用型別；舊檔無 rms 自動退單層）；音訊軌青色全高波形；playhead 紫漸層光暈圓頭。
+- **動效**：`ui/src/motion.ts`（gsap + useGSAP + motionOK）；審核條/分頁/toast/渲染完成 pulse/字幕自動捲動；微互動走 CSS transition；`prefers-reduced-motion` 全域尊重。
+- **行為零改動**：命令層/MCP/播放引擎/拖曳數學全部沒碰；demo 專案已重建（新 peaks）。
+
+**待使用者驗收（我看不到畫面）**：整體觀感、面板收合手感、審核條滑入、波形雙層在真素材上的辨識度。舊專案（如有）想要 RMS 波形需重 ingest，不重跑也能用（單層）。
 
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
@@ -129,11 +142,13 @@ server/src/ffmpeg.ts      runFfmpeg/probe
 server/src/frame.ts       抽幀給 AI「看」
 server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render
 server/src/index.ts       startServer + CLI
-ui/src/stores/            project（patch 套用）/ playback / selection / view（縮放吸附）/ activity / toast
+ui/src/theme.css          設計系統：token + 原生控件樣式 + 佈局 class ★
+ui/src/motion.ts          GSAP 進入點（useGSAP + reduced-motion 判斷）
+ui/src/stores/            project（patch 套用）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast
 ui/src/ws.ts              WS client：命令/脈絡/審核/渲染 送出 + 重連
 ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎）
-ui/src/timeline/          scale + dragMath（純函數）+ Timeline（trim/排序/選取/縮放/吸附）
-ui/src/panels/            Inspector / Activity / ReviewBar / RenderBar / CaptionList（字幕列表）
+ui/src/timeline/          scale + dragMath + waveform（純函數）+ Timeline（trim/排序/選取/縮放/吸附/transport）
+ui/src/panels/            Inspector / Activity / ReviewBar / ExportMenu / CaptionList（字幕列表）
 ```
 
 ★ = 改動時最常碰、最核心的檔案。

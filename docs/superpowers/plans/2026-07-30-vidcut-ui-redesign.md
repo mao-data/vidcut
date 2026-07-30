@@ -23,12 +23,14 @@
 ### Task 1: peaks 升級（100 桶/秒 + RMS）＋ shared `PeaksFile` 型別
 
 **Files:**
+
 - Modify: `shared/src/types.ts`（檔尾附近，MediaAsset 區塊後）
 - Modify: `server/src/ingest.ts:14-15`（常數）、`:102-119`（桶計算與寫檔）
 - Modify: `ui/src/timeline/Timeline.tsx:27-32`（改 import shared 型別）
 - Test: `server/test/ingest.test.ts`（擴充既有 peaks 斷言）
 
 **Interfaces:**
+
 - Produces: `PeaksFile { sampleRate: number; samplesPerBucket: number; peaks: number[]; rms?: number[] }`（shared 匯出；Task 5 的波形繪製依賴）
 
 - [x] **Step 1: shared 加型別**
@@ -50,7 +52,10 @@ export interface PeaksFile {
 ```ts
 // 100 桶/秒（8000/80）；rms 與 peaks 等長且逐桶 ≤ peak
 const peaksJson = JSON.parse(await readFile(join(dir, m.peaksPath!), 'utf8')) as {
-  sampleRate: number; samplesPerBucket: number; peaks: number[]; rms?: number[];
+  sampleRate: number;
+  samplesPerBucket: number;
+  peaks: number[];
+  rms?: number[];
 };
 expect(peaksJson.sampleRate / peaksJson.samplesPerBucket).toBe(100);
 expect(peaksJson.rms).toBeDefined();
@@ -66,7 +71,7 @@ for (const [p, r] of loud) expect(r! / p!).toBeGreaterThan(0.4);
 
 - [x] **Step 3: 跑測試確認紅**（`npx vitest run test/ingest.test.ts --root server`）
 - [x] **Step 4: 實作** — `PEAK_SAMPLES_PER_BUCKET = 80`；迴圈同時累積 `sum += v*v`，桶尾 `rms.push(Number((Math.sqrt(sum / n) / 32768).toFixed(4)))`；寫檔加 `rms`。`Timeline.tsx` 刪本地 `interface Peaks`，改 `import type { PeaksFile } from '@vidcut/shared'`（暫時 alias `type Peaks = PeaksFile` 讓其餘程式不動，Task 5 再重寫繪製）。
-- [x] **Step 5: 跑測試綠 + typecheck** 
+- [x] **Step 5: 跑測試綠 + typecheck**
 - [x] **Step 6: Commit** `feat(ingest): 100 buckets/sec peaks + per-bucket RMS (PeaksFile shared type)`
 
 ---
@@ -74,12 +79,14 @@ for (const [p, r] of loud) expect(r! / p!).toBeGreaterThan(0.4);
 ### Task 2: 設計系統 `ui/src/theme.css` ＋依賴安裝
 
 **Files:**
+
 - Create: `ui/src/theme.css`
 - Modify: `ui/index.html`（刪 `<style>` 塊，只留 meta/root/script）
 - Modify: `ui/src/main.tsx`（`import './theme.css'`）
 - Modify: `ui/package.json`（新依賴）
 
 **Interfaces:**
+
 - Produces: CSS 變數（`--bg --surface --card --line --line-strong --text-1 --text-2 --text-3 --accent --accent-2 --accent-soft --audio --audio-soft --ok --danger --hl`）與 class：`.glass .panel-head .tag .btn-primary .btn-danger .icon-btn .seg .seg.on .badge .mono`。**原生 `button/select/input/textarea` 直接被 theme 樣式化**——後續 task 大多只需「刪 inline style」。
 
 - [x] **Step 1: 安裝依賴** `npm i -w @vidcut/ui gsap @gsap/react lucide-react`
@@ -108,8 +115,14 @@ for (const [p, r] of loud) expect(r! / p!).toBeGreaterThan(0.4);
   --r-card: 9px;
   --r-ctl: 7px;
 }
-* { box-sizing: border-box; }
-html, body, #root { height: 100%; }
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
 body {
   margin: 0;
   background: linear-gradient(180deg, #151726 0%, var(--bg) 40%);
@@ -117,58 +130,149 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans TC', sans-serif;
   font-size: 13px;
 }
-.mono { font-variant-numeric: tabular-nums; }
+.mono {
+  font-variant-numeric: tabular-nums;
+}
 /* —— 原生控件全面接管 —— */
 button {
-  font: inherit; color: var(--text-1);
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--r-ctl); padding: 5px 10px; cursor: pointer;
-  transition: background .12s ease, border-color .12s ease, transform .12s ease;
+  font: inherit;
+  color: var(--text-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease;
 }
-button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line-strong); transform: translateY(-1px); }
-button:active:not(:disabled) { transform: translateY(0); }
-button:disabled { opacity: .45; cursor: default; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 1px;
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+button:active:not(:disabled) {
+  transform: translateY(0);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .btn-primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  border: none; color: #fff; font-weight: 600;
+  border: none;
+  color: #fff;
+  font-weight: 600;
   box-shadow: 0 2px 12px rgba(139, 92, 246, 0.35);
 }
-.btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, #9a70f8, #7478f3); }
-.btn-danger { color: var(--danger); border-color: rgba(248, 113, 113, 0.35); }
-.icon-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; }
-input, select, textarea {
-  font: inherit; color: var(--text-1);
-  background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line);
-  border-radius: var(--r-ctl); padding: 5px 8px;
-  transition: border-color .12s ease;
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #9a70f8, #7478f3);
 }
-input:hover, select:hover, textarea:hover { border-color: var(--line-strong); }
-input[type='color'] { padding: 2px; height: 28px; }
-input[type='checkbox'] { accent-color: var(--accent); }
-input[type='range'] { accent-color: var(--accent); padding: 0; background: none; border: none; }
-a { color: #a5b4fc; }
+.btn-danger {
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+}
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--text-1);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 5px 8px;
+  transition: border-color 0.12s ease;
+}
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--line-strong);
+}
+input[type='color'] {
+  padding: 2px;
+  height: 28px;
+}
+input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+input[type='range'] {
+  accent-color: var(--accent);
+  padding: 0;
+  background: none;
+  border: none;
+}
+a {
+  color: #a5b4fc;
+}
 /* —— 佈局積木 —— */
-.glass { background: var(--surface); border-bottom: 1px solid var(--line); }
+.glass {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
 .panel-head {
-  font-size: 11px; letter-spacing: .4px; color: var(--text-3);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--text-3);
   text-transform: uppercase;
 }
-.tag { font-size: 11px; color: var(--text-2); }
-.seg { background: var(--surface); border: 1px solid var(--line); color: var(--text-2); }
-.seg.on { background: var(--accent-soft); border-color: rgba(139, 92, 246, 0.5); color: #c4b5fd; }
-.badge {
-  font-size: 10px; padding: 0 6px; border-radius: 8px;
-  background: var(--accent-soft); color: #c4b5fd;
+.tag {
+  font-size: 11px;
+  color: var(--text-2);
 }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
-::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.2); }
-::-webkit-scrollbar-track { background: transparent; }
+.seg {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+}
+.seg.on {
+  background: var(--accent-soft);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #c4b5fd;
+}
+.badge {
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: #c4b5fd;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition: none !important; animation: none !important; }
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 ```
 
@@ -181,6 +285,7 @@ a { color: #a5b4fc; }
 ### Task 3: 版面 — 頂欄匯出、右欄分頁、審核條 overlay、面板收合、Inspector/CaptionList/Activity 換 class
 
 **Files:**
+
 - Create: `ui/src/panels/ExportMenu.tsx`（RenderBar 邏輯搬入下拉）
 - Delete: `ui/src/panels/RenderBar.tsx`
 - Modify: `ui/src/App.tsx`（整個 return 重寫 + Toast 樣式）
@@ -190,6 +295,7 @@ a { color: #a5b4fc; }
 - Modify: `ui/src/player/Player.tsx`（刪底部 transport 列——移去 Timeline）
 
 **Interfaces:**
+
 - Consumes: theme class（Task 2）
 - Produces: `useView` 新欄位 `leftOpen: boolean; rightOpen: boolean; toggleLeft(): void; toggleRight(): void`；App grid `gridTemplateColumns: leftOpen ? '260px' : '0px' … rightOpen ? '320px' : '0px'` 帶 `transition: grid-template-columns .25s ease`；右欄 tab state 放 App 本地 `useState<'captions' | 'activity'>`
 
@@ -199,17 +305,55 @@ a { color: #a5b4fc; }
 
 ```tsx
 <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-  <header className="glass" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px', position: 'relative', zIndex: 30 }}>
-    <b style={{ fontSize: 15, background: 'linear-gradient(90deg,#a78bfa,#60a5fa)', WebkitBackgroundClip: 'text', color: 'transparent' }}>vidcut</b>
-    <span className="tag">{doc?.name ?? '—'} · v{version}</span>
+  <header
+    className="glass"
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      padding: '7px 14px',
+      position: 'relative',
+      zIndex: 30,
+    }}
+  >
+    <b
+      style={{
+        fontSize: 15,
+        background: 'linear-gradient(90deg,#a78bfa,#60a5fa)',
+        WebkitBackgroundClip: 'text',
+        color: 'transparent',
+      }}
+    >
+      vidcut
+    </b>
+    <span className="tag">
+      {doc?.name ?? '—'} · v{version}
+    </span>
     <span style={{ marginLeft: 'auto' }} className="tag">
-      <span style={{ color: connected ? 'var(--ok)' : 'var(--danger)' }}>●</span> {connected ? '已連線' : '未連線'}
+      <span style={{ color: connected ? 'var(--ok)' : 'var(--danger)' }}>●</span>{' '}
+      {connected ? '已連線' : '未連線'}
     </span>
     <ExportMenu />
   </header>
-  <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-    <ReviewBar />  {/* absolute overlay，蓋在內容上，不擠版面 */}
-    <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `${leftOpen ? '260px' : '0px'} 1fr ${rightOpen ? '320px' : '0px'}`, minHeight: 0, transition: 'grid-template-columns .25s ease' }}>
+  <div
+    style={{
+      position: 'relative',
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: 0,
+    }}
+  >
+    <ReviewBar /> {/* absolute overlay，蓋在內容上，不擠版面 */}
+    <div
+      style={{
+        flex: 1,
+        display: 'grid',
+        gridTemplateColumns: `${leftOpen ? '260px' : '0px'} 1fr ${rightOpen ? '320px' : '0px'}`,
+        minHeight: 0,
+        transition: 'grid-template-columns .25s ease',
+      }}
+    >
       {/* 左欄/右欄外層 overflow:hidden，內層固定寬，收合時內容不擠壓變形 */}
     </div>
   </div>
@@ -218,7 +362,8 @@ a { color: #a5b4fc; }
 </div>
 ```
 
-  面板收合鈕：左右欄 panel-head 上的 `⟨`/`⟩`（lucide `PanelLeftClose`/`PanelRightClose`）；收合後在中欄邊緣顯示反向展開鈕。右欄 head 是兩個 `.seg` tab（字幕 N / 活動），內容區依 tab 切換。
+面板收合鈕：左右欄 panel-head 上的 `⟨`/`⟩`（lucide `PanelLeftClose`/`PanelRightClose`）；收合後在中欄邊緣顯示反向展開鈕。右欄 head 是兩個 `.seg` tab（字幕 N / 活動），內容區依 tab 切換。
+
 - [x] **Step 4: ReviewBar** → `position: absolute; top: 0; left: 50%; transform: translateX(-50%)`、玻璃卡（`--surface-2` 底、紫邊、陰影、圓角下緣）、核准 `.btn-primary`-綠變體（inline 綠漸層）、退回 `.btn-danger`。
 - [x] **Step 5: Inspector/CaptionList/Activity 清 inline style**——label/區塊用 `.tag`/`.panel-head`；快捷鍵表改成標題列 `?` icon-btn 的 popover 卡。Player 刪底部 `<div>`（transport 移 Task 4）。
 - [x] **Step 6: typecheck + lint + build + 目視；Commit** `feat(ui): new shell layout — header export, right-panel tabs, collapsible panels, overlay review bar`
@@ -228,10 +373,12 @@ a { color: #a5b4fc; }
 ### Task 4: 時間軸重繪（波形帶、卡片化、工具列 transport、playhead）
 
 **Files:**
+
 - Create: `ui/src/timeline/waveform.ts`（純繪製函式，供片段帶與音訊軌共用）
 - Modify: `ui/src/timeline/Timeline.tsx`（ClipBlock 視覺、工具列、尺規、軌道 chips、playhead/吸附線）
 
 **Interfaces:**
+
 - Consumes: `PeaksFile`（Task 1）、theme 變數
 - Produces:
 
@@ -252,17 +399,22 @@ import type { PeaksFile } from '@vidcut/shared';
 
 export function drawWaveform(cv, pf, opts) {
   const dpr = window.devicePixelRatio || 1;
-  const W = cv.clientWidth, H = cv.clientHeight;
+  const W = cv.clientWidth,
+    H = cv.clientHeight;
   if (W === 0 || H === 0) return;
-  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  const ctx = cv.getContext('2d'); if (!ctx) return;
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  const ctx = cv.getContext('2d');
+  if (!ctx) return;
   ctx.scale(dpr, dpr);
   const bps = pf.sampleRate / pf.samplesPerBucket;
   const first = Math.floor(opts.from * bps);
   const count = Math.max(1, opts.duration * bps);
-  const mid = H / 2, pad = 1;
+  const mid = H / 2,
+    pad = 1;
   const fill = (data: number[], color: string) => {
-    ctx.beginPath(); ctx.moveTo(0, mid);
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
     for (let x = 0; x < W; x++) {
       const v = data[first + Math.floor((x / W) * count)] ?? 0;
       ctx.lineTo(x, mid - v * (mid - pad));
@@ -271,12 +423,19 @@ export function drawWaveform(cv, pf, opts) {
       const v = data[first + Math.floor((x / W) * count)] ?? 0;
       ctx.lineTo(x, mid + v * (mid - pad));
     }
-    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
   };
   ctx.clearRect(0, 0, W, H);
-  if (pf.rms) { fill(pf.peaks, opts.peakColor); fill(pf.rms, opts.rmsColor); }
-  else fill(pf.peaks, opts.rmsColor);           // 舊檔退回單層
-  if (opts.midline !== false) { ctx.fillStyle = 'rgba(230,231,240,0.18)'; ctx.fillRect(0, mid - 0.5, W, 1); }
+  if (pf.rms) {
+    fill(pf.peaks, opts.peakColor);
+    fill(pf.rms, opts.rmsColor);
+  } else fill(pf.peaks, opts.rmsColor); // 舊檔退回單層
+  if (opts.midline !== false) {
+    ctx.fillStyle = 'rgba(230,231,240,0.18)';
+    ctx.fillRect(0, mid - 0.5, W, 1);
+  }
 }
 ```
 
@@ -290,10 +449,12 @@ export function drawWaveform(cv, pf, opts) {
 ### Task 5: GSAP 動效
 
 **Files:**
+
 - Create: `ui/src/motion.ts`（registerPlugin + `motionOK()`）
 - Modify: `ui/src/panels/ReviewBar.tsx`、`App.tsx`（Toast、tab 切換）、`ExportMenu.tsx`（渲染完成 pulse + popover 進場）、`CaptionList.tsx`（當前句捲動置中）
 
 **Interfaces:**
+
 - Produces: `motion.ts`：
 
 ```ts

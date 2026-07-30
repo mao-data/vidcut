@@ -212,7 +212,9 @@ export function App() {
           }}
         >
           {/* 左：屬性（外層 hidden、內層固定寬 → 收合時內容不變形） */}
-          <div style={{ overflow: 'hidden', borderRight: leftOpen ? '1px solid var(--line)' : 'none' }}>
+          <div
+            style={{ overflow: 'hidden', borderRight: leftOpen ? '1px solid var(--line)' : 'none' }}
+          >
             <div style={{ width: 260, height: '100%', overflowY: 'auto' }}>
               <div
                 style={{
@@ -261,10 +263,10 @@ export function App() {
           </div>
 
           {/* 右：字幕 ⇄ 活動分頁 */}
-          <div style={{ overflow: 'hidden', borderLeft: rightOpen ? '1px solid var(--line)' : 'none' }}>
-            <div
-              style={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column' }}
-            >
+          <div
+            style={{ overflow: 'hidden', borderLeft: rightOpen ? '1px solid var(--line)' : 'none' }}
+          >
+            <div style={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column' }}>
               <div
                 style={{
                   display: 'flex',

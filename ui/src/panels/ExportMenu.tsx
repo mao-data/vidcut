@@ -155,12 +155,7 @@ export function ExportMenu() {
             </a>
           )}
           {render?.coverPath && (
-            <a
-              className="tag"
-              href={`/media/${render.coverPath}`}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a className="tag" href={`/media/${render.coverPath}`} target="_blank" rel="noreferrer">
               封面 ✓
             </a>
           )}

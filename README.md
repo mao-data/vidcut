@@ -48,6 +48,7 @@ ui/       @vidcut/ui      React：ws client、A/B 播放器、時間軸
 
 - **T1 CapCut 快贏** ✅ — 播放頭分割/刪左右/定格、時間軸縮放吸附、音訊混音與 ducking、blur 填充、匯出選項、封面
 - **T2 #8 自動字幕** ✅ — whisper.cpp 逐字稿（`transcribe`）、一鍵自動字幕（`auto_caption`）、逐詞高亮、字幕列表 UI
+- **UI 重設計** ✅ — 深藍紫玻璃視覺系統（theme.css token）、峰值+RMS 雙層波形、頂欄匯出、面板收合、GSAP 動效
 
 全部里程碑的核心功能已實作並自動化驗證。親眼驗收與 Claude Code 實連步驟見 [`HANDOFF.md`](HANDOFF.md)。
 

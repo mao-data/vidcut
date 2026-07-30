@@ -10,7 +10,6 @@ import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
 import { sendCommand } from '../ws.js';
 
-
 function num(e: ChangeEvent<HTMLInputElement>): number {
   return Number(e.target.value);
 }
@@ -20,7 +19,9 @@ function CanvasFitRow() {
   const fit = useProject((s) => s.doc?.canvas.fit ?? 'contain');
   return (
     <div style={{ padding: 12, borderBottom: '1px solid var(--line)' }}>
-      <label className="field" style={{ marginTop: 0 }}>畫布填充（未填滿時）</label>
+      <label className="field" style={{ marginTop: 0 }}>
+        畫布填充（未填滿時）
+      </label>
       <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
         {(['contain', 'blur'] as const).map((f) => (
           <button
@@ -66,7 +67,8 @@ function ShortcutHelp() {
           空白 播放/暫停 · S 分割
           <br />Q 刪左 · W 刪右 · F 定格
           <br />N 吸附 · Shift+Z 全覽 · ←/→ 逐幀
-          <br />Ctrl+滾輪 縮放 · Cmd+Z 復原
+          <br />
+          Ctrl+滾輪 縮放 · Cmd+Z 復原
         </div>
       )}
     </div>
@@ -144,7 +146,10 @@ export function Inspector() {
           >
             <Snowflake size={13} /> 定格
           </button>
-          <button className="icon-btn" onClick={() => send({ name: 'extractAudio', clipId: clip.id })}>
+          <button
+            className="icon-btn"
+            onClick={() => send({ name: 'extractAudio', clipId: clip.id })}
+          >
             <AudioWaveform size={13} /> 抽出聲音
           </button>
           <button
@@ -169,19 +174,9 @@ export function Inspector() {
       <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>音訊 {a.label ?? a.mediaId}</h3>
         <label className="field">時間軸起點（秒）</label>
-        <input
-          type="number"
-          step="0.1"
-          value={a.start}
-          onChange={(e) => upd({ start: num(e) })}
-        />
+        <input type="number" step="0.1" value={a.start} onChange={(e) => upd({ start: num(e) })} />
         <label className="field">來源起點 in（秒）</label>
-        <input
-          type="number"
-          step="0.1"
-          value={a.in}
-          onChange={(e) => upd({ in: num(e) })}
-        />
+        <input type="number" step="0.1" value={a.in} onChange={(e) => upd({ in: num(e) })} />
         <label className="field">長度（秒）</label>
         <input
           type="number"

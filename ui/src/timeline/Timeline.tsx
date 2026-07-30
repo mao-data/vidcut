@@ -557,14 +557,16 @@ export function Timeline() {
           color: 'var(--text-2)',
         }}
       >
-        <button className="icon-btn" onClick={() => usePlayback.getState().seek(0)} title="回到開頭">
+        <button
+          className="icon-btn"
+          onClick={() => usePlayback.getState().seek(0)}
+          title="回到開頭"
+        >
           <SkipBack size={13} />
         </button>
         <button
           className="icon-btn"
-          onClick={() =>
-            playing ? usePlayback.getState().pause() : usePlayback.getState().play()
-          }
+          onClick={() => (playing ? usePlayback.getState().pause() : usePlayback.getState().play())}
           title="播放/暫停（空白鍵）"
           style={{ padding: '5px 12px' }}
         >

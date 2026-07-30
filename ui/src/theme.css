@@ -38,12 +38,7 @@ body {
   margin: 0;
   background: linear-gradient(180deg, #151726 0%, var(--bg) 40%);
   color: var(--text-1);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'PingFang TC',
-    'Noto Sans TC',
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans TC', sans-serif;
   font-size: 13px;
 }
 
