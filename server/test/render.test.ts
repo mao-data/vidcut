@@ -56,7 +56,7 @@ describe('buildRenderArgs', () => {
     expect(plan.captionsBurned).toBe(false);
   });
 
-  it('burns captions only when drawtext available', () => {
+  it('burns captions via drawtext when available', () => {
     const p = demoLikeProject();
     p.tracks.captions = [
       {
@@ -67,11 +67,37 @@ describe('buildRenderArgs', () => {
         style: { fontFamily: 's', fontSize: 48, fill: '#fff', y: 0.8 },
       },
     ];
-    expect(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }).captionsBurned).toBe(false);
     const withText = buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: true });
     expect(withText.captionsBurned).toBe(true);
     const fc = withText.args[withText.args.indexOf('-filter_complex') + 1]!;
     expect(fc).toContain('drawtext=text=');
+  });
+
+  it('composites PNG caption cards via overlay when drawtext unavailable', () => {
+    const p = demoLikeProject();
+    p.tracks.captions = [
+      {
+        id: 'cap1',
+        text: 'hi',
+        start: 1,
+        duration: 2,
+        style: { fontFamily: 's', fontSize: 48, fill: '#fff', y: 0.78 },
+      },
+    ];
+    // 無字卡 → 不燒
+    expect(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }).captionsBurned).toBe(false);
+    // 有字卡 → 以 overlay 合成
+    const withCards = buildRenderArgs(p, '/x', '/x/o.mp4', {
+      hasDrawtext: false,
+      captionCards: [{ cap: p.tracks.captions[0]!, relPath: 'derived/captions/cap1.png' }],
+    });
+    expect(withCards.captionsBurned).toBe(true);
+    // clip inputs(2) + overlay input(1) + caption card input(1) = 4
+    expect(withCards.args.filter((a) => a === '-i')).toHaveLength(4);
+    const fc = withCards.args[withCards.args.indexOf('-filter_complex') + 1]!;
+    expect(fc).not.toContain('drawtext');
+    // 字卡以 overlay 在 y=(H*0.78) 疊上、帶時間 enable
+    expect(fc).toMatch(/overlay=x=0:y=\(H\*0\.78\):enable='between\(t\\,1\\,3\)'/);
   });
 });
 
@@ -90,5 +116,7 @@ describe('render (integration)', () => {
     expect(info.duration).toBeLessThan(16);
     expect(store.doc.render.status).toBe('done');
     expect(store.doc.render.lastOutput).toBe(res.outPath);
+    // demo 有 2 條字幕；本機無 drawtext → 應走 PNG 字卡並回報已燒
+    expect(res.captionsBurned).toBe(true);
   }, 180_000);
 });

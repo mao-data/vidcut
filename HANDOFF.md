@@ -43,15 +43,15 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 你會在瀏覽器 UI 看到變更即時發生、頂部跳出審核條，按核准後 AI 那邊的 `request_review` 就回傳。
 （我用 in-process client 與真 HTTP client 都驗過這條迴路，但沒有你的 Claude Code 環境，這步請親測。）
 
-## 環境限制（重要）
+## 環境限制與字幕（已解決）
 
-**本機 Homebrew ffmpeg 8.1.2 沒有 `drawtext`／`libfreetype`／`libass`**（只有 drawbox/overlay/colorize）。影響：
+**本機 Homebrew ffmpeg 8.1.2 是精簡 bottle，沒有 `drawtext`／`libfreetype`／`libass`**（formula 本身不宣告 freetype 依賴，`brew reinstall` 也救不了；只有 drawbox/overlay/colorize）。
 
-- **成品的字幕（caption）不會燒錄**。`render` 會回 `captionsBurned:false` 並在訊息說明——不是 bug，是誠實反映環境。
-- **重度文字（排名標題、迷因標籤）本來就走 overlay PNG**（跟你 `ranking-video-generator` 的 `make_overlays.py` 一致），這條**完全正常**。render 會把 overlay PNG 正確合成。
-- 若要字幕也燒進成品，二選一（`render.ts` 已 runtime 偵測 drawtext，補上就自動生效）：
-  1. `brew reinstall ffmpeg`（若新 bottle 含 freetype，最省事）；
-  2. **建議**：把 caption 也 PNG 化（Pillow / `make_overlays.py`），塞進 overlay 軌——跨機器最穩、與現有工具鏈一致。
+**字幕已用 PNG 字卡路徑解決**（2026-07-29）：render 時 runtime 偵測 drawtext——
+- 有 drawtext → 原生 `drawtext` 燒字。
+- 無 drawtext（本機）→ 用 **Pillow 把每條 caption 畫成透明 PNG 字卡**（`server/scripts/text_card.py`，CJK 字型 fallback），再用既有 `overlay` 濾鏡按時間合成。已端到端驗證：純黑底上字幕開啟時有字、關閉時無字、時間正確。`render` 回 `captionsBurned:true`。
+
+需要 `pip3 install pillow`（已裝，12.3.0）。哪天換成含 freetype 的 ffmpeg，會自動改走原生 drawtext，不用改碼。重度文字（排名標題、迷因標籤）仍走 overlay PNG（與 `make_overlays.py` 一致），這條本來就正常。
 
 ## 已知取捨（非 bug）
 

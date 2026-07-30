@@ -1,11 +1,55 @@
 import { mkdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
-import type { Project } from '@vidcut/shared';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { CaptionItem, Project } from '@vidcut/shared';
 import { overlayWindow, totalDuration } from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
 
 let drawtextAvailable: boolean | null = null;
+
+const TEXT_CARD_PY = join(dirname(fileURLToPath(import.meta.url)), '../scripts/text_card.py');
+
+export interface CaptionCard {
+  cap: CaptionItem;
+  /** 相對專案資料夾的透明 PNG 路徑 */
+  relPath: string;
+}
+
+/**
+ * 用 Pillow 把一條 caption 畫成透明 PNG 字卡（繞過 ffmpeg 無 drawtext）。
+ * 回傳相對專案資料夾的路徑。
+ */
+export function renderCaptionCard(
+  projectDir: string,
+  cap: CaptionItem,
+  canvasWidth: number,
+): Promise<string> {
+  const relPath = join('derived', 'captions', `${cap.id}.png`);
+  const outPath = join(projectDir, relPath);
+  const payload = JSON.stringify({
+    out: outPath,
+    text: cap.text,
+    fontSize: cap.style.fontSize,
+    fill: cap.style.fill,
+    stroke: cap.style.stroke ?? null,
+    width: canvasWidth,
+  });
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn('python3', [TEXT_CARD_PY], { stdio: ['pipe', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (d) => {
+      stderr += d;
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve(relPath);
+      else reject(new Error(`text_card.py exited ${code}: ${stderr.slice(-1000)}`));
+    });
+    child.stdin.write(payload);
+    child.stdin.end();
+  });
+}
 
 /** 偵測本機 ffmpeg 是否有 drawtext（libfreetype）。快取結果。 */
 export async function hasDrawtext(): Promise<boolean> {
@@ -47,11 +91,14 @@ export function buildRenderArgs(
   project: Project,
   projectDir: string,
   outPath: string,
-  opts: { hasDrawtext: boolean },
+  opts: { hasDrawtext: boolean; captionCards?: CaptionCard[] },
 ): RenderPlan {
   const { width, height, fps } = project.canvas;
   const clips = project.tracks.video;
   const overlays = project.tracks.overlays;
+  const captionCards = opts.captionCards ?? [];
+  // drawtext 可用就原生燒字；否則走 PNG 字卡（overlay）
+  const useCards = !opts.hasDrawtext && captionCards.length > 0;
   const total = totalDuration(project);
 
   const args: string[] = [];
@@ -72,6 +119,13 @@ export function buildRenderArgs(
   const overlayInputBase = clips.length;
   for (const ov of overlays) {
     args.push('-i', join(projectDir, ov.imagePath));
+  }
+  // caption 字卡 PNG inputs（在 overlay inputs 之後，僅字卡路徑）
+  const captionInputBase = overlayInputBase + overlays.length;
+  if (useCards) {
+    for (const cc of captionCards) {
+      args.push('-i', join(projectDir, cc.relPath));
+    }
   }
 
   const fc: string[] = [];
@@ -111,7 +165,7 @@ export function buildRenderArgs(
     vcur = next;
   });
 
-  // captions（drawtext 可用才燒）
+  // captions：drawtext 可用 → 原生燒字；否則 → PNG 字卡（overlay）
   let captionsBurned = false;
   if (opts.hasDrawtext && project.tracks.captions.length > 0) {
     for (const cap of project.tracks.captions) {
@@ -125,6 +179,17 @@ export function buildRenderArgs(
       );
       vcur = next;
     }
+    captionsBurned = true;
+  } else if (useCards) {
+    // 字卡 PNG 全寬、水平已置中；overlay 於 x=0、y=H*style.y，依時間 enable
+    captionCards.forEach((cc, k) => {
+      const inputIdx = captionInputBase + k;
+      const next = `[capc${k}]`;
+      const enable = `enable='between(t\\,${cc.cap.start}\\,${cc.cap.start + cc.cap.duration})'`;
+      const y = `(H*${cc.cap.style.y})`;
+      fc.push(`${vcur}[${inputIdx}:v]overlay=x=0:y=${y}:${enable}${next}`);
+      vcur = next;
+    });
     captionsBurned = true;
   }
 
@@ -177,7 +242,21 @@ export async function render(
   const outPath = join(projectDir, outRel);
 
   const drawtext = await hasDrawtext();
-  const plan = buildRenderArgs(project, projectDir, outPath, { hasDrawtext: drawtext });
+  // 無 drawtext 且有字幕 → 先用 Pillow 產字卡 PNG
+  let captionCards: CaptionCard[] = [];
+  if (!drawtext && project.tracks.captions.length > 0) {
+    await mkdir(join(projectDir, 'derived', 'captions'), { recursive: true });
+    captionCards = await Promise.all(
+      project.tracks.captions.map(async (cap) => ({
+        cap,
+        relPath: await renderCaptionCard(projectDir, cap, project.canvas.width),
+      })),
+    );
+  }
+  const plan = buildRenderArgs(project, projectDir, outPath, {
+    hasDrawtext: drawtext,
+    captionCards,
+  });
 
   store.mutate('ai', 'render start', (d) => {
     d.render = { status: 'running', progress: 0 };
