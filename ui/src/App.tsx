@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { gsap, useGSAP, motionOK } from './motion.js';
 import { useProject } from './stores/project.js';
 import { useToast } from './stores/toast.js';
 import { useSelection } from './stores/selection.js';
@@ -17,14 +18,25 @@ import { sendCommand, sendContext } from './ws.js';
 function Toast() {
   const message = useToast((s) => s.message);
   const clear = useToast((s) => s.clear);
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!message) return;
     const t = setTimeout(clear, 3500);
     return () => clearTimeout(t);
   }, [message, clear]);
+  // 每次訊息更換都重播進場（浮起）
+  useGSAP(
+    () => {
+      if (ref.current && motionOK()) {
+        gsap.from(ref.current, { y: 12, opacity: 0, duration: 0.3, ease: 'power2.out' });
+      }
+    },
+    { scope: ref, dependencies: [message] },
+  );
   if (!message) return null;
   return (
     <div
+      ref={ref}
       style={{
         position: 'fixed',
         bottom: 16,
@@ -54,6 +66,21 @@ export function App() {
   const rightOpen = useView((s) => s.rightOpen);
   const [tab, setTab] = useState<'captions' | 'activity'>('captions');
   const captionCount = doc?.tracks.captions.length ?? 0;
+  const tabBodyRef = useRef<HTMLDivElement>(null);
+
+  // 分頁切換：內容 fade + 8px slide
+  useGSAP(
+    () => {
+      if (tabBodyRef.current && motionOK()) {
+        gsap.fromTo(
+          tabBodyRef.current,
+          { opacity: 0, x: 8 },
+          { opacity: 1, x: 0, duration: 0.2, ease: 'power2.out' },
+        );
+      }
+    },
+    { scope: tabBodyRef, dependencies: [tab] },
+  );
 
   // 編輯快捷鍵（CapCut 慣例）。在輸入框內打字時全部不作用。
   useEffect(() => {
@@ -268,7 +295,7 @@ export function App() {
                   <PanelRightClose size={14} />
                 </button>
               </div>
-              <div data-tab-body style={{ flex: 1, minHeight: 0 }}>
+              <div ref={tabBodyRef} style={{ flex: 1, minHeight: 0 }}>
                 {tab === 'captions' ? <CaptionList /> : <Activity />}
               </div>
             </div>

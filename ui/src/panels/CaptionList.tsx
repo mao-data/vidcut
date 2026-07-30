@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { motionOK } from '../motion.js';
 import { activeTokenIndex, type CaptionItem, type CaptionStyle } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
@@ -28,6 +29,15 @@ export function CaptionList() {
     () => captions.find((c) => time >= c.start && time < c.start + c.duration)?.id ?? null,
     [captions, time],
   );
+  const currentRowRef = useRef<HTMLDivElement>(null);
+
+  // 播放時當前句自動捲進視野（reduced-motion 時不做平滑捲動）
+  useEffect(() => {
+    currentRowRef.current?.scrollIntoView({
+      block: 'nearest',
+      behavior: motionOK() ? 'smooth' : 'auto',
+    });
+  }, [currentId]);
 
   const commit = (cap: CaptionItem) => {
     if (!draft || draft.id !== cap.id) return;
@@ -98,6 +108,7 @@ export function CaptionList() {
           return (
             <div
               key={cap.id}
+              ref={isCurrent ? currentRowRef : undefined}
               className="rowline"
               onClick={() => useSelection.getState().select({ kind: 'caption', id: cap.id })}
               style={{

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Clapperboard, Image } from 'lucide-react';
+import { gsap, useGSAP, motionOK } from '../motion.js';
 import type { RenderOptions } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
@@ -28,8 +29,34 @@ export function ExportMenu() {
   const [qualityIdx, setQualityIdx] = useState(1);
   const [fps, setFps] = useState<number | ''>('');
   const rootRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const running = render?.status === 'running';
   const progress = Math.round((render?.progress ?? 0) * 100);
+
+  // 渲染完成：匯出鈕 pulse 一下提示「好了」
+  useGSAP(
+    () => {
+      if (render?.status === 'done' && btnRef.current && motionOK()) {
+        gsap.fromTo(
+          btnRef.current,
+          { scale: 1 },
+          { scale: 1.07, yoyo: true, repeat: 1, duration: 0.18, ease: 'power1.inOut' },
+        );
+      }
+    },
+    { scope: rootRef, dependencies: [render?.status] },
+  );
+
+  // 下拉開啟：浮現
+  useGSAP(
+    () => {
+      const pop = rootRef.current?.querySelector('[data-export-pop]');
+      if (open && pop && motionOK()) {
+        gsap.from(pop, { opacity: 0, y: -6, duration: 0.18, ease: 'power2.out' });
+      }
+    },
+    { scope: rootRef, dependencies: [open] },
+  );
 
   // 點外面關閉下拉
   useEffect(() => {
@@ -51,6 +78,7 @@ export function ExportMenu() {
   return (
     <div ref={rootRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
       <button
+        ref={btnRef}
         className="btn-primary icon-btn"
         onClick={() => (running ? setOpen((o) => !o) : go())}
         title={running ? `渲染中 ${progress}%` : `輸出 ${PRESETS[presetIdx]!.label}`}
