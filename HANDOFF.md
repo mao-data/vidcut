@@ -1,7 +1,7 @@
 # HANDOFF — vidcut 開發交接
 
 > 目前做到哪、怎麼驗、已知限制、下一步。
-> 最後更新：M1–M4 全部完成（tags `m1-done`…`m4-done`）。
+> 最後更新：M1–M4 + T1 全部完成（tags `m1-done`…`m4-done`、`t1-done`）。
 
 ## 現況總覽
 
@@ -76,7 +76,6 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 - `undo` 為逐步 undo，「撤 undo = redo」是簡化；要正式 redo stack 之後再擴。
 - request_review 用「阻塞 + UI 核准 + 保活 + 逾時」；**elicitation URL mode**（Claude Code 直接彈瀏覽器審核頁）列為後續增強——因無法自動驗證故未做，可用 v2 SDK `@modelcontextprotocol/server` + codemod 遷移時一起上。
 - 退回（reject）目前回滾「review 開啟後的全部變更」到 sinceVersion；若人在審核期間也改了東西會一起被回滾（reject = 丟掉這一輪）。
-- 音訊目前只混片段原聲；旁白/BGM amix + ducking 未接（`AudioItem` 型別已預留，render.ts 加一段 amix 即可）。
 - 播放/渲染字級換算：預覽用 `fontSize/3` 粗估，未與渲染逐像素對齊。
 - Safari 未測（開發用 Chrome）。
 - MCP 用 v1 SDK 1.30.0（穩定）；v2（2.0.0）功能更多但兩天前才發，之後可用官方 codemod 升級。
@@ -93,17 +92,18 @@ server/src/commands.ts    applyCommand：人機共用的驗證過的編輯命令
 server/src/aiWrite.ts     AI 寫入守衛（審核中擋 + ifVersion 過期偵測）→ commands
 server/src/reviews.ts     ReviewManager：request_review 的核心（阻塞/核准/退回回滾/逾時）
 server/src/editorContext.ts 人的選取/playhead（給 get_editor_context）
-server/src/mcp.ts         15 個 MCP 工具 + /mcp 掛載 ★
+server/src/mcp.ts         21 個 MCP 工具 + /mcp 掛載 ★
 server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）
-server/src/render.ts      project.json → ffmpeg filter_complex 成品（spec §8.2）★
+server/src/render.ts      project.json → ffmpeg filter_complex 成品 + blur/定格/音訊混音/匯出選項/封面 ★
+server/scripts/text_card.py  文字 → 透明 PNG 字卡（Pillow）
 server/src/ffmpeg.ts      runFfmpeg/probe
 server/src/frame.ts       抽幀給 AI「看」
 server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render
 server/src/index.ts       startServer + CLI
-ui/src/stores/            project（patch 套用）/ playback / selection / activity / toast
+ui/src/stores/            project（patch 套用）/ playback / selection / view（縮放吸附）/ activity / toast
 ui/src/ws.ts              WS client：命令/脈絡/審核/渲染 送出 + 重連
 ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎）
-ui/src/timeline/          dragMath（純函數）+ Timeline（trim/排序/選取）
+ui/src/timeline/          scale + dragMath（純函數）+ Timeline（trim/排序/選取/縮放/吸附）
 ui/src/panels/            Inspector / Activity / ReviewBar / RenderBar
 ```
 
@@ -124,9 +124,9 @@ npm run dev:ui    # Vite dev（proxy 到 :3845）
 
 ## 下一步建議（依價值排序）
 
-1. **親驗 M1 播放體感 + Claude Code 實連**（上面 A、B）。有問題記錄現象給我。
-2. **字幕燒錄**：決定走 freetype-ffmpeg 或 PNG 字卡（建議後者）。
+1. **親驗播放體感 + Claude Code 實連**（上面 A、B）。有問題記錄現象給我。
+2. **Tier 2 AI-native 殺手鐧**（見 gap analysis）：優先 **beat 偵測**（切點對拍，質感立刻上檔次）與 **模板化 + 批次渲染**（ranking 片變成換素材就好）。
 3. **skill 整合**：把 `ranking-video-generator` 步驟 3–5 尾段改走 vidcut（import_media → set_timeline → set_overlays → request_review → render）；掃描/峰值/選段不動。詳見 `docs/superpowers/plans/2026-07-29-vidcut-m4.md` 末節。
-4. **音訊 amix**（旁白/BGM/ducking）、**elicitation URL mode**、**多分頁綁定**（Vyra 式 Connect MCP）等增強。
+4. 其他增強：whisper 逐字稿＋自動字幕、**elicitation URL mode**、多分頁綁定（Vyra 式 Connect MCP）。
 
 設計與計畫全文：`docs/superpowers/specs/` 與 `docs/superpowers/plans/`。
