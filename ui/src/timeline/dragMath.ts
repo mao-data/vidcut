@@ -56,3 +56,24 @@ export function reorderByDrag(
   next.splice(insertAt, 0, draggingId);
   return next;
 }
+
+/**
+ * 依給定順序算出每個片段的水平位置（px）。
+ * order 為 null 時用陣列原順序。回傳 id → left 的對映，讓渲染可以「順序固定、只改位置」——
+ * 若改成依 key 重排，React 會搬移 DOM 節點、CSS transition 會被中斷（讓位動畫就消失）。
+ */
+export function layoutByOrder(
+  clips: Array<{ id: string; duration: number }>,
+  order: string[] | null,
+  pxPerSecond: number,
+): Map<string, number> {
+  const byId = new Map(clips.map((c) => [c.id, c]));
+  const ordered = order ? order.map((id) => byId.get(id)).filter((c) => c !== undefined) : clips;
+  const out = new Map<string, number>();
+  let t = 0;
+  for (const c of ordered) {
+    out.set(c.id, t * pxPerSecond);
+    t += c.duration;
+  }
+  return out;
+}

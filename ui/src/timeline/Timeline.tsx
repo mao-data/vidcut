@@ -5,7 +5,6 @@ import {
   type CSSProperties,
   type MouseEvent,
   type PointerEvent,
-  type WheelEvent,
 } from 'react';
 import {
   clipStartTimes,
@@ -20,7 +19,7 @@ import { useSelection } from '../stores/selection.js';
 import { useView } from '../stores/view.js';
 import { sendCommand } from '../ws.js';
 import { pxToTime, snapTime, timeToPx } from './scale.js';
-import { trimIn, trimOut, reorderByDrag, MIN_CLIP_DURATION } from './dragMath.js';
+import { trimIn, trimOut, reorderByDrag, layoutByOrder, MIN_CLIP_DURATION } from './dragMath.js';
 
 const ROW_H = 56;
 const SUB_ROW_H = 24;
@@ -61,18 +60,25 @@ function useWaveform(peaksPath: string | undefined): Peaks | null {
 function ClipBlock({
   p,
   clip,
-  start,
+  leftPx,
   pps,
   selected,
+  animate,
+  floating,
   onTrimStart,
   onMoveStart,
   onSelect,
 }: {
   p: Project;
   clip: VideoClip;
-  start: number;
+  /** 已算好的水平位置（拖曳中的片段＝跟著游標，其他＝讓位後的新位置） */
+  leftPx: number;
   pps: number;
   selected: boolean;
+  /** 讓位時滑動過去，而不是瞬間跳 */
+  animate: boolean;
+  /** 正被拖曳：浮起、半透明 */
+  floating: boolean;
   onTrimStart: (e: PointerEvent, clip: VideoClip, edge: 'in' | 'out') => void;
   onMoveStart: (e: PointerEvent, clip: VideoClip) => void;
   onSelect: (id: string) => void;
@@ -122,18 +128,28 @@ function ClipBlock({
       }`}
       style={{
         position: 'absolute',
-        left: timeToPx(start, pps),
+        left: leftPx,
         width: w,
         height: ROW_H,
         border: selected ? '2px solid #4af' : '1px solid #555',
         borderRadius: 4,
         overflow: 'hidden',
-        cursor: 'grab',
+        cursor: floating ? 'grabbing' : 'grab',
         backgroundImage: clip.frozen || !filmstrip ? undefined : `url(${filmstrip})`,
         backgroundPosition: `${bgOffset}px 0`,
         backgroundSize: 'auto 100%',
         backgroundRepeat: 'repeat-x',
         backgroundColor: clip.frozen ? '#3a4a5a' : '#333',
+        // 讓位動畫：只有「不是被拖的那個」才滑動，被拖的要 1:1 跟手
+        transition: animate ? 'left 120ms ease' : undefined,
+        ...(floating
+          ? {
+              zIndex: 20,
+              opacity: 0.9,
+              transform: 'scale(1.02)',
+              boxShadow: '0 6px 16px rgba(0,0,0,0.6)',
+            }
+          : null),
       }}
     >
       <div
@@ -191,6 +207,8 @@ export function Timeline() {
   const pps = useView((s) => s.pxPerSecond);
   const snapEnabled = useView((s) => s.snapEnabled);
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** 時間軸內容層（座標換算的基準） */
+  const contentRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
   const [, force] = useState(0);
@@ -299,7 +317,7 @@ export function Timeline() {
     }
   };
 
-  const onPointerUp = (e: PointerEvent) => {
+  const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
     setSnapLine(null);
@@ -314,16 +332,17 @@ export function Timeline() {
         },
       });
     } else if (d.mode === 'move') {
-      const contentRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      const pointerXInContent = d.pointerX - contentRect.left;
-      const order = reorderByDrag(
-        doc.tracks.video.map((c) => c.id),
-        d.clipId,
-        pointerXInContent,
-        layout,
-      );
-      const changed = order.some((id, i) => id !== doc.tracks.video[i]!.id);
-      if (changed) sendCommand({ name: 'reorderClips', order });
+      const rect = contentRef.current?.getBoundingClientRect();
+      if (rect) {
+        const order = reorderByDrag(
+          doc.tracks.video.map((c) => c.id),
+          d.clipId,
+          d.pointerX - rect.left,
+          layout,
+        );
+        const changed = order.some((id, i) => id !== doc.tracks.video[i]!.id);
+        if (changed) sendCommand({ name: 'reorderClips', order });
+      }
     }
     rerender();
   };
@@ -335,12 +354,37 @@ export function Timeline() {
   };
 
   // 拖曳 trim 中：用 preview 覆蓋顯示的 clip
-  const displayClips = doc.tracks.video.map((c) => {
+  const trimmedClips = doc.tracks.video.map((c) => {
     const d = drag.current;
     if (d && (d.mode === 'trim-in' || d.mode === 'trim-out') && d.clipId === c.id) return d.preview;
     return c;
   });
-  const displayStarts = clipStartTimes({ ...doc, tracks: { ...doc.tracks, video: displayClips } });
+
+  // 拖曳排序中：即時算出「放手後的順序」，讓其他片段先滑開讓位
+  const moveDrag = drag.current?.mode === 'move' ? drag.current : null;
+  const previewOrder =
+    moveDrag && contentRef.current
+      ? reorderByDrag(
+          doc.tracks.video.map((c) => c.id),
+          moveDrag.clipId,
+          moveDrag.pointerX - contentRef.current.getBoundingClientRect().left,
+          layout,
+        )
+      : null;
+
+  /**
+   * 讓位後每個片段該在的位置（用 id 對映）。
+   * 渲染時**維持原本的順序**、只改 left —— 若讓 React 依 key 重排，DOM 節點會被搬移，
+   * CSS transition 會被中斷、變成瞬間跳位（動畫就沒了）。
+   */
+  const leftById = layoutByOrder(trimmedClips, previewOrder, pps);
+
+  /** 被拖曳的片段：用「原始位置 + 游標位移」1:1 跟手，不吃讓位後的排版 */
+  const draggedLeftPx = (() => {
+    if (!moveDrag) return 0;
+    const orig = layout.find((l) => l.id === moveDrag.clipId);
+    return (orig?.left ?? 0) + (moveDrag.pointerX - moveDrag.startX);
+  })();
 
   // 尺規刻度密度隨縮放調整
   const tickStep = pps >= 120 ? 0.5 : pps >= 40 ? 1 : pps >= 15 ? 5 : 10;
@@ -408,6 +452,7 @@ export function Timeline() {
         style={{ overflowX: 'auto', border: '1px solid #333', userSelect: 'none' }}
       >
         <div
+          ref={contentRef}
           style={{ position: 'relative', width, touchAction: 'none' }}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -441,19 +486,24 @@ export function Timeline() {
           </div>
           {/* video 主軌 */}
           <div style={rowStyle}>
-            {displayClips.map((c, i) => (
-              <ClipBlock
-                key={c.id}
-                p={doc}
-                clip={c}
-                start={displayStarts[i]!}
-                pps={pps}
-                selected={selected?.kind === 'clip' && selected.id === c.id}
-                onTrimStart={onTrimStart}
-                onMoveStart={onMoveStart}
-                onSelect={onSelect}
-              />
-            ))}
+            {trimmedClips.map((c) => {
+              const isDragged = moveDrag?.clipId === c.id;
+              return (
+                <ClipBlock
+                  key={c.id}
+                  p={doc}
+                  clip={c}
+                  leftPx={isDragged ? draggedLeftPx : (leftById.get(c.id) ?? 0)}
+                  pps={pps}
+                  selected={selected?.kind === 'clip' && selected.id === c.id}
+                  animate={moveDrag !== null && !isDragged}
+                  floating={isDragged === true}
+                  onTrimStart={onTrimStart}
+                  onMoveStart={onMoveStart}
+                  onSelect={onSelect}
+                />
+              );
+            })}
           </div>
           {/* overlays 軌 */}
           <div style={subRow}>

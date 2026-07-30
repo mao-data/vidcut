@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { trimIn, trimOut, reorderByDrag, MIN_CLIP_DURATION } from './dragMath.js';
+import { trimIn, trimOut, reorderByDrag, layoutByOrder, MIN_CLIP_DURATION } from './dragMath.js';
 
 describe('trimIn', () => {
   const clip = { in: 5, duration: 6 }; // 右界 = 11
@@ -57,5 +57,36 @@ describe('reorderByDrag', () => {
 
   it('drops at start when pointer before first center', () => {
     expect(reorderByDrag(['a', 'b', 'c'], 'c', 10, layout)).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('layoutByOrder', () => {
+  const clips = [
+    { id: 'a', duration: 2 },
+    { id: 'b', duration: 3 },
+    { id: 'c', duration: 1 },
+  ];
+
+  it('lays out in array order when no reorder is pending', () => {
+    const m = layoutByOrder(clips, null, 10);
+    expect([...m]).toEqual([
+      ['a', 0],
+      ['b', 20],
+      ['c', 50],
+    ]);
+  });
+
+  it('shifts the others aside for the pending order (this is the 讓位 animation target)', () => {
+    // 把 c 拖到最前面：c 佔 0，a 被推到 10，b 被推到 30
+    const m = layoutByOrder(clips, ['c', 'a', 'b'], 10);
+    expect(m.get('c')).toBe(0);
+    expect(m.get('a')).toBe(10);
+    expect(m.get('b')).toBe(30);
+  });
+
+  it('ignores ids that no longer exist', () => {
+    const m = layoutByOrder(clips, ['zz', 'a', 'b', 'c'], 10);
+    expect(m.get('a')).toBe(0);
+    expect(m.size).toBe(3);
   });
 });
