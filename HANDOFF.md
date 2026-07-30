@@ -5,14 +5,30 @@
 
 ## 現況總覽
 
-| 里程碑 | 狀態 | 內容 |
-|---|---|---|
-| M1 看得到 | ✅ `m1-done` | ProjectStore + WS 同步 + ffmpeg ingest + 唯讀時間軸 + A/B 無縫預覽 |
-| M2 改得動 | ✅ `m2-done` | 命令層 + trim 拖拉 + 排序 + Inspector 編輯 + undo + 活動面板 |
-| M3 AI 接上 | ✅ `m3-done` | MCP server（15 工具）+ request_review 審核閉環 + 編輯脈絡回報 |
-| M4 渲染 | ✅ `m4-done` | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕 |
+| 里程碑         | 狀態         | 內容                                                               |
+| -------------- | ------------ | ------------------------------------------------------------------ |
+| M1 看得到      | ✅ `m1-done` | ProjectStore + WS 同步 + ffmpeg ingest + 唯讀時間軸 + A/B 無縫預覽 |
+| M2 改得動      | ✅ `m2-done` | 命令層 + trim 拖拉 + 排序 + Inspector 編輯 + undo + 活動面板       |
+| M3 AI 接上     | ✅ `m3-done` | MCP server（15 工具）+ request_review 審核閉環 + 編輯脈絡回報      |
+| M4 渲染        | ✅ `m4-done` | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕      |
+| T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                             |
 
-**自動化狀態全綠**：65 個測試（shared 5 / server 40 / ui 20）、typecheck 三 workspace 乾淨、ESLint 0 問題、UI 可 build。全部走真 ffmpeg 與真 MCP/WS transport 驗證過。
+**自動化狀態全綠**：97 個測試（shared 5 / server 65 / ui 27）、typecheck 三 workspace 乾淨、ESLint 0 問題、UI 可 build。全部走真 ffmpeg 與真 MCP/WS transport 驗證過。
+
+## T1（參考 CapCut 的快贏功能，tag `t1-done`）
+
+依 [`docs/research/2026-07-29-capcut-gap-analysis.md`](docs/research/2026-07-29-capcut-gap-analysis.md) 的 Tier 1 全數實作：
+
+- **粗剪主力**：S/Ctrl+B 播放頭分割、Q/W 刪除播放頭左/右（磁性軌自動閉合）、F 定格幀。
+- **時間軸手感**：Ctrl+滾輪以游標為錨縮放、吸附（片段邊界/playhead/整秒，黃線指示，N 開關）、Shift+Z 全覽、工具列 ±/Fit/吸附鈕、刻度密度隨縮放調整。
+- **快捷鍵**：空白播放暫停、←/→ 逐幀（Shift 加速 10 幀）、Cmd+Z 復原。**在輸入框內打字時全部停用**。
+- **音訊軌完成**：片段右鍵抽出聲音（片段轉靜音）、音量/淡入淡出/ducking（播放時自動壓低影片原聲到 0.25）、渲染走 amix 並截到成片長度。
+- **Canvas blur 填充**：橫素材放進 9:16 時用模糊放大填滿代替黑邊（渲染 boxblur + 預覽端獨立背景層）。
+- **匯出選項**：1080/720/4K 檔位、畫質（crf 18/20/24）、fps（24/30/60）、hevc；合成一律在畫布尺寸做完才縮放，overlay/字卡不會錯位。
+- **封面**：任意時間點設封面；已有成品時從成片抽（所見即所得）。
+- **新 MCP 工具（共 21 個）**：`timeline_op`（split/deleteBefore/deleteAfter/freeze 四合一）、`extract_audio`、`set_audio`、`update_audio`、`set_canvas_fit`、`set_cover`，`render` 新增匯出參數。
+
+**下一步（Tier 2 AI-native 殺手鐧）**：偵測工具組（`detect_silence`/`detect_scenes`/`detect_beats` → 回傳時間戳給 AI 決策）、whisper 逐字稿＋自動字幕＋字幕 list view、**模板化＋批次渲染**、transcript 式長轉短。優先建議：beat 偵測 + 模板化（對 ranking 片管線立刻有感）。
 
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
@@ -27,6 +43,7 @@ npm run dev:ui      # 終端機 B：http://localhost:5173
 ```
 
 驗收（重點在體感）：
+
 1. 時間軸 5 clip（縮圖 + 波形；No.3 無音軌 → 平線），按 ▶ **切換有無黑幀/停頓**（M1 最關鍵）。
 2. 拖 clip 左右邊緣 trim、拖 clip 本體換順序、點 clip 在左欄改屬性、Cmd+Z 復原、右欄活動記錄。
 3. 底部「🎬 渲染成品」→ 進度條 → 完成後「開啟成品」連結播放，確認畫面/音訊/overlay。
@@ -48,6 +65,7 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 **本機 Homebrew ffmpeg 8.1.2 是精簡 bottle，沒有 `drawtext`／`libfreetype`／`libass`**（formula 本身不宣告 freetype 依賴，`brew reinstall` 也救不了；只有 drawbox/overlay/colorize）。
 
 **字幕已用 PNG 字卡路徑解決**（2026-07-29）：render 時 runtime 偵測 drawtext——
+
 - 有 drawtext → 原生 `drawtext` 燒字。
 - 無 drawtext（本機）→ 用 **Pillow 把每條 caption 畫成透明 PNG 字卡**（`server/scripts/text_card.py`，CJK 字型 fallback），再用既有 `overlay` 濾鏡按時間合成。已端到端驗證：純黑底上字幕開啟時有字、關閉時無字、時間正確。`render` 回 `captionsBurned:true`。
 
