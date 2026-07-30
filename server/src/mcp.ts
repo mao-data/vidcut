@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import type { HistoryBrief, OverlayItem, CaptionItem } from '@vidcut/shared';
+import type { AudioItem, HistoryBrief, OverlayItem, CaptionItem } from '@vidcut/shared';
 import { totalDuration } from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
@@ -10,7 +10,7 @@ import type { ReviewManager } from './reviews.js';
 import { aiWrite } from './aiWrite.js';
 import { ingestMedia } from './ingest.js';
 import { extractFrame } from './frame.js';
-import { render } from './render.js';
+import { extractCover, render } from './render.js';
 
 export interface McpDeps {
   store: ProjectStore;
@@ -96,6 +96,21 @@ const captionSchema = z
   })
   .strict();
 
+const audioSchema = z
+  .object({
+    id: z.string(),
+    mediaId: z.string(),
+    start: z.number(),
+    in: z.number(),
+    duration: z.number(),
+    volume: z.number().min(0).max(2),
+    fadeIn: z.number().min(0).optional(),
+    fadeOut: z.number().min(0).optional(),
+    ducking: z.boolean().optional(),
+    label: z.string().optional(),
+  })
+  .strict();
+
 const timelineClipSchema = z.object({
   mediaId: z.string(),
   in: z.number(),
@@ -116,8 +131,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
     { name: 'vidcut', version: '0.1.0' },
     {
       instructions:
-        'vidcut 影片時間軸編輯器。典型流程：import_media 匯入素材 → set_timeline 排片 → ' +
-        'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render（M4）。' +
+        'vidcut 直式短影音時間軸編輯器（1080×1920）。典型流程：import_media 匯入素材 → ' +
+        'set_timeline 排片 → timeline_op 粗剪（split/deleteBefore/deleteAfter/freeze）→ ' +
+        'set_overlays / set_captions 上字 → set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
+        'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
+        '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
+        'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
+        'get_frame 可看某時刻的畫面。' +
         '寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；審核進行中寫入會被拒。',
     },
   );
@@ -342,6 +362,111 @@ export function createMcpServer(deps: McpDeps): McpServer {
     async ({ steps }) => text(writeResultText(aiWrite(store, { name: 'undo', steps }))),
   );
 
+  // ---- 播放頭操作（粗剪主力）----
+  server.registerTool(
+    'timeline_op',
+    {
+      description:
+        '在時間軸某個時間點做粗剪動作：split（切開）、deleteBefore（刪除該時間之前的畫面）、' +
+        'deleteAfter（刪除之後）、freeze（插入定格幀）。只影響影片主軌，磁性軌自動閉合縫隙。',
+      inputSchema: {
+        op: z.enum(['split', 'deleteBefore', 'deleteAfter', 'freeze']),
+        time: z.number().describe('時間軸絕對秒數'),
+        duration: z.number().optional().describe('freeze 的定格長度，預設 3 秒'),
+        ifVersion: z.number().optional(),
+      },
+    },
+    async ({ op, time, duration, ifVersion }) => {
+      const cmd =
+        op === 'split'
+          ? ({ name: 'splitAt', time } as const)
+          : op === 'deleteBefore'
+            ? ({ name: 'deleteBefore', time } as const)
+            : op === 'deleteAfter'
+              ? ({ name: 'deleteAfter', time } as const)
+              : ({ name: 'freezeFrame', time, duration } as const);
+      return text(writeResultText(aiWrite(store, cmd, ifVersion)));
+    },
+  );
+
+  // ---- 音訊 ----
+  server.registerTool(
+    'extract_audio',
+    {
+      description: '把片段的聲音抽成獨立音訊項（片段轉靜音），之後可單獨調音量/淡化/刪除。',
+      inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
+    },
+    async ({ clipId, ifVersion }) =>
+      text(writeResultText(aiWrite(store, { name: 'extractAudio', clipId }, ifVersion))),
+  );
+
+  server.registerTool(
+    'set_audio',
+    {
+      description: '整組設定音訊軌（放旁白/BGM）。start 為時間軸絕對秒數；ducking 會壓低影片原聲。',
+      inputSchema: { audio: z.array(audioSchema), ifVersion: z.number().optional() },
+    },
+    async ({ audio, ifVersion }) =>
+      text(
+        writeResultText(
+          aiWrite(store, { name: 'setAudio', audio: audio as AudioItem[] }, ifVersion),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'update_audio',
+    {
+      description: '調整單一音訊項（音量、淡入淡出、時間、ducking）。',
+      inputSchema: {
+        id: z.string(),
+        patch: z.object({
+          start: z.number().optional(),
+          in: z.number().optional(),
+          duration: z.number().optional(),
+          volume: z.number().min(0).max(2).optional(),
+          fadeIn: z.number().min(0).optional(),
+          fadeOut: z.number().min(0).optional(),
+          ducking: z.boolean().optional(),
+        }),
+        ifVersion: z.number().optional(),
+      },
+    },
+    async ({ id, patch, ifVersion }) =>
+      text(writeResultText(aiWrite(store, { name: 'updateAudio', id, patch }, ifVersion))),
+  );
+
+  // ---- 畫布與封面 ----
+  server.registerTool(
+    'set_canvas_fit',
+    {
+      description:
+        '素材未填滿畫布時的處理：contain=黑邊、blur=模糊放大填充（把橫向素材放進 9:16 時建議用 blur）。',
+      inputSchema: { fit: z.enum(['contain', 'blur']), ifVersion: z.number().optional() },
+    },
+    async ({ fit, ifVersion }) =>
+      text(writeResultText(aiWrite(store, { name: 'setCanvasFit', fit }, ifVersion))),
+  );
+
+  server.registerTool(
+    'set_cover',
+    {
+      description: '設定封面圖（從已渲染成品或來源素材抽該時間點的畫面）。回傳圖片 URL。',
+      inputSchema: { time: z.number() },
+    },
+    async ({ time }) => {
+      try {
+        const rel = await extractCover(store, projectDir, time);
+        return result(
+          { coverPath: rel, url: `${baseUrl}/media/${rel}` },
+          `${baseUrl}/media/${rel}`,
+        );
+      } catch (e) {
+        return text(`cover failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
   // ---- 審核 ----
   server.registerTool(
     'request_review',
@@ -389,14 +514,22 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '從專案輸出成品 mp4（1080×1920，重新編碼）。回傳輸出路徑與 URL。' +
         '本機 ffmpeg 若無 drawtext，字幕不會燒錄（captionsBurned=false）——重度文字請用 overlay PNG。',
-      inputSchema: { stamp: z.string().optional() },
+      inputSchema: {
+        stamp: z.string().optional(),
+        width: z.number().optional().describe('輸出寬（預設用專案畫布 1080）'),
+        height: z.number().optional().describe('輸出高（預設 1920）'),
+        fps: z.number().optional(),
+        crf: z.number().min(0).max(51).optional().describe('品質，越小越好，預設 20'),
+        videoBitrate: z.string().optional().describe("如 '10M'；給了就用位元率模式"),
+        codec: z.enum(['h264', 'hevc']).optional(),
+      },
       annotations: { title: 'Render final video' },
     },
-    async ({ stamp }) => {
+    async ({ stamp, ...exportOpts }) => {
       if (store.doc.review !== null) return text('error: a review is in progress');
       try {
         const s = stamp ?? `render_${store.version}`;
-        const res = await render(store, projectDir, s);
+        const res = await render(store, projectDir, s, exportOpts);
         return result(
           {
             output: res.outPath,

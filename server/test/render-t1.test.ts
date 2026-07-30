@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createEmptyProject, type Project } from '@vidcut/shared';
-import { buildRenderArgs, frozenFramePath, render } from '../src/render.js';
+import { buildRenderArgs, extractCover, frozenFramePath, render } from '../src/render.js';
 import { ProjectStore } from '../src/store.js';
 import { probe } from '../src/ffmpeg.js';
 import { makeVideo } from './fixtures.js';
@@ -172,5 +172,84 @@ describe('render integration: blur + frozen + audio', () => {
     expect(info.hasAudio).toBe(true);
     expect(info.duration).toBeGreaterThan(2.5);
     expect(info.duration).toBeLessThan(3.6);
+  }, 180_000);
+});
+
+describe('export options', () => {
+  it('scales to the export resolution after compositing at canvas size', () => {
+    const plan = buildRenderArgs(base(), '/x', '/x/o.mp4', {
+      hasDrawtext: false,
+      export: { width: 720, height: 1280, fps: 60, crf: 18 },
+    });
+    const fc = fcOf(plan);
+    // 合成仍在 1080×1920，最後才縮到 720×1280
+    expect(fc).toContain('scale=1080:1920');
+    expect(fc).toContain('scale=720:1280:flags=lanczos');
+    expect(fc).toContain('fps=60');
+    expect(plan.args).toContain('-crf');
+    expect(plan.args[plan.args.indexOf('-crf') + 1]).toBe('18');
+  });
+
+  it('uses bitrate mode and hevc when asked', () => {
+    const plan = buildRenderArgs(base(), '/x', '/x/o.mp4', {
+      hasDrawtext: false,
+      export: { videoBitrate: '10M', codec: 'hevc' },
+    });
+    expect(plan.args).toContain('-b:v');
+    expect(plan.args[plan.args.indexOf('-b:v') + 1]).toBe('10M');
+    expect(plan.args).not.toContain('-crf');
+    expect(plan.args).toContain('libx265');
+    expect(plan.args).toContain('hvc1');
+  });
+
+  it('renders at a smaller resolution end-to-end', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-exp-'));
+    await makeVideo(dir, 'a.mp4', { duration: 3, withAudio: true });
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    store.mutate('ai', 'seed', (d) => {
+      d.media = [
+        {
+          id: 'm1',
+          path: 'a.mp4',
+          probe: { duration: 3, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+        },
+      ];
+      d.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 0, duration: 2, volume: 1 }];
+    });
+    const res = await render(store, dir, 'small', { width: 540, height: 960, crf: 26 });
+    const info = await probe(join(dir, res.outPath));
+    expect(info.width).toBe(540);
+    expect(info.height).toBe(960);
+  }, 120_000);
+});
+
+describe('cover', () => {
+  it('extracts a cover from the rendered output', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-cov-'));
+    await makeVideo(dir, 'a.mp4', { duration: 3, withAudio: true });
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    store.mutate('ai', 'seed', (d) => {
+      d.media = [
+        {
+          id: 'm1',
+          path: 'a.mp4',
+          probe: { duration: 3, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+        },
+      ];
+      d.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 0, duration: 2, volume: 1 }];
+    });
+    // 尚無成品 → 從來源抽
+    const rel1 = await extractCover(store, dir, 1);
+    expect(rel1).toBe(join('output', 'cover.jpg'));
+    expect(store.doc.render.coverPath).toBe(rel1);
+    const img1 = await probe(join(dir, rel1));
+    expect(img1.width).toBeGreaterThan(0);
+
+    // 有成品後 → 從成片抽（即 1080×1920 的合成畫面）
+    await render(store, dir, 'c');
+    await extractCover(store, dir, 1);
+    const img2 = await probe(join(dir, rel1));
+    expect(img2.width).toBe(1080);
+    expect(img2.height).toBe(1920);
   }, 180_000);
 });

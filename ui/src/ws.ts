@@ -1,4 +1,10 @@
-import type { Command, EditorContextData, ReviewOutcome, WsServerMsg } from '@vidcut/shared';
+import type {
+  Command,
+  EditorContextData,
+  RenderOptions,
+  ReviewOutcome,
+  WsServerMsg,
+} from '@vidcut/shared';
 import { useProject } from './stores/project.js';
 import { useToast } from './stores/toast.js';
 
@@ -32,9 +38,14 @@ export function sendReviewResolve(id: string, outcome: ReviewOutcome, note?: str
   sendMsg({ type: 'reviewResolve', id, outcome, note }, '未連線，無法回覆審核');
 }
 
-/** 觸發渲染成品。 */
-export function sendRender(): void {
-  sendMsg({ type: 'render' }, '未連線，無法渲染');
+/** 觸發渲染成品（可帶匯出設定）。 */
+export function sendRender(options?: RenderOptions): void {
+  sendMsg({ type: 'render', options }, '未連線，無法渲染');
+}
+
+/** 用指定時間點的畫面當封面。 */
+export function sendSetCover(time: number): void {
+  sendMsg({ type: 'setCover', time }, '未連線，無法設封面');
 }
 
 /** 連 WS：斷線指數退避（1s→10s）重連，重連成功即發 resync 取全量。 */

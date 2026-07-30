@@ -5,7 +5,7 @@ import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import { applyCommand } from './commands.js';
-import { render } from './render.js';
+import { extractCover, render } from './render.js';
 
 const HISTORY_IN_FULL = 50;
 
@@ -73,10 +73,16 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
       } else if (msg.type === 'render') {
         if (projectDir && store.doc.render.status !== 'running') {
           const stamp = msg.stamp ?? `render_${store.version}`;
-          render(store, projectDir, stamp).catch((e: unknown) => {
+          render(store, projectDir, stamp, msg.options).catch((e: unknown) => {
             store.mutate('ai', 'render error', (d) => {
               d.render = { status: 'error', error: (e as Error).message };
             });
+          });
+        }
+      } else if (msg.type === 'setCover') {
+        if (projectDir) {
+          extractCover(store, projectDir, msg.time).catch((e: unknown) => {
+            send(ws, { type: 'commandError', error: `封面產生失敗：${(e as Error).message}` });
           });
         }
       }

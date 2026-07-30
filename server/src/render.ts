@@ -2,8 +2,8 @@ import { mkdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CaptionItem, Project } from '@vidcut/shared';
-import { overlayWindow, totalDuration } from '@vidcut/shared';
+import type { CaptionItem, Project, RenderOptions } from '@vidcut/shared';
+import { locate, overlayWindow, totalDuration } from '@vidcut/shared';
 import { runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 
@@ -102,8 +102,9 @@ export function buildRenderArgs(
   project: Project,
   projectDir: string,
   outPath: string,
-  opts: { hasDrawtext: boolean; captionCards?: CaptionCard[] },
+  opts: { hasDrawtext: boolean; captionCards?: CaptionCard[]; export?: RenderOptions },
 ): RenderPlan {
+  const exp = opts.export ?? {};
   const { width, height, fps } = project.canvas;
   const fit = project.canvas.fit ?? 'contain';
   const clips = project.tracks.video;
@@ -281,19 +282,24 @@ export function buildRenderArgs(
     captionsBurned = true;
   }
 
+  // 匯出縮放：合成一律在專案畫布尺寸做（overlay/字卡才對得上），最後才縮到輸出尺寸
+  const outW = exp.width ?? width;
+  const outH = exp.height ?? height;
+  if (outW !== width || outH !== height) {
+    fc.push(`${vcur}scale=${outW}:${outH}:flags=lanczos[vout]`);
+    vcur = '[vout]';
+  }
+  if (exp.fps && exp.fps !== fps) {
+    fc.push(`${vcur}fps=${exp.fps}[vfps]`);
+    vcur = '[vfps]';
+  }
+
+  args.push('-filter_complex', fc.join(';'), '-map', vcur, '-map', '[aout]');
+  args.push('-c:v', exp.codec === 'hevc' ? 'libx265' : 'libx264', '-preset', 'medium');
+  if (exp.videoBitrate) args.push('-b:v', exp.videoBitrate);
+  else args.push('-crf', String(exp.crf ?? 20));
+  if (exp.codec === 'hevc') args.push('-tag:v', 'hvc1'); // QuickTime/iOS 相容
   args.push(
-    '-filter_complex',
-    fc.join(';'),
-    '-map',
-    vcur,
-    '-map',
-    '[aout]',
-    '-c:v',
-    'libx264',
-    '-preset',
-    'medium',
-    '-crf',
-    '20',
     '-pix_fmt',
     'yuv420p',
     '-c:a',
@@ -321,6 +327,7 @@ export async function render(
   store: ProjectStore,
   projectDir: string,
   stamp: string,
+  exportOpts?: RenderOptions,
 ): Promise<RenderResult> {
   const project = store.doc;
   if (project.tracks.video.length === 0) throw new Error('render: timeline is empty');
@@ -364,6 +371,7 @@ export async function render(
     );
   }
   const plan = buildRenderArgs(project, projectDir, outPath, {
+    export: exportOpts,
     hasDrawtext: drawtext,
     captionCards,
   });
@@ -403,4 +411,46 @@ export async function render(
     d.render = { status: 'done', progress: 1, lastOutput: outRel };
   });
   return { outPath: outRel, captionsBurned: plan.captionsBurned };
+}
+
+/**
+ * 產生封面圖。已有成品時直接從成片抽幀（所見即所得，含 overlay/字幕）；
+ * 否則退而從來源素材抽。寫到 output/cover.jpg 並記進 project.render.coverPath。
+ */
+export async function extractCover(
+  store: ProjectStore,
+  projectDir: string,
+  time: number,
+): Promise<string> {
+  const project = store.doc;
+  await mkdir(join(projectDir, 'output'), { recursive: true });
+  const relPath = join('output', 'cover.jpg');
+
+  const last = project.render.lastOutput;
+  let src: string | null = null;
+  let seek = time;
+  if (last) {
+    src = join(projectDir, last);
+  } else {
+    const loc = locate(project, Math.min(Math.max(time, 0), totalDuration(project)));
+    if (!loc) throw new Error('cover: no clip at that time');
+    src = join(projectDir, loc.media.proxyPath ?? loc.media.path);
+    seek = loc.clip.frozen ? loc.clip.in : loc.clip.in + loc.offsetInClip;
+  }
+
+  await runFfmpeg([
+    '-ss',
+    String(seek),
+    '-i',
+    src,
+    '-frames:v',
+    '1',
+    '-q:v',
+    '2',
+    join(projectDir, relPath),
+  ]);
+  store.mutate('ai', 'set cover', (d) => {
+    d.render.coverPath = relPath;
+  });
+  return relPath;
 }

@@ -103,6 +103,21 @@ export interface RenderState {
   status: 'idle' | 'running' | 'done' | 'error';
   progress?: number;
   error?: string;
+  /** 封面圖（相對專案資料夾） */
+  coverPath?: string;
+}
+
+/** 匯出設定。省略時用專案畫布尺寸與預設品質。 */
+export interface RenderOptions {
+  /** 輸出短邊寬（等比縮放整個合成結果），例：720 / 1080 */
+  width?: number;
+  height?: number;
+  fps?: number;
+  /** 品質模式：crf 越小越好（預設 20） */
+  crf?: number;
+  /** 指定位元率（如 '10M'）時改用位元率模式 */
+  videoBitrate?: string;
+  codec?: 'h264' | 'hevc';
 }
 
 export interface ProjectTracks {
@@ -217,7 +232,8 @@ export type WsClientMsg =
   | { type: 'command'; cmd: Command; reqId?: string }
   | { type: 'context'; context: EditorContextData }
   | { type: 'reviewResolve'; id: string; outcome: ReviewOutcome; note?: string }
-  | { type: 'render'; stamp?: string };
+  | { type: 'render'; stamp?: string; options?: RenderOptions }
+  | { type: 'setCover'; time: number };
 
 export function createEmptyProject(id: string, name: string): Project {
   return {
