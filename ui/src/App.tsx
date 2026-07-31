@@ -279,7 +279,14 @@ export function App() {
           <div
             style={{ overflow: 'hidden', borderLeft: rightOpen ? '1px solid var(--line)' : 'none' }}
           >
-            <div style={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div
+              style={{
+                width: rightWidth,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
               <div
                 style={{
                   display: 'flex',
