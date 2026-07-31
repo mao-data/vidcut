@@ -41,7 +41,6 @@ interface ViewState {
   rightWidth: number;
   /** 拖曳伸縮的寫入口（clamp 由 resolvePanelDrag 做完才進來） */
   setPanelWidth: (side: PanelSide, width: number) => void;
-  openPanel: (side: PanelSide, open: boolean) => void;
   setPxPerSecond: (v: number) => void;
   /** 以倍率縮放（Ctrl+滾輪） */
   zoomBy: (factor: number) => void;
@@ -69,7 +68,6 @@ export const useView = create<ViewState>((set, get) => ({
     set(side === 'left' ? { leftWidth: width } : { rightWidth: width });
     saveWidths(next.leftWidth, next.rightWidth);
   },
-  openPanel: (side, open) => set(side === 'left' ? { leftOpen: open } : { rightOpen: open }),
   setPxPerSecond: (v) => set({ pxPerSecond: clampPps(v) }),
   zoomBy: (factor) => set({ pxPerSecond: clampPps(get().pxPerSecond * factor) }),
   toggleSnap: () => set({ snapEnabled: !get().snapEnabled }),

@@ -4,7 +4,7 @@ import { useView } from './stores/view.js';
 
 /**
  * 面板寬度拖曳把手：掛在中欄左右緣的 6px 熱區（hover 亮紫線）。
- * 拖 <140px＝收合、拖回來＝展開；雙擊回預設寬。
+ * 拖到底停在最小寬（不自動收合）；雙擊回預設寬。
  * 決策在 resolvePanelDrag（純函式），這裡只做指標事件與座標換算。
  */
 export function PanelResizer({
@@ -24,10 +24,8 @@ export function PanelResizer({
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
     const rawPx = side === 'left' ? clientX - rect.left : rect.right - clientX;
-    const r = resolvePanelDrag(side, rawPx);
-    const view = useView.getState();
-    view.openPanel(side, r.open);
-    if (r.open && r.width !== undefined) view.setPanelWidth(side, r.width);
+    // 拖到底停在 min、不收合——收合只走 ⟨⟩ 鈕
+    useView.getState().setPanelWidth(side, resolvePanelDrag(side, rawPx));
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -53,11 +51,7 @@ export function PanelResizer({
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      onDoubleClick={() => {
-        const view = useView.getState();
-        view.openPanel(side, true);
-        view.setPanelWidth(side, PANEL[side].default);
-      }}
+      onDoubleClick={() => useView.getState().setPanelWidth(side, PANEL[side].default)}
       style={{
         position: 'absolute',
         top: 0,
