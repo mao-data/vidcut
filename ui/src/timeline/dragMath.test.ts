@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { trimIn, trimOut, reorderByDrag, layoutByOrder, MIN_CLIP_DURATION } from './dragMath.js';
+import {
+  trimIn,
+  trimOut,
+  reorderByDrag,
+  layoutByOrder,
+  shiftStart,
+  trimSpanIn,
+  trimSpanOut,
+  trimAudioIn,
+  MIN_CLIP_DURATION,
+} from './dragMath.js';
 
 describe('trimIn', () => {
   const clip = { in: 5, duration: 6 }; // 右界 = 11
@@ -88,5 +98,68 @@ describe('layoutByOrder', () => {
     const m = layoutByOrder(clips, ['zz', 'a', 'b', 'c'], 10);
     expect(m.get('a')).toBe(0);
     expect(m.size).toBe(3);
+  });
+});
+
+describe('shiftStart', () => {
+  it('moves by delta and clamps at 0', () => {
+    expect(shiftStart(5, 2)).toBe(7);
+    expect(shiftStart(5, -2)).toBe(3);
+    expect(shiftStart(1, -5)).toBe(0);
+  });
+});
+
+describe('trimSpanIn (caption 左緣：右緣不動)', () => {
+  const cap = { start: 4, duration: 3 }; // 右緣 = 7
+
+  it('moving right shrinks duration, keeps right edge', () => {
+    expect(trimSpanIn(cap, 1)).toEqual({ start: 5, duration: 2 });
+  });
+
+  it('moving left grows duration', () => {
+    expect(trimSpanIn(cap, -2)).toEqual({ start: 2, duration: 5 });
+  });
+
+  it('clamps start at 0', () => {
+    expect(trimSpanIn(cap, -10)).toEqual({ start: 0, duration: 7 });
+  });
+
+  it('never below MIN duration', () => {
+    const r = trimSpanIn(cap, 100);
+    expect(r.duration).toBeCloseTo(MIN_CLIP_DURATION);
+    expect(r.start).toBeCloseTo(7 - MIN_CLIP_DURATION);
+  });
+});
+
+describe('trimSpanOut (右緣：只改 duration)', () => {
+  it('grows and shrinks with optional max', () => {
+    expect(trimSpanOut({ duration: 3 }, 2)).toEqual({ duration: 5 });
+    expect(trimSpanOut({ duration: 3 }, 2, 4)).toEqual({ duration: 4 });
+    expect(trimSpanOut({ duration: 3 }, -100).duration).toBeCloseTo(MIN_CLIP_DURATION);
+  });
+});
+
+describe('trimAudioIn (音訊左緣：start/in/duration 連動，右緣不動)', () => {
+  const a = { start: 5, in: 2, duration: 4 }; // 時間軸右緣 9、來源右緣 6
+
+  it('moving right advances start+in together', () => {
+    expect(trimAudioIn(a, 1)).toEqual({ start: 6, in: 3, duration: 3 });
+  });
+
+  it('moving left is limited by in >= 0', () => {
+    // delta -3 但 in 只剩 2 → 實際只能 -2
+    expect(trimAudioIn(a, -3)).toEqual({ start: 3, in: 0, duration: 6 });
+  });
+
+  it('moving left is limited by start >= 0 too', () => {
+    const b = { start: 1, in: 5, duration: 2 };
+    expect(trimAudioIn(b, -3)).toEqual({ start: 0, in: 4, duration: 3 });
+  });
+
+  it('never below MIN duration', () => {
+    const r = trimAudioIn(a, 100);
+    expect(r.duration).toBeCloseTo(MIN_CLIP_DURATION);
+    expect(r.start).toBeCloseTo(9 - MIN_CLIP_DURATION);
+    expect(r.in).toBeCloseTo(6 - MIN_CLIP_DURATION);
   });
 });

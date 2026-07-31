@@ -77,3 +77,47 @@ export function layoutByOrder(
   }
   return out;
 }
+
+/** 平移絕對時間項（caption/audio/overlay）：start 不得小於 0。 */
+export function shiftStart(start: number, deltaSec: number): number {
+  return Math.max(0, start + deltaSec);
+}
+
+/**
+ * 拖左緣（caption 等純時間跨度）：右緣（start+duration）不動。
+ * clamp：start>=0、duration>=MIN。
+ */
+export function trimSpanIn(
+  item: { start: number; duration: number },
+  deltaSec: number,
+): { start: number; duration: number } {
+  const rightEdge = item.start + item.duration;
+  let nextStart = item.start + deltaSec;
+  nextStart = Math.max(0, Math.min(nextStart, rightEdge - MIN_CLIP_DURATION));
+  return { start: nextStart, duration: rightEdge - nextStart };
+}
+
+/** 拖右緣：只改 duration。clamp：>=MIN、<=maxDuration（省略＝無上限）。 */
+export function trimSpanOut(
+  item: { duration: number },
+  deltaSec: number,
+  maxDuration?: number,
+): { duration: number } {
+  let next = item.duration + deltaSec;
+  if (maxDuration !== undefined) next = Math.min(next, maxDuration);
+  return { duration: Math.max(MIN_CLIP_DURATION, next) };
+}
+
+/**
+ * 音訊左緣：時間軸右緣不動，start/in/duration 連動（聲音內容不滑動）。
+ * clamp：in>=0、start>=0、duration>=MIN——三者取最嚴格的位移。
+ */
+export function trimAudioIn(
+  a: { start: number; in: number; duration: number },
+  deltaSec: number,
+): { start: number; in: number; duration: number } {
+  const minDelta = Math.max(-a.in, -a.start); // 往左最多到 in=0 或 start=0
+  const maxDelta = a.duration - MIN_CLIP_DURATION; // 往右最多留 MIN
+  const d = Math.max(minDelta, Math.min(deltaSec, maxDelta));
+  return { start: a.start + d, in: a.in + d, duration: a.duration - d };
+}
