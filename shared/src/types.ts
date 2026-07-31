@@ -178,7 +178,8 @@ export type Command =
   | {
       name: 'updateOverlay';
       id: string;
-      patch: Partial<Pick<OverlayItem, 'start' | 'duration' | 'position'>>;
+      /** start 與 anchor 互斥：給 start 會清 anchor（轉絕對）、給 anchor 會清 start（轉錨定） */
+      patch: Partial<Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor'>>;
     }
   | {
       name: 'updateCaption';

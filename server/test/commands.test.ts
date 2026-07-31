@@ -112,3 +112,65 @@ describe('applyCommand', () => {
     expect(applyCommand(store, 'human', { name: 'undo' })).toMatchObject({ ok: false });
   });
 });
+
+describe('updateOverlay anchor/start exclusivity', () => {
+  async function storeWithOverlays() {
+    const store = await storeWithClips();
+    store.mutate('ai', 'seed overlays', (d) => {
+      d.tracks.overlays = [
+        {
+          id: 'ov_abs',
+          imagePath: 'a.png',
+          start: 2,
+          duration: 3,
+          position: { x: 0.5, y: 0.1, scale: 1 },
+        },
+        {
+          id: 'ov_anc',
+          imagePath: 'b.png',
+          anchor: { clipId: 'c2', offset: 1 },
+          duration: null,
+          position: { x: 0.5, y: 0.2, scale: 1 },
+        },
+      ];
+    });
+    return store;
+  }
+
+  it('patching anchor validates clipId, sets it, and clears start', async () => {
+    const store = await storeWithOverlays();
+    const r = applyCommand(store, 'human', {
+      name: 'updateOverlay',
+      id: 'ov_abs',
+      patch: { anchor: { clipId: 'c1', offset: 0.5 } },
+    });
+    expect(r.ok).toBe(true);
+    const o = store.doc.tracks.overlays[0]!;
+    expect(o.anchor).toEqual({ clipId: 'c1', offset: 0.5 });
+    expect(o.start).toBeUndefined();
+  });
+
+  it('rejects anchor with unknown clipId', async () => {
+    const store = await storeWithOverlays();
+    const r = applyCommand(store, 'human', {
+      name: 'updateOverlay',
+      id: 'ov_abs',
+      patch: { anchor: { clipId: 'nope', offset: 0 } },
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('patching start on an anchored overlay converts it to absolute (clears anchor)', async () => {
+    const store = await storeWithOverlays();
+    const r = applyCommand(store, 'human', {
+      name: 'updateOverlay',
+      id: 'ov_anc',
+      patch: { start: 4 },
+    });
+    expect(r.ok).toBe(true);
+    const o = store.doc.tracks.overlays[1]!;
+    expect(o.start).toBe(4);
+    // 沒有這條互斥規則時 anchor 會留著且優先生效 → 設 start 看似成功實際無效
+    expect(o.anchor).toBeUndefined();
+  });
+});

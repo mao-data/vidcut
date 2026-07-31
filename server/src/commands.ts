@@ -199,10 +199,27 @@ function updateOverlay(
   if (cmd.patch.duration !== undefined && cmd.patch.duration !== null && cmd.patch.duration <= 0) {
     return { ok: false, error: 'overlay duration must be > 0 or null' };
   }
+  if (cmd.patch.anchor !== undefined) {
+    if (!store.doc.tracks.video.some((c) => c.id === cmd.patch.anchor!.clipId)) {
+      return { ok: false, error: `anchor clip not found: ${cmd.patch.anchor.clipId}` };
+    }
+    if (cmd.patch.start !== undefined) {
+      return { ok: false, error: 'start and anchor are mutually exclusive' };
+    }
+  }
   return ok(
     store.mutate(source, `edit overlay`, (d) => {
       const o = d.tracks.overlays.find((x) => x.id === cmd.id)!;
-      if (cmd.patch.start !== undefined) o.start = cmd.patch.start;
+      // start／anchor 互斥：兩種定位不能同時存在（overlayWindow 會偏袒 anchor，
+      // 留著會出現「設了 start 看似成功實際無效」的隱性陷阱）
+      if (cmd.patch.start !== undefined) {
+        o.start = cmd.patch.start;
+        delete o.anchor;
+      }
+      if (cmd.patch.anchor !== undefined) {
+        o.anchor = cmd.patch.anchor;
+        delete o.start;
+      }
       if (cmd.patch.duration !== undefined) o.duration = cmd.patch.duration;
       if (cmd.patch.position !== undefined) o.position = cmd.patch.position;
     }),
