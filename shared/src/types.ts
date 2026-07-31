@@ -188,6 +188,9 @@ export type Command =
       patch: Partial<Pick<CaptionItem, 'text' | 'start' | 'duration' | 'style' | 'tokens'>>;
     }
   | { name: 'setOverlays'; overlays: OverlayItem[] }
+  /** 新增單張疊圖（人從 UI 上傳；AI 通常用 setOverlays 整組排） */
+  | { name: 'addOverlay'; overlay: OverlayItem }
+  | { name: 'removeOverlay'; id: string }
   | { name: 'setCaptions'; captions: CaptionItem[] }
   /** 在時間軸絕對時間切開該處片段（playhead 分割） */
   | { name: 'splitAt'; time: number }

@@ -174,3 +174,90 @@ describe('updateOverlay anchor/start exclusivity', () => {
     expect(o.anchor).toBeUndefined();
   });
 });
+
+describe('addOverlay / removeOverlay', () => {
+  it('appends a valid overlay', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'addOverlay',
+      overlay: {
+        id: 'ov_new',
+        imagePath: 'assets/t.png',
+        start: 2,
+        duration: 3,
+        position: { x: 0.5, y: 0.1, scale: 1 },
+      },
+    });
+    expect(r.ok).toBe(true);
+    expect(store.doc.tracks.overlays.map((o) => o.id)).toContain('ov_new');
+  });
+
+  it('rejects overlay without start or anchor, or with bad duration', async () => {
+    const store = await storeWithClips();
+    expect(
+      applyCommand(store, 'human', {
+        name: 'addOverlay',
+        overlay: {
+          id: 'x1',
+          imagePath: 'a.png',
+          duration: 3,
+          position: { x: 0, y: 0, scale: 1 },
+        },
+      }).ok,
+    ).toBe(false);
+    expect(
+      applyCommand(store, 'human', {
+        name: 'addOverlay',
+        overlay: {
+          id: 'x2',
+          imagePath: 'a.png',
+          start: 0,
+          duration: 0,
+          position: { x: 0, y: 0, scale: 1 },
+        },
+      }).ok,
+    ).toBe(false);
+    expect(
+      applyCommand(store, 'human', {
+        name: 'addOverlay',
+        overlay: {
+          id: 'x3',
+          imagePath: 'a.png',
+          anchor: { clipId: 'nope', offset: 0 },
+          duration: null,
+          position: { x: 0, y: 0, scale: 1 },
+        },
+      }).ok,
+    ).toBe(false);
+  });
+
+  it('rejects duplicate overlay id', async () => {
+    const store = await storeWithClips();
+    const overlay = {
+      id: 'dup',
+      imagePath: 'a.png',
+      start: 0,
+      duration: null,
+      position: { x: 0, y: 0, scale: 1 },
+    };
+    expect(applyCommand(store, 'human', { name: 'addOverlay', overlay }).ok).toBe(true);
+    expect(applyCommand(store, 'human', { name: 'addOverlay', overlay }).ok).toBe(false);
+  });
+
+  it('removeOverlay removes existing and rejects missing', async () => {
+    const store = await storeWithClips();
+    applyCommand(store, 'human', {
+      name: 'addOverlay',
+      overlay: {
+        id: 'ov_rm',
+        imagePath: 'a.png',
+        start: 0,
+        duration: 2,
+        position: { x: 0, y: 0, scale: 1 },
+      },
+    });
+    expect(applyCommand(store, 'human', { name: 'removeOverlay', id: 'ov_rm' }).ok).toBe(true);
+    expect(store.doc.tracks.overlays.some((o) => o.id === 'ov_rm')).toBe(false);
+    expect(applyCommand(store, 'human', { name: 'removeOverlay', id: 'ov_rm' }).ok).toBe(false);
+  });
+});

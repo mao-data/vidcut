@@ -56,6 +56,18 @@ export function applyCommand(
       return removeClip(store, source, cmd);
     case 'updateOverlay':
       return updateOverlay(store, source, cmd);
+    case 'addOverlay':
+      return addOverlay(store, source, cmd);
+    case 'removeOverlay': {
+      if (!store.doc.tracks.overlays.some((o) => o.id === cmd.id)) {
+        return { ok: false, error: `overlay not found: ${cmd.id}` };
+      }
+      return ok(
+        store.mutate(source, 'remove overlay', (d) => {
+          d.tracks.overlays = d.tracks.overlays.filter((o) => o.id !== cmd.id);
+        }),
+      );
+    }
     case 'updateCaption':
       return updateCaption(store, source, cmd);
     case 'setOverlays':
@@ -184,6 +196,31 @@ function removeClip(
   return ok(
     store.mutate(source, `remove ${cmd.clipId}`, (d) => {
       d.tracks.video = d.tracks.video.filter((c) => c.id !== cmd.clipId);
+    }),
+  );
+}
+
+function addOverlay(
+  store: ProjectStore,
+  source: MutationSource,
+  cmd: Extract<Command, { name: 'addOverlay' }>,
+): CommandResult {
+  const o = cmd.overlay;
+  if (store.doc.tracks.overlays.some((x) => x.id === o.id)) {
+    return { ok: false, error: `overlay id already exists: ${o.id}` };
+  }
+  if (o.duration !== null && o.duration <= 0) {
+    return { ok: false, error: 'overlay duration must be > 0 or null' };
+  }
+  if (o.anchor === undefined && o.start === undefined) {
+    return { ok: false, error: 'overlay needs start or anchor' };
+  }
+  if (o.anchor && !store.doc.tracks.video.some((c) => c.id === o.anchor!.clipId)) {
+    return { ok: false, error: `anchor clip not found: ${o.anchor.clipId}` };
+  }
+  return ok(
+    store.mutate(source, `add overlay ${o.imagePath.split('/').pop()}`, (d) => {
+      d.tracks.overlays.push(o);
     }),
   );
 }
