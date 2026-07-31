@@ -398,6 +398,40 @@ export function Timeline() {
   /** 時間軸內容層（座標換算的基準） */
   const contentRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState>(null);
+  /**
+   * 放手後、server echo 抵達前的顯示覆蓋（修「放手閃回原位」）：
+   * pointerup 清掉 drag preview 的那幾幀 doc 還是舊值，畫面會閃回原位再跳到新位置。
+   * 放手時把結果放進 pending 繼續蓋著，等 doc 對上才放掉；1.2s 保險絲避免命令被拒時卡住。
+   */
+  const pending = useRef<
+    | { mode: 'cap'; id: string; start: number; duration: number }
+    | { mode: 'aud'; id: string; start: number; in: number; duration: number }
+    | {
+        mode: 'ov';
+        id: string;
+        absStart: number;
+        span: number | null;
+        match: { kind: 'start'; v: number } | { kind: 'offset'; clipId: string; v: number };
+      }
+    | { mode: 'clip-trim'; clipId: string; in: number; duration: number }
+    | { mode: 'clip-order'; order: string[] }
+    | null
+  >(null);
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setPending = (v: NonNullable<typeof pending.current>) => {
+    pending.current = v;
+    if (pendingTimer.current) clearTimeout(pendingTimer.current);
+    pendingTimer.current = setTimeout(() => {
+      pending.current = null;
+      rerender();
+    }, 1200);
+  };
+  useEffect(
+    () => () => {
+      if (pendingTimer.current) clearTimeout(pendingTimer.current);
+    },
+    [],
+  );
   const [snapLine, setSnapLine] = useState<number | null>(null);
   const [, force] = useState(0);
   const rerender = () => force((n) => n + 1);
@@ -430,6 +464,48 @@ export function Timeline() {
   }, [doc]);
 
   if (!doc) return null;
+
+  // pending 對帳：doc 已反映我們送出的值 → 覆蓋功成身退
+  {
+    const pd = pending.current;
+    if (pd) {
+      const matched = (() => {
+        switch (pd.mode) {
+          case 'cap': {
+            const c = doc.tracks.captions.find((x) => x.id === pd.id);
+            return !c || (c.start === pd.start && c.duration === pd.duration);
+          }
+          case 'aud': {
+            const a = doc.tracks.audio.find((x) => x.id === pd.id);
+            return !a || (a.start === pd.start && a.in === pd.in && a.duration === pd.duration);
+          }
+          case 'ov': {
+            const o = doc.tracks.overlays.find((x) => x.id === pd.id);
+            if (!o) return true;
+            return pd.match.kind === 'start'
+              ? o.start === pd.match.v
+              : o.anchor?.clipId === pd.match.clipId && o.anchor?.offset === pd.match.v;
+          }
+          case 'clip-trim': {
+            const c = doc.tracks.video.find((x) => x.id === pd.clipId);
+            return !c || (c.in === pd.in && c.duration === pd.duration);
+          }
+          case 'clip-order':
+            return (
+              doc.tracks.video.length === pd.order.length &&
+              doc.tracks.video.every((c, i) => c.id === pd.order[i])
+            );
+        }
+      })();
+      if (matched) {
+        pending.current = null;
+        if (pendingTimer.current) {
+          clearTimeout(pendingTimer.current);
+          pendingTimer.current = null;
+        }
+      }
+    }
+  }
   const total = totalDuration(doc);
   const starts = clipStartTimes(doc);
   const width = Math.max(timeToPx(total, pps) + 120, 600);
@@ -474,7 +550,11 @@ export function Timeline() {
     if (!c) return;
     capture(e);
     useSelection.getState().select({ kind: 'caption', id });
-    const orig = { start: c.start, duration: c.duration };
+    const pd = pending.current;
+    const orig =
+      pd?.mode === 'cap' && pd.id === id
+        ? { start: pd.start, duration: pd.duration }
+        : { start: c.start, duration: c.duration };
     drag.current = { mode: 'cap', edge, id, startX: e.clientX, orig, preview: { ...orig } };
   };
 
@@ -628,14 +708,10 @@ export function Timeline() {
     setSnapLine(null);
     if (!d) return;
     if (d.mode === 'trim-in' || d.mode === 'trim-out') {
-      sendCommand({
-        name: 'updateClip',
-        clipId: d.clipId,
-        patch: {
-          in: Number(d.preview.in.toFixed(3)),
-          duration: Number(d.preview.duration.toFixed(3)),
-        },
-      });
+      const inSec = Number(d.preview.in.toFixed(3));
+      const duration = Number(d.preview.duration.toFixed(3));
+      setPending({ mode: 'clip-trim', clipId: d.clipId, in: inSec, duration });
+      sendCommand({ name: 'updateClip', clipId: d.clipId, patch: { in: inSec, duration } });
     } else if (d.mode === 'move') {
       const rect = contentRef.current?.getBoundingClientRect();
       if (rect) {
@@ -646,30 +722,32 @@ export function Timeline() {
           layout,
         );
         const changed = order.some((id, i) => id !== doc.tracks.video[i]!.id);
-        if (changed) sendCommand({ name: 'reorderClips', order });
+        if (changed) {
+          setPending({ mode: 'clip-order', order });
+          sendCommand({ name: 'reorderClips', order });
+        }
       }
     } else if (d.mode === 'cap') {
       if (d.preview.start !== d.orig.start || d.preview.duration !== d.orig.duration) {
-        sendCommand({
-          name: 'updateCaption',
-          id: d.id,
-          patch: {
-            start: Number(d.preview.start.toFixed(3)),
-            duration: Number(d.preview.duration.toFixed(3)),
-          },
-        });
+        const start = Number(d.preview.start.toFixed(3));
+        const duration = Number(d.preview.duration.toFixed(3));
+        setPending({ mode: 'cap', id: d.id, start, duration });
+        sendCommand({ name: 'updateCaption', id: d.id, patch: { start, duration } });
       }
     } else if (d.mode === 'aud') {
-      const { start, in: inSec, duration } = d.preview;
-      if (start !== d.orig.start || inSec !== d.orig.in || duration !== d.orig.duration) {
+      if (
+        d.preview.start !== d.orig.start ||
+        d.preview.in !== d.orig.in ||
+        d.preview.duration !== d.orig.duration
+      ) {
+        const start = Number(d.preview.start.toFixed(3));
+        const inSec = Number(d.preview.in.toFixed(3));
+        const duration = Number(d.preview.duration.toFixed(3));
+        setPending({ mode: 'aud', id: d.id, start, in: inSec, duration });
         sendCommand({
           name: 'updateAudio',
           id: d.id,
-          patch: {
-            start: Number(start.toFixed(3)),
-            in: Number(inSec.toFixed(3)),
-            duration: Number(duration.toFixed(3)),
-          },
+          patch: { start, in: inSec, duration },
         });
       }
     } else if (d.mode === 'ov') {
@@ -678,22 +756,29 @@ export function Timeline() {
           // 錨定式：換算回相對片段起點的 offset（保持跟隨片段）
           const idx = doc.tracks.video.findIndex((c) => c.id === d.orig.anchorClipId);
           const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;
+          const offset = Number(Math.max(0, d.preview.absStart - clipStart).toFixed(3));
+          setPending({
+            mode: 'ov',
+            id: d.id,
+            absStart: clipStart + offset,
+            span: d.orig.span,
+            match: { kind: 'offset', clipId: d.orig.anchorClipId, v: offset },
+          });
           sendCommand({
             name: 'updateOverlay',
             id: d.id,
-            patch: {
-              anchor: {
-                clipId: d.orig.anchorClipId,
-                offset: Number(Math.max(0, d.preview.absStart - clipStart).toFixed(3)),
-              },
-            },
+            patch: { anchor: { clipId: d.orig.anchorClipId, offset } },
           });
         } else {
-          sendCommand({
-            name: 'updateOverlay',
+          const start = Number(d.preview.absStart.toFixed(3));
+          setPending({
+            mode: 'ov',
             id: d.id,
-            patch: { start: Number(d.preview.absStart.toFixed(3)) },
+            absStart: start,
+            span: d.orig.span,
+            match: { kind: 'start', v: start },
           });
+          sendCommand({ name: 'updateOverlay', id: d.id, patch: { start } });
         }
       }
     }
@@ -706,10 +791,13 @@ export function Timeline() {
     usePlayback.getState().seek(maybeSnap(pxToTime(e.clientX - rect.left, pps)));
   };
 
-  // 拖曳 trim 中：用 preview 覆蓋顯示的 clip
+  // 拖曳 trim 中：用 preview 覆蓋顯示的 clip；放手後由 pending 接手蓋到 echo 抵達
   const trimmedClips = doc.tracks.video.map((c) => {
     const d = drag.current;
     if (d && (d.mode === 'trim-in' || d.mode === 'trim-out') && d.clipId === c.id) return d.preview;
+    const pd = pending.current;
+    if (pd?.mode === 'clip-trim' && pd.clipId === c.id)
+      return { ...c, in: pd.in, duration: pd.duration };
     return c;
   });
 
@@ -723,7 +811,9 @@ export function Timeline() {
           moveDrag.pointerX - contentRef.current.getBoundingClientRect().left,
           layout,
         )
-      : null;
+      : pending.current?.mode === 'clip-order'
+        ? pending.current.order
+        : null;
 
   /**
    * 讓位後每個片段該在的位置（用 id 對映）。
@@ -906,11 +996,17 @@ export function Timeline() {
             {doc.tracks.overlays.map((o) => {
               let win = overlayWindow(doc, o);
               const d = drag.current;
+              const pd = pending.current;
               if (win && d?.mode === 'ov' && d.id === o.id) {
                 const span = d.orig.span;
                 win = {
                   start: d.preview.absStart,
                   end: span === null ? win.end : d.preview.absStart + span,
+                };
+              } else if (win && pd?.mode === 'ov' && pd.id === o.id) {
+                win = {
+                  start: pd.absStart,
+                  end: pd.span === null ? win.end : pd.absStart + pd.span,
                 };
               }
               const isSel = selected?.kind === 'overlay' && selected.id === o.id;
@@ -943,10 +1039,13 @@ export function Timeline() {
           <div style={subRow}>
             {doc.tracks.captions.map((c) => {
               const d = drag.current;
+              const pd = pending.current;
               const view =
                 d?.mode === 'cap' && d.id === c.id
                   ? { start: d.preview.start, duration: d.preview.duration }
-                  : { start: c.start, duration: c.duration };
+                  : pd?.mode === 'cap' && pd.id === c.id
+                    ? { start: pd.start, duration: pd.duration }
+                    : { start: c.start, duration: c.duration };
               const isSel = selected?.kind === 'caption' && selected.id === c.id;
               return (
                 <div
@@ -1006,10 +1105,13 @@ export function Timeline() {
           <div style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}>
             {doc.tracks.audio.map((a) => {
               const d = drag.current;
+              const pd = pending.current;
               const shown =
                 d?.mode === 'aud' && d.id === a.id
                   ? { ...a, start: d.preview.start, in: d.preview.in, duration: d.preview.duration }
-                  : a;
+                  : pd?.mode === 'aud' && pd.id === a.id
+                    ? { ...a, start: pd.start, in: pd.in, duration: pd.duration }
+                    : a;
               return (
                 <AudioChip
                   key={a.id}
