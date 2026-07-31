@@ -59,6 +59,50 @@ function fmt(t: number): string {
 type Peaks = PeaksFile;
 const peaksCache = new Map<string, Peaks>();
 
+/**
+ * 只有這兩個小組件訂閱 playback time：播放中 time 每幀更新（rAF），
+ * 若 Timeline 本體訂閱，整條時間軸（所有片段/字幕/波形容器）會每秒重渲染 ~60 次。
+ */
+function Timecode({ total }: { total: number }) {
+  const time = usePlayback((s) => s.time);
+  return (
+    <span className="mono" style={{ color: '#c4b5fd', marginLeft: 4 }}>
+      {fmt(time)} <span className="tag">/ {fmt(total)}</span>
+    </span>
+  );
+}
+
+/** playhead：紫漸層＋光暈＋圓頭 */
+function Playhead({ pps }: { pps: number }) {
+  const time = usePlayback((s) => s.time);
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        left: timeToPx(time, pps) - 1,
+        width: 2,
+        background: 'linear-gradient(#a78bfa, #6366f1)',
+        borderRadius: 1,
+        boxShadow: '0 0 10px rgba(139, 92, 246, 0.7)',
+        pointerEvents: 'none',
+      }}
+    >
+      <div
+        style={{
+          width: 9,
+          height: 9,
+          borderRadius: '50%',
+          background: '#a78bfa',
+          margin: '-1px 0 0 -3.5px',
+          boxShadow: '0 0 8px rgba(139, 92, 246, 0.9)',
+        }}
+      />
+    </div>
+  );
+}
+
 type DragState =
   | { mode: 'trim-in' | 'trim-out'; clipId: string; startX: number; preview: VideoClip }
   | { mode: 'move'; clipId: string; startX: number; pointerX: number }
@@ -390,7 +434,6 @@ function AudioChip({
 
 export function Timeline() {
   const doc = useProject((s) => s.doc);
-  const time = usePlayback((s) => s.time);
   const playing = usePlayback((s) => s.playing);
   const selected = useSelection((s) => s.selected);
   const pps = useView((s) => s.pxPerSecond);
@@ -517,9 +560,9 @@ export function Timeline() {
     width: timeToPx(c.duration, pps),
   }));
 
-  /** 吸附候選：片段邊界、片尾、playhead、整秒 */
+  /** 吸附候選：片段邊界、片尾、playhead、整秒（playhead 讀 getState，避免訂閱 time） */
   const snapCandidates = (): number[] => {
-    const cands = [...starts, total, time];
+    const cands = [...starts, total, usePlayback.getState().time];
     for (let s = 0; s <= Math.ceil(total); s++) cands.push(s);
     return cands;
   };
@@ -911,9 +954,7 @@ export function Timeline() {
         >
           <SkipForward size={13} />
         </button>
-        <span className="mono" style={{ color: '#c4b5fd', marginLeft: 4 }}>
-          {fmt(time)} <span className="tag">/ {fmt(total)}</span>
-        </span>
+        <Timecode total={total} />
 
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
           <label
@@ -1181,31 +1222,7 @@ export function Timeline() {
               }}
             />
           )}
-          {/* playhead：紫漸層＋光暈＋圓頭 */}
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              bottom: 0,
-              left: timeToPx(time, pps) - 1,
-              width: 2,
-              background: 'linear-gradient(#a78bfa, #6366f1)',
-              borderRadius: 1,
-              boxShadow: '0 0 10px rgba(139, 92, 246, 0.7)',
-              pointerEvents: 'none',
-            }}
-          >
-            <div
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: '50%',
-                background: '#a78bfa',
-                margin: '-1px 0 0 -3.5px',
-                boxShadow: '0 0 8px rgba(139, 92, 246, 0.9)',
-              }}
-            />
-          </div>
+          <Playhead pps={pps} />
         </div>
       </div>
     </div>

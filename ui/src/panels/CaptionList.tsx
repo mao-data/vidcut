@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motionOK } from '../motion.js';
 import { activeTokenIndex, type CaptionItem, type CaptionStyle } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
@@ -28,14 +28,18 @@ const NO_CAPTIONS: CaptionItem[] = [];
 
 export function CaptionList() {
   const captions = useProject((s) => s.doc?.tracks.captions ?? NO_CAPTIONS);
-  const time = usePlayback((s) => s.time);
   const selected = useSelection((s) => s.selected);
   const [draft, setDraft] = useState<{ id: string; text: string } | null>(null);
 
-  const currentId = useMemo(
-    () => captions.find((c) => time >= c.start && time < c.start + c.duration)?.id ?? null,
-    [captions, time],
+  // 播放中 time 每幀更新——selector 只回傳 primitive（換句/換詞才變），
+  // 列表就只在高亮真的要動時重渲染，而不是每幀一次。
+  const currentId = usePlayback(
+    (s) => captions.find((c) => s.time >= c.start && s.time < c.start + c.duration)?.id ?? null,
   );
+  const activeTok = usePlayback((s) => {
+    const cap = captions.find((c) => c.id === currentId);
+    return cap ? activeTokenIndex(cap, s.time) : -1;
+  });
   const currentRowRef = useRef<HTMLDivElement>(null);
 
   // 播放時當前句自動捲進視野（reduced-motion 時不做平滑捲動）
@@ -111,7 +115,7 @@ export function CaptionList() {
         {captions.map((cap) => {
           const isCurrent = cap.id === currentId;
           const isSelected = selected?.kind === 'caption' && selected.id === cap.id;
-          const active = activeTokenIndex(cap, time);
+          const active = isCurrent ? activeTok : -1;
           return (
             <div
               key={cap.id}

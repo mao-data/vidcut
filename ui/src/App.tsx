@@ -61,8 +61,6 @@ export function App() {
   const doc = useProject((s) => s.doc);
   const version = useProject((s) => s.version);
   const connected = useProject((s) => s.connected);
-  const selection = useSelection((s) => s.selected);
-  const playhead = usePlayback((s) => s.time);
   const leftOpen = useView((s) => s.leftOpen);
   const rightOpen = useView((s) => s.rightOpen);
   const leftWidth = useView((s) => s.leftWidth);
@@ -157,10 +155,35 @@ export function App() {
   }, []);
 
   // 回報編輯脈絡給 AI（get_editor_context）。playhead 用防抖避免洗頻。
+  // 直接訂 store、不經 React state：playhead 播放中每幀都變，
+  // 若用 hook 訂閱會讓整棵 App 樹每幀重渲染。
   useEffect(() => {
-    const t = setTimeout(() => sendContext({ selection, playhead, range: null }), 150);
-    return () => clearTimeout(t);
-  }, [selection, playhead]);
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(
+        () =>
+          sendContext({
+            selection: useSelection.getState().selected,
+            playhead: usePlayback.getState().time,
+            range: null,
+          }),
+        150,
+      );
+    };
+    schedule();
+    const unTime = usePlayback.subscribe((s, prev) => {
+      if (s.time !== prev.time) schedule();
+    });
+    const unSel = useSelection.subscribe((s, prev) => {
+      if (s.selected !== prev.selected) schedule();
+    });
+    return () => {
+      if (t) clearTimeout(t);
+      unTime();
+      unSel();
+    };
+  }, []);
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>

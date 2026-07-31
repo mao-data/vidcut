@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { activeTokenIndex, totalDuration, type CaptionItem } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
@@ -45,6 +45,8 @@ export function Player() {
   const activeIsA = useRef(true);
   const mountedClip = useRef<{ a: string | null; b: string | null }>({ a: null, b: null });
   const blurFill = doc?.canvas.fit === 'blur';
+  // effect 與 render body 共用同一份 plan（播放中每幀都算，別算兩次）
+  const plan = useMemo(() => (doc ? planAt(doc, time) : null), [doc, time]);
 
   useEffect(() => {
     if (doc) usePlayback.getState().setTotal(totalDuration(doc));
@@ -66,8 +68,7 @@ export function Player() {
 
   // 每次 time/doc 變化：對齊 video 元素
   useEffect(() => {
-    if (!doc) return;
-    const plan = planAt(doc, time);
+    if (!doc || !plan) return;
     const act = activeIsA.current ? vA.current : vB.current;
     const spare = activeIsA.current ? vB.current : vA.current;
     const key = activeIsA.current ? 'a' : 'b';
@@ -133,10 +134,9 @@ export function Player() {
       if (playing && bg.paused) void bg.play().catch(() => {});
       if (!playing && !bg.paused) bg.pause();
     }
-  }, [doc, time, playing, blurFill]);
+  }, [doc, plan, time, playing, blurFill]);
 
-  if (!doc) return null;
-  const plan = planAt(doc, time);
+  if (!doc || !plan) return null;
   const vidStyle = (visible: boolean): CSSProperties => ({
     position: 'absolute',
     inset: 0,
