@@ -10,12 +10,12 @@
 
 ## 行為
 
-| 軌 | 本體拖曳 | 左緣 trim | 右緣 trim |
-|---|---|---|---|
-| 字幕 | 平移 `start`（≥0，吸附） | 右緣不動：`start`+`duration` 對調（min 0.1s） | 改 `duration`（min 0.1s） |
-| 音訊 | 平移 `start`（≥0，吸附） | 右緣不動：`start`/`in`/`duration` 連動（`in`≥0） | 改 `duration`（≤ 素材長 − `in`） |
-| overlay（絕對） | 平移 `start`（≥0，吸附） | —（duration 可為 null=到片尾，不做拖曳 trim） | — |
-| overlay（錨定） | 平移＝改 `anchor.offset`（**保持跟隨片段**，offset ≥ 0） | — | — |
+| 軌              | 本體拖曳                                                 | 左緣 trim                                        | 右緣 trim                        |
+| --------------- | -------------------------------------------------------- | ------------------------------------------------ | -------------------------------- |
+| 字幕            | 平移 `start`（≥0，吸附）                                 | 右緣不動：`start`+`duration` 對調（min 0.1s）    | 改 `duration`（min 0.1s）        |
+| 音訊            | 平移 `start`（≥0，吸附）                                 | 右緣不動：`start`/`in`/`duration` 連動（`in`≥0） | 改 `duration`（≤ 素材長 − `in`） |
+| overlay（絕對） | 平移 `start`（≥0，吸附）                                 | —（duration 可為 null=到片尾，不做拖曳 trim）    | —                                |
+| overlay（錨定） | 平移＝改 `anchor.offset`（**保持跟隨片段**，offset ≥ 0） | —                                                | —                                |
 
 - 吸附沿用主軌的 `snapTime` 候選（片段邊界/片尾/playhead/整秒），吸附對象＝被拖的那個邊
 - 拖曳中本地 preview、放手才送命令（與主軌一致，無樂觀更新問題）
@@ -24,6 +24,7 @@
 ## 命令層小擴充
 
 `updateOverlay` patch 加 `anchor`，並讓兩種定位互斥且自洽：
+
 - `patch.start` 給了 → 設 `start`、**刪 `anchor`**（轉絕對；修掉現況「錨定時設 start 無效」的隱性陷阱）
 - `patch.anchor` 給了 → 設 `anchor`（驗證 clipId 存在）、**刪 `start`**
 

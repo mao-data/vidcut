@@ -10,6 +10,7 @@ import {
   clipStartTimes,
   overlayWindow,
   totalDuration,
+  type AudioItem,
   type PeaksFile,
   type Project,
   type VideoClip,
@@ -31,7 +32,17 @@ import { useSelection } from '../stores/selection.js';
 import { useView } from '../stores/view.js';
 import { sendCommand } from '../ws.js';
 import { pxToTime, snapTime, timeToPx } from './scale.js';
-import { trimIn, trimOut, reorderByDrag, layoutByOrder, MIN_CLIP_DURATION } from './dragMath.js';
+import {
+  trimIn,
+  trimOut,
+  reorderByDrag,
+  layoutByOrder,
+  shiftStart,
+  trimSpanIn,
+  trimSpanOut,
+  trimAudioIn,
+  MIN_CLIP_DURATION,
+} from './dragMath.js';
 import { drawWaveform, CLIP_WAVE, AUDIO_WAVE } from './waveform.js';
 
 const ROW_H = 64;
@@ -50,6 +61,32 @@ const peaksCache = new Map<string, Peaks>();
 type DragState =
   | { mode: 'trim-in' | 'trim-out'; clipId: string; startX: number; preview: VideoClip }
   | { mode: 'move'; clipId: string; startX: number; pointerX: number }
+  // 絕對時間軌（字幕/音訊/overlay）：拖曳＝平移 start、trim＝改跨度（主軌是磁性軌，語意不同）
+  | {
+      mode: 'cap';
+      edge: 'move' | 'in' | 'out';
+      id: string;
+      startX: number;
+      orig: { start: number; duration: number };
+      preview: { start: number; duration: number };
+    }
+  | {
+      mode: 'aud';
+      edge: 'move' | 'in' | 'out';
+      id: string;
+      startX: number;
+      mediaDur: number;
+      orig: { start: number; in: number; duration: number };
+      preview: { start: number; in: number; duration: number };
+    }
+  | {
+      mode: 'ov';
+      id: string;
+      startX: number;
+      /** 拖曳期間以絕對時間顯示；錨定式放手時換算回 offset */
+      orig: { absStart: number; span: number | null; anchorClipId?: string };
+      preview: { absStart: number };
+    }
   | null;
 
 function useWaveform(peaksPath: string | undefined): Peaks | null {
@@ -251,56 +288,55 @@ function ClipBlock({
   );
 }
 
-/** 音訊軌項目：青色全高波形 chip。 */
+/** 音訊軌項目：青色全高波形 chip（可拖曳平移、左右緣 trim）。 */
 function AudioChip({
   p,
-  id,
-  label,
-  ducking,
-  volume,
-  start,
-  inSec,
-  duration,
-  mediaId,
+  a,
   pps,
   selected,
+  onMoveStart,
+  onTrimStart,
 }: {
   p: Project;
-  id: string;
-  label: string;
-  ducking: boolean;
-  volume: number;
-  start: number;
-  inSec: number;
-  duration: number;
-  mediaId: string;
+  a: AudioItem;
   pps: number;
   selected: boolean;
+  onMoveStart: (e: PointerEvent, a: AudioItem) => void;
+  onTrimStart: (e: PointerEvent, a: AudioItem, edge: 'in' | 'out') => void;
 }) {
-  const media = p.media.find((m) => m.id === mediaId);
+  const media = p.media.find((m) => m.id === a.mediaId);
   const peaks = useWaveform(media?.peaksPath);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const w = timeToPx(duration, pps);
+  const w = timeToPx(a.duration, pps);
 
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !peaks) return;
-    drawWaveform(cv, peaks, { from: inSec, duration, midline: false, ...AUDIO_WAVE });
-  }, [peaks, inSec, duration, w]);
+    drawWaveform(cv, peaks, { from: a.in, duration: a.duration, midline: false, ...AUDIO_WAVE });
+  }, [peaks, a.in, a.duration, w]);
 
+  const handle: CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 6,
+    cursor: 'ew-resize',
+    zIndex: 2,
+  };
   return (
     <div
-      onPointerDown={() => useSelection.getState().select({ kind: 'audio', id })}
-      title={`${label} vol=${volume}${ducking ? ' (ducking)' : ''}`}
+      className="clipblk"
+      onPointerDown={(e) => onMoveStart(e, a)}
+      title={`${a.label ?? a.mediaId} vol=${a.volume}${a.ducking ? ' (ducking)' : ''}`}
       style={{
         position: 'absolute',
-        left: timeToPx(start, pps),
+        left: timeToPx(a.start, pps),
         width: w,
         height: AUDIO_ROW_H - 4,
         top: 2,
         borderRadius: 6,
         overflow: 'hidden',
-        cursor: 'pointer',
+        cursor: 'grab',
         background: 'rgba(14, 165, 233, 0.12)',
         boxShadow: selected
           ? 'inset 0 0 0 1.5px var(--audio-bright), 0 0 10px rgba(14, 165, 233, 0.35)'
@@ -317,6 +353,22 @@ function AudioChip({
           pointerEvents: 'none',
         }}
       />
+      <div
+        className="handle"
+        style={{ ...handle, left: 0 }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onTrimStart(e, a, 'in');
+        }}
+      />
+      <div
+        className="handle"
+        style={{ ...handle, right: 0 }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onTrimStart(e, a, 'out');
+        }}
+      />
       <span
         style={{
           position: 'absolute',
@@ -328,8 +380,8 @@ function AudioChip({
           pointerEvents: 'none',
         }}
       >
-        {ducking ? '🔉 ' : ''}
-        {label}
+        {a.ducking ? '🔉 ' : ''}
+        {a.label ?? a.mediaId}
       </span>
     </div>
   );
@@ -413,6 +465,76 @@ export function Timeline() {
     drag.current = { mode: 'move', clipId: clip.id, startX: e.clientX, pointerX: e.clientX };
   };
 
+  // ---- 絕對時間軌（字幕/音訊/overlay）的拖曳啟動 ----
+  const capture = (e: PointerEvent) =>
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+  const onCapDrag = (e: PointerEvent, id: string, edge: 'move' | 'in' | 'out') => {
+    const c = doc.tracks.captions.find((x) => x.id === id);
+    if (!c) return;
+    capture(e);
+    useSelection.getState().select({ kind: 'caption', id });
+    const orig = { start: c.start, duration: c.duration };
+    drag.current = { mode: 'cap', edge, id, startX: e.clientX, orig, preview: { ...orig } };
+  };
+
+  const onAudDrag = (e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => {
+    capture(e);
+    useSelection.getState().select({ kind: 'audio', id: a.id });
+    const media = doc.media.find((m) => m.id === a.mediaId);
+    const orig = { start: a.start, in: a.in, duration: a.duration };
+    drag.current = {
+      mode: 'aud',
+      edge,
+      id: a.id,
+      startX: e.clientX,
+      mediaDur: media?.probe.duration ?? Infinity,
+      orig,
+      preview: { ...orig },
+    };
+  };
+
+  const onOvDrag = (e: PointerEvent, id: string) => {
+    const o = doc.tracks.overlays.find((x) => x.id === id);
+    const win = o && overlayWindow(doc, o);
+    if (!o || !win) return;
+    capture(e);
+    useSelection.getState().select({ kind: 'overlay', id });
+    drag.current = {
+      mode: 'ov',
+      id,
+      startX: e.clientX,
+      orig: {
+        absStart: win.start,
+        span: o.duration === null ? null : win.end - win.start,
+        ...(o.anchor ? { anchorClipId: o.anchor.clipId } : {}),
+      },
+      preview: { absStart: win.start },
+    };
+  };
+
+  /**
+   * 平移時的雙邊吸附：左右緣哪邊吸得動就用哪邊（都吸不動回原值）。
+   * span null（overlay 到片尾）只吸左緣。
+   */
+  const snapSpan = (rawStart: number, span: number | null): number => {
+    if (!snapEnabled) return rawStart;
+    const left = snapTime(rawStart, snapCandidates(), pps);
+    if (left !== rawStart) {
+      setSnapLine(left);
+      return left;
+    }
+    if (span !== null) {
+      const right = snapTime(rawStart + span, snapCandidates(), pps);
+      if (right !== rawStart + span) {
+        setSnapLine(right);
+        return right - span;
+      }
+    }
+    setSnapLine(null);
+    return rawStart;
+  };
+
   const onPointerMove = (e: PointerEvent) => {
     const d = drag.current;
     if (!d) return;
@@ -450,6 +572,53 @@ export function Timeline() {
     } else if (d.mode === 'move') {
       d.pointerX = e.clientX;
       rerender();
+    } else if (d.mode === 'cap') {
+      if (d.edge === 'move') {
+        d.preview = {
+          start: shiftStart(snapSpan(d.orig.start + deltaSec, d.orig.duration), 0),
+          duration: d.orig.duration,
+        };
+      } else if (d.edge === 'in') {
+        const raw = trimSpanIn(d.orig, deltaSec);
+        const rightEdge = d.orig.start + d.orig.duration;
+        const snapped = maybeSnap(raw.start);
+        const start = Math.max(0, Math.min(snapped, rightEdge - MIN_CLIP_DURATION));
+        d.preview = { start, duration: rightEdge - start };
+        setSnapLine(snapped !== raw.start ? start : null);
+      } else {
+        const raw = trimSpanOut(d.orig, deltaSec);
+        const snappedEdge = maybeSnap(d.orig.start + raw.duration);
+        const duration = Math.max(MIN_CLIP_DURATION, snappedEdge - d.orig.start);
+        d.preview = { start: d.orig.start, duration };
+        setSnapLine(duration !== raw.duration ? d.orig.start + duration : null);
+      }
+      rerender();
+    } else if (d.mode === 'aud') {
+      if (d.edge === 'move') {
+        d.preview = {
+          ...d.orig,
+          start: shiftStart(snapSpan(d.orig.start + deltaSec, d.orig.duration), 0),
+        };
+      } else if (d.edge === 'in') {
+        // 先吸附左緣、再用 trimAudioIn 統一 clamp（in>=0 / start>=0 / MIN）
+        const raw = trimAudioIn(d.orig, deltaSec);
+        const snapped = maybeSnap(raw.start);
+        d.preview = trimAudioIn(d.orig, snapped - d.orig.start);
+        setSnapLine(snapped !== raw.start ? d.preview.start : null);
+      } else {
+        const raw = trimSpanOut(d.orig, deltaSec, d.mediaDur - d.orig.in);
+        const snappedEdge = maybeSnap(d.orig.start + raw.duration);
+        const duration = Math.max(
+          MIN_CLIP_DURATION,
+          Math.min(snappedEdge - d.orig.start, d.mediaDur - d.orig.in),
+        );
+        d.preview = { ...d.orig, duration };
+        setSnapLine(duration !== raw.duration ? d.orig.start + duration : null);
+      }
+      rerender();
+    } else if (d.mode === 'ov') {
+      d.preview = { absStart: shiftStart(snapSpan(d.orig.absStart + deltaSec, d.orig.span), 0) };
+      rerender();
     }
   };
 
@@ -478,6 +647,54 @@ export function Timeline() {
         );
         const changed = order.some((id, i) => id !== doc.tracks.video[i]!.id);
         if (changed) sendCommand({ name: 'reorderClips', order });
+      }
+    } else if (d.mode === 'cap') {
+      if (d.preview.start !== d.orig.start || d.preview.duration !== d.orig.duration) {
+        sendCommand({
+          name: 'updateCaption',
+          id: d.id,
+          patch: {
+            start: Number(d.preview.start.toFixed(3)),
+            duration: Number(d.preview.duration.toFixed(3)),
+          },
+        });
+      }
+    } else if (d.mode === 'aud') {
+      const { start, in: inSec, duration } = d.preview;
+      if (start !== d.orig.start || inSec !== d.orig.in || duration !== d.orig.duration) {
+        sendCommand({
+          name: 'updateAudio',
+          id: d.id,
+          patch: {
+            start: Number(start.toFixed(3)),
+            in: Number(inSec.toFixed(3)),
+            duration: Number(duration.toFixed(3)),
+          },
+        });
+      }
+    } else if (d.mode === 'ov') {
+      if (d.preview.absStart !== d.orig.absStart) {
+        if (d.orig.anchorClipId) {
+          // 錨定式：換算回相對片段起點的 offset（保持跟隨片段）
+          const idx = doc.tracks.video.findIndex((c) => c.id === d.orig.anchorClipId);
+          const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;
+          sendCommand({
+            name: 'updateOverlay',
+            id: d.id,
+            patch: {
+              anchor: {
+                clipId: d.orig.anchorClipId,
+                offset: Number(Math.max(0, d.preview.absStart - clipStart).toFixed(3)),
+              },
+            },
+          });
+        } else {
+          sendCommand({
+            name: 'updateOverlay',
+            id: d.id,
+            patch: { start: Number(d.preview.absStart.toFixed(3)) },
+          });
+        }
       }
     }
     rerender();
@@ -684,20 +901,28 @@ export function Timeline() {
               );
             })}
           </div>
-          {/* overlays 軌 */}
+          {/* overlays 軌（拖曳平移；錨定式改 offset） */}
           <div style={subRow}>
             {doc.tracks.overlays.map((o) => {
-              const win = overlayWindow(doc, o);
+              let win = overlayWindow(doc, o);
+              const d = drag.current;
+              if (win && d?.mode === 'ov' && d.id === o.id) {
+                const span = d.orig.span;
+                win = {
+                  start: d.preview.absStart,
+                  end: span === null ? win.end : d.preview.absStart + span,
+                };
+              }
               const isSel = selected?.kind === 'overlay' && selected.id === o.id;
               return (
                 win && (
                   <div
                     key={o.id}
-                    onPointerDown={() =>
-                      useSelection.getState().select({ kind: 'overlay', id: o.id })
-                    }
+                    onPointerDown={(e) => onOvDrag(e, o.id)}
+                    title={o.anchor ? '錨定於片段（拖曳改 offset，跟著片段走）' : undefined}
                     style={{
                       ...chip,
+                      cursor: 'grab',
                       left: timeToPx(win.start, pps),
                       width: timeToPx(win.end - win.start, pps),
                       color: '#6ee7b7',
@@ -707,26 +932,32 @@ export function Timeline() {
                         : 'inset 0 0 0 1px rgba(52, 211, 153, 0.35)',
                     }}
                   >
+                    {o.anchor ? '📎 ' : ''}
                     {o.imagePath.split('/').pop()}
                   </div>
                 )
               );
             })}
           </div>
-          {/* captions 軌 */}
+          {/* captions 軌（拖曳平移＋左右緣 trim） */}
           <div style={subRow}>
             {doc.tracks.captions.map((c) => {
+              const d = drag.current;
+              const view =
+                d?.mode === 'cap' && d.id === c.id
+                  ? { start: d.preview.start, duration: d.preview.duration }
+                  : { start: c.start, duration: c.duration };
               const isSel = selected?.kind === 'caption' && selected.id === c.id;
               return (
                 <div
                   key={c.id}
-                  onPointerDown={() =>
-                    useSelection.getState().select({ kind: 'caption', id: c.id })
-                  }
+                  className="clipblk"
+                  onPointerDown={(e) => onCapDrag(e, c.id, 'move')}
                   style={{
                     ...chip,
-                    left: timeToPx(c.start, pps),
-                    width: timeToPx(c.duration, pps),
+                    cursor: 'grab',
+                    left: timeToPx(view.start, pps),
+                    width: timeToPx(view.duration, pps),
                     color: '#c4b5fd',
                     background: 'rgba(139, 92, 246, 0.14)',
                     boxShadow: isSel
@@ -734,29 +965,63 @@ export function Timeline() {
                       : 'inset 0 0 0 1px rgba(139, 92, 246, 0.35)',
                   }}
                 >
+                  <div
+                    className="handle"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: 0,
+                      width: 6,
+                      cursor: 'ew-resize',
+                      zIndex: 2,
+                    }}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      onCapDrag(e, c.id, 'in');
+                    }}
+                  />
+                  <div
+                    className="handle"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      right: 0,
+                      width: 6,
+                      cursor: 'ew-resize',
+                      zIndex: 2,
+                    }}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      onCapDrag(e, c.id, 'out');
+                    }}
+                  />
                   {c.text}
                 </div>
               );
             })}
           </div>
-          {/* audio 軌（全高青色波形） */}
+          {/* audio 軌（全高青色波形；拖曳平移＋左右緣 trim） */}
           <div style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}>
-            {doc.tracks.audio.map((a) => (
-              <AudioChip
-                key={a.id}
-                p={doc}
-                id={a.id}
-                label={a.label ?? a.mediaId}
-                ducking={a.ducking === true}
-                volume={a.volume}
-                start={a.start}
-                inSec={a.in}
-                duration={a.duration}
-                mediaId={a.mediaId}
-                pps={pps}
-                selected={selected?.kind === 'audio' && selected.id === a.id}
-              />
-            ))}
+            {doc.tracks.audio.map((a) => {
+              const d = drag.current;
+              const shown =
+                d?.mode === 'aud' && d.id === a.id
+                  ? { ...a, start: d.preview.start, in: d.preview.in, duration: d.preview.duration }
+                  : a;
+              return (
+                <AudioChip
+                  key={a.id}
+                  p={doc}
+                  a={shown}
+                  pps={pps}
+                  selected={selected?.kind === 'audio' && selected.id === a.id}
+                  onMoveStart={(e, item) => onAudDrag(e, item, 'move')}
+                  onTrimStart={(e, item, edge) => onAudDrag(e, item, edge)}
+                />
+              );
+            })}
           </div>
           {/* 吸附指示線 */}
           {snapLine !== null && (

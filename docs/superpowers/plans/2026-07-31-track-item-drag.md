@@ -28,13 +28,21 @@
 
 ```ts
 export function shiftStart(start: number, deltaSec: number): number; // max(0, start+delta)
-export function trimSpanIn(item: { start: number; duration: number }, deltaSec: number):
-  { start: number; duration: number }; // 右緣不動，duration>=MIN、start>=0
-export function trimSpanOut(item: { duration: number }, deltaSec: number, maxDuration?: number):
-  { duration: number }; // >=MIN、<=maxDuration（省略=無上限）
-export function trimAudioIn(a: { start: number; in: number; duration: number }, deltaSec: number):
-  { start: number; in: number; duration: number }; // 右緣不動、in>=0、start>=0、duration>=MIN
+export function trimSpanIn(
+  item: { start: number; duration: number },
+  deltaSec: number,
+): { start: number; duration: number }; // 右緣不動，duration>=MIN、start>=0
+export function trimSpanOut(
+  item: { duration: number },
+  deltaSec: number,
+  maxDuration?: number,
+): { duration: number }; // >=MIN、<=maxDuration（省略=無上限）
+export function trimAudioIn(
+  a: { start: number; in: number; duration: number },
+  deltaSec: number,
+): { start: number; in: number; duration: number }; // 右緣不動、in>=0、start>=0、duration>=MIN
 ```
+
 （音訊右緣＝`trimSpanOut(a, delta, mediaDur - a.in)`）
 
 - [x] 測試紅 → 實作 → 綠 → commit
