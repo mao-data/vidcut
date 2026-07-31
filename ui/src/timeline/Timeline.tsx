@@ -16,6 +16,7 @@ import {
   type VideoClip,
 } from '@vidcut/shared';
 import {
+  ImagePlus,
   Magnet,
   Maximize2,
   Pause,
@@ -574,6 +575,29 @@ export function Timeline() {
     };
   };
 
+  /** ➕疊圖：選檔 → POST /assets → addOverlay（起點=playhead、3 秒、頂部置中）→ 選取 */
+  const addOverlayFile = async (file: File) => {
+    const res = await fetch(`/assets?name=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: await file.arrayBuffer(),
+    });
+    if (!res.ok) return;
+    const { relPath } = (await res.json()) as { relPath: string };
+    const id = `ov_${Math.random().toString(36).slice(2, 10)}`;
+    sendCommand({
+      name: 'addOverlay',
+      overlay: {
+        id,
+        imagePath: relPath,
+        start: Number(usePlayback.getState().time.toFixed(3)),
+        duration: 3,
+        position: { x: 0.5, y: 0.1, scale: 1 },
+      },
+    });
+    useSelection.getState().select({ kind: 'overlay', id });
+  };
+
   const onOvDrag = (e: PointerEvent, id: string) => {
     const o = doc.tracks.overlays.find((x) => x.id === id);
     const win = o && overlayWindow(doc, o);
@@ -892,6 +916,23 @@ export function Timeline() {
         </span>
 
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          <label
+            className="icon-btn"
+            title="上傳圖片掛到疊圖軌（起點＝目前 playhead）"
+            style={{ cursor: 'pointer' }}
+          >
+            <ImagePlus size={13} /> 疊圖
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void addOverlayFile(f);
+                e.target.value = '';
+              }}
+            />
+          </label>
           <button
             className="icon-btn"
             onClick={() => useView.getState().zoomBy(1 / 1.4)}

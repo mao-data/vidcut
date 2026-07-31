@@ -308,6 +308,66 @@ export function Inspector() {
   return (
     <div className="form" style={{ padding: 12 }}>
       <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Overlay {ov.imagePath.split('/').pop()}</h3>
+      {ov.anchor ? (
+        <>
+          <label className="field">
+            錨定於片段（offset 秒，跟著片段走）：
+            {doc.tracks.video.find((c) => c.id === ov.anchor!.clipId)?.label ?? ov.anchor.clipId}
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            value={ov.anchor.offset}
+            onChange={(e) =>
+              send({
+                name: 'updateOverlay',
+                id: ov.id,
+                patch: { anchor: { clipId: ov.anchor!.clipId, offset: num(e) } },
+              })
+            }
+          />
+        </>
+      ) : (
+        <>
+          <label className="field">開始時間（秒）</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            value={ov.start ?? 0}
+            onChange={(e) => send({ name: 'updateOverlay', id: ov.id, patch: { start: num(e) } })}
+          />
+        </>
+      )}
+      <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input
+          type="checkbox"
+          checked={ov.duration === null}
+          onChange={(e) =>
+            send({
+              name: 'updateOverlay',
+              id: ov.id,
+              patch: { duration: e.target.checked ? null : 3 },
+            })
+          }
+        />
+        顯示到片尾
+      </label>
+      {ov.duration !== null && (
+        <>
+          <label className="field">長度（秒）</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0.1"
+            value={ov.duration}
+            onChange={(e) =>
+              send({ name: 'updateOverlay', id: ov.id, patch: { duration: num(e) } })
+            }
+          />
+        </>
+      )}
       <label className="field">x（0–1）</label>
       <input
         type="number"
@@ -347,6 +407,16 @@ export function Inspector() {
           })
         }
       />
+      <button
+        className="btn-danger icon-btn"
+        style={{ marginTop: 12 }}
+        onClick={() => {
+          send({ name: 'removeOverlay', id: ov.id });
+          useSelection.getState().select(null);
+        }}
+      >
+        <Trash2 size={13} /> 刪除疊圖
+      </button>
     </div>
   );
 }
