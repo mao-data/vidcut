@@ -13,6 +13,7 @@ import { Activity } from './panels/Activity.js';
 import { CaptionList } from './panels/CaptionList.js';
 import { ReviewBar } from './panels/ReviewBar.js';
 import { ExportMenu } from './panels/ExportMenu.js';
+import { PanelResizer } from './PanelResizer.js';
 import { sendCommand, sendContext } from './ws.js';
 
 function Toast() {
@@ -64,6 +65,10 @@ export function App() {
   const playhead = usePlayback((s) => s.time);
   const leftOpen = useView((s) => s.leftOpen);
   const rightOpen = useView((s) => s.rightOpen);
+  const leftWidth = useView((s) => s.leftWidth);
+  const rightWidth = useView((s) => s.rightWidth);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [resizing, setResizing] = useState(false);
   const [tab, setTab] = useState<'captions' | 'activity'>('captions');
   const captionCount = doc?.tracks.captions.length ?? 0;
   const tabBodyRef = useRef<HTMLDivElement>(null);
@@ -203,19 +208,21 @@ export function App() {
       >
         <ReviewBar />
         <div
+          ref={gridRef}
           style={{
             flex: 1,
             display: 'grid',
-            gridTemplateColumns: `${leftOpen ? '260px' : '0px'} 1fr ${rightOpen ? '320px' : '0px'}`,
+            gridTemplateColumns: `${leftOpen ? `${leftWidth}px` : '0px'} 1fr ${rightOpen ? `${rightWidth}px` : '0px'}`,
             minHeight: 0,
-            transition: 'grid-template-columns 0.25s ease',
+            // 拖曳伸縮中關掉過渡（不然黏手）；收合/展開仍有動畫
+            transition: resizing ? 'none' : 'grid-template-columns 0.25s ease',
           }}
         >
           {/* 左：屬性（外層 hidden、內層固定寬 → 收合時內容不變形） */}
           <div
             style={{ overflow: 'hidden', borderRight: leftOpen ? '1px solid var(--line)' : 'none' }}
           >
-            <div style={{ width: 260, height: '100%', overflowY: 'auto' }}>
+            <div style={{ width: leftWidth, height: '100%', overflowY: 'auto' }}>
               <div
                 style={{
                   display: 'flex',
@@ -237,8 +244,14 @@ export function App() {
             </div>
           </div>
 
-          {/* 中：預覽（含收合後的展開鈕） */}
+          {/* 中：預覽（含收合後的展開鈕與伸縮把手） */}
           <div style={{ overflowY: 'auto', padding: 12, position: 'relative' }}>
+            {leftOpen && (
+              <PanelResizer side="left" gridRef={gridRef} onResizingChange={setResizing} />
+            )}
+            {rightOpen && (
+              <PanelResizer side="right" gridRef={gridRef} onResizingChange={setResizing} />
+            )}
             {!leftOpen && (
               <button
                 className="icon-btn"

@@ -204,6 +204,23 @@ a {
   background: rgba(255, 255, 255, 0.5);
 }
 
+/* 面板伸縮把手：平常隱形，hover/拖曳時中央亮 2px 紫線 */
+.resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.resizer:hover::after,
+.resizer:active::after {
+  background: var(--accent);
+}
+
 /* 列表列（字幕/活動）通用 hover */
 .rowline {
   transition: background 0.15s ease;
