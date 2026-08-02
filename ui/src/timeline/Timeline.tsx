@@ -59,7 +59,8 @@ function fmt(t: number): string {
 }
 
 type Peaks = PeaksFile;
-const peaksCache = new Map<string, Peaks>();
+/** 存 Promise 而非結果：冷載入時多個片段共用同一媒體，第一個 fetch 發起就佔位，其餘 await 同一份 */
+const peaksCache = new Map<string, Promise<Peaks>>();
 
 /**
  * 只有這兩個小組件訂閱 playback time：播放中 time 每幀更新（rAF），
@@ -143,18 +144,18 @@ function useWaveform(peaksPath: string | undefined): Peaks | null {
   useEffect(() => {
     if (!peaksPath) return;
     const url = `/media/${peaksPath}`;
-    const cached = peaksCache.get(url);
-    if (cached) {
-      setPeaks(cached);
-      return;
+    let promise = peaksCache.get(url);
+    if (!promise) {
+      promise = fetch(url).then((r) => r.json() as Promise<Peaks>);
+      peaksCache.set(url, promise);
+      // 失敗就移除佔位，之後 mount 的組件才會重試
+      promise.catch(() => peaksCache.delete(url));
     }
-    void fetch(url)
-      .then((r) => r.json())
-      .then((j: Peaks) => {
-        peaksCache.set(url, j);
-        setPeaks(j);
-      })
-      .catch(() => {});
+    let alive = true;
+    promise.then((j) => alive && setPeaks(j)).catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, [peaksPath]);
   return peaks;
 }
