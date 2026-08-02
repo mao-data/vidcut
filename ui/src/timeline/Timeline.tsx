@@ -1,5 +1,4 @@
 import {
-  memo,
   useCallback,
   useEffect,
   useRef,
@@ -13,22 +12,8 @@ import {
   overlayWindow,
   totalDuration,
   type AudioItem,
-  type PeaksFile,
-  type Project,
   type VideoClip,
 } from '@vidcut/shared';
-import {
-  ImagePlus,
-  Magnet,
-  Maximize2,
-  Pause,
-  Play,
-  SkipBack,
-  SkipForward,
-  Snowflake,
-  ZoomIn,
-  ZoomOut,
-} from 'lucide-react';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
@@ -46,36 +31,16 @@ import {
   trimAudioIn,
   MIN_CLIP_DURATION,
 } from './dragMath.js';
-import { drawWaveform, CLIP_WAVE, AUDIO_WAVE } from './waveform.js';
+import { ClipBlock, ROW_H } from './ClipBlock.js';
+import { AudioChip, AUDIO_ROW_H } from './AudioChip.js';
+import { TimelineToolbar } from './Toolbar.js';
 
-const ROW_H = 64;
 const SUB_ROW_H = 24;
-const AUDIO_ROW_H = 30;
-
-function fmt(t: number): string {
-  const m = Math.floor(t / 60);
-  const s = t - m * 60;
-  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
-}
-
-type Peaks = PeaksFile;
-/** 存 Promise 而非結果：冷載入時多個片段共用同一媒體，第一個 fetch 發起就佔位，其餘 await 同一份 */
-const peaksCache = new Map<string, Promise<Peaks>>();
 
 /**
- * 只有這兩個小組件訂閱 playback time：播放中 time 每幀更新（rAF），
- * 若 Timeline 本體訂閱，整條時間軸（所有片段/字幕/波形容器）會每秒重渲染 ~60 次。
+ * playhead：紫漸層＋光暈＋圓頭。只有它（和 Toolbar 的 Timecode）訂閱 playback time：
+ * time 播放中每幀更新（rAF），若 Timeline 本體訂閱，整條時間軸會每秒重渲染 ~60 次。
  */
-function Timecode({ total }: { total: number }) {
-  const time = usePlayback((s) => s.time);
-  return (
-    <span className="mono" style={{ color: '#c4b5fd', marginLeft: 4 }}>
-      {fmt(time)} <span className="tag">/ {fmt(total)}</span>
-    </span>
-  );
-}
-
-/** playhead：紫漸層＋光暈＋圓頭 */
 function Playhead({ pps }: { pps: number }) {
   const time = usePlayback((s) => s.time);
   return (
@@ -138,310 +103,10 @@ type DragState =
       preview: { absStart: number };
     }
   | null;
-
-function useWaveform(peaksPath: string | undefined): Peaks | null {
-  const [peaks, setPeaks] = useState<Peaks | null>(null);
-  useEffect(() => {
-    if (!peaksPath) return;
-    const url = `/media/${peaksPath}`;
-    let promise = peaksCache.get(url);
-    if (!promise) {
-      promise = fetch(url).then((r) => r.json() as Promise<Peaks>);
-      peaksCache.set(url, promise);
-      // 失敗就移除佔位，之後 mount 的組件才會重試
-      promise.catch(() => peaksCache.delete(url));
-    }
-    let alive = true;
-    promise.then((j) => alive && setPeaks(j)).catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [peaksPath]);
-  return peaks;
-}
-
-/** memo：拖字幕/音訊/疊圖時主軌片段 props 全沒變，擋掉整排片段的陪跑重渲染 */
-const ClipBlock = memo(function ClipBlock({
-  p,
-  clip,
-  leftPx,
-  pps,
-  selected,
-  animate,
-  floating,
-  onTrimStart,
-  onMoveStart,
-  onSelect,
-}: {
-  p: Project;
-  clip: VideoClip;
-  /** 已算好的水平位置（拖曳中的片段＝跟著游標，其他＝讓位後的新位置） */
-  leftPx: number;
-  pps: number;
-  selected: boolean;
-  /** 讓位時滑動過去，而不是瞬間跳 */
-  animate: boolean;
-  /** 正被拖曳：浮起、半透明 */
-  floating: boolean;
-  onTrimStart: (e: PointerEvent, clip: VideoClip, edge: 'in' | 'out') => void;
-  onMoveStart: (e: PointerEvent, clip: VideoClip) => void;
-  onSelect: (id: string) => void;
-}) {
-  const media = p.media.find((m) => m.id === clip.mediaId);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const peaks = useWaveform(clip.frozen ? undefined : media?.peaksPath);
-  const w = timeToPx(clip.duration, pps);
-  /** 下緣波形帶高度（約 40%，定案於 spec §3） */
-  const bandH = Math.round(ROW_H * 0.4);
-
-  useEffect(() => {
-    const cv = canvasRef.current;
-    if (!cv || !peaks) return;
-    drawWaveform(cv, peaks, { from: clip.in, duration: clip.duration, ...CLIP_WAVE });
-  }, [peaks, clip.in, clip.duration, w]);
-
-  const filmstrip = media?.filmstripPath ? `/media/${media.filmstripPath}` : undefined;
-  const filmH = ROW_H - bandH;
-  const frameW = media ? (filmH * media.probe.width) / media.probe.height : 45;
-  const bgOffset = -(clip.in * frameW);
-  const muted = clip.volume === 0;
-  const handle: CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 6,
-    cursor: 'ew-resize',
-    zIndex: 2,
-  };
-  return (
-    <div
-      className="clipblk"
-      onPointerDown={(e) => {
-        onSelect(clip.id);
-        onMoveStart(e, clip);
-      }}
-      title={`${clip.label ?? clip.id}  in=${clip.in.toFixed(2)}s dur=${clip.duration.toFixed(2)}s${
-        clip.frozen ? ' (定格)' : ''
-      }`}
-      style={{
-        position: 'absolute',
-        left: leftPx,
-        width: w,
-        height: ROW_H,
-        borderRadius: 'var(--r-card)',
-        overflow: 'hidden',
-        cursor: floating ? 'grabbing' : 'grab',
-        background: 'var(--card)',
-        boxShadow: selected
-          ? 'inset 0 0 0 1.5px var(--accent), 0 0 14px rgba(139, 92, 246, 0.35)'
-          : 'inset 0 0 0 1px var(--line-strong)',
-        // 讓位動畫：只有「不是被拖的那個」才滑動，被拖的要 1:1 跟手
-        transition: animate ? 'left 120ms ease' : 'box-shadow 0.15s ease',
-        ...(floating
-          ? {
-              zIndex: 20,
-              opacity: 0.9,
-              transform: 'scale(1.02)',
-              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.65), inset 0 0 0 1.5px var(--accent)',
-            }
-          : null),
-      }}
-    >
-      {/* 上：filmstrip 縮圖區 */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: filmH,
-          backgroundImage: clip.frozen || !filmstrip ? undefined : `url(${filmstrip})`,
-          backgroundPosition: `${bgOffset}px 0`,
-          backgroundSize: 'auto 100%',
-          backgroundRepeat: 'repeat-x',
-          backgroundColor: clip.frozen ? '#2d3a52' : undefined,
-        }}
-      />
-      {/* 下：波形帶（frozen＝平線） */}
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: bandH,
-          background: 'rgba(0, 0, 0, 0.32)',
-        }}
-      >
-        {clip.frozen ? (
-          <div
-            style={{
-              position: 'absolute',
-              left: 6,
-              right: 6,
-              top: '50%',
-              height: 1.5,
-              background: 'rgba(255, 255, 255, 0.15)',
-            }}
-          />
-        ) : (
-          <canvas
-            ref={canvasRef}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              pointerEvents: 'none',
-              opacity: muted ? 0.35 : 1,
-            }}
-          />
-        )}
-      </div>
-      <div
-        className="handle"
-        style={{ ...handle, left: 0 }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onSelect(clip.id);
-          onTrimStart(e, clip, 'in');
-        }}
-      />
-      <div
-        className="handle"
-        style={{ ...handle, right: 0 }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onSelect(clip.id);
-          onTrimStart(e, clip, 'out');
-        }}
-      />
-      <span
-        style={{
-          position: 'absolute',
-          top: 3,
-          left: 9,
-          fontSize: 11,
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 3,
-          textShadow: '0 1px 3px rgba(0,0,0,0.9)',
-          pointerEvents: 'none',
-          maxWidth: 'calc(100% - 18px)',
-          overflow: 'hidden',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {clip.frozen && <Snowflake size={11} />}
-        {clip.label ?? clip.id}
-      </span>
-    </div>
-  );
-});
-
-/** 音訊軌項目：青色全高波形 chip（可拖曳平移、左右緣 trim）。memo 理由同 ClipBlock。 */
-const AudioChip = memo(function AudioChip({
-  p,
-  a,
-  pps,
-  selected,
-  onDragStart,
-}: {
-  p: Project;
-  a: AudioItem;
-  pps: number;
-  selected: boolean;
-  onDragStart: (e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => void;
-}) {
-  const media = p.media.find((m) => m.id === a.mediaId);
-  const peaks = useWaveform(media?.peaksPath);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const w = timeToPx(a.duration, pps);
-
-  useEffect(() => {
-    const cv = canvasRef.current;
-    if (!cv || !peaks) return;
-    drawWaveform(cv, peaks, { from: a.in, duration: a.duration, midline: false, ...AUDIO_WAVE });
-  }, [peaks, a.in, a.duration, w]);
-
-  const handle: CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 6,
-    cursor: 'ew-resize',
-    zIndex: 2,
-  };
-  return (
-    <div
-      className="clipblk"
-      onPointerDown={(e) => onDragStart(e, a, 'move')}
-      title={`${a.label ?? a.mediaId} vol=${a.volume}${a.ducking ? ' (ducking)' : ''}`}
-      style={{
-        position: 'absolute',
-        left: timeToPx(a.start, pps),
-        width: w,
-        height: AUDIO_ROW_H - 4,
-        top: 2,
-        borderRadius: 6,
-        overflow: 'hidden',
-        cursor: 'grab',
-        background: 'rgba(14, 165, 233, 0.12)',
-        boxShadow: selected
-          ? 'inset 0 0 0 1.5px var(--audio-bright), 0 0 10px rgba(14, 165, 233, 0.35)'
-          : 'inset 0 0 0 1px rgba(14, 165, 233, 0.35)',
-      }}
-    >
-      <canvas
-        ref={canvasRef}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        className="handle"
-        style={{ ...handle, left: 0 }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onDragStart(e, a, 'in');
-        }}
-      />
-      <div
-        className="handle"
-        style={{ ...handle, right: 0 }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onDragStart(e, a, 'out');
-        }}
-      />
-      <span
-        style={{
-          position: 'absolute',
-          left: 6,
-          top: 2,
-          fontSize: 10,
-          color: 'var(--audio-bright)',
-          textShadow: '0 1px 2px rgba(0,0,0,0.8)',
-          pointerEvents: 'none',
-        }}
-      >
-        {a.ducking ? '🔉 ' : ''}
-        {a.label ?? a.mediaId}
-      </span>
-    </div>
-  );
-});
-
 export function Timeline() {
   const doc = useProject((s) => s.doc);
-  const playing = usePlayback((s) => s.playing);
   const selected = useSelection((s) => s.selected);
   const pps = useView((s) => s.pxPerSecond);
-  const snapEnabled = useView((s) => s.snapEnabled);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** 時間軸內容層（座標換算的基準） */
   const contentRef = useRef<HTMLDivElement>(null);
@@ -614,7 +279,8 @@ export function Timeline() {
     for (let s = 0; s <= Math.ceil(total); s++) cands.push(s);
     return cands;
   };
-  const maybeSnap = (t: number): number => (snapEnabled ? snapTime(t, snapCandidates(), pps) : t);
+  const maybeSnap = (t: number): number =>
+    useView.getState().snapEnabled ? snapTime(t, snapCandidates(), pps) : t;
 
   // ---- 絕對時間軌（字幕/overlay）的拖曳啟動 ----
   const capture = (e: PointerEvent) =>
@@ -631,29 +297,6 @@ export function Timeline() {
         ? { start: pd.start, duration: pd.duration }
         : { start: c.start, duration: c.duration };
     drag.current = { mode: 'cap', edge, id, startX: e.clientX, orig, preview: { ...orig } };
-  };
-
-  /** ➕疊圖：選檔 → POST /assets → addOverlay（起點=playhead、3 秒、頂部置中）→ 選取 */
-  const addOverlayFile = async (file: File) => {
-    const res = await fetch(`/assets?name=${encodeURIComponent(file.name)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: await file.arrayBuffer(),
-    });
-    if (!res.ok) return;
-    const { relPath } = (await res.json()) as { relPath: string };
-    const id = `ov_${Math.random().toString(36).slice(2, 10)}`;
-    sendCommand({
-      name: 'addOverlay',
-      overlay: {
-        id,
-        imagePath: relPath,
-        start: Number(usePlayback.getState().time.toFixed(3)),
-        duration: 3,
-        position: { x: 0.5, y: 0.1, scale: 1 },
-      },
-    });
-    useSelection.getState().select({ kind: 'overlay', id });
   };
 
   const onOvDrag = (e: PointerEvent, id: string) => {
@@ -680,7 +323,7 @@ export function Timeline() {
    * span null（overlay 到片尾）只吸左緣。
    */
   const snapSpan = (rawStart: number, span: number | null): number => {
-    if (!snapEnabled) return rawStart;
+    if (!useView.getState().snapEnabled) return rawStart;
     const left = snapTime(rawStart, snapCandidates(), pps);
     if (left !== rawStart) {
       setSnapLine(left);
@@ -932,92 +575,13 @@ export function Timeline() {
 
   return (
     <div>
-      {/* 工具列：transport＋時間碼（左）／縮放＋吸附（右） */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '2px 4px 6px',
-          fontSize: 11,
-          color: 'var(--text-2)',
+      <TimelineToolbar
+        total={total}
+        onFit={() => {
+          const el = scrollRef.current;
+          if (el) useView.getState().fit(total, el.clientWidth);
         }}
-      >
-        <button
-          className="icon-btn"
-          onClick={() => usePlayback.getState().seek(0)}
-          title="回到開頭"
-        >
-          <SkipBack size={13} />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={() => (playing ? usePlayback.getState().pause() : usePlayback.getState().play())}
-          title="播放/暫停（空白鍵）"
-          style={{ padding: '5px 12px' }}
-        >
-          {playing ? <Pause size={14} /> : <Play size={14} />}
-        </button>
-        <button
-          className="icon-btn"
-          onClick={() => usePlayback.getState().seek(total)}
-          title="跳到結尾"
-        >
-          <SkipForward size={13} />
-        </button>
-        <Timecode total={total} />
-
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-          <label
-            className="icon-btn"
-            title="上傳圖片掛到疊圖軌（起點＝目前 playhead）"
-            style={{ cursor: 'pointer' }}
-          >
-            <ImagePlus size={13} /> 疊圖
-            <input
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void addOverlayFile(f);
-                e.target.value = '';
-              }}
-            />
-          </label>
-          <button
-            className="icon-btn"
-            onClick={() => useView.getState().zoomBy(1 / 1.4)}
-            title="縮小 (Ctrl+滾輪)"
-          >
-            <ZoomOut size={13} />
-          </button>
-          <button
-            className="icon-btn"
-            onClick={() => useView.getState().zoomBy(1.4)}
-            title="放大 (Ctrl+滾輪)"
-          >
-            <ZoomIn size={13} />
-          </button>
-          <button
-            className="icon-btn"
-            onClick={() => {
-              const el = scrollRef.current;
-              if (el) useView.getState().fit(total, el.clientWidth);
-            }}
-            title="整條塞進畫面 (Shift+Z)"
-          >
-            <Maximize2 size={13} />
-          </button>
-          <button
-            className={`icon-btn seg${snapEnabled ? ' on' : ''}`}
-            onClick={() => useView.getState().toggleSnap()}
-            title="吸附開關 (N)"
-          >
-            <Magnet size={13} /> 吸附
-          </button>
-        </span>
-      </div>
+      />
 
       <div
         ref={scrollRef}
