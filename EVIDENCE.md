@@ -151,3 +151,61 @@
 
 **不能**：關卡只能證明程式滿足**規格所表達的**約束，無法證明規格表達了**所有重要的事**。
 聲音品質、動效手感、成片觀感這類仍必須由你親眼親耳確認（§7）。
+
+---
+
+# EVIDENCE 追加 — AI 編輯動畫層（2026-08-02）
+
+依 `docs/superpowers/specs/2026-08-02-ai-edit-fx.md`。
+Spec approval：設計（效果/節奏/觸發規則）經對話核准後，使用者指示「直接用
+/old-coder 開工」——SPEC 在該預授權下逕行執行，未再等待逐條核准。Tier 2。
+
+## 行為 → 測試對映
+
+| SPEC 條目                                                          | 測試                                 |
+| ------------------------------------------------------------------ | ------------------------------------ |
+| A1–A7 patch 分析（整軌替換/單欄位/重排/新增/刪除/minStart/非軌道） | `fx/aiPatches.test.ts`（9）          |
+| B8–B10 動畫窗開關/自清/連發合併                                    | `stores/editFx.test.ts`（5）         |
+| C11–C12 只有 ai 觸發、human 不觸發                                 | `stores/project.fx.test.ts`（3）     |
+| D13–D16 容器 ai-anim／光暈交替／骨牌 stagger／**拖曳中抑制**       | `timeline/Timeline.fx.test.tsx`（5） |
+| D17 scrollTargetFor（可見不捲/1/3 定位/clamp/量測不到不捲）        | 同上（4）                            |
+| E18–E19 Player 進場／Activity 新列滑入                             | `panels/fx.test.tsx`（3）            |
+
+新增 29 測試；RED-first（兩個 stub 先看 13 紅、元件接線先看 5+2 紅）。
+例外：`scrollTargetFor` 4 個測試因實作先行而立即綠——其非空泛由 mutant
+`fx-scroll-visible` 證明（拿掉可見判斷 → 測試變紅）。
+
+## 關卡（單一最終乾淨執行，commit `0d0adae` 前後見 git log）
+
+| 關卡                  | 結果                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 全測試套件            | **312 passed**（shared 27／server 128／ui 157），0 failed                                                                                                                      |
+| tsc／eslint／prettier | PASS／PASS／PASS                                                                                                                                                               |
+| UI 覆蓋率             | Lines 86.3%（2584/2994）、Branches 85.15%                                                                                                                                      |
+| 突變                  | **35/35 killed**（+1 等價對照組如預期存活）；本功能新增 8 隻全滅                                                                                                               |
+| 隨機順序              | ui/server 皆 PASS                                                                                                                                                              |
+| 依賴稽核              | 0 vulnerabilities（**零新依賴**，捲動用 gsap 現有能力）                                                                                                                        |
+| 秘密掃描              | PASS                                                                                                                                                                           |
+| 真實執行              | production build 由真 server 服務、冷載入完整渲染（1,147,161 非黑像素）；shipped CSS bundle 內含全部 fx 規則（fx-glow-a/b、fx-enter、fx-slidein、ai-anim、--fx-spring 各就位） |
+
+## 本功能的 8 隻 mutants（全滅）
+
+ai gate 開給 human／動畫窗永不關／連發不合併／新增誤判修改／
+**拖曳中也掛動畫（1:1 跟手破壞）**／stagger 歸零／光暈不交替／可見仍捲動。
+
+## 跳過與已知限制
+
+- **reduced-motion 未寫單元測試**（jsdom 不套用 media query）：由既有全域
+  `prefers-reduced-motion` 規則（`!important`）涵蓋，屬 CSS 靜態事實；親驗項。
+- **刪除項無退場動畫**（React 立即 unmount；SPEC 已排除本輪範圍）。
+- **動畫觀感自動化驗不到**：class/參數/觸發全數已測；「絲滑與否」見下。
+- CDP 動畫中截幀探針因 headless 連線問題放棄，未納入證據（不假裝跑過）；
+  以「bundle 含規則＋接線測試」替代，信心層級如實較低一級。
+
+## 使用者親驗清單（fx 專屬）
+
+1. 讓 AI 連線做一次編輯（改字幕時間）→ chip 應**滑行**過去（帶一點回彈）並亮紫暈 1 秒。
+2. 請 AI 跑 auto_caption → 整排字幕應**依序彈入**（骨牌），非同幀全現。
+3. AI 改視窗外的項目 → 時間軸應先平滑捲過去再亮暈。
+4. AI 編輯的**同時**拖你自己的 chip → 你的拖曳必須完全跟手、無延遲感。
+5. 系統開「減少動態效果」→ 以上全部退化為瞬切。

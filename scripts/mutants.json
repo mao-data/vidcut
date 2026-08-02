@@ -223,5 +223,69 @@
     "replace": "  const outW = exp.width ?? width;",
     "tests": "server/test/render-t1.test.ts",
     "note": "只給 height 時寬度不再依比例推算 → 等比縮放斷言必須抓到"
+  },
+  {
+    "id": "fx-source-gate",
+    "file": "ui/src/stores/project.ts",
+    "find": "    if (msg.source === 'ai') {",
+    "replace": "    if (true) {",
+    "tests": "ui/src/stores/project.fx.test.ts",
+    "note": "人的變更也觸發動畫層 → human 不觸發的斷言必須抓到"
+  },
+  {
+    "id": "fx-window-clear",
+    "file": "ui/src/stores/editFx.ts",
+    "find": "    timer = setTimeout(() => get().clear(), FX_WINDOW_MS);",
+    "replace": "",
+    "tests": "ui/src/stores/editFx.test.ts",
+    "note": "動畫窗永不自動關 → 1.6s 自清斷言必須抓到"
+  },
+  {
+    "id": "fx-merge-window",
+    "file": "ui/src/stores/editFx.ts",
+    "find": "    const touched = new Set(s.window ? s.touched : []);",
+    "replace": "    const touched = new Set<string>();",
+    "tests": "ui/src/stores/editFx.test.ts",
+    "note": "窗內連發不合併 ids → 合併斷言必須抓到"
+  },
+  {
+    "id": "fx-analyze-added",
+    "file": "ui/src/fx/aiPatches.ts",
+    "find": "      else added.add(id);",
+    "replace": "      else touched.add(id);",
+    "tests": "ui/src/fx/aiPatches.test.ts",
+    "note": "新增被誤判為修改 → add op 進 added 的斷言必須抓到"
+  },
+  {
+    "id": "fx-drag-gate",
+    "file": "ui/src/timeline/Timeline.tsx",
+    "find": "  const aiAnim = fxWindow && !drag.current;",
+    "replace": "  const aiAnim = fxWindow;",
+    "tests": "ui/src/timeline/Timeline.fx.test.tsx",
+    "note": "人拖曳中也掛動畫（破壞 1:1 跟手）→ 拖曳抑制斷言必須抓到"
+  },
+  {
+    "id": "fx-stagger",
+    "file": "ui/src/timeline/Timeline.tsx",
+    "find": "    if (i !== undefined) return { cls: ' fx-enter', delay: i * 40 };",
+    "replace": "    if (i !== undefined) return { cls: ' fx-enter', delay: 0 };",
+    "tests": "ui/src/timeline/Timeline.fx.test.tsx",
+    "note": "骨牌 stagger 歸零 → 40ms 錯開斷言必須抓到"
+  },
+  {
+    "id": "fx-glow-alternate",
+    "file": "ui/src/timeline/Timeline.tsx",
+    "find": "    if (fxTouched.has(id)) return { cls: fxStamp % 2 ? ' fx-glow-a' : ' fx-glow-b' };",
+    "replace": "    if (fxTouched.has(id)) return { cls: ' fx-glow-a' };",
+    "tests": "ui/src/timeline/Timeline.fx.test.tsx",
+    "note": "光暈不交替 → 連發同 chip 不重播 → 交替斷言必須抓到"
+  },
+  {
+    "id": "fx-scroll-visible",
+    "file": "ui/src/fx/scroll.ts",
+    "find": "  if (targetPx >= scrollLeft && targetPx <= scrollLeft + clientWidth) return null;",
+    "replace": "",
+    "tests": "ui/src/timeline/Timeline.fx.test.tsx",
+    "note": "可視範圍內也捲動 → 「已可見不捲」斷言必須抓到（兼證 scrollTargetFor 測試非空泛）"
   }
 ]
