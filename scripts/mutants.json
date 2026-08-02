@@ -1,0 +1,50 @@
+[
+  {
+    "id": "player-fade",
+    "file": "ui/src/player/plan.ts",
+    "find": "if (a.fadeIn && rel < a.fadeIn) gain = rel / a.fadeIn;",
+    "replace": "",
+    "tests": "ui/src/player/Player.test.tsx",
+    "note": "拿掉淡入增益 → 音量斷言必須抓到"
+  },
+  {
+    "id": "player-window",
+    "file": "ui/src/player/plan.ts",
+    "find": "if (rel < 0 || rel >= a.duration) continue;",
+    "replace": "if (rel < -999) continue;",
+    "tests": "ui/src/player/Player.test.tsx",
+    "note": "音訊活躍窗永遠成立 → 窗外不該播的斷言必須抓到"
+  },
+  {
+    "id": "player-clipvol",
+    "file": "ui/src/player/Player.tsx",
+    "find": "act.muted = plan.active.volume === 0;",
+    "replace": "act.muted = false;",
+    "tests": "ui/src/player/Player.test.tsx",
+    "note": "clip.volume=0 不再靜音 → extract-audio 回歸斷言必須抓到"
+  },
+  {
+    "id": "player-duck",
+    "file": "ui/src/player/Player.tsx",
+    "find": "const DUCK_LEVEL = 0.25;",
+    "replace": "const DUCK_LEVEL = 1;",
+    "tests": "ui/src/player/Player.test.tsx",
+    "note": "ducking 失效 → 影片壓低音量的斷言必須抓到"
+  },
+  {
+    "id": "player-audio-src",
+    "file": "ui/src/player/Player.tsx",
+    "find": "              src={mediaUrl(media)}",
+    "replace": "              src={'/media/' + media.path}",
+    "tests": "ui/src/player/Player.test.tsx",
+    "note": "音訊元素改用原始檔而非 proxy → src 斷言必須抓到"
+  },
+  {
+    "id": "player-caption-window",
+    "file": "ui/src/player/plan.ts",
+    "find": "const captions = p.tracks.captions.filter((c) => t >= c.start && t < c.start + c.duration);",
+    "replace": "const captions = p.tracks.captions;",
+    "tests": "ui/src/player/Player.test.tsx",
+    "note": "字幕不再依時間窗過濾 → 出窗不顯示的斷言必須抓到"
+  }
+]

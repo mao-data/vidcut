@@ -71,6 +71,27 @@ export function Player() {
     return () => cancelAnimationFrame(raf);
   }, [playing]);
 
+  /**
+   * 音訊軌同步：獨立 effect。
+   * 影片那個 effect 在 A/B 交換與「無 active」路徑上會提前 return——音訊軌與影片的
+   * A/B 狀態無關，混在一起會讓交換的那一輪整個跳過音訊校正（跨片段邊界 seek 時，
+   * 出窗的音訊不會被暫停）。拆開後這個不變量是無條件的。
+   */
+  useEffect(() => {
+    if (!plan) return;
+    for (const [id, el] of audioEls.current) {
+      const a = plan.audio.find((x) => x.id === id);
+      if (!a) {
+        if (!el.paused) el.pause();
+        continue;
+      }
+      if (Math.abs(el.currentTime - a.sourceTime) > DRIFT_TOLERANCE) el.currentTime = a.sourceTime;
+      el.volume = Math.min(a.volume, 1);
+      if (playing && el.paused) void el.play().catch(() => {});
+      if (!playing && !el.paused) el.pause();
+    }
+  }, [plan, playing]);
+
   // 每次 time/doc 變化：對齊 video 元素
   useEffect(() => {
     if (!doc || !plan) return;
@@ -130,19 +151,6 @@ export function Player() {
         .slice(0, plan.active.clipIndex + 1)
         .reduce((s, c) => s + c.duration, 0);
       if (clipEnd - time < PRELAUNCH && spare.paused) void spare.play().catch(() => {});
-    }
-
-    // 音訊軌：活躍項跟時鐘走（漂移校正＋音量含淡變），不活躍就暫停
-    for (const [id, el] of audioEls.current) {
-      const a = plan.audio.find((x) => x.id === id);
-      if (!a) {
-        if (!el.paused) el.pause();
-        continue;
-      }
-      if (Math.abs(el.currentTime - a.sourceTime) > DRIFT_TOLERANCE) el.currentTime = a.sourceTime;
-      el.volume = Math.min(a.volume, 1);
-      if (playing && el.paused) void el.play().catch(() => {});
-      if (!playing && !el.paused) el.pause();
     }
 
     // blur 背景層：跟著 active 來源，容忍 0.3s 漂移（模糊看不出來）

@@ -79,9 +79,9 @@ describe('planAt', () => {
     expect(planAt(proj(), 1).ducked).toBe(false);
     // t=3：rel=1，fadeIn=2 → 增益 0.5 → 0.8*0.5；sourceTime = in 1 + rel 1
     const mid = planAt(proj(), 3);
-    expect(mid.audio).toMatchObject([
-      { id: 'a1', src: '/media/derived/m2/proxy.mp4', sourceTime: 2, ducking: true },
-    ]);
+    // src 不在 plan 裡（<audio> 元素由 doc.tracks.audio 常駐渲染，見 ActiveAudio 註解）；
+    // 元素 src 由 Player.test.tsx 的 "mounts one <audio> per audio item" 驗
+    expect(mid.audio).toMatchObject([{ id: 'a1', sourceTime: 2, ducking: true }]);
     expect(mid.audio[0]!.volume).toBeCloseTo(0.4);
     expect(mid.ducked).toBe(true);
     // t=6.5：remain=0.5，fadeOut=1 → 增益 0.5

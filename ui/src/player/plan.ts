@@ -19,10 +19,13 @@ export interface ActiveSource {
   volume: number;
 }
 
-/** t 時刻該出聲的音訊軌項目（Player 對映到隱藏 <audio> 元素） */
+/**
+ * t 時刻該出聲的音訊軌項目。
+ * 不帶 src：<audio> 元素是依 doc.tracks.audio 常駐渲染的（含非活躍項），
+ * 來源由該處決定；這裡再算一份只會變成沒人讀的死欄位。
+ */
 export interface ActiveAudio {
   id: string;
-  src: string;
   /** a.in + (t - a.start) */
   sourceTime: number;
   /** a.volume × 淡入淡出線性增益 */
@@ -69,8 +72,6 @@ function activeAudioAt(p: Project, t: number): ActiveAudio[] {
   for (const a of p.tracks.audio) {
     const rel = t - a.start;
     if (rel < 0 || rel >= a.duration) continue;
-    const media = p.media.find((m) => m.id === a.mediaId);
-    if (!media) continue;
     // 淡入淡出：線性增益（與 render.ts 的 afade 曲線一致到人耳分不出的程度）
     let gain = 1;
     if (a.fadeIn && rel < a.fadeIn) gain = rel / a.fadeIn;
@@ -78,7 +79,6 @@ function activeAudioAt(p: Project, t: number): ActiveAudio[] {
     if (a.fadeOut && remain < a.fadeOut) gain = Math.min(gain, remain / a.fadeOut);
     out.push({
       id: a.id,
-      src: mediaUrl(media),
       sourceTime: a.in + rel,
       volume: a.volume * gain,
       ducking: a.ducking === true,
