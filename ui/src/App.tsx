@@ -267,8 +267,9 @@ export function App() {
             </div>
           </div>
 
-          {/* 中：預覽（含收合後的展開鈕與伸縮把手） */}
-          <div style={{ overflowY: 'auto', padding: 12, position: 'relative' }}>
+          {/* 中：預覽。外層不捲動、只當定位基準；捲動交給內層。
+              展開鈕與伸縮把手掛在外層——放進捲動容器的話會跟著內容捲走。 */}
+          <div style={{ position: 'relative', minHeight: 0 }}>
             {leftOpen && (
               <PanelResizer side="left" gridRef={gridRef} onResizingChange={setResizing} />
             )}
@@ -280,7 +281,13 @@ export function App() {
                 className="icon-btn"
                 onClick={() => useView.getState().toggleLeft()}
                 title="Expand properties panel"
-                style={{ position: 'absolute', left: 8, top: 8, zIndex: 5 }}
+                style={{
+                  position: 'absolute',
+                  left: 4,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  zIndex: 5,
+                }}
               >
                 <PanelLeftOpen size={14} />
               </button>
@@ -295,7 +302,9 @@ export function App() {
                 <PanelRightOpen size={14} />
               </button>
             )}
-            <Player />
+            <div style={{ height: '100%', overflowY: 'auto', padding: 12 }}>
+              <Player />
+            </div>
           </div>
 
           {/* 右：字幕 ⇄ 活動分頁 */}

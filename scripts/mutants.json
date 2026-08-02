@@ -86,5 +86,37 @@
     "replace": "return { start: a.start + d, in: a.in, duration: a.duration - d };",
     "tests": "ui/src/timeline/Timeline.test.tsx",
     "note": "音訊 trim-in 沒連動 source in → in/start 連動斷言必須抓到"
+  },
+  {
+    "id": "app-react185",
+    "file": "ui/src/panels/CaptionList.tsx",
+    "find": "const captions = useProject((s) => s.doc?.tracks.captions ?? NO_CAPTIONS);",
+    "replace": "const captions = useProject((s) => s.doc?.tracks.captions ?? []);",
+    "tests": "ui/src/panels/panels-smoke.test.tsx",
+    "note": "還原當初白屏真兇（selector 回傳新陣列）→ 冷載入 smoke 必須抓到"
+  },
+  {
+    "id": "app-input-guard",
+    "file": "ui/src/App.tsx",
+    "find": "      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;",
+    "replace": "",
+    "tests": "ui/src/App.test.tsx",
+    "note": "拿掉輸入框守衛 → 打字時不該觸發快捷鍵的斷言必須抓到"
+  },
+  {
+    "id": "app-frame-step",
+    "file": "ui/src/App.tsx",
+    "find": "          const step = (e.shiftKey ? 10 : 1) / fps;",
+    "replace": "          const step = 1 / fps;",
+    "tests": "ui/src/App.test.tsx",
+    "note": "Shift 不再跳 10 幀 → 逐幀/跳幀斷言必須抓到"
+  },
+  {
+    "id": "app-context-debounce",
+    "file": "ui/src/App.tsx",
+    "find": "            playhead: usePlayback.getState().time,",
+    "replace": "            playhead: 0,",
+    "tests": "ui/src/App.test.tsx",
+    "note": "回報給 AI 的 playhead 恆為 0 → editor context 斷言必須抓到"
   }
 ]
