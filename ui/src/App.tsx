@@ -297,13 +297,7 @@ export function App() {
                 className="icon-btn"
                 onClick={() => useView.getState().toggleRight()}
                 title="Expand captions/activity panel"
-                style={{
-                  position: 'absolute',
-                  right: 4,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  zIndex: 5,
-                }}
+                style={{ position: 'absolute', right: 8, top: 8, zIndex: 5 }}
               >
                 <PanelRightOpen size={14} />
               </button>

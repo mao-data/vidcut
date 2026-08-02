@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,7 @@ import { ProjectStore } from '../src/store.js';
 import { EditorContext } from '../src/editorContext.js';
 import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer, type McpDeps } from '../src/mcp.js';
+import type { ProjectTracks } from '@vidcut/shared';
 import { makeVideo } from './fixtures.js';
 
 /**
@@ -26,6 +27,8 @@ let dir: string;
 let store: ProjectStore;
 let client: Client;
 let mediaId: string;
+/** import + set_timeline 之後的軌道狀態，每個測試前還原（見 beforeEach）。 */
+let baseline: ProjectTracks;
 
 const call = (name: string, args: Record<string, unknown> = {}) =>
   client.callTool({ name, arguments: args }) as Promise<Structured>;
@@ -56,7 +59,20 @@ beforeAll(async () => {
       { mediaId, in: 3, duration: 2, label: 'two' },
     ],
   });
+  baseline = structuredClone(store.doc.tracks);
 }, 180_000);
+
+/**
+ * 每個測試從同一個已知起點開始。素材匯入很貴（要跑 ffmpeg）所以留在 beforeAll，
+ * 但軌道狀態每次重置——否則測試會互相依賴執行順序，隨機順序一跑就爆。
+ */
+beforeEach(() => {
+  store.mutate('human', 'reset fixture', (d) => {
+    d.tracks = structuredClone(baseline);
+    d.render = { status: 'idle' };
+    delete d.canvas.fit;
+  });
+});
 
 afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
@@ -115,7 +131,6 @@ describe('MCP tools that had no coverage', () => {
     const ids = store.doc.tracks.video.map((c) => c.id);
     await call('reorder_clips', { order: [ids[1]!, ids[0]!] });
     expect(store.doc.tracks.video.map((c) => c.id)).toEqual([ids[1], ids[0]]);
-    await call('reorder_clips', { order: ids }); // 還原給後續測試
   });
 
   it('reorder_clips rejects an order that is not a permutation', async () => {
@@ -132,6 +147,7 @@ describe('MCP tools that had no coverage', () => {
   });
 
   it('timeline_op freeze inserts a frozen clip', async () => {
+    expect(store.doc.tracks.video.some((c) => c.frozen)).toBe(false);
     await call('timeline_op', { op: 'freeze', time: 0.5, duration: 1 });
     expect(store.doc.tracks.video.some((c) => c.frozen)).toBe(true);
   });
@@ -144,6 +160,7 @@ describe('MCP tools that had no coverage', () => {
   });
 
   it('update_audio edits an audio item', async () => {
+    await call('extract_audio', { clipId: store.doc.tracks.video[0]!.id });
     const a = store.doc.tracks.audio[0]!;
     await call('update_audio', { id: a.id, patch: { volume: 0.4, ducking: true } });
     const after = store.doc.tracks.audio.find((x) => x.id === a.id)!;
@@ -152,6 +169,8 @@ describe('MCP tools that had no coverage', () => {
   });
 
   it('set_audio replaces the whole audio track', async () => {
+    await call('extract_audio', { clipId: store.doc.tracks.video[0]!.id });
+    expect(store.doc.tracks.audio.length).toBeGreaterThan(0);
     await call('set_audio', { audio: [] });
     expect(store.doc.tracks.audio).toEqual([]);
   });

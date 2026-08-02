@@ -175,22 +175,13 @@ export function Player() {
     opacity: visible ? 1 : 0,
   });
   return (
-    <div
-      style={{
-        height: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 0,
-      }}
-    >
+    <div>
       <div
         style={{
           position: 'relative',
           aspectRatio: '9/16',
-          // 依「容器」高度縮放，不是視窗高度（用 vh 的話時間軸一高就會撐出捲軸）
-          height: '100%',
-          maxWidth: '100%',
+          maxHeight: '72vh',
+          margin: '0 auto',
           background: '#000',
           borderRadius: 10,
           overflow: 'hidden',

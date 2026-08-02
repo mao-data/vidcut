@@ -215,5 +215,13 @@
     "replace": "",
     "tests": "server/test/mcp-tools.test.ts",
     "note": "抽出聲音後原片段沒靜音（會雙份聲音）→ extract_audio 斷言必須抓到"
+  },
+  {
+    "id": "render-aspect",
+    "file": "server/src/render.ts",
+    "find": "  const outW = exp.width ?? (exp.height ? even((exp.height * width) / height) : width);",
+    "replace": "  const outW = exp.width ?? width;",
+    "tests": "server/test/render-t1.test.ts",
+    "note": "只給 height 時寬度不再依比例推算 → 等比縮放斷言必須抓到"
   }
 ]

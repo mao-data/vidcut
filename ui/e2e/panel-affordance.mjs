@@ -126,7 +126,15 @@ async function main() {
       await sleep(250);
     }
     if (!ready) throw new Error('專案沒有在 15 秒內載入');
-    await sleep(500);
+    // 關掉所有過渡/動畫再量。headless 的畫面被節流時 CSS transition 可能整整幾秒不推進，
+    // 於是量到收合「前」的版面；這裡要驗的是終態版面，不是動畫本身。
+    await evalJs(`(() => {
+      const s = document.createElement('style');
+      s.textContent = '*, *::before, *::after { transition: none !important; animation: none !important; }';
+      document.head.appendChild(s);
+      return 1;
+    })()`);
+    await sleep(300);
 
     /** 元素中心點的命中測試：回 true 表示這個位置真的點得到它（沒被蓋、沒被裁掉）。 */
     const clickable = (title) => `(() => {
@@ -156,11 +164,36 @@ async function main() {
       }
     };
 
+    /**
+     * 等 grid 的 0.25s 收合過渡跑完再量。用固定 sleep 會偶爾量到過渡中的座標
+     * （右欄還留著 320px），量出來的重疊關係是假的。
+     */
+    /**
+     * 等 grid 的 0.25s 收合過渡真的跑完。用「座標連續幾次相同」判斷會誤判——
+     * 過渡還沒起跑的那幾幀座標也是不變的，於是量到收合前的版面。
+     * 這裡直接等收合的終態：左右軌都變成 0px。
+     */
+    const collapsedCols = async () => {
+      let last = null;
+      for (let i = 0; i < 60; i++) {
+        last = await evalJs(`(() => {
+          const g = [...document.querySelectorAll('div')].find((d) => {
+            const s = getComputedStyle(d);
+            return s.display === 'grid' && s.gridTemplateColumns.split(' ').length === 3;
+          });
+          return g ? getComputedStyle(g).gridTemplateColumns : 'no-grid';
+        })()`);
+        const tracks = last.split(' ');
+        if (tracks.length === 3 && tracks[0] === '0px' && tracks[2] === '0px') return;
+        await sleep(100);
+      }
+      throw new Error(`面板沒有在 6 秒內收合完成（gridTemplateColumns=${last}）`);
+    };
+
     // 兩側面板都收合
     await click('Collapse');
-    await sleep(300);
     await click('Collapse properties panel');
-    await sleep(500);
+    await collapsedCols();
 
     console.log('收合後、未開下拉：');
     await check('右側展開鈕可點', clickable('Expand captions/activity panel'));

@@ -338,9 +338,12 @@ export function buildRenderArgs(
     captionsBurned = true;
   }
 
-  // 匯出縮放：合成一律在專案畫布尺寸做（overlay/字卡才對得上），最後才縮到輸出尺寸
-  const outW = exp.width ?? width;
-  const outH = exp.height ?? height;
+  // 匯出縮放：合成一律在專案畫布尺寸做（overlay/字卡才對得上），最後才縮到輸出尺寸。
+  // 只給單邊時另一邊依畫布比例推算——沿用畫布原尺寸會默默輸出變形的成品，
+  // 而 MCP 的 render 工具允許 AI 只指定其中一邊。取偶數（h264 要求 yuv420p 的偶數維度）。
+  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+  const outW = exp.width ?? (exp.height ? even((exp.height * width) / height) : width);
+  const outH = exp.height ?? (exp.width ? even((exp.width * height) / width) : height);
   if (outW !== width || outH !== height) {
     fc.push(`${vcur}scale=${outW}:${outH}:flags=lanczos[vout]`);
     vcur = '[vout]';

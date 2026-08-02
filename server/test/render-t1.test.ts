@@ -221,6 +221,34 @@ describe('export options', () => {
     expect(info.width).toBe(540);
     expect(info.height).toBe(960);
   }, 120_000);
+
+  it('keeps the canvas aspect ratio when only one output dimension is given', async () => {
+    // RenderOptions.width 的契約是「等比縮放整個合成結果」。只給一邊卻沿用畫布的
+    // 另一邊，會默默產出變形的成品——UI 的預設檔都成對給值，但 MCP 的 render
+    // 工具把兩個參數獨立開放給 AI，所以這條路徑是真的會被走到的。
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-aspect-'));
+    await makeVideo(dir, 'a.mp4', { duration: 2, withAudio: true });
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    store.mutate('ai', 'seed', (d) => {
+      d.canvas = { width: 1080, height: 1920, fps: 30 };
+      d.media = [
+        {
+          id: 'm1',
+          path: 'a.mp4',
+          probe: { duration: 2, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+        },
+      ];
+      d.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 0, duration: 1.5, volume: 1 }];
+    });
+
+    const byWidth = await render(store, dir, 'w-only', { width: 360, crf: 30 });
+    const w = await probe(join(dir, byWidth.outPath));
+    expect([w.width, w.height]).toEqual([360, 640]); // 1080×1920 → 9:16 維持
+
+    const byHeight = await render(store, dir, 'h-only', { height: 640, crf: 30 });
+    const h = await probe(join(dir, byHeight.outPath));
+    expect([h.width, h.height]).toEqual([360, 640]);
+  }, 180_000);
 });
 
 describe('cover', () => {

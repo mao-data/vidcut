@@ -28,18 +28,18 @@
 
 ## 要新寫的測試
 
-| 檔案 | 驗什麼 |
-|---|---|
-| `App.test.tsx` | doc=null 冷載入不崩（白屏回歸盔甲）、連線標示、左右欄收合、分頁切換、快捷鍵送出對應 command |
-| `Timeline.drag.test.tsx` | 片段 trim/拖序、字幕 move+trim、音訊 move+trim、疊圖絕對式/錨定式、放手 pending 不閃回、吸附 |
-| `Player.test.tsx` | 音訊 `<audio>` 生成與 src、窗內外 play/pause、音量×淡變、clip.volume=0 靜音、ducking 0.25、定格不播、疊圖/字幕時間窗 |
-| `Inspector.test.tsx` | 四種選取的欄位與送出的 patch、到片尾切換、刪除鈕 |
-| `CaptionList.test.tsx` | 改字送出且清 tokens、刪除、樣式套全部、karaoke 高亮 |
-| `ExportMenu.test.tsx` | 預設檔、render options、進度、設封面 |
-| `ReviewBar.test.tsx` | 核准／核准並留言／沒留言不能退回 |
-| `panels-smoke.test.tsx` | 每個面板在 doc=null 與 demo doc 下都能 render |
-| `mcp-tools.test.ts` | 補齊未測 MCP tool |
-| `store-durability.test.ts` (Tier 3) | 原子落盤、存檔序列化、undo N 步、history 上限、損毀 JSON 載入 |
+| 檔案                                | 驗什麼                                                                                                               |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `App.test.tsx`                      | doc=null 冷載入不崩（白屏回歸盔甲）、連線標示、左右欄收合、分頁切換、快捷鍵送出對應 command                          |
+| `Timeline.drag.test.tsx`            | 片段 trim/拖序、字幕 move+trim、音訊 move+trim、疊圖絕對式/錨定式、放手 pending 不閃回、吸附                         |
+| `Player.test.tsx`                   | 音訊 `<audio>` 生成與 src、窗內外 play/pause、音量×淡變、clip.volume=0 靜音、ducking 0.25、定格不播、疊圖/字幕時間窗 |
+| `Inspector.test.tsx`                | 四種選取的欄位與送出的 patch、到片尾切換、刪除鈕                                                                     |
+| `CaptionList.test.tsx`              | 改字送出且清 tokens、刪除、樣式套全部、karaoke 高亮                                                                  |
+| `ExportMenu.test.tsx`               | 預設檔、render options、進度、設封面                                                                                 |
+| `ReviewBar.test.tsx`                | 核准／核准並留言／沒留言不能退回                                                                                     |
+| `panels-smoke.test.tsx`             | 每個面板在 doc=null 與 demo doc 下都能 render                                                                        |
+| `mcp-tools.test.ts`                 | 補齊未測 MCP tool                                                                                                    |
+| `store-durability.test.ts` (Tier 3) | 原子落盤、存檔序列化、undo N 步、history 上限、損毀 JSON 載入                                                        |
 
 ## RED 紀律（本任務的誠實核心）
 
