@@ -176,6 +176,23 @@ async function main() {
     await check('捲動後右側展開鈕仍可點', clickable('Expand captions/activity panel'));
     await check('捲動後左側展開鈕仍可點', clickable('Expand properties panel'));
 
+    console.log('預覽區尺寸：');
+    await check(
+      '預覽依容器縮放、不產生捲軸',
+      `(() => {
+        const v = document.querySelector('video');
+        if (!v) return { ok: false, why: '找不到 <video>' };
+        let el = v.parentElement, sc = null;
+        while (el) {
+          if (/(auto|scroll)/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 1) { sc = el; break; }
+          el = el.parentElement;
+        }
+        return sc
+          ? { ok: false, why: \`預覽欄溢位 scrollHeight \${sc.scrollHeight} > clientHeight \${sc.clientHeight}\` }
+          : { ok: true };
+      })()`,
+    );
+
     console.log('展開狀態下的伸縮把手：');
     await click('Expand captions/activity panel');
     await sleep(300);

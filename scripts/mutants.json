@@ -118,5 +118,45 @@
     "replace": "            playhead: 0,",
     "tests": "ui/src/App.test.tsx",
     "note": "回報給 AI 的 playhead 恆為 0 → editor context 斷言必須抓到"
+  },
+  {
+    "id": "cap-tokens-keep",
+    "file": "ui/src/panels/CaptionList.tsx",
+    "find": "      patch: { text, tokens: [] },",
+    "replace": "      patch: { text },",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "改字時不再清 tokens → 逐詞時間戳失效的斷言必須抓到"
+  },
+  {
+    "id": "review-reject-guard",
+    "file": "ui/src/panels/ReviewBar.tsx",
+    "find": "        onClick={() => resolve('rejected')}\n        disabled={!note}",
+    "replace": "        onClick={() => resolve('rejected')}\n        disabled={false}",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "沒留言也能退回 → 退回必填留言的斷言必須抓到"
+  },
+  {
+    "id": "inspector-overlay-anchor",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "                patch: { anchor: { clipId: ov.anchor!.clipId, offset: num(e) } },",
+    "replace": "                patch: { start: num(e) },",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "錨定疊圖誤送絕對 start → 錨定/絕對分流的斷言必須抓到"
+  },
+  {
+    "id": "inspector-until-end",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "              patch: { duration: e.target.checked ? null : 3 },",
+    "replace": "              patch: { duration: 3 },",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "「顯示到片尾」不再送 null → 該開關的斷言必須抓到"
+  },
+  {
+    "id": "inspector-deselect",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "          send({ name: 'removeOverlay', id: ov.id });\n          useSelection.getState().select(null);",
+    "replace": "          send({ name: 'removeOverlay', id: ov.id });",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "刪除疊圖後沒取消選取 → 會停留在不存在的項目上"
   }
 ]

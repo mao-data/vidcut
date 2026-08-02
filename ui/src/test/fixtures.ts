@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { createEmptyProject, type Command, type Project } from '@vidcut/shared';
+import { createEmptyProject, totalDuration, type Command, type Project } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
@@ -84,10 +84,15 @@ export function demoProject(): Project {
   return p;
 }
 
-/** 把專案灌進 store（走真正的 applyServerMsg，不直接寫 state）。 */
+/**
+ * 把專案灌進 store（走真正的 applyServerMsg，不直接寫 state）。
+ * 同時設定播放總長——正式執行時是 Player mount 後做的，
+ * 沒設的話 seek() 會被 clamp 到 0，測試會拿到假的 playhead。
+ */
 export function seedProject(doc: Project = demoProject(), version = 1): Project {
   useProject.getState().applyServerMsg({ type: 'full', version, doc, history: [] });
   useProject.getState().setConnected(true);
+  usePlayback.getState().setTotal(totalDuration(doc));
   return doc;
 }
 
