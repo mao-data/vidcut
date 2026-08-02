@@ -25,7 +25,7 @@ import {
   trimOut,
   reorderByDrag,
   layoutByOrder,
-  shiftStart,
+  clampStart,
   trimSpanIn,
   trimSpanOut,
   trimAudioIn,
@@ -380,7 +380,7 @@ export function Timeline() {
     } else if (d.mode === 'cap') {
       if (d.edge === 'move') {
         d.preview = {
-          start: shiftStart(snapSpan(d.orig.start + deltaSec, d.orig.duration), 0),
+          start: clampStart(snapSpan(d.orig.start + deltaSec, d.orig.duration)),
           duration: d.orig.duration,
         };
       } else if (d.edge === 'in') {
@@ -402,7 +402,7 @@ export function Timeline() {
       if (d.edge === 'move') {
         d.preview = {
           ...d.orig,
-          start: shiftStart(snapSpan(d.orig.start + deltaSec, d.orig.duration), 0),
+          start: clampStart(snapSpan(d.orig.start + deltaSec, d.orig.duration)),
         };
       } else if (d.edge === 'in') {
         // 先吸附左緣、再用 trimAudioIn 統一 clamp（in>=0 / start>=0 / MIN）
@@ -422,7 +422,7 @@ export function Timeline() {
       }
       rerender();
     } else if (d.mode === 'ov') {
-      d.preview = { absStart: shiftStart(snapSpan(d.orig.absStart + deltaSec, d.orig.span), 0) };
+      d.preview = { absStart: clampStart(snapSpan(d.orig.absStart + deltaSec, d.orig.span)) };
       rerender();
     }
   };

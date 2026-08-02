@@ -78,9 +78,13 @@ export function layoutByOrder(
   return out;
 }
 
-/** 平移絕對時間項（caption/audio/overlay）：start 不得小於 0。 */
-export function shiftStart(start: number, deltaSec: number): number {
-  return Math.max(0, start + deltaSec);
+/**
+ * 絕對時間項（caption/audio/overlay）平移後的下限：start 不得小於 0。
+ * 位移量由呼叫端先加好（要先過吸附），這裡只負責 clamp——
+ * 曾經的 shiftStart(start, delta) 的 delta 在每個呼叫點都是 0，是誤導的簽名。
+ */
+export function clampStart(start: number): number {
+  return Math.max(0, start);
 }
 
 /**

@@ -46,5 +46,45 @@
     "replace": "const captions = p.tracks.captions;",
     "tests": "ui/src/player/Player.test.tsx",
     "note": "字幕不再依時間窗過濾 → 出窗不顯示的斷言必須抓到"
+  },
+  {
+    "id": "tl-drag-delta",
+    "file": "ui/src/timeline/Timeline.tsx",
+    "find": "    const deltaSec = pxToTime(e.clientX - d.startX, pps);",
+    "replace": "    const deltaSec = 0;",
+    "tests": "ui/src/timeline/Timeline.test.tsx",
+    "note": "拖曳位移歸零 → 所有軌的拖曳位移斷言必須抓到"
+  },
+  {
+    "id": "tl-cap-clamp",
+    "file": "ui/src/timeline/dragMath.ts",
+    "find": "  return Math.max(0, start);",
+    "replace": "  return start;",
+    "tests": "ui/src/timeline/Timeline.test.tsx",
+    "note": "拿掉 0 下限 → 拖到時間軸左邊界外的 clamp 斷言必須抓到"
+  },
+  {
+    "id": "tl-pending",
+    "file": "ui/src/timeline/Timeline.tsx",
+    "find": "      if (matched) {",
+    "replace": "      if (true) {",
+    "tests": "ui/src/timeline/Timeline.test.tsx",
+    "note": "pending 立刻放掉（不等 server echo）→ 放手閃回原位的回歸斷言必須抓到"
+  },
+  {
+    "id": "tl-anchor-offset",
+    "file": "ui/src/timeline/Timeline.tsx",
+    "find": "          const offset = Number(Math.max(0, d.preview.absStart - clipStart).toFixed(3));",
+    "replace": "          const offset = Number(Math.max(0, d.preview.absStart).toFixed(3));",
+    "tests": "ui/src/timeline/Timeline.test.tsx",
+    "note": "錨定 offset 忘了扣掉片段起點 → 錨定式疊圖斷言必須抓到"
+  },
+  {
+    "id": "tl-audio-trim-link",
+    "file": "ui/src/timeline/dragMath.ts",
+    "find": "return { start: a.start + d, in: a.in + d, duration: a.duration - d };",
+    "replace": "return { start: a.start + d, in: a.in, duration: a.duration - d };",
+    "tests": "ui/src/timeline/Timeline.test.tsx",
+    "note": "音訊 trim-in 沒連動 source in → in/start 連動斷言必須抓到"
   }
 ]

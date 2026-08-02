@@ -4,7 +4,7 @@ import {
   trimOut,
   reorderByDrag,
   layoutByOrder,
-  shiftStart,
+  clampStart,
   trimSpanIn,
   trimSpanOut,
   trimAudioIn,
@@ -101,11 +101,11 @@ describe('layoutByOrder', () => {
   });
 });
 
-describe('shiftStart', () => {
+describe('clampStart', () => {
   it('moves by delta and clamps at 0', () => {
-    expect(shiftStart(5, 2)).toBe(7);
-    expect(shiftStart(5, -2)).toBe(3);
-    expect(shiftStart(1, -5)).toBe(0);
+    expect(clampStart(7)).toBe(7);
+    expect(clampStart(3)).toBe(3);
+    expect(clampStart(-4)).toBe(0);
   });
 });
 
