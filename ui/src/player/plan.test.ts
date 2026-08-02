@@ -31,6 +31,19 @@ function proj(): Project {
       position: { x: 0.5, y: 0.1, scale: 1 },
     },
   ];
+  p.tracks.audio = [
+    {
+      id: 'a1',
+      mediaId: 'm2',
+      start: 2,
+      in: 1,
+      duration: 5,
+      volume: 0.8,
+      fadeIn: 2,
+      fadeOut: 1,
+      ducking: true,
+    },
+  ];
   p.tracks.captions = [
     {
       id: 'cap1',
@@ -58,6 +71,29 @@ describe('planAt', () => {
   it('last clip has no next; end of timeline is done', () => {
     expect(planAt(proj(), 7).next).toBeNull();
     expect(planAt(proj(), 10).done).toBe(true);
+  });
+
+  it('audio items: window, source time, fade gain, ducking', () => {
+    // 窗外（t=1 < start=2）→ 無活躍音訊、不 duck
+    expect(planAt(proj(), 1).audio).toHaveLength(0);
+    expect(planAt(proj(), 1).ducked).toBe(false);
+    // t=3：rel=1，fadeIn=2 → 增益 0.5 → 0.8*0.5；sourceTime = in 1 + rel 1
+    const mid = planAt(proj(), 3);
+    expect(mid.audio).toMatchObject([
+      { id: 'a1', src: '/media/derived/m2/proxy.mp4', sourceTime: 2, ducking: true },
+    ]);
+    expect(mid.audio[0]!.volume).toBeCloseTo(0.4);
+    expect(mid.ducked).toBe(true);
+    // t=6.5：remain=0.5，fadeOut=1 → 增益 0.5
+    expect(planAt(proj(), 6.5).audio[0]!.volume).toBeCloseTo(0.4);
+    // 窗尾（t=7 = start+duration）→ 結束
+    expect(planAt(proj(), 7).audio).toHaveLength(0);
+  });
+
+  it('active source carries clip volume', () => {
+    const p = proj();
+    p.tracks.video[0]!.volume = 0;
+    expect(planAt(p, 3).active).toMatchObject({ clipId: 'c1', volume: 0 });
   });
 
   it('overlays/captions filtered by time window', () => {

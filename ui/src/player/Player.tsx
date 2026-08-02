@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { activeTokenIndex, totalDuration, type CaptionItem } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
+import { mediaUrl } from '../ws.js';
 import { planAt } from './plan.js';
 
 const DRIFT_TOLERANCE = 0.06; // 60ms
 const PRELAUNCH = 0.05; // 邊界前 50ms 啟動 next
+/** ducking 時影片原聲的壓低比例——必須與 server/src/render.ts 的 DUCK_LEVEL 同值，預覽才等於成品 */
+const DUCK_LEVEL = 0.25;
 
 /**
  * 逐詞高亮。預覽端只是把每個詞包成 span 依 playhead 換顏色——
@@ -44,6 +47,8 @@ export function Player() {
   const vBg = useRef<HTMLVideoElement>(null);
   const activeIsA = useRef(true);
   const mountedClip = useRef<{ a: string | null; b: string | null }>({ a: null, b: null });
+  /** 音訊軌：每個 AudioItem 一個隱藏 <audio>（元素常駐、進出活躍窗才 play/pause） */
+  const audioEls = useRef(new Map<string, HTMLAudioElement>());
   const blurFill = doc?.canvas.fit === 'blur';
   // effect 與 render body 共用同一份 plan（播放中每幀都算，別算兩次）
   const plan = useMemo(() => (doc ? planAt(doc, time) : null), [doc, time]);
@@ -87,7 +92,8 @@ export function Player() {
         activeIsA.current = !activeIsA.current;
         act.pause();
         act.muted = true;
-        spare.muted = false;
+        spare.volume = Math.min(plan.active.volume * (plan.ducked ? DUCK_LEVEL : 1), 1);
+        spare.muted = plan.active.volume === 0;
         if (playing) void spare.play().catch(() => {});
         return; // 下一輪 effect 以新 active 繼續
       }
@@ -105,7 +111,9 @@ export function Player() {
       act.muted = true;
       if (!act.paused) act.pause();
     } else {
-      act.muted = false;
+      // clip.volume × ducking；HTMLMediaElement volume 上限 1（>1 的增益只在渲染生效）
+      act.volume = Math.min(plan.active.volume * (plan.ducked ? DUCK_LEVEL : 1), 1);
+      act.muted = plan.active.volume === 0;
       if (playing && act.paused) void act.play().catch(() => {});
       if (!playing && !act.paused) act.pause();
     }
@@ -122,6 +130,19 @@ export function Player() {
         .slice(0, plan.active.clipIndex + 1)
         .reduce((s, c) => s + c.duration, 0);
       if (clipEnd - time < PRELAUNCH && spare.paused) void spare.play().catch(() => {});
+    }
+
+    // 音訊軌：活躍項跟時鐘走（漂移校正＋音量含淡變），不活躍就暫停
+    for (const [id, el] of audioEls.current) {
+      const a = plan.audio.find((x) => x.id === id);
+      if (!a) {
+        if (!el.paused) el.pause();
+        continue;
+      }
+      if (Math.abs(el.currentTime - a.sourceTime) > DRIFT_TOLERANCE) el.currentTime = a.sourceTime;
+      el.volume = Math.min(a.volume, 1);
+      if (playing && el.paused) void el.play().catch(() => {});
+      if (!playing && !el.paused) el.pause();
     }
 
     // blur 背景層：跟著 active 來源，容忍 0.3s 漂移（模糊看不出來）
@@ -177,6 +198,21 @@ export function Player() {
         )}
         <video ref={vA} muted playsInline style={vidStyle(activeIsA.current)} />
         <video ref={vB} muted playsInline style={vidStyle(!activeIsA.current)} />
+        {/* 音訊軌元素（不可見；常駐讓 seek/play 不用重新載檔） */}
+        {doc.tracks.audio.map((a) => {
+          const media = doc.media.find((m) => m.id === a.mediaId);
+          return media ? (
+            <audio
+              key={a.id}
+              ref={(el) => {
+                if (el) audioEls.current.set(a.id, el);
+                else audioEls.current.delete(a.id);
+              }}
+              src={mediaUrl(media)}
+              preload="auto"
+            />
+          ) : null;
+        })}
         {plan.overlays.map((o) => (
           <img
             key={o.id}
