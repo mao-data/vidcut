@@ -672,7 +672,11 @@ export function Timeline() {
                   <div
                     key={o.id}
                     onPointerDown={(e) => onOvDrag(e, o.id)}
-                    title={o.anchor ? '錨定於片段（拖曳改 offset，跟著片段走）' : undefined}
+                    title={
+                      o.anchor
+                        ? 'Anchored to clip (drag changes offset; follows the clip)'
+                        : undefined
+                    }
                     style={{
                       ...chip,
                       cursor: 'grab',

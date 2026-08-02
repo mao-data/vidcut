@@ -214,7 +214,7 @@ export function App() {
         </span>
         <span className="tag" style={{ marginLeft: 'auto' }}>
           <span style={{ color: connected ? 'var(--ok)' : 'var(--danger)' }}>●</span>{' '}
-          {connected ? '已連線' : '未連線'}
+          {connected ? 'Connected' : 'Offline'}
         </span>
         <ExportMenu />
       </header>
@@ -253,11 +253,11 @@ export function App() {
                   padding: '8px 12px 0',
                 }}
               >
-                <span className="panel-head">屬性</span>
+                <span className="panel-head">Properties</span>
                 <button
                   className="icon-btn"
                   onClick={() => useView.getState().toggleLeft()}
-                  title="收合屬性欄"
+                  title="Collapse properties panel"
                   style={{ marginLeft: 'auto', padding: '3px 5px' }}
                 >
                   <PanelLeftClose size={14} />
@@ -279,7 +279,7 @@ export function App() {
               <button
                 className="icon-btn"
                 onClick={() => useView.getState().toggleLeft()}
-                title="展開屬性欄"
+                title="Expand properties panel"
                 style={{ position: 'absolute', left: 8, top: 8, zIndex: 5 }}
               >
                 <PanelLeftOpen size={14} />
@@ -289,7 +289,7 @@ export function App() {
               <button
                 className="icon-btn"
                 onClick={() => useView.getState().toggleRight()}
-                title="展開字幕/活動欄"
+                title="Expand captions/activity panel"
                 style={{ position: 'absolute', right: 8, top: 8, zIndex: 5 }}
               >
                 <PanelRightOpen size={14} />
@@ -323,18 +323,18 @@ export function App() {
                   className={`seg${tab === 'captions' ? ' on' : ''}`}
                   onClick={() => setTab('captions')}
                 >
-                  字幕 {captionCount > 0 && <span className="badge">{captionCount}</span>}
+                  Captions {captionCount > 0 && <span className="badge">{captionCount}</span>}
                 </button>
                 <button
                   className={`seg${tab === 'activity' ? ' on' : ''}`}
                   onClick={() => setTab('activity')}
                 >
-                  活動
+                  Activity
                 </button>
                 <button
                   className="icon-btn"
                   onClick={() => useView.getState().toggleRight()}
-                  title="收合"
+                  title="Collapse"
                   style={{ marginLeft: 'auto', padding: '3px 5px' }}
                 >
                   <PanelRightClose size={14} />

@@ -69,7 +69,7 @@ export const ClipBlock = memo(function ClipBlock({
         onMoveStart(e, clip);
       }}
       title={`${clip.label ?? clip.id}  in=${clip.in.toFixed(2)}s dur=${clip.duration.toFixed(2)}s${
-        clip.frozen ? ' (定格)' : ''
+        clip.frozen ? ' (frozen)' : ''
       }`}
       style={{
         position: 'absolute',

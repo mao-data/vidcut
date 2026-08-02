@@ -71,13 +71,17 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
         color: 'var(--text-2)',
       }}
     >
-      <button className="icon-btn" onClick={() => usePlayback.getState().seek(0)} title="回到開頭">
+      <button
+        className="icon-btn"
+        onClick={() => usePlayback.getState().seek(0)}
+        title="Jump to start"
+      >
         <SkipBack size={13} />
       </button>
       <button
         className="icon-btn"
         onClick={() => (playing ? usePlayback.getState().pause() : usePlayback.getState().play())}
-        title="播放/暫停（空白鍵）"
+        title="Play/Pause (Space)"
         style={{ padding: '5px 12px' }}
       >
         {playing ? <Pause size={14} /> : <Play size={14} />}
@@ -85,7 +89,7 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
       <button
         className="icon-btn"
         onClick={() => usePlayback.getState().seek(total)}
-        title="跳到結尾"
+        title="Jump to end"
       >
         <SkipForward size={13} />
       </button>
@@ -94,10 +98,10 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
       <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
         <label
           className="icon-btn"
-          title="上傳圖片掛到疊圖軌（起點＝目前 playhead）"
+          title="Upload an image onto the overlay track (starts at playhead)"
           style={{ cursor: 'pointer' }}
         >
-          <ImagePlus size={13} /> 疊圖
+          <ImagePlus size={13} /> Overlay
           <input
             type="file"
             accept="image/*"
@@ -112,26 +116,26 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
         <button
           className="icon-btn"
           onClick={() => useView.getState().zoomBy(1 / 1.4)}
-          title="縮小 (Ctrl+滾輪)"
+          title="Zoom out (Ctrl+wheel)"
         >
           <ZoomOut size={13} />
         </button>
         <button
           className="icon-btn"
           onClick={() => useView.getState().zoomBy(1.4)}
-          title="放大 (Ctrl+滾輪)"
+          title="Zoom in (Ctrl+wheel)"
         >
           <ZoomIn size={13} />
         </button>
-        <button className="icon-btn" onClick={onFit} title="整條塞進畫面 (Shift+Z)">
+        <button className="icon-btn" onClick={onFit} title="Fit timeline (Shift+Z)">
           <Maximize2 size={13} />
         </button>
         <button
           className={`icon-btn seg${snapEnabled ? ' on' : ''}`}
           onClick={() => useView.getState().toggleSnap()}
-          title="吸附開關 (N)"
+          title="Toggle snapping (N)"
         >
-          <Magnet size={13} /> 吸附
+          <Magnet size={13} /> Snap
         </button>
       </span>
     </div>

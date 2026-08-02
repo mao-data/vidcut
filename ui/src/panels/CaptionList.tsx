@@ -94,13 +94,13 @@ export function CaptionList() {
         >
           <button
             onClick={() => applyStyleToAll(captions[0]!.style)}
-            title="把第一句的樣式套用到全部"
+            title="Apply the first caption's style to all"
           >
-            樣式套全部
+            Style to all
           </button>
           {hasTokens && (
-            <button onClick={toggleKaraoke} title="移除逐詞時間戳（改回整句顯示）">
-              關閉逐詞高亮
+            <button onClick={toggleKaraoke} title="Remove word timestamps (show whole sentences)">
+              Disable karaoke
             </button>
           )}
         </div>
@@ -109,7 +109,8 @@ export function CaptionList() {
       <div style={{ overflowY: 'auto', flex: 1, fontSize: 12 }}>
         {captions.length === 0 && (
           <div style={{ padding: 10, color: 'var(--text-3)' }}>
-            尚無字幕。請 AI 跑 <code>auto_caption</code>（whisper 辨識 → 自動斷句 → 逐詞高亮）。
+            No captions yet. Ask the AI to run <code>auto_caption</code> (whisper → auto split →
+            word highlight).
           </div>
         )}
         {captions.map((cap) => {
@@ -140,7 +141,7 @@ export function CaptionList() {
                   e.stopPropagation();
                   usePlayback.getState().seek(cap.start);
                 }}
-                title="跳到這句"
+                title="Jump to this caption"
                 className="mono"
                 style={{ minWidth: 54 }}
               >
@@ -161,7 +162,7 @@ export function CaptionList() {
               ) : (
                 <div
                   onDoubleClick={() => setDraft({ id: cap.id, text: cap.text })}
-                  title="雙擊改字"
+                  title="Double-click to edit"
                   style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}
                 >
                   {cap.tokens && cap.tokens.length > 0 && isCurrent
@@ -187,7 +188,7 @@ export function CaptionList() {
                     captions: captions.filter((c) => c.id !== cap.id),
                   });
                 }}
-                title="刪除這句"
+                title="Delete this caption"
               >
                 ✕
               </button>

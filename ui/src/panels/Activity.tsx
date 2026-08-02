@@ -22,11 +22,11 @@ export function Activity() {
           onClick={() => sendCommand({ name: 'undo', steps: 1 })}
           title="Cmd+Z"
         >
-          <Undo2 size={13} /> 復原
+          <Undo2 size={13} /> Undo
         </button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: 8, fontSize: 12 }}>
-        {recent.length === 0 && <div style={{ color: 'var(--text-3)' }}>尚無變更</div>}
+        {recent.length === 0 && <div style={{ color: 'var(--text-3)' }}>No changes yet</div>}
         {recent.map((e) => (
           <div
             key={e.version}
@@ -38,7 +38,7 @@ export function Activity() {
             }}
           >
             <span style={{ opacity: 0.6, minWidth: 28 }}>v{e.version}</span>
-            <span style={{ minWidth: 30, opacity: 0.7 }}>{e.source === 'ai' ? 'AI' : '你'}</span>
+            <span style={{ minWidth: 30, opacity: 0.7 }}>{e.source === 'ai' ? 'AI' : 'You'}</span>
             <span>{e.label}</span>
           </div>
         ))}

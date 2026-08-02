@@ -13,9 +13,9 @@ const PRESETS: Array<{ label: string; opts: RenderOptions }> = [
   { label: '4K 2160×3840', opts: { width: 2160, height: 3840 } },
 ];
 const QUALITY: Array<{ label: string; crf: number }> = [
-  { label: '高', crf: 18 },
-  { label: '標準', crf: 20 },
-  { label: '省空間', crf: 24 },
+  { label: 'High', crf: 18 },
+  { label: 'Standard', crf: 20 },
+  { label: 'Compact', crf: 24 },
 ];
 
 /**
@@ -81,15 +81,15 @@ export function ExportMenu() {
         ref={btnRef}
         className="btn-primary icon-btn"
         onClick={() => (running ? setOpen((o) => !o) : go())}
-        title={running ? `渲染中 ${progress}%` : `輸出 ${PRESETS[presetIdx]!.label}`}
+        title={running ? `Rendering ${progress}%` : `Export ${PRESETS[presetIdx]!.label}`}
       >
         <Clapperboard size={14} />
-        {running ? `渲染中 ${progress}%` : '匯出'}
+        {running ? `Rendering ${progress}%` : 'Export'}
       </button>
       <button
         className="icon-btn"
         onClick={() => setOpen((o) => !o)}
-        title="輸出設定"
+        title="Export settings"
         style={{ marginLeft: 4, padding: '6px 5px' }}
       >
         <ChevronDown size={14} />
@@ -114,7 +114,7 @@ export function ExportMenu() {
             gap: 8,
           }}
         >
-          <span className="panel-head">輸出設定</span>
+          <span className="panel-head">Export settings</span>
           <select value={presetIdx} onChange={(e) => setPresetIdx(Number(e.target.value))}>
             {PRESETS.map((p, i) => (
               <option key={p.label} value={i}>
@@ -125,7 +125,7 @@ export function ExportMenu() {
           <select value={qualityIdx} onChange={(e) => setQualityIdx(Number(e.target.value))}>
             {QUALITY.map((q, i) => (
               <option key={q.label} value={i}>
-                畫質：{q.label}
+                Quality: {q.label}
               </option>
             ))}
           </select>
@@ -133,7 +133,7 @@ export function ExportMenu() {
             value={fps}
             onChange={(e) => setFps(e.target.value === '' ? '' : Number(e.target.value))}
           >
-            <option value="">fps：專案預設</option>
+            <option value="">fps: project default</option>
             <option value={24}>24</option>
             <option value={30}>30</option>
             <option value={60}>60</option>
@@ -141,26 +141,28 @@ export function ExportMenu() {
           <button
             className="icon-btn"
             onClick={() => sendSetCover(usePlayback.getState().time)}
-            title="用目前 playhead 的畫面當封面"
+            title="Use the current playhead frame as the cover"
           >
-            <Image size={14} /> 用目前畫面設封面
+            <Image size={14} /> Set cover from current frame
           </button>
           <button className="btn-primary" onClick={go} disabled={running}>
-            {running ? `渲染中 ${progress}%` : '開始渲染'}
+            {running ? `Rendering ${progress}%` : 'Start render'}
           </button>
 
           {render?.status === 'done' && render.lastOutput && (
             <a href={`/media/${render.lastOutput}`} target="_blank" rel="noreferrer">
-              ✓ 開啟成品（{render.lastOutput.split('/').pop()}）
+              ✓ Open output ({render.lastOutput.split('/').pop()})
             </a>
           )}
           {render?.coverPath && (
             <a className="tag" href={`/media/${render.coverPath}`} target="_blank" rel="noreferrer">
-              封面 ✓
+              Cover ✓
             </a>
           )}
           {render?.status === 'error' && (
-            <span style={{ color: 'var(--danger)', fontSize: 12 }}>渲染失敗：{render.error}</span>
+            <span style={{ color: 'var(--danger)', fontSize: 12 }}>
+              Render failed: {render.error}
+            </span>
           )}
         </div>
       )}

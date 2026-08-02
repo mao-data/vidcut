@@ -46,7 +46,7 @@ export function PanelResizer({
   return (
     <div
       className="resizer"
-      title="拖曳調整寬度；雙擊回預設"
+      title="Drag to resize; double-click to reset"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}

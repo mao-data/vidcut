@@ -20,7 +20,7 @@ function CanvasFitRow() {
   return (
     <div style={{ padding: 12, borderBottom: '1px solid var(--line)' }}>
       <label className="field" style={{ marginTop: 0 }}>
-        畫布填充（未填滿時）
+        Canvas fill (when not covered)
       </label>
       <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
         {(['contain', 'blur'] as const).map((f) => (
@@ -30,7 +30,7 @@ function CanvasFitRow() {
             onClick={() => sendCommand({ name: 'setCanvasFit', fit: f })}
             style={{ flex: 1 }}
           >
-            {f === 'contain' ? '黑邊' : '模糊填充'}
+            {f === 'contain' ? 'Letterbox' : 'Blur fill'}
           </button>
         ))}
       </div>
@@ -44,7 +44,7 @@ function ShortcutHelp() {
   return (
     <div style={{ marginTop: 12, position: 'relative' }}>
       <button className="icon-btn" onClick={() => setOpen((o) => !o)}>
-        <CircleHelp size={14} /> 快捷鍵
+        <CircleHelp size={14} /> Shortcuts
       </button>
       {open && (
         <div
@@ -64,11 +64,11 @@ function ShortcutHelp() {
             color: 'var(--text-2)',
           }}
         >
-          空白 播放/暫停 · S 分割
-          <br />Q 刪左 · W 刪右 · F 定格
-          <br />N 吸附 · Shift+Z 全覽 · ←/→ 逐幀
+          Space Play/Pause · S Split
+          <br />Q Delete left · W Delete right · F Freeze
+          <br />N Snap · Shift+Z Fit · ←/→ Frame step
           <br />
-          Ctrl+滾輪 縮放 · Cmd+Z 復原
+          Ctrl+wheel Zoom · Cmd+Z Undo
         </div>
       )}
     </div>
@@ -84,7 +84,7 @@ export function Inspector() {
       <div className="form">
         <CanvasFitRow />
         <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 12 }}>
-          選一個片段 / 字幕 / overlay / 音訊來編輯
+          Select a clip / caption / overlay / audio to edit
           <ShortcutHelp />
         </div>
       </div>
@@ -98,22 +98,22 @@ export function Inspector() {
     if (!clip) return null;
     return (
       <div className="form" style={{ padding: 12 }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>片段 {clip.label ?? clip.id}</h3>
-        <label className="field">標題</label>
+        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Clip {clip.label ?? clip.id}</h3>
+        <label className="field">Label</label>
         <input
           value={clip.label ?? ''}
           onChange={(e) =>
             send({ name: 'updateClip', clipId: clip.id, patch: { label: e.target.value } })
           }
         />
-        <label className="field">起點 in（秒）</label>
+        <label className="field">Source in (s)</label>
         <input
           type="number"
           step="0.1"
           value={clip.in}
           onChange={(e) => send({ name: 'updateClip', clipId: clip.id, patch: { in: num(e) } })}
         />
-        <label className="field">長度 duration（秒）</label>
+        <label className="field">Duration (s)</label>
         <input
           type="number"
           step="0.1"
@@ -122,7 +122,7 @@ export function Inspector() {
             send({ name: 'updateClip', clipId: clip.id, patch: { duration: num(e) } })
           }
         />
-        <label className="field">音量（0–2）</label>
+        <label className="field">Volume (0–2)</label>
         <input
           type="number"
           step="0.1"
@@ -137,20 +137,20 @@ export function Inspector() {
             onClick={() => send({ name: 'splitAt', time: usePlayback.getState().time })}
             title="S"
           >
-            <Scissors size={13} /> 分割
+            <Scissors size={13} /> Split
           </button>
           <button
             className="icon-btn"
             onClick={() => send({ name: 'freezeFrame', time: usePlayback.getState().time })}
             title="F"
           >
-            <Snowflake size={13} /> 定格
+            <Snowflake size={13} /> Freeze
           </button>
           <button
             className="icon-btn"
             onClick={() => send({ name: 'extractAudio', clipId: clip.id })}
           >
-            <AudioWaveform size={13} /> 抽出聲音
+            <AudioWaveform size={13} /> Extract audio
           </button>
           <button
             className="btn-danger icon-btn"
@@ -159,7 +159,7 @@ export function Inspector() {
               useSelection.getState().select(null);
             }}
           >
-            <Trash2 size={13} /> 刪除片段
+            <Trash2 size={13} /> Delete clip
           </button>
         </div>
       </div>
@@ -172,19 +172,19 @@ export function Inspector() {
     const upd = (patch: AudioPatch) => send({ name: 'updateAudio', id: a.id, patch });
     return (
       <div className="form" style={{ padding: 12 }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>音訊 {a.label ?? a.mediaId}</h3>
-        <label className="field">時間軸起點（秒）</label>
+        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Audio {a.label ?? a.mediaId}</h3>
+        <label className="field">Timeline start (s)</label>
         <input type="number" step="0.1" value={a.start} onChange={(e) => upd({ start: num(e) })} />
-        <label className="field">來源起點 in（秒）</label>
+        <label className="field">Source in (s)</label>
         <input type="number" step="0.1" value={a.in} onChange={(e) => upd({ in: num(e) })} />
-        <label className="field">長度（秒）</label>
+        <label className="field">Duration (s)</label>
         <input
           type="number"
           step="0.1"
           value={a.duration}
           onChange={(e) => upd({ duration: num(e) })}
         />
-        <label className="field">音量（0–2）</label>
+        <label className="field">Volume (0–2)</label>
         <input
           type="number"
           step="0.1"
@@ -193,7 +193,7 @@ export function Inspector() {
           value={a.volume}
           onChange={(e) => upd({ volume: num(e) })}
         />
-        <label className="field">淡入（秒）</label>
+        <label className="field">Fade in (s)</label>
         <input
           type="number"
           step="0.1"
@@ -201,7 +201,7 @@ export function Inspector() {
           value={a.fadeIn ?? 0}
           onChange={(e) => upd({ fadeIn: num(e) })}
         />
-        <label className="field">淡出（秒）</label>
+        <label className="field">Fade out (s)</label>
         <input
           type="number"
           step="0.1"
@@ -215,7 +215,7 @@ export function Inspector() {
             checked={a.ducking === true}
             onChange={(e) => upd({ ducking: e.target.checked })}
           />
-          播放時壓低影片原聲（ducking）
+          Duck the video track while this plays
         </label>
         <button
           className="btn-danger icon-btn"
@@ -225,7 +225,7 @@ export function Inspector() {
             useSelection.getState().select(null);
           }}
         >
-          <Trash2 size={13} /> 刪除音訊
+          <Trash2 size={13} /> Delete audio
         </button>
       </div>
     );
@@ -236,8 +236,8 @@ export function Inspector() {
     if (!cap) return null;
     return (
       <div className="form" style={{ padding: 12 }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>字幕</h3>
-        <label className="field">文字</label>
+        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Caption</h3>
+        <label className="field">Text</label>
         <textarea
           style={{ minHeight: 48 }}
           value={cap.text}
@@ -245,21 +245,21 @@ export function Inspector() {
             send({ name: 'updateCaption', id: cap.id, patch: { text: e.target.value } })
           }
         />
-        <label className="field">起點（秒）</label>
+        <label className="field">Start (s)</label>
         <input
           type="number"
           step="0.1"
           value={cap.start}
           onChange={(e) => send({ name: 'updateCaption', id: cap.id, patch: { start: num(e) } })}
         />
-        <label className="field">長度（秒）</label>
+        <label className="field">Duration (s)</label>
         <input
           type="number"
           step="0.1"
           value={cap.duration}
           onChange={(e) => send({ name: 'updateCaption', id: cap.id, patch: { duration: num(e) } })}
         />
-        <label className="field">字級</label>
+        <label className="field">Font size</label>
         <input
           type="number"
           value={cap.style.fontSize}
@@ -271,7 +271,7 @@ export function Inspector() {
             })
           }
         />
-        <label className="field">顏色</label>
+        <label className="field">Color</label>
         <input
           type="color"
           value={cap.style.fill}
@@ -283,7 +283,7 @@ export function Inspector() {
             })
           }
         />
-        <label className="field">垂直位置 y（0–1）</label>
+        <label className="field">Vertical position y (0–1)</label>
         <input
           type="number"
           step="0.05"
@@ -311,7 +311,7 @@ export function Inspector() {
       {ov.anchor ? (
         <>
           <label className="field">
-            錨定於片段（offset 秒，跟著片段走）：
+            Anchored to clip (offset in s; follows the clip):
             {doc.tracks.video.find((c) => c.id === ov.anchor!.clipId)?.label ?? ov.anchor.clipId}
           </label>
           <input
@@ -330,7 +330,7 @@ export function Inspector() {
         </>
       ) : (
         <>
-          <label className="field">開始時間（秒）</label>
+          <label className="field">Start time (s)</label>
           <input
             type="number"
             step="0.1"
@@ -352,11 +352,11 @@ export function Inspector() {
             })
           }
         />
-        顯示到片尾
+        Show until end
       </label>
       {ov.duration !== null && (
         <>
-          <label className="field">長度（秒）</label>
+          <label className="field">Duration (s)</label>
           <input
             type="number"
             step="0.1"
@@ -394,7 +394,7 @@ export function Inspector() {
           })
         }
       />
-      <label className="field">縮放</label>
+      <label className="field">Scale</label>
       <input
         type="number"
         step="0.1"
@@ -415,7 +415,7 @@ export function Inspector() {
           useSelection.getState().select(null);
         }}
       >
-        <Trash2 size={13} /> 刪除疊圖
+        <Trash2 size={13} /> Delete overlay
       </button>
     </div>
   );

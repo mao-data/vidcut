@@ -55,13 +55,13 @@ export function ReviewBar() {
     >
       <Bot size={20} color="#c4b5fd" />
       <div style={{ flex: 1, minWidth: 200 }}>
-        <strong style={{ color: '#c4b5fd' }}>AI 請你確認：</strong> {review.summary}
+        <strong style={{ color: '#c4b5fd' }}>AI asks for your review:</strong> {review.summary}
         {review.focus?.length ? (
-          <span className="tag">（聚焦：{review.focus.join(', ')}）</span>
+          <span className="tag">(focus: {review.focus.join(', ')})</span>
         ) : null}
       </div>
       <input
-        placeholder="留言（退回時必填）"
+        placeholder="Note (required to reject)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
         style={{ minWidth: 180 }}
@@ -76,18 +76,18 @@ export function ReviewBar() {
           fontWeight: 600,
         }}
       >
-        <Check size={14} /> 核准
+        <Check size={14} /> Approve
       </button>
       <button className="icon-btn" onClick={() => resolve('approved_with_notes')} disabled={!note}>
-        <Check size={14} /> 核准並留言
+        <Check size={14} /> Approve with note
       </button>
       <button
         className="btn-danger icon-btn"
         onClick={() => resolve('rejected')}
         disabled={!note}
-        title={!note ? '退回需填留言' : ''}
+        title={!note ? 'A note is required to reject' : ''}
       >
-        <X size={14} /> 退回
+        <X size={14} /> Reject
       </button>
     </div>
   );
