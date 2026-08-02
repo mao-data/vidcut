@@ -269,7 +269,8 @@ export function App() {
 
           {/* 中：預覽。外層不捲動、只當定位基準；捲動交給內層。
               展開鈕與伸縮把手掛在外層——放進捲動容器的話會跟著內容捲走。
-              展開鈕的 z 要壓過頂欄的 Export 下拉（z 50）：兩者都貼右緣、水平必然重疊，
+              展開鈕與面板 header 裡的收合鈕齊高，收合前後位置幾乎不動。
+              它的 z 要壓過頂欄的 Export 下拉（z 50）：兩者都貼右緣、水平必然重疊，
               靠位置錯開會隨視窗高度失效。點它會同時關掉下拉（ExportMenu 監聽外部 pointerdown）。 */}
           <div style={{ position: 'relative', minHeight: 0 }}>
             {leftOpen && (
@@ -280,32 +281,20 @@ export function App() {
             )}
             {!leftOpen && (
               <button
-                className="icon-btn"
+                className="icon-btn panel-handle"
                 onClick={() => useView.getState().toggleLeft()}
                 title="Expand properties panel"
-                style={{
-                  position: 'absolute',
-                  left: 4,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  zIndex: 55,
-                }}
+                style={{ position: 'absolute', left: 6, top: 8, zIndex: 55 }}
               >
                 <PanelLeftOpen size={14} />
               </button>
             )}
             {!rightOpen && (
               <button
-                className="icon-btn"
+                className="icon-btn panel-handle"
                 onClick={() => useView.getState().toggleRight()}
                 title="Expand captions/activity panel"
-                style={{
-                  position: 'absolute',
-                  right: 4,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  zIndex: 55,
-                }}
+                style={{ position: 'absolute', right: 6, top: 8, zIndex: 55 }}
               >
                 <PanelRightOpen size={14} />
               </button>

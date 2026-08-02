@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { applyPatches, enablePatches, type Patch } from 'immer';
 import type { Project, WsServerMsg } from '@vidcut/shared';
 import { useActivity } from './activity.js';
+import { useEditFx } from './editFx.js';
+import { analyzeAiPatches } from '../fx/aiPatches.js';
 
 enablePatches();
 
@@ -31,7 +33,12 @@ export const useProject = create<ProjectState>((set, get) => ({
     }
     const { doc, version } = get();
     if (!doc || msg.version !== version + 1) return 'resync';
-    set({ doc: applyPatches(doc, msg.patches as Patch[]), version: msg.version });
+    const next = applyPatches(doc, msg.patches as Patch[]);
+    set({ doc: next, version: msg.version });
+    // AI 的變更走動畫層（光暈/進場/捲動）；人的操作已有拖曳 preview，不重複動畫
+    if (msg.source === 'ai') {
+      useEditFx.getState().trigger(analyzeAiPatches(msg.patches, doc, next));
+    }
     useActivity
       .getState()
       .push({ version: msg.version, label: msg.label, source: msg.source, ts: msg.ts });

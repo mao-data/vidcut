@@ -111,6 +111,26 @@ textarea:focus-visible {
   flex: none;
 }
 
+/**
+ * 面板收起後浮現的展開把手。
+ * 收合是瞬時的（條件渲染），面板寬度卻是 0.25s 過渡——把手若立刻出現，
+ * 會有一小段和還沒被裁掉的收合鈕並存，而且還會跟著中欄右緣橫移。
+ * delay 對齊 grid 過渡時間，等面板收完才淡入；both 讓它在 delay 期間就保持透明。
+ * prefers-reduced-motion 時檔尾那條規則會把 animation 與 transition 一起關掉，
+ * 面板瞬間收合、把手瞬間出現，同樣不會並存。
+ */
+@keyframes panel-handle-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.panel-handle {
+  animation: panel-handle-in 0.15s ease 0.25s both;
+}
+
 input,
 select,
 textarea {

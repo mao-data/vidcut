@@ -15,8 +15,10 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 
 const APP_URL = process.env.VIDCUT_URL ?? 'http://127.0.0.1:3845/';
-const CDP_PORT = 9333;
-const VIEWPORT = { w: 1440, h: 820 };
+const CDP_PORT = Number(process.env.VIDCUT_CDP_PORT ?? 9333);
+// 收合鈕與頂欄下拉的相對位置會隨視窗尺寸變，所以尺寸要能換著測（VIDCUT_VIEWPORT=1280x620）
+const [vw, vh] = (process.env.VIDCUT_VIEWPORT ?? '1440x820').split('x').map(Number);
+const VIEWPORT = { w: vw, h: vh };
 
 function findChrome() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
@@ -128,8 +130,10 @@ async function main() {
     if (!ready) throw new Error('專案沒有在 15 秒內載入');
     // 關掉所有過渡/動畫再量。headless 的畫面被節流時 CSS transition 可能整整幾秒不推進，
     // 於是量到收合「前」的版面；這裡要驗的是終態版面，不是動畫本身。
+    // （最後一項檢查要驗淡入行為，會用 id 把它暫時停用）
     await evalJs(`(() => {
       const s = document.createElement('style');
+      s.id = 'e2e-no-motion';
       s.textContent = '*, *::before, *::after { transition: none !important; animation: none !important; }';
       document.head.appendChild(s);
       return 1;
@@ -165,10 +169,6 @@ async function main() {
     };
 
     /**
-     * 等 grid 的 0.25s 收合過渡跑完再量。用固定 sleep 會偶爾量到過渡中的座標
-     * （右欄還留著 320px），量出來的重疊關係是假的。
-     */
-    /**
      * 等 grid 的 0.25s 收合過渡真的跑完。用「座標連續幾次相同」判斷會誤判——
      * 過渡還沒起跑的那幾幀座標也是不變的，於是量到收合前的版面。
      * 這裡直接等收合的終態：左右軌都變成 0px。
@@ -190,6 +190,16 @@ async function main() {
       throw new Error(`面板沒有在 6 秒內收合完成（gridTemplateColumns=${last}）`);
     };
 
+    // 收合鈕還看得見時先記下它們的高度，收合後拿來比對展開鈕
+    const collapseY = await evalJs(`(() => {
+      const y = (t) => {
+        const b = document.querySelector('button[title="' + t + '"]');
+        const r = b.getBoundingClientRect();
+        return Math.round(r.top + r.height / 2);
+      };
+      return JSON.stringify({ left: y('Collapse properties panel'), right: y('Collapse') });
+    })()`);
+
     // 兩側面板都收合
     await click('Collapse');
     await click('Collapse properties panel');
@@ -198,6 +208,21 @@ async function main() {
     console.log('收合後、未開下拉：');
     await check('右側展開鈕可點', clickable('Expand captions/activity panel'));
     await check('左側展開鈕可點', clickable('Expand properties panel'));
+
+    // 只收一側時，畫面上會同時出現「一顆展開鈕 + 一顆收合鈕」，高度不同就會看起來歪掉
+    const sameRow = (title, expected) => `(() => {
+      const b = document.querySelector('button[title="${title}"]');
+      if (!b) return { ok: false, why: '按鈕不存在' };
+      const r = b.getBoundingClientRect();
+      const y = Math.round(r.top + r.height / 2);
+      const d = Math.abs(y - ${expected});
+      return d <= 4
+        ? { ok: true }
+        : { ok: false, why: \`展開鈕 y=\${y}，收合鈕 y=${expected}，差 \${d}px\` };
+    })()`;
+    const cy = JSON.parse(collapseY);
+    await check('左側展開鈕與收合鈕同高', sameRow('Expand properties panel', cy.left));
+    await check('右側展開鈕與收合鈕同高', sameRow('Expand captions/activity panel', cy.right));
 
     console.log('Export 下拉開啟時：');
     await click('Export settings');
@@ -269,6 +294,50 @@ async function main() {
         const y = mid.bottom - 4;
         const covered = res.some((r) => r.top <= y && r.bottom >= y);
         return covered ? { ok: true } : { ok: false, why: '底部 y=' + Math.round(y) + ' 沒有任何 resizer 覆蓋' };
+      })()`,
+    );
+
+    // 收合是瞬時的（條件渲染），面板寬度卻是 0.25s 過渡——中間那段兩顆鈕會並存。
+    // React 不會在同一次 eval 內同步 flush，所以按下與量測要分兩次呼叫。
+    console.log('收合過渡期間：');
+    await evalJs(`(() => {
+      document.getElementById('e2e-no-motion').disabled = true; // 這一項要驗淡入，得讓動畫生效
+      window.__t0 = performance.now();
+      document.querySelector('button[title="Collapse"]').click();
+      return 1;
+    })()`);
+    await check(
+      '展開鈕不與收合鈕並存',
+      `(() => {
+        const seen = (t) => {
+          const b = document.querySelector('button[title="' + t + '"]');
+          if (!b) return { there: false };
+          const r = b.getBoundingClientRect();
+          let el = b.parentElement, clip = { l: 0, t: 0, r: innerWidth, b: innerHeight };
+          while (el) {
+            const cs = getComputedStyle(el);
+            if (cs.overflow !== 'visible' || cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
+              const cr = el.getBoundingClientRect();
+              clip = { l: Math.max(clip.l, cr.left), t: Math.max(clip.t, cr.top), r: Math.min(clip.r, cr.right), b: Math.min(clip.b, cr.bottom) };
+            }
+            el = el.parentElement;
+          }
+          const unclipped = Math.min(r.right, clip.r) > Math.max(r.left, clip.l) && Math.min(r.bottom, clip.b) > Math.max(r.top, clip.t);
+          return { there: true, unclipped, opacity: Number(getComputedStyle(b).opacity) };
+        };
+        const collapse = seen('Collapse');
+        const expand = seen('Expand captions/activity panel');
+        const elapsed = Math.round(performance.now() - window.__t0);
+        document.getElementById('e2e-no-motion').disabled = false;
+        if (!collapse.there || !collapse.unclipped) {
+          return { ok: false, why: \`收合鈕在按下後 \${elapsed}ms 就已不可見，這個 case 沒測到東西（前置條件不成立）\` };
+        }
+        if (!expand.there) {
+          return { ok: false, why: \`展開鈕在按下後 \${elapsed}ms 還沒掛上，量不到並存與否（前置條件不成立）\` };
+        }
+        return expand.opacity < 0.1
+          ? { ok: true }
+          : { ok: false, why: \`收合鈕還看得見，展開鈕就已經 opacity=\${expand.opacity}（按下後 \${elapsed}ms）\` };
       })()`,
     );
   } finally {
