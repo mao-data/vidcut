@@ -1,4 +1,6 @@
 import {
+  memo,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -155,7 +157,8 @@ function useWaveform(peaksPath: string | undefined): Peaks | null {
   return peaks;
 }
 
-function ClipBlock({
+/** memo：拖字幕/音訊/疊圖時主軌片段 props 全沒變，擋掉整排片段的陪跑重渲染 */
+const ClipBlock = memo(function ClipBlock({
   p,
   clip,
   leftPx,
@@ -331,23 +334,21 @@ function ClipBlock({
       </span>
     </div>
   );
-}
+});
 
-/** 音訊軌項目：青色全高波形 chip（可拖曳平移、左右緣 trim）。 */
-function AudioChip({
+/** 音訊軌項目：青色全高波形 chip（可拖曳平移、左右緣 trim）。memo 理由同 ClipBlock。 */
+const AudioChip = memo(function AudioChip({
   p,
   a,
   pps,
   selected,
-  onMoveStart,
-  onTrimStart,
+  onDragStart,
 }: {
   p: Project;
   a: AudioItem;
   pps: number;
   selected: boolean;
-  onMoveStart: (e: PointerEvent, a: AudioItem) => void;
-  onTrimStart: (e: PointerEvent, a: AudioItem, edge: 'in' | 'out') => void;
+  onDragStart: (e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => void;
 }) {
   const media = p.media.find((m) => m.id === a.mediaId);
   const peaks = useWaveform(media?.peaksPath);
@@ -371,7 +372,7 @@ function AudioChip({
   return (
     <div
       className="clipblk"
-      onPointerDown={(e) => onMoveStart(e, a)}
+      onPointerDown={(e) => onDragStart(e, a, 'move')}
       title={`${a.label ?? a.mediaId} vol=${a.volume}${a.ducking ? ' (ducking)' : ''}`}
       style={{
         position: 'absolute',
@@ -403,7 +404,7 @@ function AudioChip({
         style={{ ...handle, left: 0 }}
         onPointerDown={(e) => {
           e.stopPropagation();
-          onTrimStart(e, a, 'in');
+          onDragStart(e, a, 'in');
         }}
       />
       <div
@@ -411,7 +412,7 @@ function AudioChip({
         style={{ ...handle, right: 0 }}
         onPointerDown={(e) => {
           e.stopPropagation();
-          onTrimStart(e, a, 'out');
+          onDragStart(e, a, 'out');
         }}
       />
       <span
@@ -430,7 +431,7 @@ function AudioChip({
       </span>
     </div>
   );
-}
+});
 
 export function Timeline() {
   const doc = useProject((s) => s.doc);
@@ -479,6 +480,44 @@ export function Timeline() {
   const [snapLine, setSnapLine] = useState<number | null>(null);
   const [, force] = useState(0);
   const rerender = () => force((n) => n + 1);
+
+  // ---- 拖曳啟動 handlers：useCallback 穩定 reference，memo(ClipBlock/AudioChip) 才擋得住
+  // 「拖 A 軌時 B 軌整排陪跑重渲染」。只碰 ref 與 getState，不需依賴。----
+  const onSelect = useCallback(
+    (id: string) => useSelection.getState().select({ kind: 'clip', id }),
+    [],
+  );
+
+  const onTrimStart = useCallback((e: PointerEvent, clip: VideoClip, edge: 'in' | 'out') => {
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    drag.current = {
+      mode: edge === 'in' ? 'trim-in' : 'trim-out',
+      clipId: clip.id,
+      startX: e.clientX,
+      preview: { ...clip },
+    };
+  }, []);
+
+  const onMoveStart = useCallback((e: PointerEvent, clip: VideoClip) => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag.current = { mode: 'move', clipId: clip.id, startX: e.clientX, pointerX: e.clientX };
+  }, []);
+
+  const onAudDrag = useCallback((e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    useSelection.getState().select({ kind: 'audio', id: a.id });
+    const media = useProject.getState().doc?.media.find((m) => m.id === a.mediaId);
+    const orig = { start: a.start, in: a.in, duration: a.duration };
+    drag.current = {
+      mode: 'aud',
+      edge,
+      id: a.id,
+      startX: e.clientX,
+      mediaDur: media?.probe.duration ?? Infinity,
+      orig,
+      preview: { ...orig },
+    };
+  }, []);
 
   // Ctrl/⌘+滾輪：以游標位置為錨點縮放
   useEffect(() => {
@@ -568,24 +607,7 @@ export function Timeline() {
   };
   const maybeSnap = (t: number): number => (snapEnabled ? snapTime(t, snapCandidates(), pps) : t);
 
-  const onSelect = (id: string) => useSelection.getState().select({ kind: 'clip', id });
-
-  const onTrimStart = (e: PointerEvent, clip: VideoClip, edge: 'in' | 'out') => {
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    drag.current = {
-      mode: edge === 'in' ? 'trim-in' : 'trim-out',
-      clipId: clip.id,
-      startX: e.clientX,
-      preview: { ...clip },
-    };
-  };
-
-  const onMoveStart = (e: PointerEvent, clip: VideoClip) => {
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    drag.current = { mode: 'move', clipId: clip.id, startX: e.clientX, pointerX: e.clientX };
-  };
-
-  // ---- 絕對時間軌（字幕/音訊/overlay）的拖曳啟動 ----
+  // ---- 絕對時間軌（字幕/overlay）的拖曳啟動 ----
   const capture = (e: PointerEvent) =>
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
@@ -600,22 +622,6 @@ export function Timeline() {
         ? { start: pd.start, duration: pd.duration }
         : { start: c.start, duration: c.duration };
     drag.current = { mode: 'cap', edge, id, startX: e.clientX, orig, preview: { ...orig } };
-  };
-
-  const onAudDrag = (e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => {
-    capture(e);
-    useSelection.getState().select({ kind: 'audio', id: a.id });
-    const media = doc.media.find((m) => m.id === a.mediaId);
-    const orig = { start: a.start, in: a.in, duration: a.duration };
-    drag.current = {
-      mode: 'aud',
-      edge,
-      id: a.id,
-      startX: e.clientX,
-      mediaDur: media?.probe.duration ?? Infinity,
-      orig,
-      preview: { ...orig },
-    };
   };
 
   /** ➕疊圖：選檔 → POST /assets → addOverlay（起點=playhead、3 秒、頂部置中）→ 選取 */
@@ -1201,8 +1207,7 @@ export function Timeline() {
                   a={shown}
                   pps={pps}
                   selected={selected?.kind === 'audio' && selected.id === a.id}
-                  onMoveStart={(e, item) => onAudDrag(e, item, 'move')}
-                  onTrimStart={(e, item, edge) => onAudDrag(e, item, edge)}
+                  onDragStart={onAudDrag}
                 />
               );
             })}
