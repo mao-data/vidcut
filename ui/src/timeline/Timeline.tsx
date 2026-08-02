@@ -107,7 +107,9 @@ function Playhead({ pps }: { pps: number }) {
 
 type DragState =
   | { mode: 'trim-in' | 'trim-out'; clipId: string; startX: number; preview: VideoClip }
-  | { mode: 'move'; clipId: string; startX: number; pointerX: number }
+  // contentLeft 在 pointerdown 量一次快取：getBoundingClientRect 會強制同步 layout，
+  // 不該在拖曳中每幀呼叫（layout thrashing）
+  | { mode: 'move'; clipId: string; startX: number; pointerX: number; contentLeft: number }
   // 絕對時間軌（字幕/音訊/overlay）：拖曳＝平移 start、trim＝改跨度（主軌是磁性軌，語意不同）
   | {
       mode: 'cap';
@@ -500,7 +502,13 @@ export function Timeline() {
 
   const onMoveStart = useCallback((e: PointerEvent, clip: VideoClip) => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    drag.current = { mode: 'move', clipId: clip.id, startX: e.clientX, pointerX: e.clientX };
+    drag.current = {
+      mode: 'move',
+      clipId: clip.id,
+      startX: e.clientX,
+      pointerX: e.clientX,
+      contentLeft: contentRef.current?.getBoundingClientRect().left ?? 0,
+    };
   }, []);
 
   const onAudDrag = useCallback((e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => {
@@ -786,19 +794,16 @@ export function Timeline() {
       setPending({ mode: 'clip-trim', clipId: d.clipId, in: inSec, duration });
       sendCommand({ name: 'updateClip', clipId: d.clipId, patch: { in: inSec, duration } });
     } else if (d.mode === 'move') {
-      const rect = contentRef.current?.getBoundingClientRect();
-      if (rect) {
-        const order = reorderByDrag(
-          doc.tracks.video.map((c) => c.id),
-          d.clipId,
-          d.pointerX - rect.left,
-          layout,
-        );
-        const changed = order.some((id, i) => id !== doc.tracks.video[i]!.id);
-        if (changed) {
-          setPending({ mode: 'clip-order', order });
-          sendCommand({ name: 'reorderClips', order });
-        }
+      const order = reorderByDrag(
+        doc.tracks.video.map((c) => c.id),
+        d.clipId,
+        d.pointerX - d.contentLeft,
+        layout,
+      );
+      const changed = order.some((id, i) => id !== doc.tracks.video[i]!.id);
+      if (changed) {
+        setPending({ mode: 'clip-order', order });
+        sendCommand({ name: 'reorderClips', order });
       }
     } else if (d.mode === 'cap') {
       if (d.preview.start !== d.orig.start || d.preview.duration !== d.orig.duration) {
@@ -876,17 +881,16 @@ export function Timeline() {
 
   // 拖曳排序中：即時算出「放手後的順序」，讓其他片段先滑開讓位
   const moveDrag = drag.current?.mode === 'move' ? drag.current : null;
-  const previewOrder =
-    moveDrag && contentRef.current
-      ? reorderByDrag(
-          doc.tracks.video.map((c) => c.id),
-          moveDrag.clipId,
-          moveDrag.pointerX - contentRef.current.getBoundingClientRect().left,
-          layout,
-        )
-      : pending.current?.mode === 'clip-order'
-        ? pending.current.order
-        : null;
+  const previewOrder = moveDrag
+    ? reorderByDrag(
+        doc.tracks.video.map((c) => c.id),
+        moveDrag.clipId,
+        moveDrag.pointerX - moveDrag.contentLeft,
+        layout,
+      )
+    : pending.current?.mode === 'clip-order'
+      ? pending.current.order
+      : null;
 
   /**
    * 讓位後每個片段該在的位置（用 id 對映）。
