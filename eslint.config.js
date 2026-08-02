@@ -10,6 +10,15 @@ export default [
   },
   js.configs.recommended,
   {
+    // Node 腳本（突變引擎、關卡腳本）：宣告用到的 Node globals
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { process: 'readonly', console: 'readonly' },
+    },
+  },
+  {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       parser: tsparser,
