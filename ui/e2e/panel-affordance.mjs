@@ -115,7 +115,18 @@ async function main() {
     await send('Page.enable');
     await send('Runtime.enable');
     await send('Page.navigate', { url: APP_URL });
-    await sleep(3000);
+    // 等專案真的載進來：doc 還沒到時 Player 回 null、時間軸是空的，版面高度會不一樣，
+    // 用固定 sleep 量到的會是載入中的版面（而不是使用者看到的版面）。
+    let ready = false;
+    for (let i = 0; i < 60; i++) {
+      ready = await evalJs(
+        `!!document.querySelector('video') && !!document.querySelector('button[title="Collapse"]')`,
+      );
+      if (ready) break;
+      await sleep(250);
+    }
+    if (!ready) throw new Error('專案沒有在 15 秒內載入');
+    await sleep(500);
 
     /** 元素中心點的命中測試：回 true 表示這個位置真的點得到它（沒被蓋、沒被裁掉）。 */
     const clickable = (title) => `(() => {
@@ -134,7 +145,8 @@ async function main() {
       return { ok: true };
     })()`;
 
-    const click = (title) => evalJs(`document.querySelector('button[title="${title}"]')?.click(), 1`);
+    const click = (title) =>
+      evalJs(`document.querySelector('button[title="${title}"]')?.click(), 1`);
     const check = async (name, expr) => {
       const r = await evalJs(expr);
       if (r?.ok) console.log(`  ✓ ${name}`);
@@ -157,6 +169,22 @@ async function main() {
     console.log('Export 下拉開啟時：');
     await click('Export settings');
     await sleep(400);
+    // 沒真的開起來的話，下面兩項會假性通過——先確認它開了、而且真的疊在右鈕上方
+    await check(
+      '下拉確實開啟且與右鈕重疊（前置條件）',
+      `(() => {
+        const p = document.querySelector('[data-export-pop]');
+        if (!p) return { ok: false, why: '下拉沒開，這兩項檢查沒有意義' };
+        const a = p.getBoundingClientRect();
+        const b = document.querySelector('button[title="Expand captions/activity panel"]')?.getBoundingClientRect();
+        if (!b) return { ok: false, why: '右鈕不存在' };
+        const overlaps = a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        const box = (x) => \`[\${Math.round(x.left)},\${Math.round(x.top)} → \${Math.round(x.right)},\${Math.round(x.bottom)}]\`;
+        return overlaps
+          ? { ok: true }
+          : { ok: false, why: \`兩者沒有重疊，這個 case 沒測到東西。pop=\${box(a)} btn=\${box(b)} vp=\${innerWidth}x\${innerHeight}\` };
+      })()`,
+    );
     await check('右側展開鈕不被下拉蓋住', clickable('Expand captions/activity panel'));
     await check('左側展開鈕不被下拉蓋住', clickable('Expand properties panel'));
     await click('Export settings');

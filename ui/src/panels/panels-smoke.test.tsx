@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
+import { useRef } from 'react';
 import { Inspector } from './Inspector.js';
 import { CaptionList } from './CaptionList.js';
 import { Activity } from './Activity.js';
@@ -24,7 +25,14 @@ const PANELS = {
   ReviewBar: () => <ReviewBar />,
   Player: () => <Player />,
   Timeline: () => <Timeline />,
-  PanelResizer: () => <PanelResizer side="left" onResizingChange={() => {}} />,
+  PanelResizer: function ResizerHarness() {
+    const gridRef = useRef<HTMLDivElement>(null);
+    return (
+      <div ref={gridRef}>
+        <PanelResizer side="left" gridRef={gridRef} onResizingChange={() => {}} />
+      </div>
+    );
+  },
 };
 
 describe('panel smoke tests', () => {

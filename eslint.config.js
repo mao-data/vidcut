@@ -10,12 +10,17 @@ export default [
   },
   js.configs.recommended,
   {
-    // Node 腳本（突變引擎、關卡腳本）：宣告用到的 Node globals
-    files: ['scripts/**/*.mjs'],
+    // Node 腳本（突變引擎、關卡腳本、瀏覽器驗證腳本）：宣告用到的 Node globals
+    files: ['scripts/**/*.mjs', 'ui/e2e/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
-      globals: { process: 'readonly', console: 'readonly' },
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+      },
     },
   },
   {

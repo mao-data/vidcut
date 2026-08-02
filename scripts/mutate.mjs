@@ -46,16 +46,29 @@ for (const m of picked) {
   try {
     writeFileSync(abs, original.replace(m.find, m.replace));
     const r = runTests(m.tests);
-    results.push({ ...m, outcome: r === 'fail' ? 'KILLED' : 'SURVIVED' });
+    // expect:'survive' = 等價變異對照組：語意不變，本來就殺不掉。
+    // 留一隻在清單裡，是為了證明引擎會如實回報存活，而不是對什麼都喊「殺掉」。
+    const want = m.expect === 'survive' ? 'pass' : 'fail';
+    const ok = r === want;
+    results.push({
+      ...m,
+      outcome: ok ? (m.expect === 'survive' ? 'EQUIVALENT' : 'KILLED') : 'SURVIVED',
+    });
   } finally {
     writeFileSync(abs, original); // 一定還原，即使中途丟例外
   }
   const last = results.at(-1);
-  process.stdout.write(`${last.outcome === 'KILLED' ? '✔' : '✘'} ${m.id}  ${m.note}\n`);
+  const mark = last.outcome === 'KILLED' ? '✔' : last.outcome === 'EQUIVALENT' ? '≡' : '✘';
+  process.stdout.write(`${mark} ${m.id}  ${m.note}\n`);
 }
 
-const bad = results.filter((r) => r.outcome !== 'KILLED');
-console.log(`\n${results.length - bad.length}/${results.length} mutants killed`);
+const bad = results.filter((r) => r.outcome !== 'KILLED' && r.outcome !== 'EQUIVALENT');
+const killed = results.filter((r) => r.outcome === 'KILLED').length;
+const equiv = results.filter((r) => r.outcome === 'EQUIVALENT').length;
+console.log(
+  `\n${killed}/${results.length - equiv} mutants killed` +
+    (equiv ? ` (+${equiv} equivalent control${equiv > 1 ? 's' : ''} survived as expected)` : ''),
+);
 for (const b of bad)
   console.log(`  ${b.outcome}: ${b.id} — ${b.note}${b.detail ? ` (${b.detail})` : ''}`);
 process.exit(bad.length ? 1 : 0);

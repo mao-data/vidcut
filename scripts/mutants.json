@@ -158,5 +158,62 @@
     "replace": "          send({ name: 'removeOverlay', id: ov.id });",
     "tests": "ui/src/panels/panels.test.tsx",
     "note": "刪除疊圖後沒取消選取 → 會停留在不存在的項目上"
+  },
+  {
+    "id": "store-atomic-write",
+    "file": "server/src/store.ts",
+    "find": "      const tmp = join(dirname(this.#filePath), `.project.json.tmp`);\n      await writeFile(tmp, JSON.stringify(this.#doc, null, 2), 'utf8');\n      await rename(tmp, this.#filePath);",
+    "replace": "      await writeFile(this.#filePath, JSON.stringify(this.#doc, null, 2), 'utf8');",
+    "tests": "server/test/store-durability.test.ts",
+    "note": "直接覆寫目標檔（非 tmp+rename）→ 原子落盤斷言必須抓到"
+  },
+  {
+    "id": "store-save-serialise",
+    "file": "server/src/store.ts",
+    "find": "    this.#saving = this.#saving.then(async () => {",
+    "replace": "    this.#saving = Promise.resolve().then(async () => {",
+    "tests": "server/test/store-durability.test.ts",
+    "note": "存檔不再串接（並行覆寫）→ 最後寫入者勝出的斷言必須抓到"
+  },
+  {
+    "id": "store-undo-order",
+    "file": "server/src/store.ts",
+    "find": "      .slice(-n)\n      .reverse()",
+    "replace": "      .slice(-n)",
+    "tests": "server/test/store-durability.test.ts",
+    "note": "undo 沒有逆序套用 inverse patches → N 步 undo 的斷言必須抓到"
+  },
+  {
+    "id": "store-noop-guard",
+    "file": "server/src/store.ts",
+    "find": "    if (patches.length === 0) return { version: this.#version, patches: [] };",
+    "replace": "",
+    "tests": "server/test/store-durability.test.ts",
+    "note": "空變更也記版本/廣播 → 無變更不該動版本的斷言必須抓到"
+  },
+  {
+    "id": "store-corrupt-load",
+    "file": "server/src/store.ts",
+    "find": "      return new ProjectStore(filePath, JSON.parse(raw) as Project);",
+    "replace": "      return new ProjectStore(filePath, JSON.parse(raw + '') as Project);",
+    "tests": "server/test/store-durability.test.ts",
+    "note": "等價變異對照組（語意不變，預期存活）——驗突變引擎會如實回報存活",
+    "expect": "survive"
+  },
+  {
+    "id": "mcp-reorder-validate",
+    "file": "server/src/commands.ts",
+    "find": "    return { ok: false, error: 'order must be a permutation of existing clip ids' };",
+    "replace": "    return { ok: true, version: store.version };",
+    "tests": "server/test/mcp-tools.test.ts",
+    "note": "非排列的順序不再被拒 → reorder 驗證斷言必須抓到"
+  },
+  {
+    "id": "mcp-extract-mute",
+    "file": "server/src/commands.ts",
+    "find": "      d.tracks.video[index]!.volume = 0;",
+    "replace": "",
+    "tests": "server/test/mcp-tools.test.ts",
+    "note": "抽出聲音後原片段沒靜音（會雙份聲音）→ extract_audio 斷言必須抓到"
   }
 ]
