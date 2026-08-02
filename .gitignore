@@ -1,5 +1,6 @@
 node_modules/
 dist/
+coverage/
 projects/
 _skill_extracted/
 *.skill

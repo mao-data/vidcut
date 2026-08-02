@@ -42,7 +42,9 @@ step "依賴稽核 (npm audit --omit=dev 為執行期；全量含 dev)"
 npm audit --audit-level=high 2>&1 | tail -3 | sed 's/^/   /'
 
 step "秘密掃描（追蹤中的檔案不得含 .env 內容）"
-if git grep -nIE '(sk-[A-Za-z0-9]{20,}|ANTHROPIC_API_KEY=.+|AWS_SECRET)' -- . >/dev/null 2>&1; then
+SECRET_RE='(sk-[A-Za-z0-9]{20,}|_API_KEY=.+|_SECRET=.+|BEGIN [A-Z ]*PRIVATE KEY)'
+# 排除掃描器自己與 lock 檔：前者含這個正則本身，後者只有 integrity 雜湊
+if git grep -nIE "$SECRET_RE" -- . ':!scripts/gauntlet.sh' ':!package-lock.json' >/dev/null 2>&1; then
   echo "   FAIL: 疑似秘密"; fail=1
 else
   echo "   PASS"
