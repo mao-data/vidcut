@@ -30,6 +30,7 @@ export function Activity() {
         {recent.map((e) => (
           <div
             key={e.version}
+            className={Date.now() - Date.parse(e.ts) < 3000 ? 'fx-slidein' : undefined}
             style={{
               display: 'flex',
               gap: 6,

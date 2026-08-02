@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { useEditFx } from './editFx.js';
 
-const fx = (over: Partial<{ touched: string[]; added: string[]; minStart: number | null }> = {}) => ({
+const fx = (
+  over: Partial<{ touched: string[]; added: string[]; minStart: number | null }> = {},
+) => ({
   touched: [],
   added: [],
   minStart: null,

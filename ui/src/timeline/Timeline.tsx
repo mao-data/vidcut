@@ -34,6 +34,9 @@ import {
 import { ClipBlock, ROW_H } from './ClipBlock.js';
 import { AudioChip, AUDIO_ROW_H } from './AudioChip.js';
 import { TimelineToolbar } from './Toolbar.js';
+import { useEditFx } from '../stores/editFx.js';
+import { scrollTargetFor } from '../fx/scroll.js';
+import { gsap, motionOK } from '../motion.js';
 
 const SUB_ROW_H = 24;
 
@@ -107,6 +110,11 @@ export function Timeline() {
   const doc = useProject((s) => s.doc);
   const selected = useSelection((s) => s.selected);
   const pps = useView((s) => s.pxPerSecond);
+  // AI 編輯動畫層：窗開著時軌道容器掛 ai-anim；touched 光暈、added 骨牌進場
+  const fxWindow = useEditFx((s) => s.window);
+  const fxStamp = useEditFx((s) => s.stamp);
+  const fxTouched = useEditFx((s) => s.touched);
+  const fxAdded = useEditFx((s) => s.added);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** 時間軸內容層（座標換算的基準） */
   const contentRef = useRef<HTMLDivElement>(null);
@@ -220,6 +228,23 @@ export function Timeline() {
       useView.getState().fit(totalDuration(doc), el.clientWidth);
   }, [doc]);
 
+  // AI 變更在視窗外 → 平滑捲過去（reduced-motion 時直接跳）
+  useEffect(() => {
+    if (!fxStamp) return;
+    const t = useEditFx.getState().consumeScroll();
+    if (t === null) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const target = scrollTargetFor(
+      timeToPx(t, useView.getState().pxPerSecond),
+      el.scrollLeft,
+      el.clientWidth,
+    );
+    if (target === null) return;
+    if (motionOK()) gsap.to(el, { scrollLeft: target, duration: 0.4, ease: 'power2.out' });
+    else el.scrollLeft = target;
+  }, [fxStamp]);
+
   if (!doc) return null;
 
   // pending 對帳：doc 已反映我們送出的值 → 覆蓋功成身退
@@ -263,6 +288,15 @@ export function Timeline() {
       }
     }
   }
+  /** 人拖曳中絕不掛動畫（1:1 跟手）；drag ref 在 rerender() 當下是新鮮的 */
+  const aiAnim = fxWindow && !drag.current;
+  const fxFor = (id: string): { cls: string; delay?: number } => {
+    const i = fxAdded.get(id);
+    if (i !== undefined) return { cls: ' fx-enter', delay: i * 40 };
+    if (fxTouched.has(id)) return { cls: fxStamp % 2 ? ' fx-glow-a' : ' fx-glow-b' };
+    return { cls: '' };
+  };
+
   const total = totalDuration(doc);
   const starts = clipStartTimes(doc);
   const width = Math.max(timeToPx(total, pps) + 120, 600);
@@ -628,14 +662,17 @@ export function Timeline() {
             })}
           </div>
           {/* video 主軌 */}
-          <div style={rowStyle}>
+          <div style={rowStyle} className={aiAnim ? 'ai-anim' : undefined}>
             {trimmedClips.map((c) => {
               const isDragged = moveDrag?.clipId === c.id;
+              const cf = fxFor(c.id);
               return (
                 <ClipBlock
                   key={c.id}
                   p={doc}
                   clip={c}
+                  fx={cf.cls}
+                  fxDelay={cf.delay}
                   leftPx={isDragged ? draggedLeftPx : (leftById.get(c.id) ?? 0)}
                   pps={pps}
                   selected={selected?.kind === 'clip' && selected.id === c.id}
@@ -649,7 +686,7 @@ export function Timeline() {
             })}
           </div>
           {/* overlays 軌（拖曳平移；錨定式改 offset） */}
-          <div style={subRow}>
+          <div style={subRow} className={aiAnim ? 'ai-anim' : undefined}>
             {doc.tracks.overlays.map((o) => {
               let win = overlayWindow(doc, o);
               const d = drag.current;
@@ -667,10 +704,12 @@ export function Timeline() {
                 };
               }
               const isSel = selected?.kind === 'overlay' && selected.id === o.id;
+              const of = fxFor(o.id);
               return (
                 win && (
                   <div
                     key={o.id}
+                    className={of.cls.trim() || undefined}
                     onPointerDown={(e) => onOvDrag(e, o.id)}
                     title={
                       o.anchor
@@ -680,6 +719,7 @@ export function Timeline() {
                     style={{
                       ...chip,
                       cursor: 'grab',
+                      ...(of.delay != null ? { animationDelay: `${of.delay}ms` } : {}),
                       left: timeToPx(win.start, pps),
                       width: timeToPx(win.end - win.start, pps),
                       color: '#6ee7b7',
@@ -697,7 +737,7 @@ export function Timeline() {
             })}
           </div>
           {/* captions 軌（拖曳平移＋左右緣 trim） */}
-          <div style={subRow}>
+          <div style={subRow} className={aiAnim ? 'ai-anim' : undefined}>
             {doc.tracks.captions.map((c) => {
               const d = drag.current;
               const pd = pending.current;
@@ -708,14 +748,16 @@ export function Timeline() {
                     ? { start: pd.start, duration: pd.duration }
                     : { start: c.start, duration: c.duration };
               const isSel = selected?.kind === 'caption' && selected.id === c.id;
+              const cf = fxFor(c.id);
               return (
                 <div
                   key={c.id}
-                  className="clipblk"
+                  className={'clipblk' + cf.cls}
                   onPointerDown={(e) => onCapDrag(e, c.id, 'move')}
                   style={{
                     ...chip,
                     cursor: 'grab',
+                    ...(cf.delay != null ? { animationDelay: `${cf.delay}ms` } : {}),
                     left: timeToPx(view.start, pps),
                     width: timeToPx(view.duration, pps),
                     color: '#c4b5fd',
@@ -763,7 +805,10 @@ export function Timeline() {
             })}
           </div>
           {/* audio 軌（全高青色波形；拖曳平移＋左右緣 trim） */}
-          <div style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}>
+          <div
+            style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}
+            className={aiAnim ? 'ai-anim' : undefined}
+          >
             {doc.tracks.audio.map((a) => {
               const d = drag.current;
               const pd = pending.current;
@@ -779,6 +824,8 @@ export function Timeline() {
                   p={doc}
                   a={shown}
                   pps={pps}
+                  fx={fxFor(a.id).cls}
+                  fxDelay={fxFor(a.id).delay}
                   selected={selected?.kind === 'audio' && selected.id === a.id}
                   onDragStart={onAudDrag}
                 />

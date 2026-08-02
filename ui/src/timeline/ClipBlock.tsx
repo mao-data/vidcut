@@ -20,6 +20,8 @@ export const ClipBlock = memo(function ClipBlock({
   onTrimStart,
   onMoveStart,
   onSelect,
+  fx = '',
+  fxDelay,
 }: {
   p: Project;
   clip: VideoClip;
@@ -34,6 +36,9 @@ export const ClipBlock = memo(function ClipBlock({
   onTrimStart: (e: PointerEvent, clip: VideoClip, edge: 'in' | 'out') => void;
   onMoveStart: (e: PointerEvent, clip: VideoClip) => void;
   onSelect: (id: string) => void;
+  /** AI 動畫層附加 class（' fx-enter' / ' fx-glow-a|b'）與骨牌進場延遲 */
+  fx?: string;
+  fxDelay?: number;
 }) {
   const media = p.media.find((m) => m.id === clip.mediaId);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -63,7 +68,7 @@ export const ClipBlock = memo(function ClipBlock({
   };
   return (
     <div
-      className="clipblk"
+      className={'clipblk' + fx}
       onPointerDown={(e) => {
         onSelect(clip.id);
         onMoveStart(e, clip);
@@ -73,6 +78,7 @@ export const ClipBlock = memo(function ClipBlock({
       }`}
       style={{
         position: 'absolute',
+        ...(fxDelay != null ? { animationDelay: `${fxDelay}ms` } : {}),
         left: leftPx,
         width: w,
         height: ROW_H,
@@ -83,8 +89,10 @@ export const ClipBlock = memo(function ClipBlock({
         boxShadow: selected
           ? 'inset 0 0 0 1.5px var(--accent), 0 0 14px rgba(139, 92, 246, 0.35)'
           : 'inset 0 0 0 1px var(--line-strong)',
-        // 讓位動畫：只有「不是被拖的那個」才滑動，被拖的要 1:1 跟手
-        transition: animate ? 'left 120ms ease' : 'box-shadow 0.15s ease',
+        // 讓位動畫：只有「不是被拖的那個」才滑動，被拖的要 1:1 跟手。
+        // 非拖曳時不寫 inline transition——box-shadow 補間在 .clipblk、
+        // AI 窗的位置補間在 .ai-anim > div（inline 會蓋掉 class，寫了就掛不上）
+        ...(animate ? { transition: 'left 120ms ease' } : {}),
         ...(floating
           ? {
               zIndex: 20,

@@ -267,6 +267,82 @@ a {
   background: transparent;
 }
 
+/* ===== AI 編輯動畫層（stores/editFx）=====
+   觸發規則：只有 source:'ai' 的變更會讓軌道容器掛 .ai-anim、項目掛 fx-*；
+   人拖曳中 .ai-anim 被抑制（1:1 跟手）。時長節奏定案於 2026-08-02 spec。 */
+:root {
+  /* 控制點 >1 → 過衝再回彈：CSS 版的彈簧感（kinetics 手法） */
+  --fx-spring: cubic-bezier(0.3, 1.36, 0.4, 1);
+}
+
+/* 選取環的補間原本寫在 ClipBlock 的 inline style；移到 class 層，
+   拖曳中才由 inline 覆蓋（inline 永遠贏 class，AI 窗的位置補間才掛得上去） */
+.clipblk {
+  transition: box-shadow 0.15s ease;
+}
+
+/* AI 變更窗：軌道容器的直接子元素＝chips，位置/寬度以彈簧滑行 */
+.ai-anim > div {
+  transition:
+    left 0.3s var(--fx-spring),
+    width 0.3s var(--fx-spring),
+    box-shadow 0.15s ease;
+}
+
+/* 被 AI 改到：紫色光暈 1s 衰減。a/b 兩份相同 keyframe 依 stamp 奇偶交替，
+   讓連續兩發落在同一 chip 時動畫能重播（class 換名才會 restart） */
+@keyframes fx-glow-a {
+  from {
+    filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.95));
+  }
+  to {
+    filter: drop-shadow(0 0 0 rgba(167, 139, 250, 0));
+  }
+}
+@keyframes fx-glow-b {
+  from {
+    filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.95));
+  }
+  to {
+    filter: drop-shadow(0 0 0 rgba(167, 139, 250, 0));
+  }
+}
+.fx-glow-a {
+  animation: fx-glow-a 1s ease-out;
+}
+.fx-glow-b {
+  animation: fx-glow-b 1s ease-out;
+}
+
+/* AI 新增：骨牌進場（animation-delay 由 JS 依序 +40ms）。
+   backwards：還沒輪到的項目停在 from（隱形），不會先閃現再彈 */
+@keyframes fx-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.fx-enter {
+  animation: fx-enter 0.25s var(--fx-spring) backwards;
+}
+
+/* Activity 新列滑入 */
+@keyframes fx-slidein {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+.fx-slidein {
+  animation: fx-slidein 0.25s ease-out;
+}
+
+/* 下方全域 reduced-motion 規則（!important）同時涵蓋以上所有 fx——
+   系統開啟「減少動態效果」時整層退化為瞬切 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

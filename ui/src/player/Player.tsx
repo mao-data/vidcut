@@ -3,6 +3,7 @@ import { activeTokenIndex, totalDuration, type CaptionItem } from '@vidcut/share
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { mediaUrl } from '../ws.js';
+import { useEditFx } from '../stores/editFx.js';
 import { planAt } from './plan.js';
 
 const DRIFT_TOLERANCE = 0.06; // 60ms
@@ -50,6 +51,8 @@ export function Player() {
   /** 音訊軌：每個 AudioItem 一個隱藏 <audio>（元素常駐、進出活躍窗才 play/pause） */
   const audioEls = useRef(new Map<string, HTMLAudioElement>());
   const blurFill = doc?.canvas.fit === 'blur';
+  /** AI 新增的項目在預覽畫面淡入進場（fx-enter）；播放中自然進出窗不動畫 */
+  const fxAdded = useEditFx((s) => s.added);
   // effect 與 render body 共用同一份 plan（播放中每幀都算，別算兩次）
   const plan = useMemo(() => (doc ? planAt(doc, time) : null), [doc, time]);
 
@@ -234,6 +237,7 @@ export function Player() {
           <img
             key={o.id}
             src={o.src}
+            className={fxAdded.has(o.id) ? 'fx-enter' : undefined}
             alt=""
             style={{
               position: 'absolute',
@@ -248,6 +252,7 @@ export function Player() {
         {plan.captions.map((c) => (
           <div
             key={c.id}
+            className={fxAdded.has(c.id) ? 'fx-enter' : undefined}
             style={{
               position: 'absolute',
               left: 0,

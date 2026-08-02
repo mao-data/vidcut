@@ -7,7 +7,10 @@ import { demoProject } from '../test/fixtures.js';
 enablePatches();
 
 /** 用 immer 產生「真的」patch（跟 server 端同一形狀），避免手捏 patch 跟現實脫節。 */
-function mutate(doc: Project, recipe: (d: Project) => void): { patches: JsonPatch[]; next: Project } {
+function mutate(
+  doc: Project,
+  recipe: (d: Project) => void,
+): { patches: JsonPatch[]; next: Project } {
   const [next, patches] = produceWithPatches(doc, recipe);
   return { next, patches: patches as JsonPatch[] };
 }

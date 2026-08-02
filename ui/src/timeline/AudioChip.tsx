@@ -14,12 +14,17 @@ export const AudioChip = memo(function AudioChip({
   pps,
   selected,
   onDragStart,
+  fx = '',
+  fxDelay,
 }: {
   p: Project;
   a: AudioItem;
   pps: number;
   selected: boolean;
   onDragStart: (e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => void;
+  /** AI 動畫層附加 class 與骨牌進場延遲 */
+  fx?: string;
+  fxDelay?: number;
 }) {
   const media = p.media.find((m) => m.id === a.mediaId);
   const peaks = useWaveform(media?.peaksPath);
@@ -42,11 +47,12 @@ export const AudioChip = memo(function AudioChip({
   };
   return (
     <div
-      className="clipblk"
+      className={'clipblk' + fx}
       onPointerDown={(e) => onDragStart(e, a, 'move')}
       title={`${a.label ?? a.mediaId} vol=${a.volume}${a.ducking ? ' (ducking)' : ''}`}
       style={{
         position: 'absolute',
+        ...(fxDelay != null ? { animationDelay: `${fxDelay}ms` } : {}),
         left: timeToPx(a.start, pps),
         width: w,
         height: AUDIO_ROW_H - 4,
