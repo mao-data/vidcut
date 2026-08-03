@@ -335,5 +335,37 @@
     "replace": "{ type: 'image' as const, data, mimeType: 'image/png' },",
     "tests": "server/test/mcp-optim.test.ts",
     "note": "影像 block mimeType 錯 → B1/B2 斷言必須抓到"
+  },
+  {
+    "id": "sync-seek-threshold",
+    "file": "ui/src/player/sync.ts",
+    "find": "const SEEK_AT = 0.25;",
+    "replace": "const SEEK_AT = 0.0025;",
+    "tests": "ui/src/player/sync.test.ts",
+    "note": "門檻降回小漂移就 seek（風暴回歸）→ 調速測試必須抓到"
+  },
+  {
+    "id": "sync-gain-sign",
+    "file": "ui/src/player/sync.ts",
+    "find": "return { kind: 'rate', rate: 1 + nudge };",
+    "replace": "return { kind: 'rate', rate: 1 - nudge };",
+    "tests": "ui/src/player/sync.test.ts",
+    "note": "追趕方向反轉（越追越遠）→ 方向斷言必須抓到"
+  },
+  {
+    "id": "sync-dead-zone",
+    "file": "ui/src/player/sync.ts",
+    "find": "if (mag <= DEAD_ZONE) return { kind: 'rate', rate: 1 };",
+    "replace": "",
+    "tests": "ui/src/player/sync.test.ts",
+    "note": "拿掉死區（0.02 邊界仍調速）→ 邊界斷言必須抓到"
+  },
+  {
+    "id": "player-sync-wiring",
+    "file": "ui/src/player/Player.tsx",
+    "find": "const s = syncAction(a.sourceTime - el.currentTime);",
+    "replace": "const s = { kind: 'seek' } as const;",
+    "tests": "ui/src/player/Player.sync.test.tsx",
+    "note": "音訊接線退化回永遠硬 seek → 小漂移不寫 currentTime 的斷言必須抓到"
   }
 ]
