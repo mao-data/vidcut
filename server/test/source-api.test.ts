@@ -71,4 +71,27 @@ describe('GET /api/source', () => {
     expect(res.status).toBe(400);
     server.close();
   });
+
+  it('相對路徑媒體被正確標記 imported（驗證 resolveMediaPath）', async () => {
+    const { dir, store, server, base } = await startTestServer();
+    // 在 projectDir 下寫檔案
+    await writeFile(join(dir, 'a.mp4'), 'x');
+    // store 存相對路徑
+    store.mutate('ai', 'seed', (d) => {
+      d.media = [
+        {
+          id: 'm1',
+          path: 'a.mp4',
+          probe: { duration: 5, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+        },
+      ];
+    });
+
+    // 掃描 projectDir 本身
+    const res = await fetch(`${base}/api/source?dir=${encodeURIComponent(dir)}`);
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as SourceRes;
+    expect(j.files[0]!.imported).toBe(true);
+    server.close();
+  });
 });
