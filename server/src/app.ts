@@ -5,6 +5,8 @@ import { basename, extname, join } from 'node:path';
 import type { ProjectStore } from './store.js';
 import { scanSourceFolder } from './sourceFolder.js';
 import { resolveMediaPath } from './paths.js';
+import { ingestMedia } from './ingest.js';
+import { applyCommand } from './commands.js';
 
 /**
  * HTTP 面：/api/project（debug）、/media/*（原生 Range，給 <video>）、
@@ -40,6 +42,45 @@ export function createApp(
       } catch (e) {
         res.status(400).json({ error: (e as Error).message });
       }
+    })().catch(next);
+  });
+
+  // 匯入素材：零複製引用原檔，只在專案內產衍生檔。
+  // ffmpeg 一支動輒數秒到數分鐘，逐支序列處理（並行只會互搶 CPU）。
+  app.post('/api/import', (req, res, next) => {
+    void (async () => {
+      const { dir, names, addToTimeline } = req.body as {
+        dir?: string;
+        names?: string[];
+        addToTimeline?: boolean;
+      };
+      if (!dir || !Array.isArray(names) || names.length === 0) {
+        res.status(400).json({ error: 'need dir and names[]' });
+        return;
+      }
+      const ok: Array<{ name: string; mediaId: string }> = [];
+      const failed: Array<{ name: string; error: string }> = [];
+      for (const name of names) {
+        try {
+          const abs = join(dir, basename(name)); // basename 防 traversal
+          const mediaId = await ingestMedia(store, projectDir, abs, { label: name });
+          if (addToTimeline) {
+            const media = store.doc.media.find((m) => m.id === mediaId)!;
+            const r = applyCommand(store, 'human', {
+              name: 'addClip',
+              mediaId,
+              in: 0,
+              duration: media.probe.duration,
+              label: name,
+            });
+            if (!r.ok) throw new Error(r.error);
+          }
+          ok.push({ name, mediaId });
+        } catch (e) {
+          failed.push({ name, error: (e as Error).message });
+        }
+      }
+      res.json({ ok, failed });
     })().catch(next);
   });
 

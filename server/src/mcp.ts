@@ -170,7 +170,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     { name: 'vidcut', version: '0.1.0' },
     {
       instructions:
-        'vidcut 直式短影音時間軸編輯器（1080×1920）。典型流程：import_media 匯入素材 → ' +
+        'vidcut 直式短影音時間軸編輯器（1080×1920）。典型流程：import_media 匯入素材' +
+        '（可直接引用專案外的絕對路徑） → ' +
         'set_timeline 排片 → timeline_op 粗剪（split/deleteBefore/deleteAfter/freeze）→ ' +
         'set_overlays / set_captions 上字（講話類影片直接用 auto_caption 自動上字幕＋逐詞高亮）→ ' +
         'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
@@ -285,7 +286,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'import_media',
     {
-      description: '登記素材檔（須已放進專案資料夾）並產生 proxy/filmstrip/peaks。回 mediaId。',
+      description:
+        '登記素材檔並產生 proxy/filmstrip/peaks。relPath 可為專案內相對路徑，' +
+        '也可為專案外的絕對路徑（零複製引用，原檔留在原地）。回 mediaId。',
       inputSchema: {
         relPath: z.string(),
         label: z.string().optional(),
