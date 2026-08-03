@@ -309,3 +309,79 @@ ms-playwright 快取）——spec 設定計畫已列，npm audit 0 vulnerabiliti
 
 重新整理瀏覽器（UI 已重建），播放 0–4s：旁白＋影片聲應乾淨無斷續刮擦聲；
 拖 playhead 應立即到位；若旁白底下的環境聲仍嫌吵，回報後調 DUCK_LEVEL。
+
+---
+
+# 補記五：版本語意＋游標式 undo/redo（2026-08-03）
+
+Spec：`docs/superpowers/specs/2026-08-03-version-undo-redo.md`。Tier 2。
+Spec 核准：使用者核准標頭＋進度旁路（「這部分可以」）與 undo 1+2、
+「直接撤掉上一個行為」的游標語意（「做1 2」）。來源狀態：commit `90a5fbd`。
+
+## 診斷（修正前）
+
+跑中的 server 近 149 筆歷史：**73 筆 `render progress`**、27 筆 undo、
+真編輯僅 20 餘筆。三個具體缺陷：修訂號被進度灌爆且掛在標頭像軟體版本、
+server 重啟歸零、undo 因「撤 undo 自己＝redo」而在最後一步來回擺盪且會撤到
+非編輯狀態（按了畫面沒反應）。
+
+## 行為 → 測試對映
+
+| 行為                                                             | 測試                                              |
+| ---------------------------------------------------------------- | ------------------------------------------------- |
+| B1 標頭顯示語意化軟體版本、不顯示修訂號                          | `ui/src/app-version.test.tsx` 第 1 條（先紅）     |
+| B2 進度走旁路 bus：歷史不含 render progress、版本僅 +2、事件照發 | `server/test/render.test.ts` 整合測試（先紅）     |
+| B2/B5 UI 收 renderProgress 不推進版本；render patch 清暫態進度   | `app-version.test.tsx` 第 2、3 條（先紅）         |
+| B3 rev 落盤、重載續走、doc 本體不含 rev                          | `server/test/store-undo.test.ts` B3 段（先紅）    |
+| B4 連按 undo 一路往回退（不擺盪）                                | `store-undo.test.ts` 第 1 條（先紅）              |
+| B4 undo 記錄具名 `undo: <原label>`、source 為呼叫者              | 第 2 條（先紅）                                   |
+| B4 redo 對稱、新編輯清空 redo（分叉）                            | 第 3、4 條（先紅）                                |
+| B4 非編輯 mutation 不進 undo 範圍、也不清 redo                   | 第 5 條（先紅）                                   |
+| B4 revertSince 逆序回滾（審核退回）                              | 第 7 條（先紅；**後經突變發現盲點並補強**，見下） |
+| B5 Activity Redo 鈕送出 redo 命令                                | `app-version.test.tsx` 第 4 條（先紅）            |
+| MCP redo 工具（重做／無可重做標 isError）                        | `server/test/mcp-tools.test.ts` 兩條（先紅）      |
+
+## 最終乾淨 GAUNTLET
+
+| 關卡                  | 結果                                                                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 全測試套件            | **355 passed**（shared 27／server 158／ui 170），0 failed                                                                                                            |
+| tsc／eslint／prettier | PASS／PASS／PASS                                                                                                                                                     |
+| UI 覆蓋率             | Lines 86.38%（2627/3041）                                                                                                                                            |
+| 突變                  | **51/51 killed**（+1 等價對照）；本案新增 6 隻全滅：undo 推回原堆疊（＝舊擺盪 bug）／新編輯不清 redo／可撤回分類失效／rev 不落盤／進度改回版本化／標頭改回顯示修訂號 |
+| 隨機順序              | ui/server 皆 PASS（server 另以 seed 1337/42/7 各驗一次）                                                                                                             |
+| 依賴稽核／秘密掃描    | 0 vulnerabilities／PASS                                                                                                                                              |
+
+## 真實執行驗證（重建 UI＋重啟 server 後，對 :3845 實打 MCP）
+
+- 三筆編輯 E1→E2→E3 後**連按 undo ×3**，歷史顯示
+  `undo: edit E2`／`undo: edit E1`／`undo: edit No.5 扶手走鋼索`
+  ——**每次撤掉不同的一步，確認不再擺盪**；label 回到原值。
+- `redo` ×1 正確取回 E1（version 7）。
+- `project.json` 落盤含 `rev: 7`；**重啟 server 後 get_project 回 `v7`**（不歸零）。
+- shipped bundle 含 `0.1.0` 字串（標頭走 define 注入）。
+- 驗證後已把 demo 的 clip label 還原為原值（rev 8）。
+
+## 過程中的問題與處理（如實記載）
+
+1. `store.test.ts` 有一條斷言舊語意（註解明寫「撤 undo 自己＝redo，可接受」）。
+   這是 SPEC 明確變更的行為，已改為斷言新語意並註明出處——非放寬。
+2. 新增的「nothing to redo」測試**隨機順序下失敗**：redo 堆疊是 store 級狀態，
+   fixture 重置含 render 欄位故不算可撤回編輯、不會清它。改以「先做一筆真編輯
+   （分叉語意會清 redo）」讓測試自足，非放寬斷言。
+3. 三隻既有突變因 store.ts 改寫而 `find` 失效（引擎如實報 ERROR 而非默默跳過），
+   已更新指向新程式碼。其中 `store-undo-order` 更新後**存活**——揭露我的
+   revertSince 測試盲點（單筆陣列變更時順序無關）。補強為「同陣列多筆連續變更」
+   後該突變即被殺死。這是突變測試抓到測試本身缺陷的實例。
+
+## 已知限制
+
+- undo/redo 堆疊在 server 記憶體，重啟清空（修訂號會續走）——與市售編輯器一致。
+- 舊 project.json 無 `rev` → 首次載入為 0，之後續走（相容行為，實測確認）。
+- `steps>1` 的 undo/redo 逐筆各記一筆 mutation，Activity 會顯示多列。
+
+## 使用者親驗
+
+重新整理瀏覽器：標頭應顯示 `vidcut · v0.1.0 · demo`；連按 Cmd+Z 應一路往回退、
+Cmd+Shift+Z（或 Activity 的 Redo 鈕）往前；渲染時版本號不再狂跳、Activity 不再被
+進度洗版。
