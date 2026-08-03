@@ -126,7 +126,7 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
                 imagePath: '',
                 text: {
                   text: '新文字',
-                  fontFamily: 'PingFang TC',
+                  fontFamily: 'Heiti TC',
                   fontSize: 64,
                   fill: '#ffffff',
                   stroke: '#000000',

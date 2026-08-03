@@ -195,6 +195,57 @@ describe('Inspector', () => {
       },
     ]);
   });
+
+  it('switching selected text overlay refreshes Font size / Fill instead of showing stale values', () => {
+    const doc = demoProject();
+    doc.tracks.overlays = [
+      {
+        id: 'txtA',
+        imagePath: 'derived/text/a.base.png',
+        text: { text: 'A字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+      {
+        id: 'txtB',
+        imagePath: 'derived/text/b.base.png',
+        text: { text: 'B字', fontFamily: 'Heiti TC', fontSize: 32, fill: '#ff0000' },
+        start: 2,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    ];
+    seedProject(doc);
+    useSelection.getState().select({ kind: 'overlay', id: 'txtA' });
+    const { container, rerender } = render(<Inspector />);
+    expect(fieldAfter(container, 'Font size').value).toBe('64');
+    expect(fieldAfter(container, 'Fill').value).toBe('#ffffff');
+
+    useSelection.getState().select({ kind: 'overlay', id: 'txtB' });
+    rerender(<Inspector />);
+    expect(fieldAfter(container, 'Font size').value).toBe('32');
+    expect(fieldAfter(container, 'Fill').value).toBe('#ff0000');
+  });
+
+  it('blurring Font size without changing it sends nothing (silent-overwrite guard)', () => {
+    const doc = demoProject();
+    doc.tracks.overlays = [
+      {
+        id: 'txt1',
+        imagePath: 'derived/text/abc.base.png',
+        text: { text: '原字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    ];
+    seedProject(doc);
+    useSelection.getState().select({ kind: 'overlay', id: 'txt1' });
+    const { container } = render(<Inspector />);
+    fireEvent.blur(fieldAfter(container, 'Font size'));
+    expect(sent).toEqual([]);
+  });
 });
 
 describe('CaptionList', () => {

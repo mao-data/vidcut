@@ -429,9 +429,10 @@ export function Inspector() {
           <input
             type="number"
             defaultValue={ov.text.fontSize}
+            key={ov.id + ov.text.fontSize}
             onBlur={(e) => {
               const n = Number(e.target.value);
-              if (n > 0) {
+              if (n > 0 && n !== ov.text!.fontSize) {
                 send({
                   name: 'updateOverlay',
                   id: ov.id,
@@ -444,13 +445,17 @@ export function Inspector() {
           <input
             type="color"
             defaultValue={ov.text.fill}
-            onChange={(e) =>
-              send({
-                name: 'updateOverlay',
-                id: ov.id,
-                patch: { text: { ...ov.text!, fill: e.target.value } },
-              })
-            }
+            key={ov.id + ov.text.fill}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v !== ov.text!.fill) {
+                send({
+                  name: 'updateOverlay',
+                  id: ov.id,
+                  patch: { text: { ...ov.text!, fill: v } },
+                });
+              }
+            }}
           />
         </>
       )}
