@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildRenderArgs, render } from '../src/render.js';
+import { buildRenderArgs, render, renderProgressBus } from '../src/render.js';
 import { buildDemoProject } from '../src/demo.js';
 import { ProjectStore } from '../src/store.js';
 import { probe } from '../src/ffmpeg.js';
@@ -114,8 +114,19 @@ describe('render (integration)', () => {
     const dir = await mkdtemp(join(tmpdir(), 'vidcut-render-'));
     await buildDemoProject(dir);
     const store = await ProjectStore.load(join(dir, 'project.json'));
+    const vBefore = store.version;
+    const progressSeen: number[] = [];
+    const onProgress = (p: number) => progressSeen.push(p);
+    renderProgressBus.on('progress', onProgress);
     const res = await render(store, dir, 'test');
+    renderProgressBus.off('progress', onProgress);
     const info = await probe(join(dir, res.outPath));
+
+    // 進度走旁路：不進版本化歷史（spec 2026-08-03 B2），事件照發
+    expect(store.history().some((h) => h.label === 'render progress')).toBe(false);
+    expect(store.version - vBefore).toBe(2); // 僅 render start + done
+    expect(progressSeen.length).toBeGreaterThan(0);
+    expect(Math.max(...progressSeen)).toBeGreaterThan(0.5);
     expect(info.width).toBe(1080);
     expect(info.height).toBe(1920);
     expect(info.hasAudio).toBe(true);

@@ -1,11 +1,15 @@
 import { mkdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CaptionItem, Project, RenderOptions } from '@vidcut/shared';
 import { locate, overlayWindow, totalDuration } from '@vidcut/shared';
 import { runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
+
+/** 渲染進度旁路：'progress' 事件 (0–1)。暫態資料不進版本化 store，由 wsHub 廣播給 UI。 */
+export const renderProgressBus = new EventEmitter();
 
 let drawtextAvailable: boolean | null = null;
 
@@ -459,9 +463,8 @@ export async function render(
       if (m && plan.totalDuration > 0) {
         const sec = Number(m[1]) / 1_000_000;
         const progress = Math.min(1, sec / plan.totalDuration);
-        store.mutate('ai', 'render progress', (doc) => {
-          doc.render.progress = Number(progress.toFixed(3));
-        });
+        // 進度是暫態，走旁路（wsHub 廣播）——不進版本/歷史/undo（spec 2026-08-03 B2）
+        renderProgressBus.emit('progress', Number(progress.toFixed(3)));
       }
     });
     child.stderr.on('data', (d) => {

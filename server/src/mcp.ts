@@ -488,8 +488,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
 
   server.registerTool(
     'undo',
-    { description: '撤回最近 N 筆變更。', inputSchema: { steps: z.number().optional() } },
+    {
+      description: '撤回最近 N 筆編輯（游標式：連續呼叫一路往回退）。渲染/審核等狀態變更不在範圍。',
+      inputSchema: { steps: z.number().optional() },
+    },
     async ({ steps }) => writeReply(aiWrite(store, { name: 'undo', steps })),
+  );
+
+  server.registerTool(
+    'redo',
+    {
+      description: '重做最近 N 筆被撤回的編輯（undo 的反向）。新的編輯會清空可重做的內容。',
+      inputSchema: { steps: z.number().optional() },
+    },
+    async ({ steps }) => writeReply(aiWrite(store, { name: 'redo', steps })),
   );
 
   // ---- 逐字稿與自動字幕 ----

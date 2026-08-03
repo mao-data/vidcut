@@ -192,6 +192,25 @@ describe('MCP tools that had no coverage', () => {
     expect(store.doc.tracks.video.some((c) => c.id === victim.id)).toBe(true);
   });
 
+  it('redo re-applies the last undone edit', async () => {
+    const before = store.doc.tracks.video.length;
+    const victim = store.doc.tracks.video[0]!;
+    await call('remove_clip', { clipId: victim.id });
+    await call('undo', {});
+    expect(store.doc.tracks.video.length).toBe(before);
+
+    const r = await call('redo', {});
+    expect(r.isError ?? false).toBe(false);
+    expect(store.doc.tracks.video.length).toBe(before - 1);
+    expect(store.doc.tracks.video.some((c) => c.id === victim.id)).toBe(false);
+  });
+
+  it('redo with nothing to redo is flagged isError', async () => {
+    const r = await call('redo', {});
+    expect(text(r)).toContain('nothing to redo');
+    expect(r.isError).toBe(true);
+  });
+
   it('get_history reports the versions that were applied', async () => {
     const r = await call('get_history', {});
     const entries = (r.structuredContent?.history ?? []) as Array<{ label: string }>;

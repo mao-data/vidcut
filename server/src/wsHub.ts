@@ -5,7 +5,7 @@ import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import { applyCommand } from './commands.js';
-import { extractCover, render } from './render.js';
+import { extractCover, render, renderProgressBus } from './render.js';
 
 const HISTORY_IN_FULL = 50;
 
@@ -38,6 +38,11 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
     version: store.version,
     doc: store.doc,
     history: recentHistory(),
+  });
+
+  renderProgressBus.on('progress', (progress: number) => {
+    const msg: WsServerMsg = { type: 'renderProgress', progress };
+    for (const client of wss.clients) send(client, msg);
   });
 
   store.onChange((e) => {

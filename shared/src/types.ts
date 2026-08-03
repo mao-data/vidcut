@@ -255,7 +255,9 @@ export type WsServerMsg =
       label: string;
       ts: string;
     }
-  | { type: 'commandError'; reqId?: string; error: string };
+  | { type: 'commandError'; reqId?: string; error: string }
+  /** 渲染進度旁路（暫態，不進版本/歷史/undo） */
+  | { type: 'renderProgress'; progress: number };
 
 export type WsClientMsg =
   | { type: 'resync' }
