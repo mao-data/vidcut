@@ -87,4 +87,15 @@ describe('scanSourceFolder', () => {
     const dir = await folderWith(['a.mp4']);
     await expect(scanSourceFolder(join(dir, 'a.mp4'))).rejects.toThrow();
   });
+
+  // 專門驗證排序邏輯：位元組順序（B<a）與 localeCompare 結果（a<B）不同。
+  // 不管 readdir 回傳何種順序，只有執行 .sort(localeCompare) 才能得到正確的升冪序。
+  // 用此測試防止 "移除 .sort(...)" 的突變活下來。
+  it('localeCompare 與位元組順序不同時仍正確排序', async () => {
+    const dir = await folderWith(['B.mp4', 'a.mp4']);
+    const files = await scanSourceFolder(dir);
+    // B(charCode 66) < a(charCode 97)，但 localeCompare 認為 'a' < 'B'
+    // 期望升冪順序：['a.mp4', 'B.mp4']
+    expect(files.map((f) => f.name)).toEqual(['a.mp4', 'B.mp4']);
+  });
 });
