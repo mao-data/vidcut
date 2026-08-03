@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -286,6 +286,25 @@ describe('B4 fine-grained edit tools', () => {
     });
     expect(upd.isError).toBeFalsy();
     expect(store.doc.tracks.overlays.find((o) => o.id === 'txt1')!.text?.text).toBe('改過');
+  }, 60_000);
+
+  it('set_overlays with a text-carrying overlay generates its card too (not just add/update_overlay)', async () => {
+    const r = await call('set_overlays', {
+      overlays: [
+        {
+          id: 'txt2',
+          imagePath: '',
+          text: { text: 'set_overlays 文字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+          start: 0,
+          duration: 2,
+          position: { x: 0.5, y: 0.3, scale: 1 },
+        },
+      ],
+    });
+    expect(r.isError).toBeFalsy();
+    const ov = store.doc.tracks.overlays.find((o) => o.id === 'txt2')!;
+    expect(ov.imagePath).toMatch(/derived\/text\//);
+    expect((await stat(join(dir, ov.imagePath))).size).toBeGreaterThan(0);
   }, 60_000);
 
   it('remove_audio deletes one audio item', async () => {

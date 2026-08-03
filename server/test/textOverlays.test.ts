@@ -69,6 +69,61 @@ describe('resolveTextCommand + 命令層', () => {
     expect(applyCommand(store, 'human', bad1).ok).toBe(false);
     expect(applyCommand(store, 'human', ADD).ok).toBe(false); // imagePath 仍是 ''
   });
+
+  it('setOverlays 混合文字與純圖 overlay:文字項目各自產出真的 derived/text 字卡,純圖項目原封不動', async () => {
+    const { dir, store, svc } = await setup();
+    const png: OverlayItem = {
+      id: 'png1',
+      imagePath: 'assets/x.png',
+      start: 5,
+      duration: 1,
+      position: { x: 0.5, y: 0, scale: 1 },
+    };
+    const cmd: Command = {
+      name: 'setOverlays',
+      overlays: [
+        (ADD as Extract<Command, { name: 'addOverlay' }>).overlay,
+        png,
+      ],
+    };
+    const resolved = await resolveTextCommand(svc, store, cmd);
+    expect(resolved).not.toBe(cmd);
+    const setCmd = resolved as Extract<Command, { name: 'setOverlays' }>;
+    const txt = setCmd.overlays.find((o) => o.id === 'ov1')!;
+    expect(txt.imagePath).toMatch(/^derived\/text\/[0-9a-f]{16}\.base\.png$/);
+    expect((await stat(join(dir, txt.imagePath))).size).toBeGreaterThan(0);
+    const plain = setCmd.overlays.find((o) => o.id === 'png1')!;
+    expect(plain).toEqual(png); // 沒有 text 的項目原樣、原封不動(同結構)
+
+    const r = applyCommand(store, 'human', resolved);
+    expect(r.ok).toBe(true);
+  }, 30_000);
+
+  it('setOverlays 陣列裡沒有任何 text overlay 時:resolveTextCommand 回同一個物件參考', async () => {
+    const { store, svc } = await setup();
+    const cmd: Command = {
+      name: 'setOverlays',
+      overlays: [
+        { id: 'png1', imagePath: 'assets/x.png', start: 0, duration: 1, position: { x: 0.5, y: 0, scale: 1 } },
+      ],
+    };
+    expect(await resolveTextCommand(svc, store, cmd)).toBe(cmd);
+  });
+
+  it('setOverlays 直接呼叫 applyCommand(繞過 resolveTextCommand):文字 overlay 的 imagePath 為空字串被拒,文件完全不動', async () => {
+    const { store } = await setup();
+    const beforeOverlays = store.doc.tracks.overlays;
+    const beforeVersion = store.version;
+    const cmd: Command = {
+      name: 'setOverlays',
+      overlays: [(ADD as Extract<Command, { name: 'addOverlay' }>).overlay], // imagePath 仍是 ''
+    };
+    const r = applyCommand(store, 'human', cmd);
+    expect(r.ok).toBe(false);
+    expect(store.doc.tracks.overlays).toBe(beforeOverlays);
+    expect(store.doc.tracks.overlays).toEqual([]);
+    expect(store.version).toBe(beforeVersion);
+  });
 });
 
 describe('updateOverlay text 命令直接呼叫 applyCommand(繞過 resolveTextCommand 的防線)', () => {

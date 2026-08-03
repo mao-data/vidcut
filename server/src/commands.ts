@@ -5,6 +5,7 @@ import type {
   CommandResult,
   MutationSource,
   OverlayItem,
+  OverlayText,
   CaptionItem,
   VideoClip,
 } from '@vidcut/shared';
@@ -71,11 +72,7 @@ export function applyCommand(
     case 'updateCaption':
       return updateCaption(store, source, cmd);
     case 'setOverlays':
-      return ok(
-        store.mutate(source, 'set overlays', (d) => {
-          d.tracks.overlays = cmd.overlays as OverlayItem[];
-        }),
-      );
+      return setOverlays(store, source, cmd);
     case 'setCaptions':
       return ok(
         store.mutate(source, 'set captions', (d) => {
@@ -204,6 +201,22 @@ function removeClip(
   );
 }
 
+/**
+ * 驗證單一 overlay 的 text 規格是否合法、且已由 resolveTextCommand 前置填好 imagePath。
+ * addOverlay／updateOverlay／setOverlays 三處共用同一套規則與錯誤訊息——這是命令層的
+ * 安全邊界：即使呼叫端（例如某個 MCP 工具）忘了跑前置，text 換了但 imagePath 沒填的
+ * overlay 也不會被 mutate 進文件（空字串 imagePath 到 render 時會被當成專案目錄本身餵給
+ * ffmpeg，錯誤會出現在很遠的地方且難以理解）。
+ */
+function validateOverlayTextCard(text: OverlayText, imagePath: string | undefined): string | null {
+  if (text.text.trim() === '') return 'overlay text must not be empty';
+  if (text.fontSize <= 0) return 'fontSize must be > 0';
+  if (imagePath === undefined || imagePath === '') {
+    return 'text overlay card not generated (server error)';
+  }
+  return null;
+}
+
 function addOverlay(
   store: ProjectStore,
   source: MutationSource,
@@ -223,9 +236,8 @@ function addOverlay(
     return { ok: false, error: `anchor clip not found: ${o.anchor.clipId}` };
   }
   if (o.text) {
-    if (o.text.text.trim() === '') return { ok: false, error: 'overlay text must not be empty' };
-    if (o.text.fontSize <= 0) return { ok: false, error: 'fontSize must be > 0' };
-    if (o.imagePath === '') return { ok: false, error: 'text overlay card not generated (server error)' };
+    const textErr = validateOverlayTextCard(o.text, o.imagePath);
+    if (textErr) return { ok: false, error: textErr };
   }
   return ok(
     store.mutate(source, `add overlay ${o.imagePath.split('/').pop()}`, (d) => {
@@ -254,14 +266,11 @@ function updateOverlay(
     }
   }
   if (cmd.patch.text) {
-    if (cmd.patch.text.text.trim() === '') return { ok: false, error: 'overlay text must not be empty' };
-    if (cmd.patch.text.fontSize <= 0) return { ok: false, error: 'fontSize must be > 0' };
     // patch.text 一定要伴隨一個已 resolve 的 imagePath——沒有這個鍵（呼叫端跳過了
     // resolveTextCommand 這道前置）跟給空字串一樣危險：都會讓 text 换了、imagePath
     // 還指著舊卡，畫面與文字對不上。兩種情況都要擋。
-    if (cmd.patch.imagePath === undefined || cmd.patch.imagePath === '') {
-      return { ok: false, error: 'text overlay card not generated (server error)' };
-    }
+    const textErr = validateOverlayTextCard(cmd.patch.text, cmd.patch.imagePath);
+    if (textErr) return { ok: false, error: textErr };
   }
   return ok(
     store.mutate(source, `edit overlay`, (d) => {
@@ -280,6 +289,27 @@ function updateOverlay(
       if (cmd.patch.position !== undefined) o.position = cmd.patch.position;
       if (cmd.patch.text !== undefined) o.text = cmd.patch.text;
       if (cmd.patch.imagePath !== undefined) o.imagePath = cmd.patch.imagePath;
+    }),
+  );
+}
+
+/** 整組替換 overlay 軌：逐一驗證每個 overlay 的 text/imagePath（見 validateOverlayTextCard），
+ * 任一項不合格就整批拒絕、文件完全不動——這是 setOverlays 的安全邊界，跟
+ * addOverlay/updateOverlay 用同一套規則，不因為是「整組替換」就放寬。 */
+function setOverlays(
+  store: ProjectStore,
+  source: MutationSource,
+  cmd: Extract<Command, { name: 'setOverlays' }>,
+): CommandResult {
+  for (const o of cmd.overlays) {
+    if (o.text) {
+      const textErr = validateOverlayTextCard(o.text, o.imagePath);
+      if (textErr) return { ok: false, error: textErr };
+    }
+  }
+  return ok(
+    store.mutate(source, 'set overlays', (d) => {
+      d.tracks.overlays = cmd.overlays as OverlayItem[];
     }),
   );
 }

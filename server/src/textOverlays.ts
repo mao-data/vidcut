@@ -35,5 +35,18 @@ export async function resolveTextCommand(
     const r = await svc.ensure(overlayTextToCardRequest(cmd.patch.text, store.doc.canvas.width));
     return { ...cmd, patch: { ...cmd.patch, imagePath: svc.relBasePath(r.hash) } };
   }
+  if (cmd.name === 'setOverlays') {
+    // 整組替換：文字 overlay 各自獨立產卡(可平行),沒帶 text 的原樣放行。
+    // 陣列裡完全沒有 text overlay 時回同一個 cmd 參考(呼叫端可用 === 判斷「沒變」)。
+    if (!cmd.overlays.some((o) => o.text)) return cmd;
+    const overlays = await Promise.all(
+      cmd.overlays.map(async (o) => {
+        if (!o.text) return o;
+        const r = await svc.ensure(overlayTextToCardRequest(o.text, store.doc.canvas.width));
+        return { ...o, imagePath: svc.relBasePath(r.hash) };
+      }),
+    );
+    return { ...cmd, overlays };
+  }
   return cmd;
 }

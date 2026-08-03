@@ -202,7 +202,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
-        '疊圖分兩種：文字類用 add_overlay/update_overlay 帶 text（伺服器自動產字卡並維護 ' +
+        '疊圖分兩種：文字類用 add_overlay/update_overlay/set_overlays 帶 text（伺服器自動產字卡並維護 ' +
         'imagePath，imagePath 傳空字串即可，之後改字直接送新 text）；純圖 overlay 照舊自己給 imagePath。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
@@ -415,13 +415,22 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'set_overlays',
     {
-      description: '整組替換 overlay 軌。',
+      description:
+        '整組替換 overlay 軌。陣列裡帶 text 的項目會自動產字卡並填 imagePath（傳空字串即可）；' +
+        '純圖項目照舊給實際 imagePath。',
       inputSchema: { overlays: z.array(overlaySchema), ifVersion: z.number().optional() },
     },
-    async ({ overlays, ifVersion }) =>
-      writeReply(
-        aiWrite(store, { name: 'setOverlays', overlays: overlays as OverlayItem[] }, ifVersion),
-      ),
+    async ({ overlays, ifVersion }) => {
+      try {
+        const cmd = await resolveTextCommand(textCards, store, {
+          name: 'setOverlays',
+          overlays: overlays as OverlayItem[],
+        });
+        return writeReply(aiWrite(store, cmd, ifVersion));
+      } catch (e) {
+        return err(`text card generation failed: ${(e as Error).message}`);
+      }
+    },
   );
 
   server.registerTool(
