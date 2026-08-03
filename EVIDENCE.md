@@ -707,5 +707,20 @@ FAIL——`server/src/frame.ts` 的新 import／註解未跑過 prettier（`.sup
 
 上表 GAUNTLET 於 `b6adcfb`（工作區含本輪未提交修改）執行；本輪修改只涉及測試檔、
 `scripts/mutants.json` 與文件，不動任何 `server/src/render.ts`／`server/src/commands.ts`
-的實作程式碼（審查認定「程式碼本身是對的，缺的是守護」）。實際 commit SHA 與 stage
-的路徑清單見 `.superpowers/sdd/2026-08-03-media-import-backend/final-fix-report.md`。
+的實作程式碼（審查認定「程式碼本身是對的，缺的是守護」）；`server/src/frame.ts` 是
+本輪唯一動到的實作檔（小項 1 的防禦性一致化）。本輪 commit 是 `1d2049d`，動到的路徑
+即該 commit 的 diff（`git show --stat 1d2049d`）。
+
+**複審（`b6adcfb..1d2049d`）**：合併前最後一關，2026-08-03 完成。在**真正的 HEAD
+`1d2049d`**（非上表的 `b6adcfb` 工作區狀態）實跑完整 `bash scripts/gauntlet.sh`：
+`GAUNTLET: 全數通過`、401 測試（shared 27／server 204／ui 170）、
+`65/65 mutants killed (+1 equivalent control survived as expected)`——與上表逐格吻合。
+必修一另做獨立驗證：把 `render.ts:222` 與 `:431` 兩處同時改回
+`join(projectDir, media.path)`，跑全套 204 條 server 測試 → `Tests 2 failed | 202 passed`，
+紅的恰為本輪新增那兩條（一條 `AssertionError … to include '/outside/vo.mp3'`、
+一條 `ffmpeg exited 254: Error opening input`）——即全分支審查者當初實測「兩隻都存活」
+的同一實驗，現已守住。
+
+> UI 覆蓋率的 Branches 一格在同一 commit、同一乾淨工作區連跑兩次會得到
+> `748/875` 與 `749/876`（v8 覆蓋率分支計數非決定性）；Statements／Lines／Functions
+> 三項完全穩定。上表引用的是其中一次的真實數字。
