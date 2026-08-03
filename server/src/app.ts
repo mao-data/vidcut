@@ -7,6 +7,30 @@ import type { FontEntry } from './fonts.js';
 import type { CardRequest } from './rasterizer.js';
 import type { TextCardService } from './textCards.js';
 
+/** POST /text-card/preview 的手寫 body 驗證（故意不用 zod）：回 null 代表通過，否則回錯誤訊息。 */
+function validateCardRequest(b: unknown): string | null {
+  if (!b || typeof b !== 'object') return 'need text + style';
+  const r = b as Partial<CardRequest>;
+  if (typeof r.text !== 'string') return 'text must be a string';
+  if (!r.style || typeof r.style !== 'object') return 'style is required';
+  const s = r.style as Partial<CardRequest['style']>;
+  if (typeof s.fontFamily !== 'string' || s.fontFamily === '') return 'style.fontFamily must be a non-empty string';
+  if (typeof s.fontSize !== 'number' || !Number.isFinite(s.fontSize) || s.fontSize <= 0)
+    return 'style.fontSize must be a finite number > 0';
+  if (typeof s.fill !== 'string' || s.fill === '') return 'style.fill must be a non-empty string';
+  if (s.stroke !== undefined && typeof s.stroke !== 'string') return 'style.stroke must be a string';
+  if (s.highlight !== undefined && typeof s.highlight !== 'string') return 'style.highlight must be a string';
+  if (r.tokens !== undefined && (!Array.isArray(r.tokens) || !r.tokens.every((t) => typeof t === 'string')))
+    return 'tokens must be an array of strings';
+  if (r.width !== undefined && (typeof r.width !== 'number' || !Number.isFinite(r.width)))
+    return 'width must be a finite number';
+  if (r.maxWidthFrac !== undefined) {
+    if (typeof r.maxWidthFrac !== 'number' || !Number.isFinite(r.maxWidthFrac)) return 'maxWidthFrac must be a finite number';
+    if (r.maxWidthFrac < 0.1 || r.maxWidthFrac > 1) return 'maxWidthFrac must be within 0.1–1';
+  }
+  return null;
+}
+
 /**
  * HTTP 面：/api/project（debug）、/api/fonts+/fonts/:id（字型表，供 UI @font-face）、
  * /media/*（原生 Range，給 <video>）、POST /assets（UI 上傳疊圖等素材）、/（UI build，存在時）。
@@ -69,11 +93,12 @@ export function createApp(
         res.status(503).json({ error: 'text cards unavailable' });
         return;
       }
-      const b = req.body as Partial<CardRequest>;
-      if (!b || typeof b.text !== 'string' || !b.style) {
-        res.status(400).json({ error: 'need text + style' });
+      const err = validateCardRequest(req.body);
+      if (err) {
+        res.status(400).json({ error: err });
         return;
       }
+      const b = req.body as Partial<CardRequest>;
       res.json(await svc.ensure({ ...b, width: b.width ?? store.doc.canvas.width } as CardRequest));
     })().catch(next);
   });
