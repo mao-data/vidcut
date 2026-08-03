@@ -103,24 +103,27 @@ const overlaySchema = z
   })
   .strict();
 
+const captionStyleSchema = z.object({
+  fontFamily: z.string(),
+  fontSize: z.number(),
+  fill: z.string(),
+  stroke: z.string().optional(),
+  y: z.number(),
+  highlight: z.string().optional().describe('逐詞高亮色（有 tokens 時，已唸到的詞用這色）'),
+});
+
+const captionTokensSchema = z
+  .array(z.object({ text: z.string(), start: z.number(), end: z.number() }))
+  .describe('逐詞時間戳（時間軸絕對秒數）。有值時渲染會做 karaoke 逐詞高亮。');
+
 const captionSchema = z
   .object({
     id: z.string(),
     text: z.string(),
     start: z.number(),
     duration: z.number(),
-    style: z.object({
-      fontFamily: z.string(),
-      fontSize: z.number(),
-      fill: z.string(),
-      stroke: z.string().optional(),
-      y: z.number(),
-      highlight: z.string().optional().describe('逐詞高亮色（有 tokens 時，已唸到的詞用這色）'),
-    }),
-    tokens: z
-      .array(z.object({ text: z.string(), start: z.number(), end: z.number() }))
-      .optional()
-      .describe('逐詞時間戳（時間軸絕對秒數）。有值時渲染會做 karaoke 逐詞高亮。'),
+    style: captionStyleSchema,
+    tokens: captionTokensSchema.optional(),
   })
   .strict();
 
@@ -373,10 +376,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { overlays: z.array(overlaySchema), ifVersion: z.number().optional() },
     },
     async ({ overlays, ifVersion }) =>
-      text(
-        writeResultText(
-          aiWrite(store, { name: 'setOverlays', overlays: overlays as OverlayItem[] }, ifVersion),
-        ),
+      writeReply(
+        aiWrite(store, { name: 'setOverlays', overlays: overlays as OverlayItem[] }, ifVersion),
       ),
   );
 
@@ -387,11 +388,91 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { captions: z.array(captionSchema), ifVersion: z.number().optional() },
     },
     async ({ captions, ifVersion }) =>
-      text(
-        writeResultText(
-          aiWrite(store, { name: 'setCaptions', captions: captions as CaptionItem[] }, ifVersion),
+      writeReply(
+        aiWrite(store, { name: 'setCaptions', captions: captions as CaptionItem[] }, ifVersion),
+      ),
+  );
+
+  // ---- 細粒度編輯（小修不必整組重送；全部支援 ifVersion）----
+  server.registerTool(
+    'update_caption',
+    {
+      description:
+        '只改一句字幕（text/start/duration/style/tokens）。小修用這個，別用 set_captions 整組重送。' +
+        'style 提供時整組替換；tokens 給 [] 代表清除逐詞時間戳。',
+      inputSchema: {
+        id: z.string(),
+        patch: z
+          .object({
+            text: z.string().optional(),
+            start: z.number().optional(),
+            duration: z.number().optional(),
+            style: captionStyleSchema.optional(),
+            tokens: captionTokensSchema.optional(),
+          })
+          .strict(),
+        ifVersion: z.number().optional(),
+      },
+    },
+    async ({ id, patch, ifVersion }) =>
+      writeReply(aiWrite(store, { name: 'updateCaption', id, patch }, ifVersion)),
+  );
+
+  server.registerTool(
+    'update_overlay',
+    {
+      description:
+        '只改一張疊圖（start/anchor/duration/position）。start 與 anchor 互斥：給哪個就轉成哪種定位。',
+      inputSchema: {
+        id: z.string(),
+        patch: z
+          .object({
+            start: z.number().optional(),
+            anchor: z.object({ clipId: z.string(), offset: z.number() }).optional(),
+            duration: z.number().nullable().optional(),
+            position: z.object({ x: z.number(), y: z.number(), scale: z.number() }).optional(),
+          })
+          .strict(),
+        ifVersion: z.number().optional(),
+      },
+    },
+    async ({ id, patch, ifVersion }) =>
+      writeReply(
+        aiWrite(
+          store,
+          { name: 'updateOverlay', id, patch: patch as Partial<OverlayItem> },
+          ifVersion,
         ),
       ),
+  );
+
+  server.registerTool(
+    'add_overlay',
+    {
+      description: '新增單張疊圖（其他 overlay 不動）。',
+      inputSchema: { overlay: overlaySchema, ifVersion: z.number().optional() },
+    },
+    async ({ overlay, ifVersion }) =>
+      writeReply(aiWrite(store, { name: 'addOverlay', overlay: overlay as OverlayItem }, ifVersion)),
+  );
+
+  server.registerTool(
+    'remove_overlay',
+    {
+      description: '移除一張疊圖。',
+      inputSchema: { id: z.string(), ifVersion: z.number().optional() },
+    },
+    async ({ id, ifVersion }) =>
+      writeReply(aiWrite(store, { name: 'removeOverlay', id }, ifVersion)),
+  );
+
+  server.registerTool(
+    'remove_audio',
+    {
+      description: '移除一個音訊項。',
+      inputSchema: { id: z.string(), ifVersion: z.number().optional() },
+    },
+    async ({ id, ifVersion }) => writeReply(aiWrite(store, { name: 'removeAudio', id }, ifVersion)),
   );
 
   server.registerTool(
@@ -524,11 +605,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { audio: z.array(audioSchema), ifVersion: z.number().optional() },
     },
     async ({ audio, ifVersion }) =>
-      text(
-        writeResultText(
-          aiWrite(store, { name: 'setAudio', audio: audio as AudioItem[] }, ifVersion),
-        ),
-      ),
+      writeReply(aiWrite(store, { name: 'setAudio', audio: audio as AudioItem[] }, ifVersion)),
   );
 
   server.registerTool(

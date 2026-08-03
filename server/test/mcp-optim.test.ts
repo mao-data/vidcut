@@ -187,3 +187,64 @@ describe('B1/B2 image content blocks', () => {
   }, 60_000);
 });
 
+// ---- B4 細粒度編輯工具（曝光既有命令層命令）----
+describe('B4 fine-grained edit tools', () => {
+  it('update_caption edits one caption and leaves the rest alone', async () => {
+    const r = await call('update_caption', { id: 'k2', patch: { text: 'world!' } });
+    expect(r.isError ?? false).toBe(false);
+    expect(store.doc.tracks.captions.find((c) => c.id === 'k2')!.text).toBe('world!');
+    expect(store.doc.tracks.captions.find((c) => c.id === 'k1')!.text).toBe('hello');
+  });
+
+  it('update_caption with tokens: [] clears word timestamps', async () => {
+    expect(store.doc.tracks.captions.find((c) => c.id === 'k1')!.tokens).toBeTruthy();
+    await call('update_caption', { id: 'k1', patch: { tokens: [] } });
+    expect(store.doc.tracks.captions.find((c) => c.id === 'k1')!.tokens).toBeUndefined();
+  });
+
+  it('update_caption with an unknown id is flagged isError', async () => {
+    const r = await call('update_caption', { id: 'ghost', patch: { text: 'x' } });
+    expect(text(r)).toContain('not found');
+    expect(r.isError).toBe(true);
+  });
+
+  it('update_caption honours ifVersion (stale write blocked)', async () => {
+    const r = await call('update_caption', {
+      id: 'k2',
+      patch: { text: 'nope' },
+      ifVersion: store.version + 999,
+    });
+    expect(r.isError).toBe(true);
+    expect(store.doc.tracks.captions.find((c) => c.id === 'k2')!.text).toBe('world');
+  });
+
+  it('update_overlay moves an overlay', async () => {
+    await call('update_overlay', { id: 'o1', patch: { start: 1.5 } });
+    expect(store.doc.tracks.overlays.find((o) => o.id === 'o1')!.start).toBe(1.5);
+  });
+
+  it('add_overlay appends and remove_overlay deletes', async () => {
+    await call('add_overlay', {
+      overlay: {
+        id: 'o2',
+        imagePath: 'b.png',
+        start: 2,
+        duration: 1,
+        position: { x: 0.5, y: 0.5, scale: 1 },
+      },
+    });
+    expect(store.doc.tracks.overlays.map((o) => o.id)).toContain('o2');
+    await call('remove_overlay', { id: 'o2' });
+    expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('o2');
+  });
+
+  it('remove_audio deletes one audio item', async () => {
+    await call('set_audio', {
+      audio: [{ id: 'a1', mediaId, start: 0, in: 0, duration: 1, volume: 1 }],
+    });
+    const r = await call('remove_audio', { id: 'a1' });
+    expect(r.isError ?? false).toBe(false);
+    expect(store.doc.tracks.audio).toEqual([]);
+  });
+});
+
