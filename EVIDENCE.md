@@ -209,3 +209,51 @@ ai gate 開給 human／動畫窗永不關／連發不合併／新增誤判修改
 3. AI 改視窗外的項目 → 時間軸應先平滑捲過去再亮暈。
 4. AI 編輯的**同時**拖你自己的 chip → 你的拖曳必須完全跟手、無延遲感。
 5. 系統開「減少動態效果」→ 以上全部退化為瞬切。
+
+---
+
+# 補記三：MCP 層五項優化（2026-08-02）
+
+Spec：`docs/superpowers/specs/2026-08-02-mcp-optimizations.md`。Tier 2。
+Spec 核准：使用者核准優化清單（「好 用/old-coder把優化都做」）；細部規格自主撰寫，本檔供事後審閱。
+來源狀態：commit `195ccf5`（gauntlet 於其工作樹執行；EVIDENCE 本身於次一 commit）。
+
+## 行為 → 測試對映（server/test/mcp-optim.test.ts，20 條，全數先紅後綠）
+
+| 行為                                                                           | 測試                                                                                                                     |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| B1 get_frame 內嵌 JPEG（含 magic bytes、URL 保留）                             | `get_frame returns an inline JPEG image block plus the URL`                                                              |
+| B2 set_cover 內嵌 JPEG＋coverPath                                              | `set_cover returns an inline JPEG image block…`                                                                          |
+| B3 stale／not-found／unknown mediaId／review 中／import 失敗／無片段 → isError | B3 describe 六條                                                                                                         |
+| B3 成功路徑不標 isError                                                        | `a successful write is not flagged isError`（RED 時即綠＝負向不變式，由 `mcp-writereply-always-err` 突變武裝證明可失敗） |
+| B4 update_caption 單句修改／tokens:[] 清除／unknown id／stale ifVersion        | B4 describe 前四條                                                                                                       |
+| B4 update_overlay／add_overlay／remove_overlay／remove_audio                   | B4 describe 後三條                                                                                                       |
+| B5 六個讀取工具 readOnlyHint:true；寫入工具不得標                              | B5 describe 兩條                                                                                                         |
+| B6 >1000 詞截斷（capped/flag/總數/jsonPath）；≤1000 全量                       | B6 describe 兩條                                                                                                         |
+
+RED 過程：B3 六紅一綠 → GREEN；B1/B2 兩紅 → GREEN；B4 五紅二「假綠」
+（工具未註冊時 SDK 的 tool-not-found 恰含 not found＋isError，GREEN 後語意轉正，
+並由 `mcp-ifversion-drop` 突變證明會失敗）；B5 一紅一綠（負向）；B6 一紅一綠（現狀）。
+
+## 最終乾淨 GAUNTLET（最後一次程式碼修改後全新執行）
+
+| 關卡                  | 結果                                                                                                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 全測試套件            | **332 passed**（shared 27／server 148／ui 157），0 failed                                                                                                                                                |
+| tsc／eslint／prettier | PASS／PASS／PASS                                                                                                                                                                                         |
+| UI 覆蓋率             | Lines 86.3%（2584/2994）——本輪只動 server                                                                                                                                                                |
+| 突變                  | **41/41 killed**（+1 等價對照組如預期存活）；本功能新增 6 隻全滅：isError 旗標／成功也標錯／ifVersion 佈線／readOnlyHint／截斷關閉／mime 錯                                                              |
+| 隨機順序              | ui/server 皆 PASS                                                                                                                                                                                        |
+| 依賴稽核              | 0 vulnerabilities（零新依賴）                                                                                                                                                                            |
+| 秘密掃描              | PASS                                                                                                                                                                                                     |
+| 真實執行              | 以新碼重啟正式 server（:3845, projects/demo），實打 `/mcp`：tools/list 回 **28 工具**、5 個細粒度工具在列、6 個 readOnlyHint 正確；live 呼叫 get_frame 回 42,465 bytes 內嵌 JPEG（magic bytes 驗證通過） |
+
+## 跳過與已知限制
+
+- get_frame／transcribe 標 readOnlyHint 但確實會寫 `derived/` 快取檔——不動 project.json，
+  視為讀取；此為判斷而非事實，如需嚴格語義可拿掉。
+- 影像 block 無尺寸上限（proxy 幀約數十 KB；超大來源未防護，spec 已列不做）。
+- transcribe 截斷閾值 1000 為工程判斷值，非參數。
+- 中途發現並修正：perl 批次替換曾把 writeReply 自身改成無窮遞迴、又漏掉三處跨行呼叫
+  （set_overlays/set_captions/set_audio 一度未標 isError）——均在同輪 GREEN 內修復，
+  最終狀態以上表全綠為準。
