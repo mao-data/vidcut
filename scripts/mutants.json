@@ -287,5 +287,53 @@
     "replace": "",
     "tests": "ui/src/timeline/Timeline.fx.test.tsx",
     "note": "可視範圍內也捲動 → 「已可見不捲」斷言必須抓到（兼證 scrollTargetFor 測試非空泛）"
+  },
+  {
+    "id": "mcp-iserror-flag",
+    "file": "server/src/mcp.ts",
+    "find": "return { content: [{ type: 'text' as const, text: s }], isError: true };",
+    "replace": "return { content: [{ type: 'text' as const, text: s }] };",
+    "tests": "server/test/mcp-optim.test.ts",
+    "note": "拿掉 isError 旗標 → B3 各失敗路徑斷言必須抓到"
+  },
+  {
+    "id": "mcp-writereply-always-err",
+    "file": "server/src/mcp.ts",
+    "find": "return r.ok ? text(writeResultText(r)) : err(writeResultText(r));",
+    "replace": "return err(writeResultText(r));",
+    "tests": "server/test/mcp-optim.test.ts",
+    "note": "成功也標 isError → 成功路徑負向斷言必須抓到（武裝 RED 時即綠的那條）"
+  },
+  {
+    "id": "mcp-ifversion-drop",
+    "file": "server/src/mcp.ts",
+    "find": "writeReply(aiWrite(store, { name: 'updateCaption', id, patch }, ifVersion)),",
+    "replace": "writeReply(aiWrite(store, { name: 'updateCaption', id, patch })),",
+    "tests": "server/test/mcp-optim.test.ts",
+    "note": "update_caption 掉 ifVersion 佈線 → stale 寫入測試必須抓到"
+  },
+  {
+    "id": "mcp-readonly-hint",
+    "file": "server/src/mcp.ts",
+    "find": "inputSchema: { full: z.boolean().optional() },\n      annotations: { readOnlyHint: true },",
+    "replace": "inputSchema: { full: z.boolean().optional() },",
+    "tests": "server/test/mcp-optim.test.ts",
+    "note": "get_project 掉 readOnlyHint → B5 正向斷言必須抓到"
+  },
+  {
+    "id": "mcp-truncate-off",
+    "file": "server/src/mcp.ts",
+    "find": "words: truncated ? r.words.slice(0, MAX_WORDS_INLINE) : r.words,",
+    "replace": "words: r.words,",
+    "tests": "server/test/mcp-optim.test.ts",
+    "note": "關掉詞數截斷 → B6 長度 1000 斷言必須抓到"
+  },
+  {
+    "id": "mcp-image-mime",
+    "file": "server/src/mcp.ts",
+    "find": "{ type: 'image' as const, data, mimeType: 'image/jpeg' },",
+    "replace": "{ type: 'image' as const, data, mimeType: 'image/png' },",
+    "tests": "server/test/mcp-optim.test.ts",
+    "note": "影像 block mimeType 錯 → B1/B2 斷言必須抓到"
   }
 ]
