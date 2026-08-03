@@ -27,8 +27,12 @@ CapCut 桌面版同樣只引用原檔，另提供「Copy media to project」手�
 - **相對路徑** = 專案資料夾內（既有行為，舊專案不受影響）
 - **絕對路徑** = 外部引用，原檔留在原地
 
-新增 `shared/src/paths.ts` 的 `resolveMediaPath(projectDir, path)`：
+新增 `server/src/paths.ts` 的 `resolveMediaPath(projectDir, path)`：
 `isAbsolute(path) ? path : join(projectDir, path)`。
+
+**放 server 而非 shared**：`shared` 會被瀏覽器打包，引入 `node:path` 會讓 UI build 失敗。
+UI 端不需要它 —— `mediaUrl` 組的是 URL 不是檔案系統路徑，且 ingest 一定會產 proxy，
+`proxyPath` 永遠落在專案內。
 
 **這是整案樞紐**：現有 4 處 `join(projectDir, media.path)` 全部換成它
 （`render.ts:195/216/411`、`ingest.ts`）。不換的話絕對路徑會被拼成 `/專案/Users/...`。
