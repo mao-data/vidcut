@@ -118,13 +118,37 @@ describe('POST /api/import', () => {
     server.close();
   });
 
-  it('names 帶絕對路徑時同樣被 basename 擋下', async () => {
+  // 誘餌檔案：在素材夾內放一支「basename 後同名」的真影片，讓 basename 有沒有生效
+  // 產生可觀察的差異——否則「絕對路徑目標本來就不存在」會讓這條測試無論 basename
+  // 在不在都通過（實測驗證過，見 task-6-report.md 的 mutant 1 章節）。
+  // - basename 生效 → join(src, 'hosts.mp4') 命中素材夾內的誘餌檔 → 進 ok[]。
+  // - basename 被拿掉（mutant）→ join(src, '/etc/hosts.mp4') = `${src}/etc/hosts.mp4`
+  //   → 不存在 → 進 failed[]。
+  it('names 帶絕對路徑時同樣被 basename 擋下（誘餌檔驗證 basename 真的生效）', async () => {
     const { src, store, server, base } = await startTestServer();
-    const res = await post(base, { dir: src, names: ['/etc/hosts'] });
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x568:rate=30:duration=1',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-pix_fmt',
+      'yuv420p',
+      join(src, 'hosts.mp4'),
+    ]);
+    const res = await post(base, { dir: src, names: ['/etc/hosts.mp4'] });
     expect(res.status).toBe(200);
     const j = (await res.json()) as ImportRes;
-    expect(j.ok).toEqual([]);
-    expect(store.doc.media).toHaveLength(0);
+    expect(j.ok).toHaveLength(1);
+    const m = store.doc.media.find((x) => x.id === j.ok[0]!.mediaId)!;
+    expect(m.path).toBe(join(src, 'hosts.mp4'));
+    // 安全不變式：任何情況下都不得匯入素材夾以外的檔案。
+    for (const media of store.doc.media) {
+      expect(media.path.startsWith(src)).toBe(true);
+    }
     server.close();
   });
 });
