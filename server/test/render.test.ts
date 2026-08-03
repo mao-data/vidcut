@@ -109,6 +109,22 @@ describe('buildRenderArgs', () => {
     // 字卡以 overlay 在 y=(H*0.78) 疊上、帶時間 enable
     expect(fc).toMatch(/overlay=x=0:y=\(H\*0\.78\):enable='between\(t\\,1\\,3\)'/);
   });
+
+  // 回歸：獨立音訊項（旁白/BGM/抽出的聲音）的 ffmpeg input 必須用 resolveMediaPath，
+  // 不能直接 join(projectDir, media.path)——後者會把外部絕對路徑錯誤拼接成
+  // /專案路徑/Users/... 這種不存在的路徑（見 render.ts:222）。純函數斷言，不用跑 ffmpeg。
+  it('uses an absolute audio-item media path as-is instead of joining it under projectDir (render.ts:222)', () => {
+    const p = demoLikeProject();
+    p.media.push({
+      id: 'vo',
+      path: '/outside/vo.mp3',
+      probe: { duration: 30, width: 0, height: 0, fps: 0, hasAudio: true, rotation: 0 },
+    });
+    p.tracks.audio = [{ id: 'a1', mediaId: 'vo', start: 0, in: 0, duration: 2, volume: 1 }];
+    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', { hasDrawtext: false });
+    expect(plan.args).toContain('/outside/vo.mp3');
+    expect(plan.args).not.toContain(join('/proj', '/outside/vo.mp3'));
+  });
 });
 
 describe('render (integration)', () => {
@@ -165,6 +181,37 @@ describe('render (integration)', () => {
     });
 
     const res = await render(store, dir, 'ext-test', { width: 180, height: 320 });
+    expect(existsSync(join(dir, res.outPath))).toBe(true);
+  }, 60_000);
+
+  // 回歸：定格幀（frozen frame）擷取的來源同樣要用 resolveMediaPath，不能直接
+  // join(projectDir, media.path)（見 render.ts:431）。若換回 join，外部絕對路徑會被
+  // 拼成 <projectDir>/<外部路徑> 這種不存在的檔案，ffmpeg 擷取單幀會直接失敗
+  // （ffmpeg render exited 254）。整合測試，真 ffmpeg。
+  it('frozen clip 用專案外絕對路徑素材時仍能定格擷取成功（render.ts:431）', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-ext-frozen-'));
+    const src = join(outside, 'ext-frozen.mp4');
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x568:rate=30:duration=2',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-pix_fmt',
+      'yuv420p',
+      src,
+    ]);
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-ext-frozen-proj-'));
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    const mediaId = await ingestMedia(store, dir, src);
+    store.mutate('ai', 'seed', (d) => {
+      d.tracks.video = [{ id: 'c1', mediaId, in: 0, duration: 1, volume: 0, frozen: true }];
+    });
+
+    const res = await render(store, dir, 'ext-frozen-test', { width: 180, height: 320 });
     expect(existsSync(join(dir, res.outPath))).toBe(true);
   }, 60_000);
 

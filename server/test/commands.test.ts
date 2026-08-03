@@ -304,6 +304,12 @@ describe('addClip', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('負的 in 被拒絕（in=-1, duration=1 若無此守衛，-1+1=0 不會超界，會通過並讓 ffmpeg 收到 -ss -1）', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'm1', in: -1, duration: 1 });
+    expect(r.ok).toBe(false);
+  });
+
   it('浮點誤差導致的邊界：1e-6 容差保護', async () => {
     const store = await storeWithClips();
     // duration = 20 + 1e-7 = 20.0000001

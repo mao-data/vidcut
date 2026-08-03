@@ -65,6 +65,25 @@ Node peak RSS 297MB、耗時 919ms；改成 `body: file` + `req.pipe` 後為 1MB
 `request_review` 目前是「阻塞 + UI 核准 + 保活 + 逾時」。
 讓 Claude Code 直接彈出瀏覽器審核頁需要 v2 SDK 遷移，因無法自動驗證而擱置（見 `HANDOFF.md`）。
 
+### 9. 音訊素材支援
+
+素材夾白名單目前收 `.mp3/.m4a/.wav/.aac`，但這條路今天整個不通：`ffmpeg.ts:51` 的
+`probe` 對無視訊串流一律丟錯，`ingest.ts` 的 proxy 又寫死 `-c:v libx264`，所以純音訊檔
+必然進 `POST /api/import` 的 `failed[]`；而 `doc.tracks.audio` 唯一取得 `mediaId` 的
+途徑是 `extract_audio`（從既有影片片段抽聲音），「引用外部 BGM／旁白檔」這條路整條
+不通（見 `EVIDENCE.md`「補記：素材匯入 階段 1」的已知限制）。可行方向：`probe` 放寬
+成無視訊串流時不丟錯、純音訊素材跳過 proxy/filmstrip 只產 peaks、`addClip`/新
+command 支援直接把純音訊素材掛進 `tracks.audio`。
+
+### 10. Origin／Host header 檢查
+
+Server 綁 `127.0.0.1`（`index.ts:36` 已確認），但沒有 Origin／Host header 檢查。
+DNS rebinding 攻擊下，惡意網頁可誘使受害者瀏覽器對 `127.0.0.1:3845` 發請求，
+`GET /api/source?dir=…` 會給攻擊頁面**任意目錄列舉**能力——這是「素材匯入」分支
+新增的能力面（先前只有 `/api/project` 洩漏專案內路徑，範圍小得多）。根目錄白名單
+已核准不做（見 spec 的 YAGNI 段），但 Host header 檢查（拒絕 Host 不是
+`127.0.0.1:<port>` 或 `localhost:<port>` 的請求）是最便宜的等效防護，不需要額外設定。
+
 ## 上線前必須由人確認
 
 自動化測試涵蓋不到，需要真人與真環境：

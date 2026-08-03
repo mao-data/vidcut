@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Project } from '@vidcut/shared';
 import { locate, totalDuration } from '@vidcut/shared';
 import { runFfmpeg } from './ffmpeg.js';
+import { resolveMediaPath } from './paths.js';
 
 /**
  * 抽出時間軸時間 t 的 active 片段畫面成 JPEG，回傳相對專案資料夾的路徑。
@@ -17,22 +18,15 @@ export async function extractFrame(
   const total = totalDuration(project);
   const loc = locate(project, Math.min(Math.max(t, 0), total));
   if (!loc) return null;
-  const src = loc.media.proxyPath ?? loc.media.path;
+  // 與 render.ts:523 extractCover 同型接法：proxyPath 一律存在（ingestMedia 是唯一寫
+  // doc.media 的地方且必寫 proxyPath），今日不可達絕對路徑分支，換 resolveMediaPath
+  // 純為防禦性一致化（見 EVIDENCE「補記：素材匯入 階段 1」）。
+  const src = resolveMediaPath(projectDir, loc.media.proxyPath ?? loc.media.path);
   const sourceTime = loc.clip.in + loc.offsetInClip;
 
   const outRel = join('derived', 'frames', `t${t.toFixed(2)}.jpg`);
   const outAbs = join(projectDir, outRel);
   await mkdir(join(projectDir, 'derived', 'frames'), { recursive: true });
-  await runFfmpeg([
-    '-ss',
-    String(sourceTime),
-    '-i',
-    join(projectDir, src),
-    '-frames:v',
-    '1',
-    '-q:v',
-    '3',
-    outAbs,
-  ]);
+  await runFfmpeg(['-ss', String(sourceTime), '-i', src, '-frames:v', '1', '-q:v', '3', outAbs]);
   return outRel;
 }

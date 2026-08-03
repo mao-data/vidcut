@@ -503,5 +503,29 @@
     "replace": "if (false) {",
     "tests": "server/test/render.test.ts",
     "note": "缺檔預檢失效，直接把明確錯誤換成 ffmpeg 原始報錯 → /^render: 找不到素材原檔：/ 的斷言必須抓到"
+  },
+  {
+    "id": "render-audio-input-path",
+    "file": "server/src/render.ts",
+    "find": "    args.push('-i', resolveMediaPath(projectDir, media.path));",
+    "replace": "    args.push('-i', join(projectDir, media.path));",
+    "tests": "server/test/render.test.ts",
+    "note": "全分支審查發現的零守護點：獨立音訊項（旁白/BGM/抽出的聲音）的 ffmpeg input 換回 join → 外部絕對路徑素材被錯誤拼接（實測會讓 ffmpeg render exited 254），純函數斷言必須抓到"
+  },
+  {
+    "id": "render-frozen-src-path",
+    "file": "server/src/render.ts",
+    "find": "        resolveMediaPath(projectDir, media.path),\n        '-frames:v',",
+    "replace": "        join(projectDir, media.path),\n        '-frames:v',",
+    "tests": "server/test/render.test.ts",
+    "note": "全分支審查發現的零守護點：定格幀（frozen frame）擷取來源換回 join → 外部絕對路徑素材被錯誤拼接，ffmpeg 擷取單幀直接失敗，整合測試（真 ffmpeg）必須抓到"
+  },
+  {
+    "id": "addclip-in-negative",
+    "file": "server/src/commands.ts",
+    "find": "  if (cmd.in < 0) return { ok: false, error: 'clip in must be >= 0' };",
+    "replace": "",
+    "tests": "server/test/commands.test.ts",
+    "note": "拿掉 in<0 守衛 → in=-1,duration=1 會通過超界檢查（-1+1=0 未超界）並讓 ffmpeg 收到 -ss -1，負的 in 被拒絕的斷言必須抓到"
   }
 ]
