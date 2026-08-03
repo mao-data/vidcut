@@ -51,8 +51,13 @@ export class CaptionCardSync {
       const doc = this.store.doc;
       const entries: Array<{ id: string; hash: string }> = [];
       for (const cap of doc.tracks.captions) {
-        const r = await this.svc.ensure(capToCardRequest(cap, doc.canvas.width));
-        entries.push({ id: cap.id, hash: r.hash });
+        try {
+          const r = await this.svc.ensure(capToCardRequest(cap, doc.canvas.width));
+          entries.push({ id: cap.id, hash: r.hash });
+        } catch (e: unknown) {
+          // 單句失敗不拖垮整批：略過該句(無 hash → UI 退回 DOM 近似渲染),其餘句照樣產出。
+          console.warn(`caption card sync failed for ${cap.id}:`, (e as Error).message);
+        }
       }
       this.latest = entries;
       this.onReady?.(entries);

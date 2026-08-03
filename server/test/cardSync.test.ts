@@ -59,4 +59,20 @@ describe('CaptionCardSync', () => {
     await new Promise((r) => setTimeout(r, 400));
     expect(calls).toBe(1);
   }, 30_000);
+
+  it('runNow 隔離單句失敗:壞的那句被略過,其餘句照樣產出並進 latest', async () => {
+    const { store } = await setup();
+    // 假 service:c1 一律失敗(模擬 rasterizer 子行程崩潰/壞字型/磁碟錯誤),c2 正常產卡。
+    const flaky = {
+      ensure: async (req: { text: string }) => {
+        if (req.text === '第一句') throw new Error('boom: rasterizer crashed');
+        return { hash: 'ok-hash', width: 100, height: 40, lines: 1 };
+      },
+    } as unknown as TextCardService;
+    const sync = new CaptionCardSync(store, flaky, 10);
+    const entries = await sync.runNow();
+    expect(entries.find((e) => e.id === 'c1')).toBeUndefined();
+    expect(entries.find((e) => e.id === 'c2')).toEqual({ id: 'c2', hash: 'ok-hash' });
+    expect(sync.latest).toEqual(entries);
+  }, 30_000);
 });
