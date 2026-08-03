@@ -30,6 +30,12 @@ export interface CaptionCard {
  */
 const MAX_CAPTION_CARDS = 600;
 
+let captionFontResolver: (family: string) => string | undefined = () => undefined;
+/** 注入字型解析器（啟動時由 index.ts 呼叫）。未注入 → fontPath null → text_card.py 退回候選鏈。 */
+export function setCaptionFontResolver(fn: (family: string) => string | undefined): void {
+  captionFontResolver = fn;
+}
+
 /**
  * 用 Pillow 把一條 caption 畫成透明 PNG 字卡（繞過 ffmpeg 無 drawtext）。
  * 給 tokenIndex 時畫成逐詞高亮的第 N 個狀態。回傳相對專案資料夾的路徑。
@@ -54,6 +60,7 @@ export function renderCaptionCard(
     fill: cap.style.fill,
     stroke: cap.style.stroke ?? null,
     width: canvasWidth,
+    fontPath: captionFontResolver(cap.style.fontFamily) ?? null,
     ...(karaoke
       ? {
           tokens: cap.tokens!.map((t) => t.text),

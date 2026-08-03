@@ -10,6 +10,7 @@ import { ReviewManager } from './reviews.js';
 import { mountMcp } from './mcp.js';
 import { PillowRasterizer } from './rasterizer.js';
 import { loadFontTable, fontResolver } from './fonts.js';
+import { setCaptionFontResolver } from './render.js';
 import { TextCardService } from './textCards.js';
 import { CaptionCardSync } from './cardSync.js';
 
@@ -32,6 +33,7 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const rasterizer = new PillowRasterizer(() => undefined);
   const fonts = await loadFontTable(rasterizer);
   rasterizer.resolveFontPath = fontResolver(fonts);
+  setCaptionFontResolver(fontResolver(fonts));
   const textCards = new TextCardService(projectDir, rasterizer);
   const cardSync = new CaptionCardSync(store, textCards);
 
