@@ -10,6 +10,7 @@ import { ReviewManager } from './reviews.js';
 import { mountMcp } from './mcp.js';
 import { PillowRasterizer } from './rasterizer.js';
 import { loadFontTable, fontResolver } from './fonts.js';
+import { TextCardService } from './textCards.js';
 
 const DEFAULT_PORT = 3845;
 
@@ -30,8 +31,9 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const rasterizer = new PillowRasterizer(() => undefined);
   const fonts = await loadFontTable(rasterizer);
   rasterizer.resolveFontPath = fontResolver(fonts);
+  const textCards = new TextCardService(projectDir, rasterizer);
 
-  const app = createApp(store, projectDir, uiDist, { fonts });
+  const app = createApp(store, projectDir, uiDist, { fonts, textCards });
   // MCP 需要能讀 req.body（JSON），StreamableHTTP 會自己處理 SSE。
   const server = createServer(app);
   attachWs(server, { store, editorContext, reviews, projectDir });
