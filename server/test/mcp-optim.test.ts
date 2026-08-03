@@ -10,6 +10,7 @@ import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import type { ProjectTracks } from '@vidcut/shared';
 import { makeVideo } from './fixtures.js';
+import { transcribe as transcribeMock } from '../src/asr.js';
 
 // whisper 是外部程序（mock 邊界）；B6 截斷邏輯在 mcp.ts，不在被 mock 的模組裡
 vi.mock('../src/asr.js', () => ({ transcribe: vi.fn() }));
@@ -83,7 +84,13 @@ beforeAll(async () => {
   });
   await call('set_overlays', {
     overlays: [
-      { id: 'o1', imagePath: 'a.png', start: 0, duration: 2, position: { x: 0.5, y: 0.2, scale: 1 } },
+      {
+        id: 'o1',
+        imagePath: 'a.png',
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.2, scale: 1 },
+      },
     ],
   });
   baseline = structuredClone(store.doc.tracks);
@@ -268,10 +275,50 @@ describe('B5 readOnlyHint annotations', () => {
   it('write tools do not claim to be read-only', async () => {
     const { tools } = await client.listTools();
     for (const t of tools) {
-      if (['update_clip', 'set_captions', 'update_caption', 'render', 'set_cover'].includes(t.name)) {
+      if (
+        ['update_clip', 'set_captions', 'update_caption', 'render', 'set_cover'].includes(t.name)
+      ) {
         expect(t.annotations?.readOnlyHint ?? false, t.name).toBe(false);
       }
     }
   });
 });
 
+// ---- B6 transcribe 長逐字稿截斷（whisper 已 mock）----
+const mkWords = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({ text: `w${i}`, start: i * 0.1, end: i * 0.1 + 0.05 }));
+
+describe('B6 transcribe word truncation', () => {
+  it('over 1000 words: structured words capped at 1000, wordsTruncated true, wordCount total', async () => {
+    vi.mocked(transcribeMock).mockResolvedValue({
+      language: 'en',
+      words: mkWords(1500),
+      text: 'long transcript',
+      jsonPath: 'derived/transcript.json',
+    });
+    const r = await call('transcribe', {});
+    const s = r.structuredContent as {
+      words: unknown[];
+      wordCount: number;
+      wordsTruncated?: boolean;
+      jsonPath: string;
+    };
+    expect(s.words).toHaveLength(1000);
+    expect(s.wordsTruncated).toBe(true);
+    expect(s.wordCount).toBe(1500);
+    expect(s.jsonPath).toBe('derived/transcript.json');
+  });
+
+  it('at or under 1000 words: full list, no truncation flag', async () => {
+    vi.mocked(transcribeMock).mockResolvedValue({
+      language: 'en',
+      words: mkWords(5),
+      text: 'short',
+      jsonPath: 'derived/transcript.json',
+    });
+    const r = await call('transcribe', {});
+    const s = r.structuredContent as { words: unknown[]; wordsTruncated?: boolean };
+    expect(s.words).toHaveLength(5);
+    expect(s.wordsTruncated ?? false).toBe(false);
+  });
+});

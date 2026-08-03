@@ -151,6 +151,9 @@ const timelineClipSchema = z.object({
   meta: z.record(z.unknown()).optional(),
 });
 
+/** transcribe 內嵌回傳的詞數上限：超過只回前段＋wordsTruncated，全量在 jsonPath 檔案裡。 */
+const MAX_WORDS_INLINE = 1000;
+
 function writeResultText(r: { ok: boolean; version?: number; error?: string }): string {
   return r.ok ? `ok, version=${r.version}` : `error: ${r.error}`;
 }
@@ -174,8 +177,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
-        'get_frame 可看某時刻的畫面；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
-        '寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；審核進行中寫入會被拒。',
+        'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
+        '小修單一項目用細粒度工具（update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
+        '不要整組重送 set_*。寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；審核進行中寫入會被拒。',
     },
   );
 
@@ -458,7 +462,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { overlay: overlaySchema, ifVersion: z.number().optional() },
     },
     async ({ overlay, ifVersion }) =>
-      writeReply(aiWrite(store, { name: 'addOverlay', overlay: overlay as OverlayItem }, ifVersion)),
+      writeReply(
+        aiWrite(store, { name: 'addOverlay', overlay: overlay as OverlayItem }, ifVersion),
+      ),
   );
 
   server.registerTool(
@@ -505,15 +511,19 @@ export function createMcpServer(deps: McpDeps): McpServer {
     },
     async ({ language }) => {
       const r = await transcribe(store.doc, projectDir, { language });
+      const truncated = r.words.length > MAX_WORDS_INLINE;
       return result(
         {
           language: r.language,
           wordCount: r.words.length,
-          words: r.words,
+          words: truncated ? r.words.slice(0, MAX_WORDS_INLINE) : r.words,
+          ...(truncated ? { wordsTruncated: true } : {}),
           text: r.text,
           jsonPath: r.jsonPath,
         },
-        `逐字稿：${r.words.length} 個詞（語言 ${r.language}）\n${r.text.slice(0, 400)}`,
+        `逐字稿：${r.words.length} 個詞（語言 ${r.language}）` +
+          (truncated ? `，僅內嵌前 ${MAX_WORDS_INLINE} 詞，全量見 ${r.jsonPath}` : '') +
+          `\n${r.text.slice(0, 400)}`,
       );
     },
   );
