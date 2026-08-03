@@ -172,12 +172,14 @@ git commit -m "feat(server): resolveMediaPath 讓素材路徑可為專案外絕�
 
 ---
 
-### Task 2: ingest 接受專案外絕對路徑
+### Task 2: ingest 與 ASR 接受專案外絕對路徑
 
 **Files:**
 
 - Modify: `server/test/ingest.test.ts`
 - Modify: `server/src/ingest.ts`（若 Task 1 已足夠則只補註解）
+- Modify: `server/src/asr.ts:88`、`server/src/asr.ts:95`
+- Modify: `server/test/asr.test.ts`
 
 **Interfaces:**
 
@@ -300,16 +302,36 @@ it('輸出吃專案外絕對路徑的素材', async () => {
 `render()` 的實際簽名以 `server/src/render.ts` 的 export 為準；若參數形狀不同，
 照該檔的簽名調整呼叫，**斷言不變**（輸出檔存在）。
 
-- [ ] **Step 6: 跑測試確認通過**
+- [ ] **Step 6: 補 ASR 的同型缺口（Task 1 審查發現）**
 
-Run: `npm test`
-Expected: 全綠
+`server/src/asr.ts:88` 與 `:95` 有和 Task 1 完全相同形狀的 `join(projectDir, media.path)`。
+沒改的話，**外部素材跑 `transcribe` / `auto_caption` 會找不到檔**。
 
-- [ ] **Step 7: Commit**
+先寫會失敗的測試（加到 `server/test/asr.test.ts`）：斷言 `buildAsrAudioArgs`
+（`server/src/asr.ts:72` 的具名 export，簽名 `(project, projectDir, outWav) => string[]`）
+對絕對路徑素材產生的參數含 `/outside/ext.mp4`，且**不含** `/proj/outside` 這種被錯誤拼接的路徑。
+影片軌與音訊軌兩條路徑（`:88` 與 `:95`）各要一條測試。
+
+Run: `npx vitest run server/test/asr.test.ts`
+Expected: FAIL —— 參數裡出現 `/proj/outside/ext.mp4`
+
+然後把那兩處換成 `resolveMediaPath(projectDir, media.path)`，加
+`import { resolveMediaPath } from './paths.js';`。
+
+**只換這兩處。**`asr.ts` 的 279/280/282/291/314 是衍生檔與輸出路徑
+（`derived/`、`.wav`、`.json`），本來就該相對專案，**不要動**。
+
+- [ ] **Step 7: 跑測試確認通過**
+
+Run: `bash scripts/gauntlet.sh --fast`
+Expected: GAUNTLET 全數通過
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add server/test/ingest.test.ts server/test/render.test.ts server/src/ingest.ts
-git commit -m "test(server): ingest 與 render 吃專案外絕對路徑的迴歸測"
+git add server/test/ingest.test.ts server/test/render.test.ts server/src/ingest.ts \
+        server/src/asr.ts server/test/asr.test.ts
+git commit -m "fix(server): ASR 也走 resolveMediaPath；ingest/render 外部路徑迴歸測"
 ```
 
 ---
