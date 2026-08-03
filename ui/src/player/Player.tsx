@@ -5,6 +5,7 @@ import { usePlayback } from '../stores/playback.js';
 import { mediaUrl } from '../ws.js';
 import { useEditFx } from '../stores/editFx.js';
 import { planAt } from './plan.js';
+import { syncAction } from './sync.js';
 
 const DRIFT_TOLERANCE = 0.06; // 60ms
 const PRELAUNCH = 0.05; // 邊界前 50ms 啟動 next
@@ -88,7 +89,19 @@ export function Player() {
         if (!el.paused) el.pause();
         continue;
       }
-      if (Math.abs(el.currentTime - a.sourceTime) > DRIFT_TOLERANCE) el.currentTime = a.sourceTime;
+      if (playing) {
+        // 播放中絕不因小漂移 seek（seek→重啟延遲→再落後的風暴＝斷續雜音）；
+        // 小漂移調 playbackRate 追趕，大跳（拖 playhead）才 seek
+        const s = syncAction(a.sourceTime - el.currentTime);
+        if (s.kind === 'seek') {
+          el.currentTime = a.sourceTime;
+          if (el.playbackRate !== 1) el.playbackRate = 1;
+        } else if (el.playbackRate !== s.rate) {
+          el.playbackRate = s.rate;
+        }
+      } else if (Math.abs(el.currentTime - a.sourceTime) > DRIFT_TOLERANCE) {
+        el.currentTime = a.sourceTime; // 暫停下拖 playhead 要立即到位
+      }
       el.volume = Math.min(a.volume, 1);
       if (playing && el.paused) void el.play().catch(() => {});
       if (!playing && !el.paused) el.pause();
@@ -126,8 +139,16 @@ export function Player() {
       mountedClip.current[key] = plan.active.clipId;
     }
 
-    // 漂移校正
-    if (Math.abs(act.currentTime - plan.active.sourceTime) > DRIFT_TOLERANCE) {
+    // 漂移校正：播放中調速追趕（同音訊軌，見上），暫停/定格才允許直接 snap
+    if (playing && !plan.active.frozen) {
+      const s = syncAction(plan.active.sourceTime - act.currentTime);
+      if (s.kind === 'seek') {
+        act.currentTime = plan.active.sourceTime;
+        if (act.playbackRate !== 1) act.playbackRate = 1;
+      } else if (act.playbackRate !== s.rate) {
+        act.playbackRate = s.rate;
+      }
+    } else if (Math.abs(act.currentTime - plan.active.sourceTime) > DRIFT_TOLERANCE) {
       act.currentTime = plan.active.sourceTime;
     }
     if (plan.active.frozen) {
@@ -142,11 +163,12 @@ export function Player() {
       if (!playing && !act.paused) act.pause();
     }
 
-    // premount + 預啟動 next
+    // premount + 預啟動 next（playbackRate 復位：spare 起播不得帶殘留調速）
     if (plan.next && mountedClip.current[spareKey] !== plan.next.clipId) {
       spare.src = plan.next.src;
       spare.currentTime = plan.next.sourceTime;
       spare.muted = true;
+      spare.playbackRate = 1;
       mountedClip.current[spareKey] = plan.next.clipId;
     }
     if (plan.next && playing) {
@@ -160,7 +182,11 @@ export function Player() {
     const bg = vBg.current;
     if (blurFill && bg) {
       if (!bg.src.endsWith(plan.active.src)) bg.src = plan.active.src;
-      if (Math.abs(bg.currentTime - plan.active.sourceTime) > 0.3) {
+      if (playing) {
+        const s = syncAction(plan.active.sourceTime - bg.currentTime);
+        if (s.kind === 'seek') bg.currentTime = plan.active.sourceTime;
+        else if (bg.playbackRate !== s.rate) bg.playbackRate = s.rate;
+      } else if (Math.abs(bg.currentTime - plan.active.sourceTime) > 0.3) {
         bg.currentTime = plan.active.sourceTime;
       }
       if (playing && bg.paused) void bg.play().catch(() => {});
