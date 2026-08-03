@@ -212,7 +212,8 @@ export type Command =
   | { name: 'removeAudio'; id: string }
   | { name: 'setAudio'; audio: AudioItem[] }
   | { name: 'setCanvasFit'; fit: CanvasFit }
-  | { name: 'undo'; steps?: number };
+  | { name: 'undo'; steps?: number }
+  | { name: 'redo'; steps?: number };
 
 export type CommandResult = { ok: true; version: number } | { ok: false; error: string };
 

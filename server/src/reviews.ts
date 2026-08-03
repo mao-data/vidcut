@@ -76,10 +76,9 @@ export class ReviewManager {
       d.review = null;
     });
 
-    // 退回：回滾該輪 AI 變更（undo 回 sinceVersion）
+    // 退回：一筆回滾該輪變更（走歷史，不動使用者的 undo/redo 游標）
     if (outcome === 'rejected') {
-      const steps = this.#store.version - p.sinceVersion;
-      if (steps > 0) this.#store.undo(steps);
+      this.#store.revertSince(p.sinceVersion);
     }
 
     p.resolve({ outcome, note, humanChanges });

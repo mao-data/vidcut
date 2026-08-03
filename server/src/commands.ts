@@ -117,8 +117,12 @@ export function applyCommand(
         }),
       );
     case 'undo': {
-      const r = store.undo(cmd.steps ?? 1);
+      const r = store.undo(source, cmd.steps ?? 1);
       return r ? { ok: true, version: r.version } : { ok: false, error: 'nothing to undo' };
+    }
+    case 'redo': {
+      const r = store.redo(source, cmd.steps ?? 1);
+      return r ? { ok: true, version: r.version } : { ok: false, error: 'nothing to redo' };
     }
     default: {
       const _exhaustive: never = cmd;

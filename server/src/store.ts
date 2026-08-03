@@ -28,7 +28,19 @@ export interface ChangeEvent {
 }
 
 const HISTORY_MAX = 200;
+const UNDO_MAX = 200;
 const SAVE_DEBOUNCE_MS = 500;
+
+/** 落盤格式 = doc + 修訂號（load 時剝離，doc 本體不帶 rev）。 */
+type ProjectFile = Project & { rev?: number };
+
+/** 可撤回 = 只動編輯面（軌道/畫布）。render/review/cover/media 狀態不進 undo。 */
+function isUndoable(patches: JsonPatch[]): boolean {
+  return (
+    patches.length > 0 &&
+    patches.every((p) => p.path[0] === 'tracks' || p.path[0] === 'canvas')
+  );
+}
 
 /**
  * 專案的唯一真相來源。所有變更（AI 或 UI）都走 mutate()，序列化、記歷史、
@@ -38,21 +50,28 @@ export class ProjectStore {
   #doc: Project;
   #version = 0;
   #history: HistoryEntry[] = [];
+  /** 游標式 undo：只收「可撤回的編輯」；undo 把 entry 移去 redo、redo 移回來 */
+  #undoStack: HistoryEntry[] = [];
+  #redoStack: HistoryEntry[] = [];
+  /** undo/redo 套用中的旗標：其產生的 mutation 不得再進堆疊（防遞迴/自我污染） */
+  #replaying = false;
   #listeners = new Set<(e: ChangeEvent) => void>();
   #filePath: string;
   #saveTimer: ReturnType<typeof setTimeout> | null = null;
   #saving: Promise<void> = Promise.resolve();
 
-  private constructor(filePath: string, doc: Project) {
+  private constructor(filePath: string, doc: Project, rev = 0) {
     this.#filePath = filePath;
     this.#doc = freeze(doc, true);
+    this.#version = rev;
   }
 
   /** 檔案不存在時從資料夾名推 name 建空專案。 */
   static async load(filePath: string): Promise<ProjectStore> {
     try {
       const raw = await readFile(filePath, 'utf8');
-      return new ProjectStore(filePath, JSON.parse(raw) as Project);
+      const { rev, ...doc } = JSON.parse(raw) as ProjectFile;
+      return new ProjectStore(filePath, doc as Project, rev ?? 0);
     } catch {
       const name = basename(dirname(filePath)) || 'untitled';
       return new ProjectStore(filePath, createEmptyProject(name, name));
@@ -81,16 +100,23 @@ export class ProjectStore {
     this.#doc = next;
     this.#version += 1;
     const ts = new Date().toISOString();
-    this.#history.push({
+    const entry: HistoryEntry = {
       version: this.#version,
       label,
       source,
       ts,
       patches: patches as JsonPatch[],
       inversePatches: inversePatches as JsonPatch[],
-    });
+    };
+    this.#history.push(entry);
     if (this.#history.length > HISTORY_MAX) {
       this.#history.splice(0, this.#history.length - HISTORY_MAX);
+    }
+    // 游標式 undo：新的可撤回編輯進堆疊並清 redo（分叉）；undo/redo 重放不進
+    if (!this.#replaying && isUndoable(entry.patches)) {
+      this.#undoStack.push(entry);
+      if (this.#undoStack.length > UNDO_MAX) this.#undoStack.shift();
+      this.#redoStack = [];
     }
     this.#scheduleSave();
     const evt: ChangeEvent = {
@@ -105,20 +131,63 @@ export class ProjectStore {
   }
 
   /**
-   * 撤回最後 n 筆 mutation，以一筆新 mutation（label 'undo'）廣播。
-   * 無可撤回時回 null。注意：撤 undo 自己 = redo 語意（M1 接受此簡化）。
+   * 游標式 undo：每步 pop 一筆「可撤回編輯」套用 inverse（連按一路往回退），
+   * pop 出的 entry 進 redo 堆疊。非編輯（render/review/cover）不在範圍。
+   * 無可撤回時回 null。
    */
-  undo(steps = 1): { version: number } | null {
-    const n = Math.min(steps, this.#history.length);
-    if (n === 0) return null;
-    const inverse = this.#history
-      .slice(-n)
-      .reverse()
-      .flatMap((h) => h.inversePatches);
-    const r = this.mutate('human', 'undo', (draft) => {
-      applyPatches(draft, inverse as Patch[]);
-    });
-    return { version: r.version };
+  undo(source: MutationSource, steps = 1): { version: number } | null {
+    let last: { version: number } | null = null;
+    for (let i = 0; i < steps; i++) {
+      const e = this.#undoStack.pop();
+      if (!e) break;
+      this.#replaying = true;
+      try {
+        last = this.mutate(source, `undo: ${e.label}`, (draft) => {
+          applyPatches(draft, e.inversePatches as Patch[]);
+        });
+      } finally {
+        this.#replaying = false;
+      }
+      this.#redoStack.push(e);
+    }
+    return last;
+  }
+
+  /** redo：對稱地把最後被撤回的編輯套回去。 */
+  redo(source: MutationSource, steps = 1): { version: number } | null {
+    let last: { version: number } | null = null;
+    for (let i = 0; i < steps; i++) {
+      const e = this.#redoStack.pop();
+      if (!e) break;
+      this.#replaying = true;
+      try {
+        last = this.mutate(source, `redo: ${e.label}`, (draft) => {
+          applyPatches(draft, e.patches as Patch[]);
+        });
+      } finally {
+        this.#replaying = false;
+      }
+      this.#undoStack.push(e);
+    }
+    return last;
+  }
+
+  /**
+   * 一筆回滾 version 之後的全部變更（審核退回用）。走歷史而非 undo 堆疊——
+   * 回滾範圍含非編輯 mutation，且不應動到使用者的 undo/redo 游標。
+   */
+  revertSince(version: number): { version: number } | null {
+    const entries = this.#history.filter((h) => h.version > version);
+    if (entries.length === 0) return null;
+    const inverse = entries.reverse().flatMap((h) => h.inversePatches);
+    this.#replaying = true;
+    try {
+      return this.mutate('human', 'review rollback', (draft) => {
+        applyPatches(draft, inverse as Patch[]);
+      });
+    } finally {
+      this.#replaying = false;
+    }
   }
 
   onChange(cb: (e: ChangeEvent) => void): () => void {
@@ -137,7 +206,8 @@ export class ProjectStore {
     this.#saving = this.#saving.then(async () => {
       await mkdir(dirname(this.#filePath), { recursive: true });
       const tmp = join(dirname(this.#filePath), `.project.json.tmp`);
-      await writeFile(tmp, JSON.stringify(this.#doc, null, 2), 'utf8');
+      const file: ProjectFile = { ...this.#doc, rev: this.#version };
+      await writeFile(tmp, JSON.stringify(file, null, 2), 'utf8');
       await rename(tmp, this.#filePath);
     });
     return this.#saving;

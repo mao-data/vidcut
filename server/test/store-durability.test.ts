@@ -99,18 +99,18 @@ describe('ProjectStore durability (Tier 3)', () => {
     store.mutate('human', 'b', addClip('b'));
     store.mutate('human', 'c', addClip('c'));
 
-    store.undo(2);
+    store.undo('human', 2);
     expect(JSON.stringify(store.doc)).toBe(afterA);
     await rm(dir, { recursive: true, force: true });
   });
 
   it('undo past the beginning reports failure instead of corrupting state', async () => {
     const { dir, store } = await tempStore();
-    expect(store.undo(1)).toBeNull();
+    expect(store.undo('human', 1)).toBeNull();
     expect(store.doc).toEqual(createEmptyProject(store.doc.id, store.doc.name));
 
     store.mutate('human', 'a', addClip('a'));
-    store.undo(5); // 要求比歷史還多步
+    store.undo('human', 5); // 要求比歷史還多步
     expect(store.doc.tracks.video).toHaveLength(0);
     await rm(dir, { recursive: true, force: true });
   });
@@ -121,7 +121,7 @@ describe('ProjectStore durability (Tier 3)', () => {
     for (let i = 0; i < 260; i++) store.mutate('ai', `add ${i}`, addClip(`c${i}`));
     expect(store.doc.tracks.video).toHaveLength(260);
 
-    store.undo(1);
+    store.undo('human', 1);
     expect(store.doc.tracks.video).toHaveLength(259);
     expect(store.doc.tracks.video.at(-1)!.label).toBe('c258');
     await rm(dir, { recursive: true, force: true });
@@ -132,7 +132,7 @@ describe('ProjectStore durability (Tier 3)', () => {
     const seen: number[] = [];
     store.onChange((e) => seen.push(e.version));
     store.mutate('human', 'a', addClip('a'));
-    store.undo(1);
+    store.undo('human', 1);
     expect(seen).toEqual([1, 2]); // undo 廣播為新版本，不是回退版本號
     expect(store.version).toBe(2);
     await rm(dir, { recursive: true, force: true });
