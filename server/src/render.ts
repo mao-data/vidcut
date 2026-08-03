@@ -7,6 +7,7 @@ import type { CaptionItem, Project, RenderOptions } from '@vidcut/shared';
 import { locate, overlayWindow, totalDuration } from '@vidcut/shared';
 import { runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
+import { resolveMediaPath } from './paths.js';
 
 /** 渲染進度旁路：'progress' 事件 (0–1)。暫態資料不進版本化 store，由 wsHub 廣播給 UI。 */
 export const renderProgressBus = new EventEmitter();
@@ -196,7 +197,7 @@ export function buildRenderArgs(
         '-t',
         String(clip.duration),
         '-i',
-        join(projectDir, media.path),
+        resolveMediaPath(projectDir, media.path),
       );
     }
   }
@@ -217,7 +218,7 @@ export function buildRenderArgs(
   for (const a of audioItems) {
     const media = project.media.find((m) => m.id === a.mediaId);
     if (!media) throw new Error(`render: media not found for audio ${a.id}`);
-    args.push('-i', join(projectDir, media.path));
+    args.push('-i', resolveMediaPath(projectDir, media.path));
   }
 
   const fc: string[] = [];
@@ -412,7 +413,7 @@ export async function render(
         '-ss',
         String(clip.in),
         '-i',
-        join(projectDir, media.path),
+        resolveMediaPath(projectDir, media.path),
         '-frames:v',
         '1',
         '-q:v',
@@ -504,7 +505,7 @@ export async function extractCover(
   } else {
     const loc = locate(project, Math.min(Math.max(time, 0), totalDuration(project)));
     if (!loc) throw new Error('cover: no clip at that time');
-    src = join(projectDir, loc.media.proxyPath ?? loc.media.path);
+    src = resolveMediaPath(projectDir, loc.media.proxyPath ?? loc.media.path);
     seek = loc.clip.frozen ? loc.clip.in : loc.clip.in + loc.offsetInClip;
   }
 

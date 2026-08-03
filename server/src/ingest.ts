@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import type { MediaAsset } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
+import { resolveMediaPath } from './paths.js';
 
 export interface IngestOpts {
   label?: string;
@@ -29,7 +30,7 @@ export async function ingestMedia(
   const existing = store.doc.media.find((m) => m.path === relPath);
   if (existing) return existing.id;
 
-  const abs = join(projectDir, relPath);
+  const abs = resolveMediaPath(projectDir, relPath);
   const info = await probe(abs);
   const id = nanoid(8);
   const derivedRel = join('derived', id);
