@@ -175,6 +175,8 @@ export type Command =
     }
   | { name: 'reorderClips'; order: string[] }
   | { name: 'removeClip'; clipId: string }
+  /** 新增一段畫面到主軌尾端（人從素材庫加入；AI 通常用 set_timeline 整組排） */
+  | { name: 'addClip'; mediaId: string; in: number; duration: number; label?: string }
   | {
       name: 'updateOverlay';
       id: string;

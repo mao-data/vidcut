@@ -54,6 +54,8 @@ export function applyCommand(
       return reorderClips(store, source, cmd);
     case 'removeClip':
       return removeClip(store, source, cmd);
+    case 'addClip':
+      return addClip(store, source, cmd);
     case 'updateOverlay':
       return updateOverlay(store, source, cmd);
     case 'addOverlay':
@@ -200,6 +202,32 @@ function removeClip(
   return ok(
     store.mutate(source, `remove ${cmd.clipId}`, (d) => {
       d.tracks.video = d.tracks.video.filter((c) => c.id !== cmd.clipId);
+    }),
+  );
+}
+
+function addClip(
+  store: ProjectStore,
+  source: MutationSource,
+  cmd: Extract<Command, { name: 'addClip' }>,
+): CommandResult {
+  const media = store.doc.media.find((m) => m.id === cmd.mediaId);
+  if (!media) return { ok: false, error: `media not found: ${cmd.mediaId}` };
+  if (cmd.duration <= 0) return { ok: false, error: 'clip duration must be > 0' };
+  if (cmd.in < 0) return { ok: false, error: 'clip in must be >= 0' };
+  if (cmd.in + cmd.duration > media.probe.duration + 1e-6) {
+    return { ok: false, error: `clip out of bounds for ${cmd.mediaId}` };
+  }
+  return ok(
+    store.mutate(source, `add clip ${cmd.label ?? cmd.mediaId}`, (d) => {
+      d.tracks.video.push({
+        id: nanoid(6),
+        mediaId: cmd.mediaId,
+        in: cmd.in,
+        duration: cmd.duration,
+        volume: 1,
+        ...(cmd.label ? { label: cmd.label } : {}),
+      });
     }),
   );
 }

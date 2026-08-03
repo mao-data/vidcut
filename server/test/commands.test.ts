@@ -261,3 +261,46 @@ describe('addOverlay / removeOverlay', () => {
     expect(applyCommand(store, 'human', { name: 'removeOverlay', id: 'ov_rm' }).ok).toBe(false);
   });
 });
+
+describe('addClip', () => {
+  it('append 到主軌尾端', async () => {
+    const store = await storeWithClips();
+    const before = store.doc.tracks.video.length;
+    const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'm1', in: 0, duration: 3 });
+    expect(r.ok).toBe(true);
+    const clips = store.doc.tracks.video;
+    expect(clips).toHaveLength(before + 1);
+    expect(clips[clips.length - 1]).toMatchObject({ mediaId: 'm1', in: 0, duration: 3, volume: 1 });
+    expect(clips[clips.length - 1]!.id).toBeTruthy();
+  });
+
+  it('未知 mediaId 被拒絕', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'addClip',
+      mediaId: 'nope',
+      in: 0,
+      duration: 3,
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('duration <= 0 被拒絕', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'm1', in: 0, duration: 0 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('in + duration 超出素材長度被拒絕', async () => {
+    const store = await storeWithClips();
+    // m1 全長 20 秒
+    const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'm1', in: 18, duration: 5 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('剛好用滿素材長度是允許的', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'm1', in: 0, duration: 20 });
+    expect(r.ok).toBe(true);
+  });
+});
