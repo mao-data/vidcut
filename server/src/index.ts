@@ -8,6 +8,8 @@ import { ProjectStore } from './store.js';
 import { EditorContext } from './editorContext.js';
 import { ReviewManager } from './reviews.js';
 import { mountMcp } from './mcp.js';
+import { PillowRasterizer } from './rasterizer.js';
+import { loadFontTable, fontResolver } from './fonts.js';
 
 const DEFAULT_PORT = 3845;
 
@@ -24,7 +26,12 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const reviews = new ReviewManager(store);
   const uiDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
 
-  const app = createApp(store, projectDir, uiDist);
+  // 字型表：resolver 循環——先用空 resolver 建 rasterizer 來 probe 字型，表建好後回頭換上真 resolver。
+  const rasterizer = new PillowRasterizer(() => undefined);
+  const fonts = await loadFontTable(rasterizer);
+  rasterizer.resolveFontPath = fontResolver(fonts);
+
+  const app = createApp(store, projectDir, uiDist, { fonts });
   // MCP 需要能讀 req.body（JSON），StreamableHTTP 會自己處理 SSE。
   const server = createServer(app);
   attachWs(server, { store, editorContext, reviews, projectDir });

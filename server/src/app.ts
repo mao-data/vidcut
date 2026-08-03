@@ -3,15 +3,17 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import type { ProjectStore } from './store.js';
+import type { FontEntry } from './fonts.js';
 
 /**
- * HTTP 面：/api/project（debug）、/media/*（原生 Range，給 <video>）、
- * POST /assets（UI 上傳疊圖等素材）、/（UI build，存在時）。
+ * HTTP 面：/api/project（debug）、/api/fonts+/fonts/:id（字型表，供 UI @font-face）、
+ * /media/*（原生 Range，給 <video>）、POST /assets（UI 上傳疊圖等素材）、/（UI build，存在時）。
  */
 export function createApp(
   store: ProjectStore,
   projectDir: string,
   uiDistDir?: string,
+  extras?: { fonts?: FontEntry[] },
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -43,6 +45,18 @@ export function createApp(
       })().catch(next);
     },
   );
+
+  app.get('/api/fonts', (_req, res) => {
+    res.json((extras?.fonts ?? []).map((f) => ({ id: f.id, family: f.family })));
+  });
+  app.get('/fonts/:id', (req, res) => {
+    const f = extras?.fonts?.find((x) => x.id === req.params.id);
+    if (!f) {
+      res.status(404).end();
+      return;
+    }
+    res.sendFile(f.path);
+  });
 
   app.use('/media', express.static(projectDir, { fallthrough: false }));
   if (uiDistDir && existsSync(uiDistDir)) app.use(express.static(uiDistDir));
