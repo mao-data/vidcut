@@ -161,3 +161,29 @@ describe('B3 isError on application-level failures', () => {
     expect(r.isError ?? false).toBe(false);
   });
 });
+
+// ---- B1/B2 影像 content block（Claude Desktop 抓不到 127.0.0.1 的 URL）----
+const jpegBlock = (r: Structured) => r.content.find((c) => c.type === 'image');
+const isJpeg = (b64: string) => {
+  const buf = Buffer.from(b64, 'base64');
+  return buf.length > 2 && buf[0] === 0xff && buf[1] === 0xd8;
+};
+
+describe('B1/B2 image content blocks', () => {
+  it('get_frame returns an inline JPEG image block plus the URL', async () => {
+    const r = await call('get_frame', { time: 0.5 });
+    const img = jpegBlock(r);
+    expect(img?.mimeType).toBe('image/jpeg');
+    expect(isJpeg(img?.data ?? '')).toBe(true);
+    expect(JSON.stringify(r.structuredContent)).toContain('http://127.0.0.1:3845/media/');
+  });
+
+  it('set_cover returns an inline JPEG image block and records coverPath', async () => {
+    const r = await call('set_cover', { time: 0.5 });
+    const img = jpegBlock(r);
+    expect(img?.mimeType).toBe('image/jpeg');
+    expect(isJpeg(img?.data ?? '')).toBe(true);
+    expect(store.doc.render.coverPath).toBeTruthy();
+  }, 60_000);
+});
+

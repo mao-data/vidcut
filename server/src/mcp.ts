@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Express, Request, Response } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -33,6 +35,21 @@ function err(s: string) {
 
 function result(structured: Record<string, unknown>, summary: string) {
   return { content: [{ type: 'text' as const, text: summary }], structuredContent: structured };
+}
+
+/**
+ * 回覆內嵌 JPEG 影像 block。遠端 client（如 Claude Desktop）抓不到本機
+ * 127.0.0.1 的 URL，畫面必須直接放進回覆；URL/路徑仍留在 structured 給本機 client。
+ */
+async function imageReply(absPath: string, structured: Record<string, unknown>, summary: string) {
+  const data = (await readFile(absPath)).toString('base64');
+  return {
+    content: [
+      { type: 'text' as const, text: summary },
+      { type: 'image' as const, data, mimeType: 'image/jpeg' },
+    ],
+    structuredContent: structured,
+  };
 }
 
 /** 專案裁剪視圖（避免超過 client 輸出上限）。 */
@@ -244,7 +261,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     async ({ time }) => {
       const rel = await extractFrame(projectDir, store.doc, time);
       if (!rel) return err(`no active clip at ${time}s`);
-      return result({ url: `${baseUrl}/media/${rel}`, path: rel }, `${baseUrl}/media/${rel}`);
+      return imageReply(
+        join(projectDir, rel),
+        { url: `${baseUrl}/media/${rel}`, path: rel },
+        `${baseUrl}/media/${rel}`,
+      );
     },
   );
 
@@ -553,7 +574,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     async ({ time }) => {
       try {
         const rel = await extractCover(store, projectDir, time);
-        return result(
+        return imageReply(
+          join(projectDir, rel),
           { coverPath: rel, url: `${baseUrl}/media/${rel}` },
           `${baseUrl}/media/${rel}`,
         );
