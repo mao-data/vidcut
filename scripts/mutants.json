@@ -415,5 +415,93 @@
     "replace": "          v{useProject.getState().version} · {doc?.name ?? '—'}",
     "tests": "ui/src/app-version.test.tsx",
     "note": "標頭改回顯示修訂號 → 語意化版本斷言必須抓到"
+  },
+  {
+    "id": "paths-absolute",
+    "file": "server/src/paths.ts",
+    "find": "return isAbsolute(mediaPath) ? mediaPath : join(projectDir, mediaPath);",
+    "replace": "return join(projectDir, mediaPath);",
+    "tests": "server/test/paths.test.ts",
+    "note": "絕對路徑也被接到專案底下 → 絕對路徑斷言必須抓到"
+  },
+  {
+    "id": "addclip-media-exists",
+    "file": "server/src/commands.ts",
+    "find": "if (!media) return { ok: false, error: `media not found: ${cmd.mediaId}` };",
+    "replace": "",
+    "tests": "server/test/commands.test.ts",
+    "note": "不檢查 mediaId 存在 → 未知 mediaId 斷言必須抓到"
+  },
+  {
+    "id": "addclip-bounds",
+    "file": "server/src/commands.ts",
+    "find": "if (cmd.in + cmd.duration > media.probe.duration + 1e-6) {",
+    "replace": "if (false) {",
+    "tests": "server/test/commands.test.ts",
+    "note": "不檢查超界 → in+duration 超出素材長度的斷言必須抓到"
+  },
+  {
+    "id": "addclip-duration",
+    "file": "server/src/commands.ts",
+    "find": "if (cmd.duration <= 0) return { ok: false, error: 'clip duration must be > 0' };",
+    "replace": "",
+    "tests": "server/test/commands.test.ts",
+    "note": "允許 duration=0 → 零長度斷言必須抓到"
+  },
+  {
+    "id": "scan-hidden",
+    "file": "server/src/sourceFolder.ts",
+    "find": "if (name.startsWith('.')) continue;",
+    "replace": "",
+    "tests": "server/test/sourceFolder.test.ts",
+    "note": "不排除隱藏檔 → 隱藏檔斷言必須抓到"
+  },
+  {
+    "id": "scan-isfile",
+    "file": "server/src/sourceFolder.ts",
+    "find": "if (!s.isFile()) continue; // 目錄／裝置檔／斷掉的連結都不收",
+    "replace": "",
+    "tests": "server/test/sourceFolder.test.ts",
+    "note": "目錄也被當成檔案 → 名字像影片的子目錄斷言必須抓到"
+  },
+  {
+    "id": "scan-sort",
+    "file": "server/src/sourceFolder.ts",
+    "find": "return out.sort((a, b) => a.name.localeCompare(b.name));",
+    "replace": "return out;",
+    "tests": "server/test/sourceFolder.test.ts",
+    "note": "不排序 → 排序斷言必須抓到（readdir 順序不保證）"
+  },
+  {
+    "id": "import-basename",
+    "file": "server/src/app.ts",
+    "find": "const abs = join(dir, basename(name)); // basename 防 traversal",
+    "replace": "const abs = join(dir, name);",
+    "tests": "server/test/import-api.test.ts",
+    "note": "拿掉 traversal 防護 → ../ 逃逸斷言必須抓到"
+  },
+  {
+    "id": "import-serial",
+    "file": "server/src/app.ts",
+    "find": "      for (const name of names) {\n        try {\n          const abs = join(dir, basename(name)); // basename 防 traversal\n          const mediaId = await ingestMedia(store, projectDir, abs, { label: name });\n          if (addToTimeline) {\n            const media = store.doc.media.find((m) => m.id === mediaId)!;\n            const r = applyCommand(store, 'human', {\n              name: 'addClip',\n              mediaId,\n              in: 0,\n              duration: media.probe.duration,\n              label: name,\n            });\n            if (!r.ok) throw new Error(r.error);\n          }\n          ok.push({ name, mediaId });\n        } catch (e) {\n          failed.push({ name, error: (e as Error).message });\n        }\n      }",
+    "replace": "      await Promise.all(names.map(async (name) => {\n        try {\n          const abs = join(dir, basename(name)); // basename 防 traversal\n          const mediaId = await ingestMedia(store, projectDir, abs, { label: name });\n          if (addToTimeline) {\n            const media = store.doc.media.find((m) => m.id === mediaId)!;\n            const r = applyCommand(store, 'human', {\n              name: 'addClip',\n              mediaId,\n              in: 0,\n              duration: media.probe.duration,\n              label: name,\n            });\n            if (!r.ok) throw new Error(r.error);\n          }\n          ok.push({ name, mediaId });\n        } catch (e) {\n          failed.push({ name, error: (e as Error).message });\n        }\n      }));",
+    "tests": "server/test/import-api.test.ts",
+    "note": "序列 for...await 改寫成 Promise.all 併行 → maxInFlight 恆為 1 的斷言必須抓到（Task 8 controller 指定：Task 6 審查曾實測『expected 3 to be 1』，本次以完整迴圈區塊當 find/replace 重現，非單行取代）"
+  },
+  {
+    "id": "ingest-cleanup",
+    "file": "server/src/ingest.ts",
+    "find": "await rm(derivedAbs, { recursive: true, force: true });",
+    "replace": "",
+    "tests": "server/test/ingest.test.ts",
+    "note": "proxy/filmstrip/peaks 任一步失敗時不清理半成品 derived/<id> 目錄 → 半成品殘留斷言必須抓到"
+  },
+  {
+    "id": "render-precheck",
+    "file": "server/src/render.ts",
+    "find": "if (missing.length > 0) {",
+    "replace": "if (false) {",
+    "tests": "server/test/render.test.ts",
+    "note": "缺檔預檢失效，直接把明確錯誤換成 ffmpeg 原始報錯 → /^render: 找不到素材原檔：/ 的斷言必須抓到"
   }
 ]

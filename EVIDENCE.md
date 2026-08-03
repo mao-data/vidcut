@@ -385,3 +385,149 @@ server 重啟歸零、undo 因「撤 undo 自己＝redo」而在最後一步來�
 重新整理瀏覽器：標頭應顯示 `vidcut · v0.1.0 · demo`；連按 Cmd+Z 應一路往回退、
 Cmd+Shift+Z（或 Activity 的 Redo 鈕）往前；渲染時版本號不再狂跳、Activity 不再被
 進度洗版。
+
+---
+
+# 補記：素材匯入 階段 1（零複製引用）2026-08-03
+
+Spec：`docs/superpowers/specs/2026-08-03-media-import-design.md`（階段 1：後端能力）。
+分七個 Task（各有獨立審查與修復迴圈）+ 本 Task（8）補齊突變覆蓋與本節。
+來源狀態：commit `6cb9107`（Task 1–7 最終）+ 本 Task 新增的 `scripts/mutants.json`／
+`EVIDENCE.md`／`server/test/render.test.ts`。
+
+核心決策：`MediaAsset.path` 的語意擴充——相對路徑＝專案內（既有行為），絕對路徑＝
+外部零複製引用。樞紐是 `server/src/paths.ts` 的 `resolveMediaPath(projectDir, path)`，
+換掉 `render.ts`／`ingest.ts` 原本四處 `join(projectDir, media.path)` 的硬接法。
+
+## 行為 → 測試對映
+
+| 行為                                                                    | 測試                                                                                                                                                        |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveMediaPath`：相對接在專案下／絕對原樣回傳／`..` 正規化／空字串回專案本身 | `server/test/paths.test.ts`（4 條，Task 1）                                                                                                                |
+| 四處呼叫端換成 `resolveMediaPath`（render.ts ×3、ingest.ts）              | `server/test/ingest.test.ts`「可以 ingest 專案資料夾外的絕對路徑」；`server/test/render.test.ts`「輸出吃專案外絕對路徑的素材」（Task 1／2）                |
+| `asr.ts` 同型缺口（Task 1 審查發現、升級為 Task 2 範圍）                  | Task 2 新增測試（本 Task 未動 `asr.ts`，沿用既有覆蓋）                                                                                                      |
+| `scanSourceFolder`：白名單副檔名、大小寫、排除隱藏檔、不遞迴、大小/mtime、symlink 收錄、斷 symlink 略過、非 ASCII/空白檔名、略過子目錄、目錄不存在丟錯、傳入檔案丟錯、位元組序穩健排序 | `server/test/sourceFolder.test.ts`（13 條，Task 4）                                                                                                        |
+| `GET /api/source`：列出檔案、`imported` 標記（含相對路徑素材）、400（目錄不存在／沒帶 dir） | `server/test/source-api.test.ts`（5 條，Task 5；commit `9dccca1`=前 4 條、`4103b35`=第 5 條殺 `resolveMediaPath` 缺口）                                    |
+| `ingestMedia` 接受絕對路徑、同絕對路徑冪等回同 id                         | `server/test/ingest.test.ts`「可以 ingest…」「同一個絕對路徑重複 ingest 回同一個 id」                                                                       |
+| `addClip` command：append 到主軌尾端、未知 mediaId 拒絕、duration≤0 拒絕、in+duration 超界拒絕、剛好用滿允許、浮點誤差 1e-6 容差 | `server/test/commands.test.ts`「addClip」describe 區塊（6 條，Task 3；含審查後補的浮點邊界測試）                                                            |
+| `POST /api/import`：匯入進 `doc.media` 且原檔不複製、`addToTimeline` 接到主軌尾端、壞檔進 `failed[]` 其餘繼續、400（缺 dir/names）、`basename` 防 traversal（相對／絕對兩種敵意輸入）、逐支序列處理不變式（`maxInFlight===1`） | `server/test/import-api.test.ts`（7 條，Task 6；審查後補誘餌檔堵假殺、補序列不變式觀測測試）                                                                |
+| MCP `import_media` 說明更新（接受絕對路徑）                              | 透過 `server/test/mcp-tools.test.ts` 的 `import_media` 呼叫間接覆蓋（工具本身只是 `ingestMedia` 的薄殼，行為驗證落在 `ingest.test.ts`）                    |
+| ingest 中途失敗清掉半成品 `derived/<id>/`                                | `server/test/ingest.test.ts`「ingest 失敗不留下半成品 derived 目錄」「（補 Step 3 的殺傷力）proxy 編碼寫檔失敗時…也會被清掉」（Task 7）                     |
+| render 輸出前缺檔預檢，錯誤訊息 `/^render: 找不到素材原檔：/`             | `server/test/render.test.ts`「素材原檔不見時，輸出丟出含路徑的明確錯誤」（Task 7）＋本 Task 新增「frozen clip 的素材原檔不見時…」（守住預檢的**位置**）      |
+
+## Baseline 與最終 GAUNTLET
+
+**開工前**（本 Task 8 派工當下，commit `6cb9107`）：`scripts/gauntlet.sh`（完整版）
+全綠——tsc/eslint/prettier/398 條測試/隨機順序/秘密掃描全 PASS，唯一的缺口不是測試
+失敗，而是**突變覆蓋率**：Task 1–7 新增的素材匯入程式碼（`paths.ts`／`addClip`／
+`sourceFolder.ts`／`/api/source`／`/api/import`／ingest 清理／render 預檢）完全沒有
+`scripts/mutants.json` 條目守著，而且 Task 7 審查另外抓到一個結構性盲點：把 render
+的缺檔預檢搬到凍結幀擷取之後，`render.test.ts` 6/6 仍全綠（全文無 `frozen` 字樣）。
+這兩項（突變覆蓋掛零、預檢位置無回歸防護）就是本 Task 要補的「既有失敗」——不是
+紅字測試，而是「假綠」：測試都通過，但沒有東西證明它們真的在斷言。
+
+**最終乾淨 GAUNTLET**（本 Task 最後一次程式碼／測試修改之後，`bash scripts/gauntlet.sh`
+完整版，唯一引用的一次執行）：
+
+| 關卡                   | 結果                                                                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 版本                   | node v22.18.0／npm 11.5.2／tsc 5.9.3／vitest 3.2.7／ffmpeg 8.1.2／source `6cb9107`                                                                  |
+| tsc／eslint／prettier  | PASS／PASS／PASS                                                                                                                                    |
+| 全測試套件             | **398 passed**（shared 27／server 201／ui 170），0 failed——較 Task 7 收尾時的 397 多 1（本 Task 新增的 frozen 回歸測試）                          |
+| UI 覆蓋率              | Lines 86.38%（2627/3041）——與 Task 7 完全相同，本 Task 未動 UI                                                                                     |
+| 突變                   | **63 隻：62 killed + 1 equivalent control**（`store-corrupt-load`，既有非本次新增，如實存活）；0 存活未處理者                                       |
+| 隨機順序               | ui／server 皆 PASS                                                                                                                                  |
+| 依賴稽核               | 未新增依賴（`git diff --stat` 僅 `scripts/mutants.json`／`EVIDENCE.md`／`server/test/render.test.ts`，無 `package.json`）；手動 `npm audit --audit-level=high` 額外確認 2 個既有 high（`fast-uri` 3.0.0–3.1.4），與 Task 7 記錄的 baseline 一致，非本次新增 |
+| 秘密掃描               | PASS                                                                                                                                                 |
+
+`scripts/mutants.json` 由 52 隻增至 **63 隻**（不是 brief 原文的 46→54；controller 已
+核對現況並修正此數字）。
+
+## 本功能的 11 隻 mutants
+
+8 隻照 brief 逐字追加（find 字串與現有原始碼逐字核對過，全部一致）：
+
+| id                       | 改了什麼                                                    | 被誰殺                                                |
+| ------------------------ | ------------------------------------------------------------- | ------------------------------------------------------ |
+| `paths-absolute`         | 絕對路徑也被接到專案底下                                      | `paths.test.ts`「絕對路徑原樣回傳」                    |
+| `addclip-media-exists`   | 拿掉 mediaId 存在檢查                                          | `commands.test.ts`「未知 mediaId 被拒絕」              |
+| `addclip-bounds`         | 拿掉超界檢查（`if (false)`）                                   | `commands.test.ts`「in + duration 超出素材長度被拒絕」 |
+| `addclip-duration`       | 允許 `duration<=0`                                             | `commands.test.ts`「duration <= 0 被拒絕」              |
+| `scan-hidden`             | 不排除隱藏檔                                                   | `sourceFolder.test.ts`「排除隱藏檔」                    |
+| `scan-isfile`             | 目錄也當檔案收                                                 | `sourceFolder.test.ts`「略過子目錄本身」                |
+| `scan-sort`               | 不排序                                                         | `sourceFolder.test.ts`「localeCompare 與位元組順序不同時仍正確排序」 |
+| `import-basename`         | 拿掉 `basename` 防 traversal                                   | `import-api.test.ts`「names 帶絕對路徑時同樣被 basename 擋下（誘餌檔）」 |
+
+controller 指示再補 3 隻（Task 6／7 的新邏輯，複審時已實測「殺得掉」）：
+
+| id                | 改了什麼                                                                                                   | 被誰殺                                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `import-serial`   | `/api/import` 的序列 `for...await` 迴圈整段改寫成 `Promise.all(names.map(async ...))`（併行）                  | `import-api.test.ts`「/api/import 逐支序列處理 names[]，不會併行呼叫 ingestMedia」；斷言 `maxInFlight===1`，突變後實測 `expected 3 to be 1` |
+| `ingest-cleanup`  | 拿掉 `ingest.ts` 失敗時的 `rm(derivedAbs, { recursive: true, force: true })`                                   | `ingest.test.ts`「proxy 編碼寫檔失敗時，mkdir 之後才建立的 derived 目錄也會被清掉」；斷言 `existsSync(derived/<固定id>)===false` |
+| `render-precheck` | `render.ts` 的缺檔預檢短路成 `if (false)`                                                                      | `render.test.ts` 斷言 `/^render: 找不到素材原檔：/` 的兩條測試（既有一條＋本 Task 新增的 frozen clip 回歸測試）                  |
+
+**`import-serial` 的特別記錄**：brief／controller 原本預期這隻可能是「結構改寫，
+`scripts/mutate.mjs` 的 find/replace 表達不出來」，允許只在此處寫等價說明、不硬塞進
+`mutants.json`。實際嘗試後發現**可以表達**——`mutate.mjs` 的 find/replace 是任意長度
+字面字串比對，可以把整個 19 行的 `for` 迴圈區塊（含 try/catch 本體）當一個 find，
+替換成語意等價、只改頭尾兩行的 `Promise.all` 版本。手動驗證時觀察到與複審者一致的
+紅色輸出（`expected 3 to be 1`），於是正式收進清單而非留成文字記錄，見
+task-8-report.md 第 2.3 節的完整過程與紅燈輸出。
+
+## Failure Model 覆蓋情況
+
+依 spec 的「錯誤處理」表逐條核對：
+
+| 情況                            | 規劃行為                                                                    | 覆蓋狀態                                                                                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 素材夾不存在／非目錄            | `400 { error }`                                                              | **已覆蓋**——`source-api.test.ts`「目錄不存在回 400」；`sourceFolder.test.ts`「目錄不存在時丟錯」「傳入的是檔案而非目錄時丟錯」                                 |
+| 素材夾無權限                    | `400 { error }`（與上面同一條 catch 路徑）                                  | **已知限制**——與「目錄不存在」共用同一個錯誤處理分支，但沒有專屬測資模擬權限拒絕；Task 5 審查時已記錄的既有 minor deferred 項目，非本次新增缺口               |
+| 單一檔 probe 失敗                | 進 `failed[]`，其餘繼續                                                      | **已覆蓋**——`import-api.test.ts`「壞檔進 failed，其餘繼續」；真實執行層額外實測 `nope.mp4`（不存在的檔）進 `failed[]`，其餘兩支正常匯入                        |
+| ingest 中途失敗                 | 清掉該支 `derived/<id>/`，不留半成品                                        | **已覆蓋**——`ingest.test.ts` 兩條 + 本 Task 新增 `ingest-cleanup` 突變把它納入自動回歸                                                                          |
+| 已匯入但原檔被移走：素材庫標離線 | 列素材時對解析後路徑做一次 `existsSync`                                     | **已知限制／階段 2 範圍**——這屬於素材庫 UI 面板（spec 階段 2），階段 1 後端沒有這個 API 欄位，非本次遺漏，屬設計上延後                                          |
+| 已匯入但原檔被移走：輸出前檢查   | 輸出前檢查缺檔並回明確錯誤                                                  | **已覆蓋**——`render.test.ts` 兩條斷言 `/^render: 找不到素材原檔：/`（既有一條測非 frozen clip、本 Task 新增一條測 frozen clip，堵住預檢位置的回歸）+ `render-precheck` 突變 |
+| 審核進行中                      | 沿用既有守衛，不另立規則                                                     | **未變更，不在本次範圍**——本階段沒有新增寫入路徑繞過 `applyCommand`／`aiWrite`                                                                                  |
+
+## 跳過與已知限制
+
+- 併發匯入同一支素材：`ingestMedia` 冪等檢查是 read-then-write（先查 `doc.media` 有無
+  該 `path`，查無才動手 ingest），未覆蓋兩個並發請求同時匯入同一支素材的競態。
+- 巨大素材夾無上限、磁碟寫滿：未覆蓋。
+- 既有的 8 條順序相依測試（`store-undo` / `store-durability`）：本次未觸碰，非新增。
+- `commands.ts:155`（`updateClip`）與 `commands.ts:497`（`updateAudioItem`）另有兩處
+  與 `addClip`（`commands.ts:218`）相同形狀的 `+ 1e-6` 浮點容差，`.superpowers/sdd/
+  2026-08-03-media-import-backend/progress.md` 裡 Task 3 遺留一則「Task 8 做突變時
+  一併查」的備註。本次 controller 給的四點修正明確只把範圍限定在 `addClip`
+  （`addclip-bounds`），為了不擅自擴大變更範圍，這裡只記錄觀察、未新增測試或
+  mutant，留給後續 Task 決定是否要補。
+- `GET /api/source?dir=` 的「無權限」400 分支沒有專屬測資（見上表）。
+
+## 真實執行驗證（scratchpad 自建乾淨專案，非 `projects/demo`）
+
+`:3845` 當時被另一個 session 佔用，`server/src/index.ts` 的 CLI 又不接受自訂 port，
+改寫一支 4 行腳本直接呼叫 `startServer(dir, port)`（該函式本身支援自訂 port），
+指到 `:3900`，專案目錄用全新空目錄（`ProjectStore.load` 對不存在的 `project.json`
+會自動建空專案，僅印警告，不影響），素材夾內用 `ffmpeg testsrc2` 現產兩支
+`.mp4`（2s／1s，320×568，h264）。
+
+- `GET /api/source?dir=<素材夾>` → 回傳兩支檔案，`imported:false`。
+- `POST /api/import`（`names` 含一支不存在的 `nope.mp4`，`addToTimeline:true`）→
+  兩支成功進 `ok[]`（各自分配 `mediaId`），`nope.mp4` 進 `failed[]`（真實
+  `ffprobe exited 1: ... No such file or directory` 錯誤）。
+- 再打一次 `GET /api/source`：已匯入的兩支 `imported` 變 `true`。
+- `GET /api/project`：`doc.media[*].path` 就是素材夾內的原始絕對路徑（零複製，
+  沒有被複製進專案目錄）；`doc.tracks.video` 已有兩個 clip（`addToTimeline` 生效）。
+- `derived/<mediaId>/{proxy.mp4,filmstrip.jpg,peaks.json}` 兩支都確實在專案目錄內
+  產出（真 ffmpeg，非 mock）。
+
+完整 curl 請求與回應貼在 `task-8-report.md` 第 5 節。這一層沒有跳過。
+
+## 需要你親自驗
+
+- 用真實手機素材（非 `testsrc2` 合成片）跑一次完整匯入，確認各種常見編碼／容器
+  （HEVC、直式手機拍攝的旋轉 metadata）下 `ingestMedia` 的 proxy/filmstrip/peaks
+  都正常產出。
+- 確認外部素材（零複製引用）輸出的畫質與原檔一致（本次驗證只測了「有沒有輸出」，
+  沒有逐幀比對畫質）。
+- 素材夾內含大量檔案（數百支以上）時 `GET /api/source` 的實際延遲——目前沒有上限
+  防護，也沒有效能測試。

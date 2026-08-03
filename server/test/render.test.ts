@@ -204,4 +204,41 @@ describe('render (integration)', () => {
       /^render: 找不到素材原檔：/,
     );
   }, 60_000);
+
+  // 位置回歸：缺檔預檢必須在任何 ffmpeg 啟動之前，包含定格幀擷取（render.ts 約
+  // 420-439 行，緊接在預檢區塊之後）。上面「素材原檔不見時」那條測試的 clip 不是
+  // frozen，測不到「預檢被搬到定格幀擷取之後」這種退化——那種退化下，非 frozen clip
+  // 一樣會在預檢就被擋下，因為預檢本身邏輯沒壞，壞的只是「位置」，而定格幀擷取只
+  // 處理 frozen clip。所以要專門用一個 frozen clip 的原檔缺失來鎖住「預檢先於定格幀
+  // 擷取」這個順序不變式（Task 7 審查發現：搬到定格幀擷取之後，6/6 全綠，render.test.ts
+  // 全文沒有 frozen 字樣，沒人守）。
+  it('frozen clip 的素材原檔不見時，預檢仍趕在定格幀擷取（任何 ffmpeg）之前擋下', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-gone-frozen-'));
+    const src = join(outside, 'gone-frozen.mp4');
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x568:rate=30:duration=2',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-pix_fmt',
+      'yuv420p',
+      src,
+    ]);
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-gone-frozen-proj-'));
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    const mediaId = await ingestMedia(store, dir, src);
+    store.mutate('ai', 'seed', (d) => {
+      d.tracks.video = [{ id: 'c1', mediaId, in: 0, duration: 1, volume: 1, frozen: true }];
+    });
+
+    await rm(src); // 原檔被移走／刪除
+
+    await expect(render(store, dir, 'test', { width: 180, height: 320 })).rejects.toThrow(
+      /^render: 找不到素材原檔：/,
+    );
+  }, 60_000);
 });
