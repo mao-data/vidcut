@@ -265,7 +265,9 @@ export type WsServerMsg =
     }
   | { type: 'commandError'; reqId?: string; error: string }
   /** 渲染進度旁路（暫態，不進版本/歷史/undo） */
-  | { type: 'renderProgress'; progress: number };
+  | { type: 'renderProgress'; progress: number }
+  /** 字幕卡 id→hash 對照（僅字幕；文字 overlay 走 doc.imagePath，不需要對照表） */
+  | { type: 'textCards'; entries: Array<{ id: string; hash: string }> };
 
 export type WsClientMsg =
   | { type: 'resync' }

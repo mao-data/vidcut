@@ -4,6 +4,7 @@ import type { HistoryBrief, WsClientMsg, WsServerMsg } from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
+import type { CaptionCardSync } from './cardSync.js';
 import { applyCommand } from './commands.js';
 import { extractCover, render, renderProgressBus } from './render.js';
 
@@ -14,6 +15,7 @@ export interface WsDeps {
   editorContext?: EditorContext;
   reviews?: ReviewManager;
   projectDir?: string;
+  cardSync?: CaptionCardSync;
 }
 
 /**
@@ -22,7 +24,7 @@ export interface WsDeps {
  * 收 context 更新 EditorContext；收 reviewResolve 交給 ReviewManager。
  */
 export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
-  const { store, editorContext, reviews, projectDir } = deps;
+  const { store, editorContext, reviews, projectDir, cardSync } = deps;
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
   const send = (ws: WebSocket, msg: WsServerMsg) => {
@@ -45,6 +47,13 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
     for (const client of wss.clients) send(client, msg);
   });
 
+  if (cardSync) {
+    cardSync.onReady = (entries) => {
+      const msg: WsServerMsg = { type: 'textCards', entries };
+      for (const client of wss.clients) send(client, msg);
+    };
+  }
+
   store.onChange((e) => {
     const msg: WsServerMsg = {
       type: 'patch',
@@ -55,10 +64,16 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
       ts: e.ts,
     };
     for (const client of wss.clients) send(client, msg);
+    if (cardSync && e.patches.some((p) => p.path[0] === 'tracks' && p.path[1] === 'captions')) {
+      cardSync.schedule();
+    }
   });
 
   wss.on('connection', (ws) => {
     send(ws, full());
+    if (cardSync && cardSync.latest.length > 0) {
+      send(ws, { type: 'textCards', entries: cardSync.latest });
+    }
     ws.on('message', (data) => {
       let msg: WsClientMsg;
       try {

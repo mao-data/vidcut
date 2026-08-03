@@ -11,6 +11,7 @@ import { mountMcp } from './mcp.js';
 import { PillowRasterizer } from './rasterizer.js';
 import { loadFontTable, fontResolver } from './fonts.js';
 import { TextCardService } from './textCards.js';
+import { CaptionCardSync } from './cardSync.js';
 
 const DEFAULT_PORT = 3845;
 
@@ -32,11 +33,12 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const fonts = await loadFontTable(rasterizer);
   rasterizer.resolveFontPath = fontResolver(fonts);
   const textCards = new TextCardService(projectDir, rasterizer);
+  const cardSync = new CaptionCardSync(store, textCards);
 
   const app = createApp(store, projectDir, uiDist, { fonts, textCards });
   // MCP 需要能讀 req.body（JSON），StreamableHTTP 會自己處理 SSE。
   const server = createServer(app);
-  attachWs(server, { store, editorContext, reviews, projectDir });
+  attachWs(server, { store, editorContext, reviews, projectDir, cardSync });
 
   // baseUrl 在 listen 後才知道實際 port；先用預留位，listen 後補。
   const deps = { store, projectDir, editorContext, reviews, baseUrl: `http://127.0.0.1:${port}` };
@@ -46,6 +48,7 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
   deps.baseUrl = `http://127.0.0.1:${actualPort}`;
+  cardSync.schedule(); // 啟動預熱字卡快取(錯誤已在 runNow 內吞,不會拖垮啟動)
   return { server, store, editorContext, reviews };
 }
 

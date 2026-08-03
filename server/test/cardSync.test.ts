@@ -1,0 +1,62 @@
+import { describe, it, expect, afterAll } from 'vitest';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ProjectStore } from '../src/store.js';
+import { PillowRasterizer } from '../src/rasterizer.js';
+import { TextCardService } from '../src/textCards.js';
+import { CaptionCardSync, capToCardRequest } from '../src/cardSync.js';
+import { DEFAULT_CAPTION_STYLE } from '@vidcut/shared';
+
+const raster = new PillowRasterizer(() => undefined);
+afterAll(() => raster.dispose());
+
+async function setup() {
+  const dir = await mkdtemp(join(tmpdir(), 'vidcut-cs-'));
+  const store = await ProjectStore.load(join(dir, 'project.json'));
+  store.mutate('ai', 'seed captions', (d) => {
+    d.tracks.captions = [
+      { id: 'c1', text: '第一句', start: 0, duration: 1, style: DEFAULT_CAPTION_STYLE },
+      {
+        id: 'c2', text: '第二句', start: 1, duration: 1, style: DEFAULT_CAPTION_STYLE,
+        tokens: [
+          { text: '第二', start: 1, end: 1.5 },
+          { text: '句', start: 1.5, end: 2 },
+        ],
+      },
+    ];
+  });
+  return { store, svc: new TextCardService(dir, raster) };
+}
+
+describe('CaptionCardSync', () => {
+  it('capToCardRequest: 逐詞字幕帶 tokens 文字序列', async () => {
+    const { store } = await setup();
+    const req = capToCardRequest(store.doc.tracks.captions[1]!, 1080);
+    expect(req.tokens).toEqual(['第二', '句']);
+    expect(req.width).toBe(1080);
+  });
+
+  it('runNow 產出每句的 hash 並記在 latest', async () => {
+    const { store, svc } = await setup();
+    const sync = new CaptionCardSync(store, svc, 10);
+    const entries = await sync.runNow();
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.id).toBe('c1');
+    expect(sync.latest).toEqual(entries);
+  }, 30_000);
+
+  it('schedule 是 debounce:密集呼叫只跑一次 onReady', async () => {
+    const { store, svc } = await setup();
+    const sync = new CaptionCardSync(store, svc, 50);
+    let calls = 0;
+    sync.onReady = () => {
+      calls += 1;
+    };
+    sync.schedule();
+    sync.schedule();
+    sync.schedule();
+    await new Promise((r) => setTimeout(r, 400));
+    expect(calls).toBe(1);
+  }, 30_000);
+});

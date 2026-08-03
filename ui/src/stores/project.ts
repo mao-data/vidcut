@@ -38,6 +38,10 @@ export const useProject = create<ProjectState>((set, get) => ({
       set({ renderProgress: msg.progress });
       return 'ok';
     }
+    if (msg.type === 'textCards') {
+      // Task 11 消費(卡片顯示);這裡先 no-op 避免撞 patch 分支的 resync 迴圈。
+      return 'ok';
+    }
     const { doc, version } = get();
     if (!doc || msg.version !== version + 1) return 'resync';
     const next = applyPatches(doc, msg.patches as Patch[]);
