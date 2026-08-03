@@ -257,3 +257,55 @@ RED 過程：B3 六紅一綠 → GREEN；B1/B2 兩紅 → GREEN；B4 五紅二�
 - 中途發現並修正：perl 批次替換曾把 writeReply 自身改成無窮遞迴、又漏掉三處跨行呼叫
   （set_overlays/set_captions/set_audio 一度未標 isError）——均在同輪 GREEN 內修復，
   最終狀態以上表全綠為準。
+
+---
+
+# 補記四：預覽音訊 seek 風暴修正（2026-08-02）
+
+Spec：`docs/superpowers/specs/2026-08-02-preview-audio-sync.md`。Tier 2。
+Spec 核准：診斷報告＋計劃已呈使用者，回覆「好」。來源狀態：commit `6404b20`。
+
+## 診斷（修正前，同環境基線）
+
+- 使用者回報：預覽同時有影片聲＋旁白時「混雜的雜音」；AskUserQuestion 確認僅預覽。
+- 已量測排除：削波（模擬混音峰 -6.07 dB；成品 VO 窗峰 -5.58 dB、flat factor 0）、
+  ducking 未生效、取樣率不符。
+- **證實根因**：headless 探針 4.5s 播放錄得 seeking VIDEO 41 + AUDIO 41、
+  waiting 41+40，間隔 ~83ms——rAF 主時鐘與媒體時鐘無耦合，>60ms 即硬 seek，
+  seek 後解碼重啟延遲使偏差再超標 → 永久循環，兩條斷續音軌疊加＝雜音。
+
+## 行為 → 測試對映
+
+| 行為                                                                               | 測試                                            |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------- |
+| syncAction：≥0.25s seek／≤0.02s 復速／其間比例 0.5 調速、clamp ±8%（含全部邊界值） | `ui/src/player/sync.test.ts`（5 條，stub 先紅） |
+| 播放中 audio 小漂移只調 playbackRate、不寫 currentTime                             | `Player.sync.test.tsx` 第 1 條（先紅）          |
+| 播放中大漂移硬 seek 且 playbackRate 復位 1                                         | 第 2 條（先紅）                                 |
+| 暫停時維持精準 snap（回歸護甲，RED 時即綠，由 player-sync-wiring 突變武裝）        | 第 3 條                                         |
+| active video 同策略（測試首版誤設 fixture 的 in 值，修測試非實作）                 | 第 4 條（先紅）                                 |
+
+## 最終乾淨 GAUNTLET＋驗收
+
+| 關卡                                                               | 結果                                                                                                     |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| 全測試套件                                                         | **341 passed**（shared 27／server 148／ui 166），0 failed                                                |
+| tsc／eslint／prettier                                              | PASS／PASS／PASS                                                                                         |
+| UI 覆蓋率                                                          | Lines 86.33%（2615/3029）                                                                                |
+| 突變                                                               | **45/45 killed**（+1 等價對照）；本功能 4 隻全滅：門檻／方向反轉／死區／接線退化                         |
+| 隨機順序／依賴稽核／秘密掃描                                       | PASS／0 vulnerabilities／PASS                                                                            |
+| **驗收探針**（`node scripts/audio-probe.mjs`，重建 UI 後最終執行） | seeking **82 → 2**（僅 video 起播與 A/B 交換的正常對齊）、audio **0** 次 seek、waiting 81 → 1 → **PASS** |
+
+新依賴：`playwright-core`（devDep，驗收探針驅動 headless Chromium；瀏覽器用既有
+ms-playwright 快取）——spec 設定計畫已列，npm audit 0 vulnerabilities。
+
+## 跳過與已知限制
+
+- 探針跑在 headless（無實體音訊裝置），為同環境前後對照，非聽感絕對證明；
+  ±8% 調速在極端媒體時鐘故障下退化為 ~0.5s 一次 seek（仍遠優於 83ms 一次）。
+- DUCK_LEVEL=0.25 的殘留原聲（旁白下 -19 dB 峰值可聞）**未動**——待使用者
+  修後親聽，若仍嫌吵再調（一行常數）。
+
+## 使用者親驗
+
+重新整理瀏覽器（UI 已重建），播放 0–4s：旁白＋影片聲應乾淨無斷續刮擦聲；
+拖 playhead 應立即到位；若旁白底下的環境聲仍嫌吵，回報後調 DUCK_LEVEL。
