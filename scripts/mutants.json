@@ -367,5 +367,53 @@
     "replace": "const s = { kind: 'seek' } as const;",
     "tests": "ui/src/player/Player.sync.test.tsx",
     "note": "音訊接線退化回永遠硬 seek → 小漂移不寫 currentTime 的斷言必須抓到"
+  },
+  {
+    "id": "undo-wrong-stack",
+    "file": "server/src/store.ts",
+    "find": "      this.#redoStack.push(e);",
+    "replace": "      this.#undoStack.push(e);",
+    "tests": "server/test/store-undo.test.ts",
+    "note": "undo 把 entry 推回 undo 堆疊（=舊的擺盪 bug）→ 連按一路退的斷言必須抓到"
+  },
+  {
+    "id": "redo-not-cleared",
+    "file": "server/src/store.ts",
+    "find": "      this.#redoStack = [];",
+    "replace": "",
+    "tests": "server/test/store-undo.test.ts",
+    "note": "新編輯不清 redo（分叉語意破壞）→ 清空 redo 的斷言必須抓到"
+  },
+  {
+    "id": "undoable-classify",
+    "file": "server/src/store.ts",
+    "find": "patches.length > 0 && patches.every((p) => p.path[0] === 'tracks' || p.path[0] === 'canvas')",
+    "replace": "patches.length > 0",
+    "tests": "server/test/store-undo.test.ts",
+    "note": "可撤回分類失效（render 狀態也進 undo）→ 非編輯不進範圍的斷言必須抓到"
+  },
+  {
+    "id": "rev-not-persisted",
+    "file": "server/src/store.ts",
+    "find": "      const file: ProjectFile = { ...this.#doc, rev: this.#version };",
+    "replace": "      const file: ProjectFile = { ...this.#doc };",
+    "tests": "server/test/store-undo.test.ts",
+    "note": "rev 不落盤（重啟歸零回歸）→ 持久化斷言必須抓到"
+  },
+  {
+    "id": "render-progress-versioned",
+    "file": "server/src/render.ts",
+    "find": "        renderProgressBus.emit('progress', Number(progress.toFixed(3)));",
+    "replace": "        store.mutate('ai', 'render progress', (doc) => { doc.render.progress = Number(progress.toFixed(3)); });",
+    "tests": "server/test/render.test.ts",
+    "note": "進度改回版本化（灌爆版本號的原 bug）→ 歷史不含 render progress 的斷言必須抓到"
+  },
+  {
+    "id": "header-shows-rev",
+    "file": "ui/src/App.tsx",
+    "find": "          v{__APP_VERSION__} · {doc?.name ?? '—'}",
+    "replace": "          v{useProject.getState().version} · {doc?.name ?? '—'}",
+    "tests": "ui/src/app-version.test.tsx",
+    "note": "標頭改回顯示修訂號 → 語意化版本斷言必須抓到"
   }
 ]
