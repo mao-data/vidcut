@@ -7,6 +7,26 @@ export interface FixtureOpts {
   freq?: number;
 }
 
+/** lavfi 測試音檔：mono 正弦波 wav（模擬旁白/swoosh 這類單聲道素材）。 */
+export async function makeAudio(
+  dir: string,
+  name: string,
+  opts: FixtureOpts = {},
+): Promise<string> {
+  const { duration = 2, freq = 440 } = opts;
+  const out = join(dir, name);
+  await runFfmpeg([
+    '-f',
+    'lavfi',
+    '-i',
+    `sine=frequency=${freq}:duration=${duration}`,
+    '-ac',
+    '1',
+    out,
+  ]);
+  return out;
+}
+
 /** lavfi 測試影片：直式 540x960@30。withAudio=false 時完全無音軌。 */
 export async function makeVideo(
   dir: string,

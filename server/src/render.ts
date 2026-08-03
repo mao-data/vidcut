@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CaptionItem, Project, RenderOptions } from '@vidcut/shared';
 import { locate, overlayWindow, totalDuration } from '@vidcut/shared';
-import { runFfmpeg } from './ffmpeg.js';
+import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 
 /** 渲染進度旁路：'progress' 事件 (0–1)。暫態資料不進版本化 store，由 wsHub 廣播給 UI。 */
@@ -150,6 +150,8 @@ export function frozenFramePath(clipId: string): string {
 const BLUR_RADIUS = 24;
 /** ducking 時影片主軌被壓到的音量比例。 */
 const DUCK_LEVEL = 0.25;
+/** mono → stereo 的無損顯式升混（兩聲道都放滿幅原訊號）。 */
+const MONO_UPMIX = 'pan=stereo|c0=c0|c1=c0';
 
 /**
  * 由 project.json 建構 ffmpeg 參數（spec §8.2）。
@@ -242,10 +244,16 @@ export function buildRenderArgs(
   fc.push(`${vlabels}concat=n=${clips.length}:v=1:a=0[vcat]`);
 
   // 音訊鏈：片段原聲（定格幀與無聲素材補靜音軌）
+  // mono 素材先顯式升 stereo——不做的話 amix 隱式升混套 0.707 center level，
+  // mono 音軌會平白 −3dB（2026-08-03 對照實驗證實；stereo 不受影響）
+  const monoUp = (m: { probe: { audioChannels?: number } } | undefined) =>
+    m?.probe.audioChannels === 1 ? `${MONO_UPMIX},` : '';
   clips.forEach((clip, i) => {
     const media = project.media.find((m) => m.id === clip.mediaId)!;
     if (media.probe.hasAudio && !clip.frozen) {
-      fc.push(`[${i}:a]volume=${clip.volume},asetpts=PTS-STARTPTS,aresample=44100[a${i}]`);
+      fc.push(
+        `[${i}:a]${monoUp(media)}volume=${clip.volume},asetpts=PTS-STARTPTS,aresample=44100[a${i}]`,
+      );
     } else {
       fc.push(`anullsrc=channel_layout=stereo:sample_rate=44100:d=${clip.duration}[a${i}]`);
     }
@@ -272,10 +280,12 @@ export function buildRenderArgs(
   audioItems.forEach((a, k) => {
     const inputIdx = audioInputBase + k;
     const label = `aud${k}`;
+    const media = project.media.find((m) => m.id === a.mediaId);
     const chain = [
       `atrim=start=${a.in}:duration=${a.duration}`,
       'asetpts=PTS-STARTPTS',
       'aresample=44100',
+      ...(media?.probe.audioChannels === 1 ? [MONO_UPMIX] : []),
       `volume=${a.volume}`,
     ];
     if (a.fadeIn && a.fadeIn > 0) chain.push(`afade=t=in:st=0:d=${a.fadeIn}`);
@@ -392,8 +402,26 @@ export async function render(
   stamp: string,
   exportOpts?: RenderOptions,
 ): Promise<RenderResult> {
-  const project = store.doc;
-  if (project.tracks.video.length === 0) throw new Error('render: timeline is empty');
+  const stored = store.doc;
+  if (stored.tracks.video.length === 0) throw new Error('render: timeline is empty');
+
+  // 舊 project.json 的 probe 沒有 audioChannels——渲染前補測（不落盤），
+  // 讓 mono 升混修正對既有專案也生效
+  const used = new Set<string>();
+  for (const c of stored.tracks.video) if (!c.frozen) used.add(c.mediaId);
+  for (const a of stored.tracks.audio) used.add(a.mediaId);
+  const media = await Promise.all(
+    stored.media.map(async (m) => {
+      if (!used.has(m.id) || !m.probe.hasAudio || m.probe.audioChannels !== undefined) return m;
+      try {
+        const p = await probe(join(projectDir, m.path));
+        return { ...m, probe: { ...m.probe, audioChannels: p.audioChannels } };
+      } catch {
+        return m; // 測不到就維持舊行為（不升混）
+      }
+    }),
+  );
+  const project: Project = { ...stored, media };
   const outDir = join(projectDir, 'output');
   await mkdir(outDir, { recursive: true });
   const outRel = join('output', `${stamp}.mp4`);

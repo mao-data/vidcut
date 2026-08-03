@@ -32,6 +32,10 @@ npm run verify:panels                       # 面板控制項的瀏覽器回歸�
   不要旁路直改 doc。新增一種編輯操作 = 在 `shared` 的 `Command` 加 variant
   - `commands.ts` 加驗證與 case → UI 與 MCP 自動都能用。
 - **`projects/*/.env` 與各專案密鑰不得提交或印出內容。**
+- **改了工具行為或語意，必須同步更新 `server/src/mcp.ts` 的工具描述與 instructions。**
+  MCP 描述是 AI 使用者唯一的文件，過期描述會直接害它踩坑
+  （前例：get_frame 描述殘留「M4 加 overlay 合成」的 roadmap 字句，
+  但功能從未做，AI 因此誤判 overlay 沒設定成功）。
 
 ## UI 驗證的陷阱
 

@@ -9,7 +9,7 @@ import { EditorContext } from '../src/editorContext.js';
 import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import type { ProjectTracks } from '@vidcut/shared';
-import { makeVideo } from './fixtures.js';
+import { makeAudio, makeVideo } from './fixtures.js';
 import { transcribe as transcribeMock } from '../src/asr.js';
 
 // whisper 是外部程序（mock 邊界）；B6 截斷邏輯在 mcp.ts，不在被 mock 的模組裡
@@ -132,6 +132,19 @@ describe('B3 isError on application-level failures', () => {
     expect(text(r)).toContain('unknown mediaId');
     expect(r.isError).toBe(true);
   });
+
+  it('audio-only media imports fine but is rejected as a video clip', async () => {
+    await makeAudio(dir, 'vo.wav', { duration: 1 });
+    const imp = await call('import_media', { relPath: 'vo.wav', label: 'VO' });
+    expect(imp.isError).toBeFalsy();
+    const audioId = (imp.structuredContent as { mediaId: string }).mediaId;
+
+    const r = await call('set_timeline', {
+      clips: [{ mediaId: audioId, in: 0, duration: 0.5 }],
+    });
+    expect(text(r)).toContain('audio-only');
+    expect(r.isError).toBe(true);
+  }, 60_000);
 
   it('set_timeline during a review is flagged isError', async () => {
     const pending = reviews.request('checking');

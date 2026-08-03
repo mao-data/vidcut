@@ -29,6 +29,7 @@ interface FfprobeStream {
   width?: number;
   height?: number;
   r_frame_rate?: string;
+  channels?: number;
   side_data_list?: Array<{ rotation?: number }>;
   tags?: Record<string, string>;
 }
@@ -48,17 +49,21 @@ export async function probe(file: string): Promise<ProbeInfo> {
     format: { duration?: string };
   };
   const v = data.streams.find((s) => s.codec_type === 'video');
-  if (!v) throw new Error(`no video stream in ${file}`);
-  const [num, den] = (v.r_frame_rate ?? '30/1').split('/').map(Number);
-  const rotation =
-    v.side_data_list?.find((s) => s.rotation !== undefined)?.rotation ??
-    Number(v.tags?.rotate ?? 0);
+  const a = data.streams.find((s) => s.codec_type === 'audio');
+  if (!v && !a) throw new Error(`no audio or video stream in ${file}`);
+  const [num, den] = (v?.r_frame_rate ?? '30/1').split('/').map(Number);
+  const rotation = v
+    ? (v.side_data_list?.find((s) => s.rotation !== undefined)?.rotation ??
+      Number(v.tags?.rotate ?? 0))
+    : 0;
   return {
     duration: Number(data.format.duration ?? 0),
-    width: v.width ?? 0,
-    height: v.height ?? 0,
+    width: v?.width ?? 0,
+    height: v?.height ?? 0,
     fps: den ? num! / den : 30,
-    hasAudio: data.streams.some((s) => s.codec_type === 'audio'),
+    hasAudio: a !== undefined,
     rotation: Math.abs(rotation) % 360,
+    hasVideo: v !== undefined,
+    ...(a?.channels !== undefined ? { audioChannels: a.channels } : {}),
   };
 }

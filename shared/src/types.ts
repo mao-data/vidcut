@@ -8,6 +8,10 @@ export interface ProbeInfo {
   fps: number;
   hasAudio: boolean;
   rotation: number;
+  /** false = 純音訊素材（只能上音訊軌）。舊檔缺此欄 = 有視訊。 */
+  hasVideo?: boolean;
+  /** 音訊聲道數。渲染據此對 mono 顯式升 stereo（amix 隱式升混會 −3dB）。舊檔可能缺。 */
+  audioChannels?: number;
 }
 
 export interface MediaAsset {
@@ -58,7 +62,11 @@ export interface OverlayItem {
   start?: number;
   /** null = 到片尾（JSON 不能存 Infinity） */
   duration: number | null;
-  /** x,y 為 0–1 相對畫布；scale 為倍率 */
+  /**
+   * 0–1 相對畫布；scale 為倍率。**語意不對稱**：x 是圖片水平中心、y 是圖片上緣
+   * （預覽 translate(-50%, 0)、渲染 x=(W*x)-(w/2), y=H*y 一致）。
+   * 滿版直式圖用 {x:0.5, y:0}；y:0.5 是「上緣壓在畫面正中」，不是置中。
+   */
   position: { x: number; y: number; scale: number };
 }
 

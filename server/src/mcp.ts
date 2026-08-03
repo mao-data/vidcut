@@ -99,7 +99,12 @@ const overlaySchema = z
     anchor: z.object({ clipId: z.string(), offset: z.number() }).optional(),
     start: z.number().optional(),
     duration: z.number().nullable(),
-    position: z.object({ x: z.number(), y: z.number(), scale: z.number() }),
+    position: z
+      .object({ x: z.number(), y: z.number(), scale: z.number() })
+      .describe(
+        '0–1 相對畫布。注意不對稱：x 是圖片「水平中心」、y 是圖片「上緣」。' +
+          '滿版直式圖要用 {x:0.5, y:0, scale:1}（y:0.5 會把圖推到下半場外）。',
+      ),
   })
   .strict();
 
@@ -266,7 +271,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'get_frame',
     {
       description:
-        '抽出指定時間點的畫面 JPEG（AI 的「眼睛」；M3 僅片段畫面，M4 加 overlay 合成）。',
+        '抽出指定時間點的畫面 JPEG（AI 的「眼睛」）。只有片段畫面——不合成 overlay/字幕/blur 背景；' +
+        '要驗證這些請 render 或請使用者看 UI 預覽。',
       inputSchema: { time: z.number() },
       annotations: { readOnlyHint: true },
     },
@@ -285,7 +291,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'import_media',
     {
-      description: '登記素材檔（須已放進專案資料夾）並產生 proxy/filmstrip/peaks。回 mediaId。',
+      description:
+        '登記素材檔（須已放進專案資料夾）並產生衍生檔（proxy/filmstrip/peaks）。' +
+        '純音訊（mp3/wav…）可直接匯入，僅供音訊軌（set_audio）使用。回 mediaId。',
       inputSchema: {
         relPath: z.string(),
         label: z.string().optional(),
@@ -321,6 +329,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
       for (const c of clips) {
         const media = store.doc.media.find((m) => m.id === c.mediaId);
         if (!media) return err(`error: unknown mediaId ${c.mediaId}`);
+        if (media.probe.hasVideo === false) {
+          return err(`error: ${c.mediaId} is audio-only — put it on the audio track (set_audio)`);
+        }
         if (c.in < 0 || c.duration <= 0 || c.in + c.duration > media.probe.duration + 1e-6) {
           return err(`error: clip out of bounds for ${c.mediaId}`);
         }
