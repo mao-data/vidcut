@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -150,5 +150,63 @@ describe('POST /api/import', () => {
       expect(media.path.startsWith(src)).toBe(true);
     }
     server.close();
+  });
+
+  // 不變式：ffmpeg 一支動輒數秒到數分鐘，/api/import 必須逐支序列處理 names[]，
+  // 不能併行（brief 的 Global Constraints 明講：並行只會互搶 CPU）。
+  // 其餘 6 條測試都用真 ffmpeg 驗證行為；這條測試觀測的是「route 的編排邏輯」——
+  // 呼叫 ingestMedia 的順序與併發度——受測單元不是 ffmpeg 本身，ingestMedia→ffmpeg
+  // 子行程是外部邊界，所以只有這一條用 vi.doMock 把 ingestMedia 換成一個會記錄
+  // 「同一時間有幾支在跑」的假實作。用 vi.doMock（非 vi.mock）+ 動態 import + 手動
+  // resetModules，讓 mock 只作用在這條測試的模組圖裡，不污染其餘 6 條真 ffmpeg 測試。
+  it('/api/import 逐支序列處理 names[]，不會併行呼叫 ingestMedia', async () => {
+    vi.resetModules();
+    const state = { inFlight: 0, maxInFlight: 0, callOrder: [] as string[] };
+    vi.doMock('../src/ingest.js', () => ({
+      ingestMedia: async (_store: unknown, _projectDir: string, path: string) => {
+        state.inFlight++;
+        state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
+        state.callOrder.push(path);
+        // 人工延遲：若外面是 Promise.all 併行呼叫，三支呼叫會在延遲期間重疊，
+        // maxInFlight 就會 > 1；若是 for...await 序列呼叫，每支跑完（含延遲）
+        // 才會呼叫下一支，maxInFlight 恆為 1。
+        await new Promise((r) => setTimeout(r, 20));
+        state.inFlight--;
+        return `fake-${state.callOrder.length}`;
+      },
+    }));
+
+    const { createApp: mockedCreateApp } = await import('../src/app.js');
+    const { ProjectStore: MockedProjectStore } = await import('../src/store.js');
+
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-imp-mockproj-'));
+    const store = await MockedProjectStore.load(join(dir, 'project.json'));
+    const server: Server = createServer(mockedCreateApp(store, dir));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const addr = server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    const base = `http://127.0.0.1:${port}`;
+
+    try {
+      const res = await post(base, {
+        dir: '/fake-src',
+        names: ['x.mp4', 'y.mp4', 'z.mp4'],
+      });
+      expect(res.status).toBe(200);
+      const j = (await res.json()) as ImportRes;
+      expect(j.failed).toEqual([]);
+      expect(j.ok).toHaveLength(3);
+
+      expect(state.maxInFlight).toBe(1); // 序列處理：同一時間只有一支在跑
+      expect(state.callOrder).toEqual([
+        join('/fake-src', 'x.mp4'),
+        join('/fake-src', 'y.mp4'),
+        join('/fake-src', 'z.mp4'),
+      ]);
+    } finally {
+      server.close();
+      vi.doUnmock('../src/ingest.js');
+      vi.resetModules(); // 還原：避免這個 mock 洩漏到其他測試
+    }
   });
 });
