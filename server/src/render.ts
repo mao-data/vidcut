@@ -395,6 +395,34 @@ export interface RenderResult {
 }
 
 /**
+ * 舊 project.json 的 probe 沒有 audioChannels——渲染前補測（不落盤），讓 mono 升混
+ * 修正對既有專案也生效。只補「時間軸真的用到、有音訊、且尚未記錄聲道數」的素材。
+ *
+ * 路徑一律走 `resolveMediaPath`：外部零複製素材是絕對路徑，用 `join` 會拼錯，
+ * 而下面的 catch 會把 probe 失敗吞掉——症狀是 mono 靜默不升混（成品小 3dB），
+ * 不會有任何錯誤訊息。抽成具名匯出函式即為了讓這條路徑測得到。
+ */
+export async function withProbedChannels(
+  project: Project,
+  projectDir: string,
+): Promise<Project['media']> {
+  const used = new Set<string>();
+  for (const c of project.tracks.video) if (!c.frozen) used.add(c.mediaId);
+  for (const a of project.tracks.audio) used.add(a.mediaId);
+  return Promise.all(
+    project.media.map(async (m) => {
+      if (!used.has(m.id) || !m.probe.hasAudio || m.probe.audioChannels !== undefined) return m;
+      try {
+        const p = await probe(resolveMediaPath(projectDir, m.path));
+        return { ...m, probe: { ...m.probe, audioChannels: p.audioChannels } };
+      } catch {
+        return m; // 測不到就維持舊行為（不升混）
+      }
+    }),
+  );
+}
+
+/**
  * 執行渲染，解析 ffmpeg -progress 更新 store.render.progress。
  * 輸出到 projectDir/output/<stamp>.mp4（stamp 由呼叫端傳入以維持可測性）。
  */
@@ -421,23 +449,7 @@ export async function render(
     throw new Error(`render: 找不到素材原檔：${missing.join(', ')}`);
   }
 
-  // 舊 project.json 的 probe 沒有 audioChannels——渲染前補測（不落盤），
-  // 讓 mono 升混修正對既有專案也生效
-  const used = new Set<string>();
-  for (const c of stored.tracks.video) if (!c.frozen) used.add(c.mediaId);
-  for (const a of stored.tracks.audio) used.add(a.mediaId);
-  const media = await Promise.all(
-    stored.media.map(async (m) => {
-      if (!used.has(m.id) || !m.probe.hasAudio || m.probe.audioChannels !== undefined) return m;
-      try {
-        const p = await probe(resolveMediaPath(projectDir, m.path));
-        return { ...m, probe: { ...m.probe, audioChannels: p.audioChannels } };
-      } catch {
-        return m; // 測不到就維持舊行為（不升混）
-      }
-    }),
-  );
-  const project: Project = { ...stored, media };
+  const project: Project = { ...stored, media: await withProbedChannels(stored, projectDir) };
   const outDir = join(projectDir, 'output');
   await mkdir(outDir, { recursive: true });
   const outRel = join('output', `${stamp}.mp4`);

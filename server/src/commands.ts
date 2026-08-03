@@ -213,6 +213,9 @@ function addClip(
 ): CommandResult {
   const media = store.doc.media.find((m) => m.id === cmd.mediaId);
   if (!media) return { ok: false, error: `media not found: ${cmd.mediaId}` };
+  if (media.probe.hasVideo === false) {
+    return { ok: false, error: `${cmd.mediaId} is audio-only — put it on the audio track` };
+  }
   if (cmd.duration <= 0) return { ok: false, error: 'clip duration must be > 0' };
   if (cmd.in < 0) return { ok: false, error: 'clip in must be >= 0' };
   if (cmd.in + cmd.duration > media.probe.duration + 1e-6) {

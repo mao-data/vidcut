@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildRenderArgs, render, renderProgressBus } from '../src/render.js';
+import { buildRenderArgs, render, renderProgressBus, withProbedChannels } from '../src/render.js';
 import { buildDemoProject } from '../src/demo.js';
 import { ProjectStore } from '../src/store.js';
 import { probe, runFfmpeg } from '../src/ffmpeg.js';
@@ -287,5 +287,29 @@ describe('render (integration)', () => {
     await expect(render(store, dir, 'test', { width: 180, height: 320 })).rejects.toThrow(
       /^render: 找不到素材原檔：/,
     );
+  }, 60_000);
+});
+
+// 第 9 個 resolveMediaPath 呼叫點：render() 渲染前補測 audioChannels（讓 mono 升混
+// 對舊 project.json 也生效）。這一步的 catch 會吞掉 probe 失敗，所以若路徑接法退回
+// join(projectDir, m.path)，外部絕對路徑素材會靜默測不到聲道數 → mono 不升混 → 成品
+// 小 3dB，沒有任何錯誤訊息。把它抽成具名函式才守得住。
+describe('withProbedChannels（render 前補測 audioChannels）', () => {
+  it('外部絕對路徑的 mono 素材也補得到 audioChannels', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-ext-mono-'));
+    const mp3 = join(outside, 'vo.mp3');
+    await runFfmpeg(['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-ac', '1', mp3]);
+    const projectDir = await mkdtemp(join(tmpdir(), 'vidcut-ext-mono-proj-'));
+
+    const p = demoLikeProject();
+    p.media.push({
+      id: 'vo',
+      path: mp3, // 絕對路徑＝零複製外部引用；probe 刻意不帶 audioChannels
+      probe: { duration: 1, width: 0, height: 0, fps: 0, hasAudio: true, rotation: 0 },
+    });
+    p.tracks.audio = [{ id: 'a1', mediaId: 'vo', start: 0, in: 0, duration: 1, volume: 1 }];
+
+    const media = await withProbedChannels(p, projectDir);
+    expect(media.find((m) => m.id === 'vo')!.probe.audioChannels).toBe(1);
   }, 60_000);
 });

@@ -527,5 +527,21 @@
     "replace": "",
     "tests": "server/test/commands.test.ts",
     "note": "拿掉 in<0 守衛 → in=-1,duration=1 會通過超界檢查（-1+1=0 未超界）並讓 ffmpeg 收到 -ss -1，負的 in 被拒絕的斷言必須抓到"
+  },
+  {
+    "id": "addclip-audio-only",
+    "file": "server/src/commands.ts",
+    "find": "  if (media.probe.hasVideo === false) {\n    return { ok: false, error: `${cmd.mediaId} is audio-only — put it on the audio track` };\n  }\n",
+    "replace": "",
+    "tests": "server/test/commands.test.ts",
+    "note": "拿掉 addClip 的 audio-only 守衛 → 純音訊素材（hasVideo:false）能被加上視訊軌，POST /api/import 的 addToTimeline 匯一支 .mp3 就會弄出渲染必熔的時間軸，拒絕的斷言必須抓到"
+  },
+  {
+    "id": "render-probe-channels-path",
+    "file": "server/src/render.ts",
+    "find": "        const p = await probe(resolveMediaPath(projectDir, m.path));",
+    "replace": "        const p = await probe(join(projectDir, m.path));",
+    "tests": "server/test/render.test.ts",
+    "note": "第 9 個呼叫點（渲染前補測 audioChannels）接法退回 join → 外部絕對路徑素材 probe 失敗、錯誤被 catch 吞掉，mono 靜默不升混（成品小 3dB）；withProbedChannels 的斷言必須抓到"
   }
 ]

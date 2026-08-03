@@ -7,6 +7,8 @@ import { createServer } from 'node:http';
 import { ProjectStore } from '../src/store.js';
 import { createApp } from '../src/app.js';
 import { runFfmpeg } from '../src/ffmpeg.js';
+import { existsSync } from 'node:fs';
+import { makeAudio } from './fixtures.js';
 
 async function startTestServer() {
   const dir = await mkdtemp(join(tmpdir(), 'vidcut-imp-proj-'));
@@ -209,4 +211,58 @@ describe('POST /api/import', () => {
       vi.resetModules(); // 還原：避免這個 mock 洩漏到其他測試
     }
   });
+});
+
+// 純音訊素材是「合併 main 之後才成立」的能力：本分支單獨時 probe 對無視訊串流
+// 一律丟錯（純音訊 100% 進 failed[]），main 單獨時沒有 /api/source /api/import。
+// 這兩條測的是合併產物，任一 parent 上都會紅。
+describe('純音訊素材（合併 main 後）', () => {
+  it('素材夾裡的 .mp3 列得到、匯入得了，且只產 peaks 不產 proxy/filmstrip', async () => {
+    const { dir, store, src, server, base } = await startTestServer();
+    try {
+      await makeAudio(src, 'bgm.mp3', { duration: 2 });
+
+      const listed = (await (
+        await fetch(`${base}/api/source?dir=${encodeURIComponent(src)}`)
+      ).json()) as {
+        files: Array<{ name: string; imported: boolean }>;
+      };
+      expect(listed.files.map((f) => f.name)).toContain('bgm.mp3');
+
+      const res = await post(base, { dir: src, names: ['bgm.mp3'] });
+      expect(res.status).toBe(200);
+      const j = (await res.json()) as ImportRes;
+      expect(j.failed).toEqual([]);
+      expect(j.ok).toHaveLength(1);
+
+      const media = store.doc.media.find((m) => m.id === j.ok[0]!.mediaId)!;
+      expect(media.path).toBe(join(src, 'bgm.mp3')); // 零複製：原檔留在素材夾
+      expect(media.probe.hasVideo).toBe(false);
+      expect(media.probe.hasAudio).toBe(true);
+      expect(media.proxyPath).toBeUndefined();
+      expect(media.filmstripPath).toBeUndefined();
+      expect(media.peaksPath).toBeDefined();
+      expect(existsSync(join(dir, media.peaksPath!))).toBe(true);
+    } finally {
+      server.close();
+    }
+  }, 60_000);
+
+  it('addToTimeline 不會把純音訊放上視訊軌（素材仍完成匯入）', async () => {
+    const { store, src, server, base } = await startTestServer();
+    try {
+      await makeAudio(src, 'bgm.mp3', { duration: 2 });
+
+      const res = await post(base, { dir: src, names: ['bgm.mp3'], addToTimeline: true });
+      const j = (await res.json()) as ImportRes;
+
+      expect(store.doc.tracks.video).toHaveLength(0); // 視訊軌沒被污染
+      // 已知限制：ingest 成功但 addClip 被拒 → 整支記進 failed[]，素材其實已登記
+      expect(j.failed).toHaveLength(1);
+      expect(j.failed[0]!.error).toMatch(/audio-only/);
+      expect(store.doc.media.some((m) => m.probe.hasVideo === false)).toBe(true);
+    } finally {
+      server.close();
+    }
+  }, 60_000);
 });

@@ -310,6 +310,32 @@ describe('addClip', () => {
     expect(r.ok).toBe(false);
   });
 
+  // 合併 main（純音訊可 ingest）後才成立的守衛：MCP 的 set_timeline 擋得住
+  // audio-only（mcp.ts:334），但 addClip 是本分支新增的第二條上視訊軌的路，
+  // 且 POST /api/import 的 addToTimeline 直接呼叫它——沒這道守衛，匯入一支 .mp3
+  // 就會把純音訊素材放上視訊軌，渲染時 ffmpeg 才炸。
+  it('純音訊素材（hasVideo:false）不得加上視訊軌', async () => {
+    const store = await storeWithClips();
+    store.mutate('ai', 'seed audio-only', (d) => {
+      d.media.push({
+        id: 'bgm',
+        path: '/outside/bgm.mp3',
+        probe: {
+          duration: 30,
+          width: 0,
+          height: 0,
+          fps: 30,
+          hasAudio: true,
+          rotation: 0,
+          hasVideo: false,
+        },
+      });
+    });
+    const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'bgm', in: 0, duration: 5 });
+    expect(r.ok).toBe(false);
+    expect(store.doc.tracks.video.some((c) => c.mediaId === 'bgm')).toBe(false);
+  });
+
   it('浮點誤差導致的邊界：1e-6 容差保護', async () => {
     const store = await storeWithClips();
     // duration = 20 + 1e-7 = 20.0000001
