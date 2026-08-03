@@ -303,4 +303,14 @@ describe('addClip', () => {
     const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'm1', in: 0, duration: 20 });
     expect(r.ok).toBe(true);
   });
+
+  it('浮點誤差導致的邊界：1e-6 容差保護', async () => {
+    const store = await storeWithClips();
+    // duration = 20 + 1e-7 = 20.0000001
+    // 總和 (in=0) 略大於素材長度（20），但差異 (1e-7) < 1e-6，應被容差允許。
+    // 若容差被拿掉（+0），測試會因為 20.0000001 > 20 而變紅。
+    const duration = 20 + 1e-7;
+    const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'm1', in: 0, duration });
+    expect(r.ok).toBe(true);
+  });
 });
