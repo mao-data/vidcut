@@ -407,6 +407,53 @@ export function Inspector() {
           })
         }
       />
+      {ov.text && (
+        <>
+          <label className="field">Text</label>
+          <textarea
+            rows={2}
+            defaultValue={ov.text.text}
+            key={ov.id + ov.text.text}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== ov.text!.text) {
+                send({
+                  name: 'updateOverlay',
+                  id: ov.id,
+                  patch: { text: { ...ov.text!, text: v } },
+                });
+              }
+            }}
+          />
+          <label className="field">Font size</label>
+          <input
+            type="number"
+            defaultValue={ov.text.fontSize}
+            onBlur={(e) => {
+              const n = Number(e.target.value);
+              if (n > 0) {
+                send({
+                  name: 'updateOverlay',
+                  id: ov.id,
+                  patch: { text: { ...ov.text!, fontSize: n } },
+                });
+              }
+            }}
+          />
+          <label className="field">Fill</label>
+          <input
+            type="color"
+            defaultValue={ov.text.fill}
+            onChange={(e) =>
+              send({
+                name: 'updateOverlay',
+                id: ov.id,
+                patch: { text: { ...ov.text!, fill: e.target.value } },
+              })
+            }
+          />
+        </>
+      )}
       <button
         className="btn-danger icon-btn"
         style={{ marginTop: 12 }}

@@ -167,6 +167,34 @@ describe('Inspector', () => {
     clickText(container, 'Blur fill');
     expect(sent).toEqual([{ name: 'setCanvasFit', fit: 'blur' }]);
   });
+
+  it('text overlay: Inspector 顯示文字欄位,改字送 updateOverlay(text 完整物件)', () => {
+    const doc = demoProject();
+    doc.tracks.overlays = [
+      {
+        id: 'txt1',
+        imagePath: 'derived/text/abc.base.png',
+        text: { text: '原字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    ];
+    seedProject(doc);
+    useSelection.getState().select({ kind: 'overlay', id: 'txt1' });
+    const { container } = render(<Inspector />);
+    const ta = container.querySelector('textarea')!;
+    expect(ta.value).toBe('原字');
+    fireEvent.change(ta, { target: { value: '新字' } });
+    fireEvent.blur(ta);
+    expect(sent).toEqual([
+      {
+        name: 'updateOverlay',
+        id: 'txt1',
+        patch: { text: { text: '新字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' } },
+      },
+    ]);
+  });
 });
 
 describe('CaptionList', () => {

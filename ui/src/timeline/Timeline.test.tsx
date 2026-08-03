@@ -5,6 +5,7 @@ import { Timeline } from './Timeline.js';
 import { useSelection } from '../stores/selection.js';
 import { useView } from '../stores/view.js';
 import { useProject } from '../stores/project.js';
+import { usePlayback } from '../stores/playback.js';
 import * as ws from '../ws.js';
 import { demoProject, seedProject, resetStores } from '../test/fixtures.js';
 
@@ -201,5 +202,22 @@ describe('Timeline drags', () => {
     });
     // jsdom 的 rect.left = 0，故 clientX 直接換算成秒
     expect(sec(4 * PPS)).toBe(4);
+  });
+
+  it('Toolbar 的 Text 鈕在 playhead 加一個文字 overlay 並選取它', () => {
+    usePlayback.getState().seek(2);
+    const { container } = render(<Timeline />);
+    const btn = container.querySelector<HTMLButtonElement>(
+      'button[title="Add a text overlay at playhead"]',
+    )!;
+    act(() => {
+      fireEvent.click(btn);
+    });
+    expect(sent).toHaveLength(1);
+    const cmd = sent[0] as Extract<Command, { name: 'addOverlay' }>;
+    expect(cmd.name).toBe('addOverlay');
+    expect(cmd.overlay.text).toMatchObject({ text: '新文字' });
+    expect(cmd.overlay.start).toBe(2);
+    expect(useSelection.getState().selected).toEqual({ kind: 'overlay', id: cmd.overlay.id });
   });
 });
