@@ -13,6 +13,10 @@ activeIndex 及其之前的詞用 highlight 色，之後用 fill 色。排版對
 
 產出：寬 = width、高 = 依字級與行數自動、透明底、水平置中、可選描邊的 PNG。
 與 make_overlays.py 同路子（Pillow）。跨機器不依賴 ffmpeg 字型支援。
+
+--worker：改吃常駐模式（stdin 一行 JSON → stdout 一行 JSON，逐行處理直到 EOF）。
+供 server/src/rasterizer.ts 用（7ms/張 vs 逐次 spawn 50-70ms）。CLI 單卡模式
+（本檔預設走法，"out" 鍵）行為不變 —— server/src/render.ts 依賴它。
 """
 import json
 import sys
@@ -90,20 +94,25 @@ def line_width(draw, line, font) -> float:
     return last_x + draw.textlength(last_tok, font=font)
 
 
-def main() -> None:
-    cfg = json.load(sys.stdin)
+def load_font_by(path, size, cache):
+    key = (path, size)
+    if key not in cache:
+        cache[key] = ImageFont.truetype(path, size) if path else load_font(size)
+    return cache[key]
+
+
+def render_cards(cfg, font_cache):
+    """一次排版 → 畫 base(全 fill 色)與 hl(全 highlight 色)兩張,回幾何+逐詞 bbox。"""
     size = int(cfg.get("fontSize", 64))
     fill = cfg.get("fill", "#ffffff")
     stroke = cfg.get("stroke")
     highlight = cfg.get("highlight") or fill
     width = int(cfg.get("width", 1080))
     tokens = cfg.get("tokens") or None
-    active = int(cfg.get("activeIndex", -1))
     stroke_w = max(2, size // 16) if stroke else 0
-    # 左右留白：避免長句貼邊
     margin = int(cfg.get("margin", max(32, width // 20)))
 
-    font = load_font(size)
+    font = load_font_by(cfg.get("fontPath"), size, font_cache)
     tmp = Image.new("RGBA", (1, 1))
     measure = ImageDraw.Draw(tmp)
     line_h = size + max(6, size // 5)
@@ -111,30 +120,66 @@ def main() -> None:
     if tokens:
         lines = layout_tokens(measure, tokens, font, width - margin * 2)
     else:
-        # 無 tokens：沿用原本的整行模式（顯式換行由 \n 決定）
         lines = [[(part, 0.0, -1)] for part in cfg["text"].split("\n")]
 
     height = line_h * len(lines) + stroke_w * 2 + 8
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+    y_start = stroke_w + 4
 
-    y = stroke_w + 4
-    for line in lines:
-        x0 = (width - line_width(draw, line, font)) / 2
-        for tok, dx, idx in line:
-            draw.text(
-                (x0 + dx, y),
-                tok,
-                font=font,
-                fill=highlight if (idx >= 0 and idx <= active) else fill,
-                stroke_width=stroke_w,
-                stroke_fill=stroke if stroke else None,
-            )
-        y += line_h
+    boxes = []
+    if tokens:
+        for li, line in enumerate(lines):
+            x0 = (width - line_width(measure, line, font)) / 2
+            for tok, dx, idx in line:
+                if idx >= 0:
+                    boxes.append({
+                        "x": round(x0 + dx, 1), "y": y_start + li * line_h,
+                        "w": round(measure.textlength(tok, font=font), 1), "h": line_h,
+                    })
 
-    img.save(cfg["out"])
-    # 回報實際尺寸給呼叫端
-    print(json.dumps({"width": width, "height": height, "lines": len(lines)}))
+    def paint(active, out_path):
+        img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        y = y_start
+        for line in lines:
+            x0 = (width - line_width(draw, line, font)) / 2
+            for tok, dx, idx in line:
+                draw.text((x0 + dx, y), tok, font=font,
+                          fill=highlight if (idx >= 0 and idx <= active) else fill,
+                          stroke_width=stroke_w, stroke_fill=stroke if stroke else None)
+            y += line_h
+        img.save(out_path)
+
+    paint(int(cfg.get("activeIndex", -1)), cfg["out"] if "out" in cfg else cfg["outBase"])
+    if tokens and cfg.get("outHl"):
+        paint(len(tokens) - 1, cfg["outHl"])
+    return {"ok": True, "width": width, "height": height, "lines": len(lines),
+            "tokens": boxes if tokens else None}
+
+
+def worker_loop():
+    font_cache = {}
+    for raw in sys.stdin:
+        try:
+            req = json.loads(raw)
+            if req.get("op") == "probeFont":
+                try:
+                    ImageFont.truetype(req["path"], 32)
+                    print(json.dumps({"ok": True}), flush=True)
+                except OSError as e:
+                    print(json.dumps({"ok": False, "error": str(e)}), flush=True)
+                continue
+            print(json.dumps(render_cards(req, font_cache)), flush=True)
+        except Exception as e:  # worker 絕不因單一請求死掉
+            print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"}), flush=True)
+
+
+def main() -> None:
+    if "--worker" in sys.argv:
+        worker_loop()
+        return
+    cfg = json.load(sys.stdin)
+    out = render_cards(cfg, {})
+    print(json.dumps({"width": out["width"], "height": out["height"], "lines": out["lines"]}))
 
 
 if __name__ == "__main__":
