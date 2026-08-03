@@ -186,6 +186,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '取得專案裁剪總覽（clips/captions/media/version/review）；full:true 回完整 JSON。',
       inputSchema: { full: z.boolean().optional() },
+      annotations: { readOnlyHint: true },
     },
     async ({ full }) => {
       if (full)
@@ -206,6 +207,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description: '最近的變更記錄（version/label/source/ts）。',
       inputSchema: { limit: z.number().optional() },
+      annotations: { readOnlyHint: true },
     },
     async ({ limit }) => {
       const h = store
@@ -226,6 +228,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description: '自指定 version 以來的人類變更摘要（AI 讀回使用者的調整）。',
       inputSchema: { sinceVersion: z.number() },
+      annotations: { readOnlyHint: true },
     },
     async ({ sinceVersion }) => {
       const changes = store
@@ -244,6 +247,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description: '人在 UI 的當前選取、playhead 位置、拖選時間範圍。',
       inputSchema: {},
+      annotations: { readOnlyHint: true },
     },
     async () => {
       const c = editorContext.get();
@@ -260,6 +264,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '抽出指定時間點的畫面 JPEG（AI 的「眼睛」；M3 僅片段畫面，M4 加 overlay 合成）。',
       inputSchema: { time: z.number() },
+      annotations: { readOnlyHint: true },
     },
     async ({ time }) => {
       const rel = await extractFrame(projectDir, store.doc, time);
@@ -496,6 +501,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           .optional()
           .describe("'auto'（預設）或語言碼，如 zh / en / ja。指定語言通常比自動偵測準"),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ language }) => {
       const r = await transcribe(store.doc, projectDir, { language });

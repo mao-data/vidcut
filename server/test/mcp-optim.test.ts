@@ -248,3 +248,30 @@ describe('B4 fine-grained edit tools', () => {
   });
 });
 
+// ---- B5 讀取類工具標 readOnlyHint ----
+describe('B5 readOnlyHint annotations', () => {
+  it('read tools advertise readOnlyHint: true', async () => {
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((t) => [t.name, t]));
+    for (const name of [
+      'get_project',
+      'get_history',
+      'get_feedback',
+      'get_editor_context',
+      'get_frame',
+      'transcribe',
+    ]) {
+      expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
+    }
+  });
+
+  it('write tools do not claim to be read-only', async () => {
+    const { tools } = await client.listTools();
+    for (const t of tools) {
+      if (['update_clip', 'set_captions', 'update_caption', 'render', 'set_cover'].includes(t.name)) {
+        expect(t.annotations?.readOnlyHint ?? false, t.name).toBe(false);
+      }
+    }
+  });
+});
+
