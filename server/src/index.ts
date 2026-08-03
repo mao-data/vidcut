@@ -44,7 +44,14 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   attachWs(server, { store, editorContext, reviews, projectDir, cardSync, textCards });
 
   // baseUrl 在 listen 後才知道實際 port；先用預留位，listen 後補。
-  const deps = { store, projectDir, editorContext, reviews, baseUrl: `http://127.0.0.1:${port}` };
+  const deps = {
+    store,
+    projectDir,
+    editorContext,
+    reviews,
+    baseUrl: `http://127.0.0.1:${port}`,
+    textCards,
+  };
   mountMcp(app, deps);
 
   await new Promise<void>((r) => server.listen(port, '127.0.0.1', r));

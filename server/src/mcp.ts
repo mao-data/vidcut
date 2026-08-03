@@ -10,10 +10,12 @@ import { transcribe } from './asr.js';
 import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
+import type { TextCardService } from './textCards.js';
 import { aiWrite } from './aiWrite.js';
 import { ingestMedia } from './ingest.js';
 import { extractFrame } from './frame.js';
 import { extractCover, render } from './render.js';
+import { resolveTextCommand } from './textOverlays.js';
 
 export interface McpDeps {
   store: ProjectStore;
@@ -22,6 +24,8 @@ export interface McpDeps {
   reviews: ReviewManager;
   /** 給 get_frame 組媒體 URL 用（如 http://127.0.0.1:3845） */
   baseUrl: string;
+  /** add_overlay/update_overlay 帶 text 時用來產字卡（見 resolveTextCommand 前置） */
+  textCards: TextCardService;
 }
 
 function text(s: string) {
@@ -92,10 +96,27 @@ const clipPatchShape = {
   label: z.string().optional(),
 };
 
+const overlayTextSchema = z
+  .object({
+    text: z.string().min(1),
+    fontFamily: z.string(),
+    fontSize: z.number().positive(),
+    fill: z.string(),
+    stroke: z.string().optional(),
+    maxWidth: z.number().min(0.1).max(1).optional(),
+  })
+  .strict();
+
 const overlaySchema = z
   .object({
     id: z.string(),
     imagePath: z.string(),
+    text: overlayTextSchema
+      .optional()
+      .describe(
+        '可編輯文字 overlay：伺服器自動產字卡並維護 imagePath；imagePath 傳空字串即可。' +
+          '不給 text 則是純圖 overlay（外部腳本產的 PNG），imagePath 要給實際路徑。',
+      ),
     anchor: z.object({ clipId: z.string(), offset: z.number() }).optional(),
     start: z.number().optional(),
     duration: z.number().nullable(),
@@ -170,7 +191,7 @@ function writeReply(r: { ok: boolean; version?: number; error?: string }) {
 
 /** 建立註冊好全部工具的 McpServer（每個 HTTP 請求建一個，closure 共享 deps）。 */
 export function createMcpServer(deps: McpDeps): McpServer {
-  const { store, projectDir, editorContext, reviews, baseUrl } = deps;
+  const { store, projectDir, editorContext, reviews, baseUrl, textCards } = deps;
   const server = new McpServer(
     { name: 'vidcut', version: '0.1.0' },
     {
@@ -181,6 +202,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
+        '疊圖分兩種：文字類用 add_overlay/update_overlay 帶 text（伺服器自動產字卡並維護 ' +
+        'imagePath，imagePath 傳空字串即可，之後改字直接送新 text）；純圖 overlay 照舊自己給 imagePath。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
         '小修單一項目用細粒度工具（update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
@@ -442,7 +465,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_overlay',
     {
       description:
-        '只改一張疊圖（start/anchor/duration/position）。start 與 anchor 互斥：給哪個就轉成哪種定位。',
+        '只改一張疊圖（start/anchor/duration/position/text）。start 與 anchor 互斥：給哪個就轉成哪種定位。' +
+        '文字 overlay 改字/樣式就送新 text（伺服器重新產卡並更新 imagePath，不必也不該自己給 imagePath）。',
       inputSchema: {
         id: z.string(),
         patch: z
@@ -451,31 +475,49 @@ export function createMcpServer(deps: McpDeps): McpServer {
             anchor: z.object({ clipId: z.string(), offset: z.number() }).optional(),
             duration: z.number().nullable().optional(),
             position: z.object({ x: z.number(), y: z.number(), scale: z.number() }).optional(),
+            text: overlayTextSchema
+              .optional()
+              .describe(
+                '改文字內容/樣式：伺服器會重新產卡並更新 imagePath，只對本來就是文字 overlay 的項目有效。',
+              ),
           })
           .strict(),
         ifVersion: z.number().optional(),
       },
     },
-    async ({ id, patch, ifVersion }) =>
-      writeReply(
-        aiWrite(
-          store,
-          { name: 'updateOverlay', id, patch: patch as Partial<OverlayItem> },
-          ifVersion,
-        ),
-      ),
+    async ({ id, patch, ifVersion }) => {
+      try {
+        const cmd = await resolveTextCommand(textCards, store, {
+          name: 'updateOverlay',
+          id,
+          patch: patch as Partial<OverlayItem>,
+        });
+        return writeReply(aiWrite(store, cmd, ifVersion));
+      } catch (e) {
+        return err(`text card generation failed: ${(e as Error).message}`);
+      }
+    },
   );
 
   server.registerTool(
     'add_overlay',
     {
-      description: '新增單張疊圖（其他 overlay 不動）。',
+      description:
+        '新增單張疊圖（其他 overlay 不動）。文字類 overlay 帶 text（伺服器自動產字卡並維護 ' +
+        'imagePath，imagePath 傳空字串即可）；純圖 overlay 照舊給實際 imagePath。',
       inputSchema: { overlay: overlaySchema, ifVersion: z.number().optional() },
     },
-    async ({ overlay, ifVersion }) =>
-      writeReply(
-        aiWrite(store, { name: 'addOverlay', overlay: overlay as OverlayItem }, ifVersion),
-      ),
+    async ({ overlay, ifVersion }) => {
+      try {
+        const cmd = await resolveTextCommand(textCards, store, {
+          name: 'addOverlay',
+          overlay: overlay as OverlayItem,
+        });
+        return writeReply(aiWrite(store, cmd, ifVersion));
+      } catch (e) {
+        return err(`text card generation failed: ${(e as Error).message}`);
+      }
+    },
   );
 
   server.registerTool(

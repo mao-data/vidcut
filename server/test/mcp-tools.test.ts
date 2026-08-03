@@ -10,6 +10,8 @@ import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import type { ProjectTracks } from '@vidcut/shared';
 import { makeVideo } from './fixtures.js';
+import { TextCardService } from '../src/textCards.js';
+import { PillowRasterizer } from '../src/rasterizer.js';
 
 /**
  * MCP 工具面的覆蓋補齊：既有 mcp.test.ts 只驗了 5 條路徑（列表、import+set_timeline+
@@ -44,6 +46,7 @@ beforeAll(async () => {
     editorContext: new EditorContext(),
     reviews: new ReviewManager(store, 900_000),
     baseUrl: 'http://127.0.0.1:3845',
+    textCards: new TextCardService(dir, new PillowRasterizer(() => undefined)),
   };
   const server = createMcpServer(deps);
   const [ct, st] = InMemoryTransport.createLinkedPair();

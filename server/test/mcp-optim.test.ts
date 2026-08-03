@@ -11,6 +11,8 @@ import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import type { ProjectTracks } from '@vidcut/shared';
 import { makeAudio, makeVideo } from './fixtures.js';
 import { transcribe as transcribeMock } from '../src/asr.js';
+import { TextCardService } from '../src/textCards.js';
+import { PillowRasterizer } from '../src/rasterizer.js';
 
 // whisper 是外部程序（mock 邊界）；B6 截斷邏輯在 mcp.ts，不在被 mock 的模組裡
 vi.mock('../src/asr.js', () => ({ transcribe: vi.fn() }));
@@ -32,6 +34,7 @@ let client: Client;
 let reviews: ReviewManager;
 let mediaId: string;
 let baseline: ProjectTracks;
+let rasterizer: PillowRasterizer;
 
 const call = (name: string, args: Record<string, unknown> = {}) =>
   client.callTool({ name, arguments: args }) as Promise<Structured>;
@@ -42,12 +45,14 @@ beforeAll(async () => {
   await makeVideo(dir, 'a.mp4', { duration: 6 });
   store = await ProjectStore.load(join(dir, 'project.json'));
   reviews = new ReviewManager(store, 900_000);
+  rasterizer = new PillowRasterizer(() => undefined);
   const deps: McpDeps = {
     store,
     projectDir: dir,
     editorContext: new EditorContext(),
     reviews,
     baseUrl: 'http://127.0.0.1:3845',
+    textCards: new TextCardService(dir, rasterizer),
   };
   const server = createMcpServer(deps);
   const [ct, st] = InMemoryTransport.createLinkedPair();
@@ -104,6 +109,7 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
+  rasterizer.dispose();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -257,6 +263,30 @@ describe('B4 fine-grained edit tools', () => {
     await call('remove_overlay', { id: 'o2' });
     expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('o2');
   });
+
+  it('add_overlay with text creates an editable text overlay (server-made card)', async () => {
+    const r = await call('add_overlay', {
+      overlay: {
+        id: 'txt1',
+        imagePath: '',
+        text: { text: 'MCP 文字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    });
+    expect(r.isError).toBeFalsy();
+    const ov = store.doc.tracks.overlays.find((o) => o.id === 'txt1')!;
+    expect(ov.text?.text).toBe('MCP 文字');
+    expect(ov.imagePath).toMatch(/derived\/text\//);
+
+    const upd = await call('update_overlay', {
+      id: 'txt1',
+      patch: { text: { text: '改過', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' } },
+    });
+    expect(upd.isError).toBeFalsy();
+    expect(store.doc.tracks.overlays.find((o) => o.id === 'txt1')!.text?.text).toBe('改過');
+  }, 60_000);
 
   it('remove_audio deletes one audio item', async () => {
     await call('set_audio', {
