@@ -47,8 +47,13 @@ describe('CaptionCardSync', () => {
   }, 30_000);
 
   it('schedule 是 debounce:密集呼叫只跑一次 onReady', async () => {
-    const { store, svc } = await setup();
-    const sync = new CaptionCardSync(store, svc, 50);
+    const { store } = await setup();
+    // 假 service：ensure 直接回傳固定結果,不觸發 rasterizer 子行程。
+    // debounce 只測 setTimeout 合併,無需實際轉卡。
+    const stubService = {
+      ensure: async () => ({ hash: 'stub-hash', width: 100, height: 40, lines: 1 }),
+    } as unknown as TextCardService;
+    const sync = new CaptionCardSync(store, stubService, 50);
     let calls = 0;
     sync.onReady = () => {
       calls += 1;
@@ -56,7 +61,7 @@ describe('CaptionCardSync', () => {
     sync.schedule();
     sync.schedule();
     sync.schedule();
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 150));
     expect(calls).toBe(1);
   }, 30_000);
 
