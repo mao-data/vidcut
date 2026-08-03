@@ -26,6 +26,11 @@ function text(s: string) {
   return { content: [{ type: 'text' as const, text: s }] };
 }
 
+/** 應用層失敗：標 isError 讓模型能明確辨識（訊息本身與成功路徑同格式）。 */
+function err(s: string) {
+  return { content: [{ type: 'text' as const, text: s }], isError: true };
+}
+
 function result(structured: Record<string, unknown>, summary: string) {
   return { content: [{ type: 'text' as const, text: summary }], structuredContent: structured };
 }
@@ -128,6 +133,11 @@ const timelineClipSchema = z.object({
 
 function writeResultText(r: { ok: boolean; version?: number; error?: string }): string {
   return r.ok ? `ok, version=${r.version}` : `error: ${r.error}`;
+}
+
+/** 寫入類工具的統一回覆：成功回文字、失敗回 isError。 */
+function writeReply(r: { ok: boolean; version?: number; error?: string }) {
+  return r.ok ? text(writeResultText(r)) : err(writeResultText(r));
 }
 
 /** 建立註冊好全部工具的 McpServer（每個 HTTP 請求建一個，closure 共享 deps）。 */
@@ -233,7 +243,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     },
     async ({ time }) => {
       const rel = await extractFrame(projectDir, store.doc, time);
-      if (!rel) return text(`no active clip at ${time}s`);
+      if (!rel) return err(`no active clip at ${time}s`);
       return result({ url: `${baseUrl}/media/${rel}`, path: rel }, `${baseUrl}/media/${rel}`);
     },
   );
@@ -258,7 +268,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           `imported ${relPath} as ${id} (${m.probe.duration.toFixed(1)}s)`,
         );
       } catch (e) {
-        return text(`import failed: ${(e as Error).message}`);
+        return err(`import failed: ${(e as Error).message}`);
       }
     },
   );
@@ -271,15 +281,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
     },
     async ({ clips, ifVersion }) => {
       // 用 aiWrite 的守衛，但 set_timeline 不是既有 command；先檢查守衛條件再直接 mutate
-      if (store.doc.review !== null) return text('error: a review is in progress');
+      if (store.doc.review !== null) return err('error: a review is in progress');
       if (ifVersion !== undefined && ifVersion !== store.version)
-        return text(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
+        return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
       // 驗證 mediaId 存在
       for (const c of clips) {
         const media = store.doc.media.find((m) => m.id === c.mediaId);
-        if (!media) return text(`error: unknown mediaId ${c.mediaId}`);
+        if (!media) return err(`error: unknown mediaId ${c.mediaId}`);
         if (c.in < 0 || c.duration <= 0 || c.in + c.duration > media.probe.duration + 1e-6) {
-          return text(`error: clip out of bounds for ${c.mediaId}`);
+          return err(`error: clip out of bounds for ${c.mediaId}`);
         }
       }
       const r = store.mutate('ai', 'set timeline', (d) => {
@@ -312,7 +322,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       },
     },
     async ({ clipId, patch, ifVersion }) =>
-      text(writeResultText(aiWrite(store, { name: 'updateClip', clipId, patch }, ifVersion))),
+      writeReply(aiWrite(store, { name: 'updateClip', clipId, patch }, ifVersion)),
   );
 
   server.registerTool(
@@ -322,7 +332,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { order: z.array(z.string()), ifVersion: z.number().optional() },
     },
     async ({ order, ifVersion }) =>
-      text(writeResultText(aiWrite(store, { name: 'reorderClips', order }, ifVersion))),
+      writeReply(aiWrite(store, { name: 'reorderClips', order }, ifVersion)),
   );
 
   server.registerTool(
@@ -332,7 +342,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
     async ({ clipId, ifVersion }) =>
-      text(writeResultText(aiWrite(store, { name: 'removeClip', clipId }, ifVersion))),
+      writeReply(aiWrite(store, { name: 'removeClip', clipId }, ifVersion)),
   );
 
   server.registerTool(
@@ -366,7 +376,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'undo',
     { description: '撤回最近 N 筆變更。', inputSchema: { steps: z.number().optional() } },
-    async ({ steps }) => text(writeResultText(aiWrite(store, { name: 'undo', steps }))),
+    async ({ steps }) => writeReply(aiWrite(store, { name: 'undo', steps })),
   );
 
   // ---- 逐字稿與自動字幕 ----
@@ -471,7 +481,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
             : op === 'deleteAfter'
               ? ({ name: 'deleteAfter', time } as const)
               : ({ name: 'freezeFrame', time, duration } as const);
-      return text(writeResultText(aiWrite(store, cmd, ifVersion)));
+      return writeReply(aiWrite(store, cmd, ifVersion));
     },
   );
 
@@ -483,7 +493,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
     async ({ clipId, ifVersion }) =>
-      text(writeResultText(aiWrite(store, { name: 'extractAudio', clipId }, ifVersion))),
+      writeReply(aiWrite(store, { name: 'extractAudio', clipId }, ifVersion)),
   );
 
   server.registerTool(
@@ -519,7 +529,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       },
     },
     async ({ id, patch, ifVersion }) =>
-      text(writeResultText(aiWrite(store, { name: 'updateAudio', id, patch }, ifVersion))),
+      writeReply(aiWrite(store, { name: 'updateAudio', id, patch }, ifVersion)),
   );
 
   // ---- 畫布與封面 ----
@@ -531,7 +541,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { fit: z.enum(['contain', 'blur']), ifVersion: z.number().optional() },
     },
     async ({ fit, ifVersion }) =>
-      text(writeResultText(aiWrite(store, { name: 'setCanvasFit', fit }, ifVersion))),
+      writeReply(aiWrite(store, { name: 'setCanvasFit', fit }, ifVersion)),
   );
 
   server.registerTool(
@@ -548,7 +558,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           `${baseUrl}/media/${rel}`,
         );
       } catch (e) {
-        return text(`cover failed: ${(e as Error).message}`);
+        return err(`cover failed: ${(e as Error).message}`);
       }
     },
   );
@@ -613,7 +623,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       annotations: { title: 'Render final video' },
     },
     async ({ stamp, ...exportOpts }) => {
-      if (store.doc.review !== null) return text('error: a review is in progress');
+      if (store.doc.review !== null) return err('error: a review is in progress');
       try {
         const s = stamp ?? `render_${store.version}`;
         const res = await render(store, projectDir, s, exportOpts);
@@ -629,7 +639,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         store.mutate('ai', 'render error', (d) => {
           d.render = { status: 'error', error: (e as Error).message };
         });
-        return text(`render failed: ${(e as Error).message}`);
+        return err(`render failed: ${(e as Error).message}`);
       }
     },
   );
