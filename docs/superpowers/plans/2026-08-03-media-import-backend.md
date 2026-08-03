@@ -13,13 +13,50 @@
 
 設計定案：`docs/superpowers/specs/2026-08-03-media-import-design.md`
 
+**Tier: 3（高風險）。** 理由：HTTP 端點會依使用者輸入讀取任意磁碟路徑（敵意輸入面），
+且改動貫穿輸出管線（既有功能可能靜默退步）。因此除了一般關卡，另需 failure model 與敵意輸入回合。
+
+## Failure Model（Tier 3 必要）
+
+每一條都必須對應到一個能真正抓到它的層，或在 EVIDENCE 明列為已知限制。
+
+| 失敗模式                                   | 能抓到它的層                                                                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `names[]` 帶 `../../etc/passwd` 逃出素材夾 | Task 6 的 traversal 測試（`basename` 防護）                                                                        |
+| 素材夾內是 symlink → **靜默漏檔**          | Task 4 的 symlink 測試（`Dirent.isFile()` 對 symlink 回 false，已實測確認）                                        |
+| 路徑解析退步導致既有相對路徑專案壞掉       | 既有 server 測試（迴歸護甲）＋ Task 1 的相對路徑測試                                                               |
+| 輸出吃到絕對路徑素材時炸掉                 | Task 2 Step 5 的 render 整合測（真 ffmpeg）                                                                        |
+| 原檔被移走後輸出出現無意義的 ffmpeg 錯誤   | Task 7 的缺檔預檢測試                                                                                              |
+| ingest 失敗留下半成品 `derived/`           | Task 7 的清理測試                                                                                                  |
+| 非 ASCII／含空白的檔名                     | Task 4 的檔名測試                                                                                                  |
+| 併發匯入同一支素材產生兩份 derived         | **不覆蓋**（`ingestMedia` 的冪等檢查是 read-then-write）。EVIDENCE 記為已知限制：UI 為單一使用者、序列送出，不觸發 |
+| 巨大素材夾（上萬檔）拖垮回應               | **不覆蓋**。EVIDENCE 記為已知限制                                                                                  |
+| 磁碟寫滿                                   | **不覆蓋**（ffmpeg 會失敗，走 `failed[]`），EVIDENCE 記為已知限制                                                  |
+
+## Baseline（2026-08-03，開工前實測，`scripts/gauntlet.sh --fast`）
+
+**既有失敗，不是本次造成的，本計畫只要求「零新增失敗」：**
+
+1. `格式 (prettier --check)` FAIL —— `server/src/store.ts`（commit `334cb20` 留下）。**不要順手修**，那是 scope creep。
+2. `隨機順序` server FAIL —— `test/store-undo.test.ts` 與 `store-durability.test.ts` 共 **8 條**測試具順序相依性。
+   本計畫新增 4 個 server 測試檔，收尾時必須確認**仍是這 8 條、沒有變多**。
+
+通過的關卡：typecheck、lint、全測試（27 + 148 + 166）、UI 覆蓋率 86.33%、
+隨機順序 ui、npm audit 0 漏洞、秘密掃描。
+
 ## Global Constraints
 
 - 任何專案狀態變更走 `applyCommand`（人）或 `aiWrite`→`applyCommand`（AI），不旁路直改 doc。
 - `resolveMediaPath` 放 `server/`，**不可放 `shared/`** —— shared 會被瀏覽器打包，`node:path` 會讓 UI build 失敗。
 - 衍生檔一律產在專案內的 `derived/<mediaId>/`，不論原檔在哪。
 - 測試沿用專案慣例：真 ffmpeg、不 mock；測試專案用 `mkdtemp` 建在 tmp。
-- 每個 Task 結束前跑 `npm test && npm run typecheck && npm run lint`，全綠才 commit。
+- **每個 Task 結束前跑 `scripts/gauntlet.sh --fast`**（typecheck / lint / format / 全測試 / 覆蓋率 /
+  隨機順序 / audit / 秘密掃描），對照上面的 baseline 確認零新增失敗才 commit。
+  最後一個 Task 跑**完整** `scripts/gauntlet.sh`（含突變）。
+  不要用 `npm test && npm run typecheck && npm run lint` 收尾 —— 那會漏掉六個關卡，
+  產出的數字也不能寫進 `EVIDENCE.md`。
+- **不新增任何 npm 依賴。** 本計畫所有測試都用既有工具（vitest、node 內建、真 ffmpeg）。
+  若實作中發現需要新套件，**停下來回報**，那是 spec 缺陷。
 - commit 只 stage 該 Task 動到的路徑，**不要 `git add -A`**（此工作區常有多個 session 並行）。
 
 ---
@@ -27,12 +64,14 @@
 ### Task 1: `resolveMediaPath` 與四處呼叫端
 
 **Files:**
+
 - Create: `server/src/paths.ts`
 - Create: `server/test/paths.test.ts`
 - Modify: `server/src/render.ts:195`、`server/src/render.ts:216`、`server/src/render.ts:411`
 - Modify: `server/src/ingest.ts:32`
 
 **Interfaces:**
+
 - Consumes: 無
 - Produces: `resolveMediaPath(projectDir: string, mediaPath: string): string`
 
@@ -111,8 +150,8 @@ Expected: 無輸出
 
 - [ ] **Step 7: 跑全部測試**
 
-Run: `npm test && npm run typecheck && npm run lint`
-Expected: 全綠（既有測試不得退步）
+Run: `scripts/gauntlet.sh --fast`
+Expected: 對照 Baseline 一節——僅 `格式` 與 `隨機順序 server` 兩項失敗（既有），其餘全 PASS
 
 - [ ] **Step 8: Commit**
 
@@ -126,10 +165,12 @@ git commit -m "feat(server): resolveMediaPath 讓素材路徑可為專案外絕�
 ### Task 2: ingest 接受專案外絕對路徑
 
 **Files:**
+
 - Modify: `server/test/ingest.test.ts`
 - Modify: `server/src/ingest.ts`（若 Task 1 已足夠則只補註解）
 
 **Interfaces:**
+
 - Consumes: `resolveMediaPath(projectDir, mediaPath)`
 - Produces: `ingestMedia(store, projectDir, relPath, opts?)` 的 `relPath` 參數現在也接受絕對路徑；
   回傳 `mediaId`，且 `store.doc.media` 中該筆的 `path` 原樣保存傳入值。
@@ -144,8 +185,17 @@ it('可以 ingest 專案資料夾外的絕對路徑，原檔不被複製', async
   const outside = await mkdtemp(join(tmpdir(), 'vidcut-outside-'));
   const src = join(outside, 'external.mp4');
   await runFfmpeg([
-    '-f', 'lavfi', '-i', 'testsrc2=size=320x568:rate=30:duration=2',
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', src,
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc2=size=320x568:rate=30:duration=2',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-pix_fmt',
+    'yuv420p',
+    src,
   ]);
 
   const dir = await mkdtemp(join(tmpdir(), 'vidcut-proj-'));
@@ -153,18 +203,27 @@ it('可以 ingest 專案資料夾外的絕對路徑，原檔不被複製', async
   const id = await ingestMedia(store, dir, src);
 
   const m = store.doc.media.find((x) => x.id === id)!;
-  expect(m.path).toBe(src);                                  // 絕對路徑原樣保存
-  expect(existsSync(join(dir, 'external.mp4'))).toBe(false);  // 沒有複製進專案
+  expect(m.path).toBe(src); // 絕對路徑原樣保存
+  expect(existsSync(join(dir, 'external.mp4'))).toBe(false); // 沒有複製進專案
   expect(m.proxyPath).toBeDefined();
-  expect(existsSync(join(dir, m.proxyPath!))).toBe(true);     // 衍生檔仍在專案內
+  expect(existsSync(join(dir, m.proxyPath!))).toBe(true); // 衍生檔仍在專案內
 });
 
 it('同一個絕對路徑重複 ingest 回同一個 id', async () => {
   const outside = await mkdtemp(join(tmpdir(), 'vidcut-outside2-'));
   const src = join(outside, 'dup.mp4');
   await runFfmpeg([
-    '-f', 'lavfi', '-i', 'testsrc2=size=320x568:rate=30:duration=2',
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', src,
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc2=size=320x568:rate=30:duration=2',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-pix_fmt',
+    'yuv420p',
+    src,
   ]);
   const dir = await mkdtemp(join(tmpdir(), 'vidcut-proj2-'));
   const store = await ProjectStore.load(join(dir, 'project.json'));
@@ -204,8 +263,17 @@ it('輸出吃專案外絕對路徑的素材', async () => {
   const outside = await mkdtemp(join(tmpdir(), 'vidcut-ext-render-'));
   const src = join(outside, 'ext.mp4');
   await runFfmpeg([
-    '-f', 'lavfi', '-i', 'testsrc2=size=320x568:rate=30:duration=2',
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', src,
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc2=size=320x568:rate=30:duration=2',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-pix_fmt',
+    'yuv420p',
+    src,
   ]);
   const dir = await mkdtemp(join(tmpdir(), 'vidcut-ext-proj-'));
   const store = await ProjectStore.load(join(dir, 'project.json'));
@@ -239,11 +307,13 @@ git commit -m "test(server): ingest 與 render 吃專案外絕對路徑的迴歸
 ### Task 3: `addClip` command
 
 **Files:**
+
 - Modify: `shared/src/types.ts`（`Command` union）
 - Modify: `server/src/commands.ts`
 - Modify: `server/test/commands.test.ts`
 
 **Interfaces:**
+
 - Consumes: 無
 - Produces: Command variant `{ name: 'addClip'; mediaId: string; in: number; duration: number; label?: string }`，
   經 `applyCommand(store, source, cmd)` 套用，append 到 `store.doc.tracks.video` 尾端，
@@ -269,7 +339,12 @@ describe('addClip', () => {
 
   it('未知 mediaId 被拒絕', async () => {
     const store = await storeWithClips();
-    const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'nope', in: 0, duration: 3 });
+    const r = applyCommand(store, 'human', {
+      name: 'addClip',
+      mediaId: 'nope',
+      in: 0,
+      duration: 3,
+    });
     expect(r.ok).toBe(false);
   });
 
@@ -356,8 +431,8 @@ Expected: PASS（5 項）
 
 - [ ] **Step 6: 跑全部測試**
 
-Run: `npm test && npm run typecheck && npm run lint`
-Expected: 全綠
+Run: `scripts/gauntlet.sh --fast`
+Expected: 對照 Baseline，零新增失敗
 
 - [ ] **Step 7: Commit**
 
@@ -371,10 +446,12 @@ git commit -m "feat(commands): addClip 把素材接到主軌尾端"
 ### Task 4: `scanSourceFolder`
 
 **Files:**
+
 - Create: `server/src/sourceFolder.ts`
 - Create: `server/test/sourceFolder.test.ts`
 
 **Interfaces:**
+
 - Consumes: 無
 - Produces:
   - `export interface SourceFile { name: string; size: number; mtime: number }`
@@ -387,7 +464,7 @@ git commit -m "feat(commands): addClip 把素材接到主軌尾端"
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scanSourceFolder } from '../src/sourceFolder.js';
@@ -432,6 +509,41 @@ describe('scanSourceFolder', () => {
     expect(f!.mtime).toBeGreaterThan(0);
   });
 
+  // Dirent.isFile() 對 symlink 回 false（已實測確認），用 isFile() 過濾會靜默漏檔。
+  // 使用者用 symlink 組素材夾是常見做法，漏檔又沒有錯誤訊息＝最糟的失敗模式。
+  it('收錄指向檔案的 symlink', async () => {
+    const real = await mkdtemp(join(tmpdir(), 'vidcut-real-'));
+    await writeFile(join(real, 'movie.mp4'), 'x');
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-link-'));
+    await symlink(join(real, 'movie.mp4'), join(dir, 'linked.mp4'));
+
+    const files = await scanSourceFolder(dir);
+    expect(files.map((f) => f.name)).toEqual(['linked.mp4']);
+    expect(files[0]!.size).toBeGreaterThan(0); // stat 追隨 symlink，不是 lstat
+  });
+
+  it('斷掉的 symlink 被略過而不是丟錯', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-broken-'));
+    await symlink(join(dir, 'nowhere.mp4'), join(dir, 'dangling.mp4'));
+    await writeFile(join(dir, 'ok.mp4'), 'x');
+
+    const files = await scanSourceFolder(dir);
+    expect(files.map((f) => f.name)).toEqual(['ok.mp4']);
+  });
+
+  it('接受非 ASCII 與含空白的檔名', async () => {
+    const dir = await folderWith(['我的 影片.mp4', 'a b.mov']);
+    const files = await scanSourceFolder(dir);
+    expect(files.map((f) => f.name).sort()).toEqual(['a b.mov', '我的 影片.mp4'].sort());
+  });
+
+  it('略過子目錄本身（即使名字像影片）', async () => {
+    const dir = await folderWith(['real.mp4']);
+    await mkdir(join(dir, 'fake.mp4'));
+    const files = await scanSourceFolder(dir);
+    expect(files.map((f) => f.name)).toEqual(['real.mp4']);
+  });
+
   it('目錄不存在時丟錯', async () => {
     await expect(scanSourceFolder('/definitely/not/here')).rejects.toThrow();
   });
@@ -458,8 +570,15 @@ import { extname, join } from 'node:path';
 
 /** 可匯入的副檔名（小寫比對）。影片與音訊都收，音訊可放旁白／BGM。 */
 export const MEDIA_EXTENSIONS = [
-  '.mp4', '.mov', '.m4v', '.webm', '.mkv',
-  '.mp3', '.m4a', '.wav', '.aac',
+  '.mp4',
+  '.mov',
+  '.m4v',
+  '.webm',
+  '.mkv',
+  '.mp3',
+  '.m4a',
+  '.wav',
+  '.aac',
 ] as const;
 
 export interface SourceFile {
@@ -472,20 +591,31 @@ export interface SourceFile {
 /**
  * 列出素材夾內可匯入的檔案。不遞迴、排除隱藏檔、依檔名排序。
  * 目錄不存在或不是目錄時丟錯（由呼叫端轉成 400）。
+ *
+ * 判斷「是不是檔案」用 stat 而非 Dirent.isFile()：
+ * Dirent.isFile() 對 symlink 回 false（已實測），用它過濾會靜默漏掉 symlink 素材，
+ * 而使用者用 symlink 組素材夾是常見做法。stat 會追隨 symlink，斷掉的連結則丟錯 → 略過。
  */
 export async function scanSourceFolder(dir: string): Promise<SourceFile[]> {
   const info = await stat(dir); // 不存在會丟 ENOENT
   if (!info.isDirectory()) throw new Error(`not a directory: ${dir}`);
 
-  const entries = await readdir(dir, { withFileTypes: true });
+  const names = await readdir(dir);
   const out: SourceFile[] = [];
-  for (const e of entries) {
-    if (!e.isFile() || e.name.startsWith('.')) continue;
-    if (!MEDIA_EXTENSIONS.includes(extname(e.name).toLowerCase() as (typeof MEDIA_EXTENSIONS)[number])) {
+  for (const name of names) {
+    if (name.startsWith('.')) continue;
+    if (
+      !MEDIA_EXTENSIONS.includes(extname(name).toLowerCase() as (typeof MEDIA_EXTENSIONS)[number])
+    ) {
       continue;
     }
-    const s = await stat(join(dir, e.name));
-    out.push({ name: e.name, size: s.size, mtime: s.mtimeMs });
+    try {
+      const s = await stat(join(dir, name)); // 追隨 symlink
+      if (!s.isFile()) continue; // 目錄／裝置檔／斷掉的連結都不收
+      out.push({ name, size: s.size, mtime: s.mtimeMs });
+    } catch {
+      continue; // 斷掉的 symlink 或讀不到權限：略過，不讓整次掃描失敗
+    }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -498,8 +628,8 @@ Expected: PASS（7 項）
 
 - [ ] **Step 5: 跑全部測試**
 
-Run: `npm test && npm run typecheck && npm run lint`
-Expected: 全綠
+Run: `scripts/gauntlet.sh --fast`
+Expected: 對照 Baseline，零新增失敗
 
 - [ ] **Step 6: Commit**
 
@@ -513,10 +643,12 @@ git commit -m "feat(server): scanSourceFolder 列出素材夾內可匯入的檔�
 ### Task 5: `GET /api/source`
 
 **Files:**
+
 - Modify: `server/src/app.ts`
 - Create: `server/test/source-api.test.ts`
 
 **Interfaces:**
+
 - Consumes: `scanSourceFolder(dir)`、`resolveMediaPath(projectDir, path)`
 - Produces: `GET /api/source?dir=<絕對路徑>` →
   `200 { dir, files: [{ name, size, mtime, imported: boolean }] }` 或 `400 { error }`
@@ -613,29 +745,27 @@ Expected: FAIL —— 404（路由不存在）
 `server/src/app.ts`，在 `app.get('/api/project', ...)` 之後加：
 
 ```ts
-  // 素材夾掃描（零複製匯入的挑檔來源）。綁 127.0.0.1，故不做根目錄白名單，
-  // 但仍只回白名單副檔名、排除隱藏檔、不遞迴。
-  app.get('/api/source', (req, res, next) => {
-    void (async () => {
-      const dir = typeof req.query.dir === 'string' ? req.query.dir : '';
-      if (!dir) {
-        res.status(400).json({ error: 'need ?dir=' });
-        return;
-      }
-      try {
-        const files = await scanSourceFolder(dir);
-        const imported = new Set(
-          store.doc.media.map((m) => resolveMediaPath(projectDir, m.path)),
-        );
-        res.json({
-          dir,
-          files: files.map((f) => ({ ...f, imported: imported.has(join(dir, f.name)) })),
-        });
-      } catch (e) {
-        res.status(400).json({ error: (e as Error).message });
-      }
-    })().catch(next);
-  });
+// 素材夾掃描（零複製匯入的挑檔來源）。綁 127.0.0.1，故不做根目錄白名單，
+// 但仍只回白名單副檔名、排除隱藏檔、不遞迴。
+app.get('/api/source', (req, res, next) => {
+  void (async () => {
+    const dir = typeof req.query.dir === 'string' ? req.query.dir : '';
+    if (!dir) {
+      res.status(400).json({ error: 'need ?dir=' });
+      return;
+    }
+    try {
+      const files = await scanSourceFolder(dir);
+      const imported = new Set(store.doc.media.map((m) => resolveMediaPath(projectDir, m.path)));
+      res.json({
+        dir,
+        files: files.map((f) => ({ ...f, imported: imported.has(join(dir, f.name)) })),
+      });
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+    }
+  })().catch(next);
+});
 ```
 
 檔頭補 import：
@@ -654,8 +784,8 @@ Expected: PASS（4 項）
 
 - [ ] **Step 5: 跑全部測試**
 
-Run: `npm test && npm run typecheck && npm run lint`
-Expected: 全綠
+Run: `scripts/gauntlet.sh --fast`
+Expected: 對照 Baseline，零新增失敗
 
 - [ ] **Step 6: Commit**
 
@@ -669,11 +799,13 @@ git commit -m "feat(server): GET /api/source 掃描素材夾"
 ### Task 6: `POST /api/import` 與 MCP `import_media` 更新
 
 **Files:**
+
 - Modify: `server/src/app.ts`
 - Modify: `server/src/mcp.ts:243-263`（`import_media` 的 description）
 - Create: `server/test/import-api.test.ts`
 
 **Interfaces:**
+
 - Consumes: `scanSourceFolder`、`ingestMedia(store, projectDir, absPath, opts?)`、
   `applyCommand(store, 'human', { name: 'addClip', ... })`
 - Produces: `POST /api/import`
@@ -700,8 +832,17 @@ async function startTestServer() {
   const store = await ProjectStore.load(join(dir, 'project.json'));
   const src = await mkdtemp(join(tmpdir(), 'vidcut-imp-src-'));
   await runFfmpeg([
-    '-f', 'lavfi', '-i', 'testsrc2=size=320x568:rate=30:duration=2',
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', join(src, 'a.mp4'),
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc2=size=320x568:rate=30:duration=2',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-pix_fmt',
+    'yuv420p',
+    join(src, 'a.mp4'),
   ]);
   const server: Server = createServer(createApp(store, dir));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -764,8 +905,51 @@ describe('POST /api/import', () => {
     expect((await post(base, { dir: src })).status).toBe(400);
     server.close();
   });
+
+  // 敵意輸入：names 是使用者可控字串，不能讓它逃出素材夾。
+  it('names 帶路徑成分時只取 basename，不會逃出素材夾', async () => {
+    const { src, store, server, base } = await startTestServer();
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-secret-'));
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x568:rate=30:duration=1',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-pix_fmt',
+      'yuv420p',
+      join(outside, 'secret.mp4'),
+    ]);
+
+    const res = await post(base, {
+      dir: src,
+      names: [`../${basename(outside)}/secret.mp4`],
+    });
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as ImportRes;
+    // basename 後變成 'secret.mp4'，在素材夾內不存在 → 進 failed，且沒有任何素材被登記
+    expect(j.ok).toEqual([]);
+    expect(j.failed).toHaveLength(1);
+    expect(store.doc.media).toHaveLength(0);
+    server.close();
+  });
+
+  it('names 帶絕對路徑時同樣被 basename 擋下', async () => {
+    const { src, store, server, base } = await startTestServer();
+    const res = await post(base, { dir: src, names: ['/etc/hosts'] });
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as ImportRes;
+    expect(j.ok).toEqual([]);
+    expect(store.doc.media).toHaveLength(0);
+    server.close();
+  });
 });
 ```
+
+檔頭需要 `basename`（`node:path`）。
 
 - [ ] **Step 2: 跑測試確認失敗**
 
@@ -777,44 +961,44 @@ Expected: FAIL —— 404（路由不存在）
 `server/src/app.ts`，在 `/api/source` 之後加：
 
 ```ts
-  // 匯入素材：零複製引用原檔，只在專案內產衍生檔。
-  // ffmpeg 一支動輒數秒到數分鐘，逐支序列處理（並行只會互搶 CPU）。
-  app.post('/api/import', (req, res, next) => {
-    void (async () => {
-      const { dir, names, addToTimeline } = req.body as {
-        dir?: string;
-        names?: string[];
-        addToTimeline?: boolean;
-      };
-      if (!dir || !Array.isArray(names) || names.length === 0) {
-        res.status(400).json({ error: 'need dir and names[]' });
-        return;
-      }
-      const ok: Array<{ name: string; mediaId: string }> = [];
-      const failed: Array<{ name: string; error: string }> = [];
-      for (const name of names) {
-        try {
-          const abs = join(dir, basename(name)); // basename 防 traversal
-          const mediaId = await ingestMedia(store, projectDir, abs, { label: name });
-          if (addToTimeline) {
-            const media = store.doc.media.find((m) => m.id === mediaId)!;
-            const r = applyCommand(store, 'human', {
-              name: 'addClip',
-              mediaId,
-              in: 0,
-              duration: media.probe.duration,
-              label: name,
-            });
-            if (!r.ok) throw new Error(r.error);
-          }
-          ok.push({ name, mediaId });
-        } catch (e) {
-          failed.push({ name, error: (e as Error).message });
+// 匯入素材：零複製引用原檔，只在專案內產衍生檔。
+// ffmpeg 一支動輒數秒到數分鐘，逐支序列處理（並行只會互搶 CPU）。
+app.post('/api/import', (req, res, next) => {
+  void (async () => {
+    const { dir, names, addToTimeline } = req.body as {
+      dir?: string;
+      names?: string[];
+      addToTimeline?: boolean;
+    };
+    if (!dir || !Array.isArray(names) || names.length === 0) {
+      res.status(400).json({ error: 'need dir and names[]' });
+      return;
+    }
+    const ok: Array<{ name: string; mediaId: string }> = [];
+    const failed: Array<{ name: string; error: string }> = [];
+    for (const name of names) {
+      try {
+        const abs = join(dir, basename(name)); // basename 防 traversal
+        const mediaId = await ingestMedia(store, projectDir, abs, { label: name });
+        if (addToTimeline) {
+          const media = store.doc.media.find((m) => m.id === mediaId)!;
+          const r = applyCommand(store, 'human', {
+            name: 'addClip',
+            mediaId,
+            in: 0,
+            duration: media.probe.duration,
+            label: name,
+          });
+          if (!r.ok) throw new Error(r.error);
         }
+        ok.push({ name, mediaId });
+      } catch (e) {
+        failed.push({ name, error: (e as Error).message });
       }
-      res.json({ ok, failed });
-    })().catch(next);
-  });
+    }
+    res.json({ ok, failed });
+  })().catch(next);
+});
 ```
 
 檔頭補 import：
@@ -844,18 +1028,21 @@ Expected: PASS（4 項）
 
 - [ ] **Step 6: 跑全部測試**
 
-Run: `npm test && npm run typecheck && npm run lint && npm run format:check`
-Expected: 全綠（`format:check` 若只抓到 `ui/coverage/*.json` 可忽略，那是產生檔）
+Run: `scripts/gauntlet.sh --fast`
+Expected: 對照 Baseline，零新增失敗
 
 - [ ] **Step 7: 手動驗一次真實流程**
 
 ```bash
 npx tsx server/src/index.ts projects/demo
 ```
+
 另開一個 shell：
+
 ```bash
 curl -s "http://127.0.0.1:3845/api/source?dir=$HOME/Movies" | head -c 400
 ```
+
 Expected: 回你 `~/Movies` 內的影音檔清單（若該資料夾為空，換一個有影片的資料夾）。
 
 - [ ] **Step 8: Commit**
@@ -872,12 +1059,14 @@ git commit -m "feat(server): POST /api/import 零複製匯入素材夾選取的�
 spec「錯誤處理」中的兩項，前六個 Task 都沒涵蓋。
 
 **Files:**
+
 - Modify: `server/src/ingest.ts`
 - Modify: `server/src/render.ts`
 - Modify: `server/test/ingest.test.ts`
 - Modify: `server/test/render.test.ts`
 
 **Interfaces:**
+
 - Consumes: `resolveMediaPath(projectDir, mediaPath)`
 - Produces: 無新公開介面；`ingestMedia` 失敗時不留 `derived/<id>/`；
   `render()` 在啟動 ffmpeg 前對缺檔丟 `Error`，訊息含缺少的路徑。
@@ -916,13 +1105,13 @@ Expected: FAIL —— `derived/<id>` 目錄殘留（probe 或 proxy 失敗後沒
 `server/src/ingest.ts`：把建立 `derivedAbs` 之後的所有步驟包進 try/catch，失敗時移除該目錄再往外丟：
 
 ```ts
-  await mkdir(derivedAbs, { recursive: true });
-  try {
-    // …既有的 proxy / filmstrip / peaks 三段與最後寫入 store.doc.media 的程式碼原樣移入…
-  } catch (e) {
-    await rm(derivedAbs, { recursive: true, force: true });
-    throw e;
-  }
+await mkdir(derivedAbs, { recursive: true });
+try {
+  // …既有的 proxy / filmstrip / peaks 三段與最後寫入 store.doc.media 的程式碼原樣移入…
+} catch (e) {
+  await rm(derivedAbs, { recursive: true, force: true });
+  throw e;
+}
 ```
 
 檔頭 `node:fs/promises` 的 import 補上 `rm`。
@@ -943,8 +1132,17 @@ it('素材原檔不見時，輸出丟出含路徑的明確錯誤', async () => {
   const outside = await mkdtemp(join(tmpdir(), 'vidcut-gone-'));
   const src = join(outside, 'gone.mp4');
   await runFfmpeg([
-    '-f', 'lavfi', '-i', 'testsrc2=size=320x568:rate=30:duration=2',
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', src,
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc2=size=320x568:rate=30:duration=2',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-pix_fmt',
+    'yuv420p',
+    src,
   ]);
   const dir = await mkdtemp(join(tmpdir(), 'vidcut-gone-proj-'));
   const store = await ProjectStore.load(join(dir, 'project.json'));
@@ -969,15 +1167,18 @@ Expected: FAIL —— 目前會是 ffmpeg 的原始錯誤訊息，不含缺少�
 `server/src/render.ts`，在組 ffmpeg 參數**之前**加一段：
 
 ```ts
-  // 零複製引用的素材可能被移走。先檢查，給出比 ffmpeg 原始輸出更明確的錯誤。
-  const missing = project.media
-    .filter((m) => project.tracks.video.some((c) => c.mediaId === m.id)
-                || project.tracks.audio.some((a) => a.mediaId === m.id))
-    .map((m) => resolveMediaPath(projectDir, m.path))
-    .filter((p) => !existsSync(p));
-  if (missing.length > 0) {
-    throw new Error(`render: 找不到素材原檔：${missing.join(', ')}`);
-  }
+// 零複製引用的素材可能被移走。先檢查，給出比 ffmpeg 原始輸出更明確的錯誤。
+const missing = project.media
+  .filter(
+    (m) =>
+      project.tracks.video.some((c) => c.mediaId === m.id) ||
+      project.tracks.audio.some((a) => a.mediaId === m.id),
+  )
+  .map((m) => resolveMediaPath(projectDir, m.path))
+  .filter((p) => !existsSync(p));
+if (missing.length > 0) {
+  throw new Error(`render: 找不到素材原檔：${missing.join(', ')}`);
+}
 ```
 
 檔頭補 `import { existsSync } from 'node:fs';`（若尚未 import）。
@@ -989,14 +1190,163 @@ Expected: PASS
 
 - [ ] **Step 9: 跑全部測試**
 
-Run: `npm test && npm run typecheck && npm run lint`
-Expected: 全綠
+Run: `scripts/gauntlet.sh --fast`
+Expected: 對照 Baseline，零新增失敗
 
 - [ ] **Step 10: Commit**
 
 ```bash
 git add server/src/ingest.ts server/src/render.ts server/test/ingest.test.ts server/test/render.test.ts
 git commit -m "fix(server): ingest 失敗清理半成品、輸出前預檢缺檔"
+```
+
+---
+
+### Task 8: 突變測試與 EVIDENCE 條目
+
+專案的信任基礎是 `scripts/gauntlet.sh` 產生的數字與 `EVIDENCE.md` 的對映。
+新程式碼若沒有突變，等於沒有人檢查「這些測試到底有沒有斷言」。
+
+**Files:**
+
+- Modify: `scripts/mutants.json`
+- Modify: `EVIDENCE.md`
+
+**Interfaces:**
+
+- Consumes: Task 1–7 的所有測試檔
+- Produces: 無程式介面；`scripts/mutate.mjs` 的突變數從 46 增至 54，全數被殺
+
+- [ ] **Step 1: 加入八隻突變**
+
+每一隻都針對「測試可能什麼都沒斷言」的分支。照 `scripts/mutants.json` 既有格式追加：
+
+```json
+  {
+    "id": "paths-absolute",
+    "file": "server/src/paths.ts",
+    "find": "return isAbsolute(mediaPath) ? mediaPath : join(projectDir, mediaPath);",
+    "replace": "return join(projectDir, mediaPath);",
+    "tests": "server/test/paths.test.ts",
+    "note": "絕對路徑也被接到專案底下 → 絕對路徑斷言必須抓到"
+  },
+  {
+    "id": "addclip-media-exists",
+    "file": "server/src/commands.ts",
+    "find": "if (!media) return { ok: false, error: `media not found: ${cmd.mediaId}` };",
+    "replace": "",
+    "tests": "server/test/commands.test.ts",
+    "note": "不檢查 mediaId 存在 → 未知 mediaId 斷言必須抓到"
+  },
+  {
+    "id": "addclip-bounds",
+    "file": "server/src/commands.ts",
+    "find": "if (cmd.in + cmd.duration > media.probe.duration + 1e-6) {",
+    "replace": "if (false) {",
+    "tests": "server/test/commands.test.ts",
+    "note": "不檢查超界 → in+duration 超出素材長度的斷言必須抓到"
+  },
+  {
+    "id": "addclip-duration",
+    "file": "server/src/commands.ts",
+    "find": "if (cmd.duration <= 0) return { ok: false, error: 'clip duration must be > 0' };",
+    "replace": "",
+    "tests": "server/test/commands.test.ts",
+    "note": "允許 duration=0 → 零長度斷言必須抓到"
+  },
+  {
+    "id": "scan-hidden",
+    "file": "server/src/sourceFolder.ts",
+    "find": "if (name.startsWith('.')) continue;",
+    "replace": "",
+    "tests": "server/test/sourceFolder.test.ts",
+    "note": "不排除隱藏檔 → 隱藏檔斷言必須抓到"
+  },
+  {
+    "id": "scan-isfile",
+    "file": "server/src/sourceFolder.ts",
+    "find": "if (!s.isFile()) continue; // 目錄／裝置檔／斷掉的連結都不收",
+    "replace": "",
+    "tests": "server/test/sourceFolder.test.ts",
+    "note": "目錄也被當成檔案 → 名字像影片的子目錄斷言必須抓到"
+  },
+  {
+    "id": "scan-sort",
+    "file": "server/src/sourceFolder.ts",
+    "find": "return out.sort((a, b) => a.name.localeCompare(b.name));",
+    "replace": "return out;",
+    "tests": "server/test/sourceFolder.test.ts",
+    "note": "不排序 → 排序斷言必須抓到（readdir 順序不保證）"
+  },
+  {
+    "id": "import-basename",
+    "file": "server/src/app.ts",
+    "find": "const abs = join(dir, basename(name)); // basename 防 traversal",
+    "replace": "const abs = join(dir, name);",
+    "tests": "server/test/import-api.test.ts",
+    "note": "拿掉 traversal 防護 → ../ 逃逸斷言必須抓到"
+  }
+```
+
+**注意 `scan-sort` 這隻**：`readdir` 不保證順序，所以在某些檔案系統上「不排序」也可能碰巧
+通過。若它存活，**不要**為了殺它加無意義的測試（那是 anti-gaming 規則 4）。
+改成在測試裡建立刻意逆序的檔名（例如先寫 `z.mp4` 再寫 `a.mp4`），讓排序成為唯一能通過的路徑。
+
+- [ ] **Step 2: 跑突變，確認全滅**
+
+Run: `node scripts/mutate.mjs`
+Expected: 54 隻全部被殺。**任何存活者都要處理**：
+若是真的沒被測到 → 補測試（回到該 Task 的 RED→GREEN）；
+若判定為等價突變 → 在 EVIDENCE 寫明「等價，因為 ⟨理由⟩」，不要加無意義的測試。
+
+- [ ] **Step 3: 跑完整 gauntlet（最終乾淨執行）**
+
+Run: `scripts/gauntlet.sh`
+
+這是 EVIDENCE 要引用的**唯一一次**執行，必須在最後一次程式碼修改**之後**跑。
+中途跑過的數字一律作廢。記下：node/npm/tsc/vitest/ffmpeg 版本、commit SHA、
+三個 workspace 的測試數、UI 覆蓋率、突變比分。
+
+- [ ] **Step 4: 寫 EVIDENCE 條目**
+
+在 `EVIDENCE.md` 末尾追加一節，沿用既有補記的結構：
+
+```markdown
+# 補記：素材匯入 階段 1（零複製引用）2026-08-03
+
+## 行為 → 測試對映
+
+（spec 的每一條行為對到具體測試檔與測試名）
+
+## Baseline 與最終 GAUNTLET
+
+（開工前的兩項既有失敗，與最後一次乾淨執行的完整數字）
+
+## 本功能的 8 隻 mutants
+
+（每隻 id、改了什麼、被哪個測試殺掉）
+
+## Failure Model 覆蓋情況
+
+（計畫中那張表逐條標「已覆蓋／已知限制」）
+
+## 跳過與已知限制
+
+- 併發匯入同一支素材：ingestMedia 冪等檢查為 read-then-write，未覆蓋
+- 巨大素材夾無上限、磁碟寫滿：未覆蓋
+- 既有的 8 條順序相依測試（store-undo / store-durability）：本次未觸碰，非新增
+
+## 需要你親自驗
+
+- 用真實手機素材跑一次完整匯入
+- 確認外部素材輸出的畫質與原檔一致
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/mutants.json EVIDENCE.md
+git commit -m "test: 素材匯入的 8 隻 mutants 與 EVIDENCE 條目"
 ```
 
 ---

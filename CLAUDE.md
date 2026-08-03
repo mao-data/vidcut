@@ -30,7 +30,7 @@ npm run verify:panels                       # 面板控制項的瀏覽器回歸�
 
 - **任何專案狀態變更都走 `applyCommand`**（人）或 `aiWrite`→`applyCommand`（AI）。
   不要旁路直改 doc。新增一種編輯操作 = 在 `shared` 的 `Command` 加 variant
-  + `commands.ts` 加驗證與 case → UI 與 MCP 自動都能用。
+  - `commands.ts` 加驗證與 case → UI 與 MCP 自動都能用。
 - **`projects/*/.env` 與各專案密鑰不得提交或印出內容。**
 
 ## UI 驗證的陷阱
