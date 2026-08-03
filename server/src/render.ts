@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -395,6 +396,20 @@ export async function render(
 ): Promise<RenderResult> {
   const project = store.doc;
   if (project.tracks.video.length === 0) throw new Error('render: timeline is empty');
+
+  // 零複製引用的素材可能被移走。先檢查，給出比 ffmpeg 原始輸出更明確的錯誤。
+  const missing = project.media
+    .filter(
+      (m) =>
+        project.tracks.video.some((c) => c.mediaId === m.id) ||
+        project.tracks.audio.some((a) => a.mediaId === m.id),
+    )
+    .map((m) => resolveMediaPath(projectDir, m.path))
+    .filter((p) => !existsSync(p));
+  if (missing.length > 0) {
+    throw new Error(`render: 找不到素材原檔：${missing.join(', ')}`);
+  }
+
   const outDir = join(projectDir, 'output');
   await mkdir(outDir, { recursive: true });
   const outRel = join('output', `${stamp}.mp4`);

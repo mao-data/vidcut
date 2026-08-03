@@ -1,12 +1,24 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { ingestMedia } from '../src/ingest.js';
 import { probe, runFfmpeg } from '../src/ffmpeg.js';
 import { makeVideo } from './fixtures.js';
+
+// 只給下面「proxy 編碼後失敗」那條測試用：讓 id 可預測，好在 mkdir 之後、
+// ffmpeg 寫 proxy.mp4 之前，預先把該路徑佔成一個目錄，逼真正的 ffmpeg 寫檔失敗
+// （EISDIR）。其餘測試不設 nanoidOverride，走真正隨機 id，行為不受影響。
+let nanoidOverride: string | null = null;
+vi.mock('nanoid', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('nanoid')>();
+  return {
+    ...actual,
+    nanoid: (size?: number) => nanoidOverride ?? actual.nanoid(size),
+  };
+});
 
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), 'vidcut-ingest-'));
@@ -126,5 +138,44 @@ describe('ingestMedia', () => {
     const b = await ingestMedia(store, dir, src);
     expect(b).toBe(a);
     expect(store.doc.media).toHaveLength(1);
+  }, 60_000);
+
+  it('ingest 失敗不留下半成品 derived 目錄', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-bad-'));
+    const bad = join(outside, 'not-a-video.mp4');
+    await writeFile(bad, 'this is not a video');
+
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-bad-proj-'));
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+
+    await expect(ingestMedia(store, dir, bad)).rejects.toThrow();
+    expect(store.doc.media).toHaveLength(0);
+    // derived 下不應留任何目錄
+    const derived = join(dir, 'derived');
+    const left = existsSync(derived) ? await readdir(derived) : [];
+    expect(left).toEqual([]);
+  }, 60_000);
+
+  // 上面那條「半成品」測試裡，壞檔在 probe() 就丟錯，發生在 mkdir(derivedAbs) 之前，
+  // 所以從未建立 derived/<id> 目錄——它驗證的是「探測失敗」路徑本來就沒有半成品可留，
+  // 跟 Task brief Step 3 要修的「mkdir 之後、proxy/filmstrip/peaks 任一步失敗」完全是
+  // 不同分支：把 Step 3 的 try/catch 拿掉，上面那條測試仍然全綠（見 task-7-report.md 的
+  // 紅綠證據）。這條測試補上真正會走到 mkdir 之後才失敗的路徑，用來證明 try/catch 真的
+  // 有殺傷力：把 proxy.mp4 的輸出路徑預先佔成一個目錄，逼 ffmpeg 寫檔時丟 EISDIR。
+  it('（補 Step 3 的殺傷力）proxy 編碼寫檔失敗時，mkdir 之後才建立的 derived 目錄也會被清掉', async () => {
+    const { dir, store } = await setup();
+    await makeVideo(dir, 'src.mp4', { duration: 1, withAudio: true });
+
+    nanoidOverride = 'fixedid1';
+    try {
+      // 搶先把 ffmpeg 要寫的 proxy.mp4 佔成目錄，逼真正的 ffmpeg 進程寫檔失敗
+      await mkdir(join(dir, 'derived', 'fixedid1', 'proxy.mp4'), { recursive: true });
+
+      await expect(ingestMedia(store, dir, 'src.mp4')).rejects.toThrow();
+      expect(store.doc.media).toHaveLength(0);
+      expect(existsSync(join(dir, 'derived', 'fixedid1'))).toBe(false);
+    } finally {
+      nanoidOverride = null;
+    }
   }, 60_000);
 });

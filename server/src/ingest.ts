@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, mkdtemp } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { nanoid } from 'nanoid';
@@ -36,112 +36,116 @@ export async function ingestMedia(
   const derivedRel = join('derived', id);
   const derivedAbs = join(projectDir, derivedRel);
   await mkdir(derivedAbs, { recursive: true });
+  try {
+    // 1. proxy —— spec §8.1 精確參數；無音軌補 anullsrc
+    const proxyArgs = ['-i', abs];
+    if (!info.hasAudio) proxyArgs.push('-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo');
+    proxyArgs.push(
+      '-vf',
+      'scale=-2:960:flags=bicubic,fps=30',
+      '-c:v',
+      'libx264',
+      '-profile:v',
+      'high',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '23',
+      '-g',
+      '15',
+      '-keyint_min',
+      '15',
+      '-sc_threshold',
+      '0',
+      '-tune',
+      'fastdecode',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-ac',
+      '2',
+    );
+    if (!info.hasAudio) proxyArgs.push('-shortest');
+    proxyArgs.push('-movflags', '+faststart', join(derivedAbs, 'proxy.mp4'));
+    await runFfmpeg(proxyArgs);
 
-  // 1. proxy —— spec §8.1 精確參數；無音軌補 anullsrc
-  const proxyArgs = ['-i', abs];
-  if (!info.hasAudio) proxyArgs.push('-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo');
-  proxyArgs.push(
-    '-vf',
-    'scale=-2:960:flags=bicubic,fps=30',
-    '-c:v',
-    'libx264',
-    '-profile:v',
-    'high',
-    '-preset',
-    'veryfast',
-    '-crf',
-    '23',
-    '-g',
-    '15',
-    '-keyint_min',
-    '15',
-    '-sc_threshold',
-    '0',
-    '-tune',
-    'fastdecode',
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
-    '-b:a',
-    '128k',
-    '-ac',
-    '2',
-  );
-  if (!info.hasAudio) proxyArgs.push('-shortest');
-  proxyArgs.push('-movflags', '+faststart', join(derivedAbs, 'proxy.mp4'));
-  await runFfmpeg(proxyArgs);
+    // 2. filmstrip —— 每秒 1 幀單列 sprite
+    const frames = Math.max(1, Math.ceil(info.duration));
+    await runFfmpeg([
+      '-i',
+      abs,
+      '-vf',
+      `fps=1,scale=-2:80,tile=${frames}x1`,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '3',
+      join(derivedAbs, 'filmstrip.jpg'),
+    ]);
 
-  // 2. filmstrip —— 每秒 1 幀單列 sprite
-  const frames = Math.max(1, Math.ceil(info.duration));
-  await runFfmpeg([
-    '-i',
-    abs,
-    '-vf',
-    `fps=1,scale=-2:80,tile=${frames}x1`,
-    '-frames:v',
-    '1',
-    '-q:v',
-    '3',
-    join(derivedAbs, 'filmstrip.jpg'),
-  ]);
-
-  // 3. peaks —— 8kHz mono s16le → 160 樣本/桶 max|amp| 正規化 0–1
-  const pcmDir = await mkdtemp(join(tmpdir(), 'vidcut-pcm-'));
-  const pcmFile = join(pcmDir, 'a.pcm');
-  const pcmSrc = info.hasAudio ? abs : join(derivedAbs, 'proxy.mp4'); // 無音軌用 proxy 的靜音軌
-  await runFfmpeg([
-    '-i',
-    pcmSrc,
-    '-ac',
-    '1',
-    '-ar',
-    String(PEAK_SAMPLE_RATE),
-    '-f',
-    's16le',
-    pcmFile,
-  ]);
-  const pcm = await readFile(pcmFile);
-  // 每桶同時取 max（峰值包絡）與 RMS（能量核心）——雙層波形靠這兩個陣列
-  const peaks: number[] = [];
-  const rms: number[] = [];
-  const step = PEAK_SAMPLES_PER_BUCKET * 2; // 2 bytes/sample
-  for (let i = 0; i + 1 < pcm.length; i += step) {
-    let max = 0;
-    let sumSq = 0;
-    let n = 0;
-    for (let j = i; j < Math.min(i + step, pcm.length - 1); j += 2) {
-      const v = pcm.readInt16LE(j);
-      max = Math.max(max, Math.abs(v));
-      sumSq += v * v;
-      n++;
+    // 3. peaks —— 8kHz mono s16le → 160 樣本/桶 max|amp| 正規化 0–1
+    const pcmDir = await mkdtemp(join(tmpdir(), 'vidcut-pcm-'));
+    const pcmFile = join(pcmDir, 'a.pcm');
+    const pcmSrc = info.hasAudio ? abs : join(derivedAbs, 'proxy.mp4'); // 無音軌用 proxy 的靜音軌
+    await runFfmpeg([
+      '-i',
+      pcmSrc,
+      '-ac',
+      '1',
+      '-ar',
+      String(PEAK_SAMPLE_RATE),
+      '-f',
+      's16le',
+      pcmFile,
+    ]);
+    const pcm = await readFile(pcmFile);
+    // 每桶同時取 max（峰值包絡）與 RMS（能量核心）——雙層波形靠這兩個陣列
+    const peaks: number[] = [];
+    const rms: number[] = [];
+    const step = PEAK_SAMPLES_PER_BUCKET * 2; // 2 bytes/sample
+    for (let i = 0; i + 1 < pcm.length; i += step) {
+      let max = 0;
+      let sumSq = 0;
+      let n = 0;
+      for (let j = i; j < Math.min(i + step, pcm.length - 1); j += 2) {
+        const v = pcm.readInt16LE(j);
+        max = Math.max(max, Math.abs(v));
+        sumSq += v * v;
+        n++;
+      }
+      peaks.push(Number((max / 32768).toFixed(4)));
+      rms.push(Number((Math.sqrt(sumSq / Math.max(1, n)) / 32768).toFixed(4)));
     }
-    peaks.push(Number((max / 32768).toFixed(4)));
-    rms.push(Number((Math.sqrt(sumSq / Math.max(1, n)) / 32768).toFixed(4)));
-  }
-  await writeFile(
-    join(derivedAbs, 'peaks.json'),
-    JSON.stringify({
-      samplesPerBucket: PEAK_SAMPLES_PER_BUCKET,
-      sampleRate: PEAK_SAMPLE_RATE,
-      peaks,
-      rms,
-    }),
-  );
+    await writeFile(
+      join(derivedAbs, 'peaks.json'),
+      JSON.stringify({
+        samplesPerBucket: PEAK_SAMPLES_PER_BUCKET,
+        sampleRate: PEAK_SAMPLE_RATE,
+        peaks,
+        rms,
+      }),
+    );
 
-  // 4. 登記（單一 mutation）
-  const asset: MediaAsset = {
-    id,
-    path: relPath,
-    proxyPath: join(derivedRel, 'proxy.mp4'),
-    filmstripPath: join(derivedRel, 'filmstrip.jpg'),
-    peaksPath: join(derivedRel, 'peaks.json'),
-    probe: info,
-    ...(opts.label ? { label: opts.label } : {}),
-    ...(opts.meta ? { meta: opts.meta } : {}),
-  };
-  store.mutate('ai', `import ${relPath}`, (d) => {
-    d.media.push(asset);
-  });
-  return id;
+    // 4. 登記（單一 mutation）
+    const asset: MediaAsset = {
+      id,
+      path: relPath,
+      proxyPath: join(derivedRel, 'proxy.mp4'),
+      filmstripPath: join(derivedRel, 'filmstrip.jpg'),
+      peaksPath: join(derivedRel, 'peaks.json'),
+      probe: info,
+      ...(opts.label ? { label: opts.label } : {}),
+      ...(opts.meta ? { meta: opts.meta } : {}),
+    };
+    store.mutate('ai', `import ${relPath}`, (d) => {
+      d.media.push(asset);
+    });
+    return id;
+  } catch (e) {
+    await rm(derivedAbs, { recursive: true, force: true });
+    throw e;
+  }
 }

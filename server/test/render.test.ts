@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildRenderArgs, render, renderProgressBus } from '../src/render.js';
@@ -166,5 +166,42 @@ describe('render (integration)', () => {
 
     const res = await render(store, dir, 'ext-test', { width: 180, height: 320 });
     expect(existsSync(join(dir, res.outPath))).toBe(true);
+  }, 60_000);
+
+  it('素材原檔不見時，輸出丟出含路徑的明確錯誤', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-gone-'));
+    const src = join(outside, 'gone.mp4');
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x568:rate=30:duration=2',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-pix_fmt',
+      'yuv420p',
+      src,
+    ]);
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-gone-proj-'));
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    const mediaId = await ingestMedia(store, dir, src);
+    store.mutate('ai', 'seed', (d) => {
+      d.tracks.video = [{ id: 'c1', mediaId, in: 0, duration: 1, volume: 1 }];
+    });
+
+    await rm(src); // 原檔被移走／刪除
+
+    await expect(render(store, dir, 'test', { width: 180, height: 320 })).rejects.toThrow(
+      /gone\.mp4/,
+    );
+    // 上面單用 /gone\.mp4/ 比對其實殺不死「沒做預檢」的實作：真的啟動 ffmpeg 之後，
+    // ffmpeg 自己的 stderr 也會含缺檔的完整路徑（「Error opening input file .../gone.mp4」），
+    // 所以光比對檔名不能證明「在啟動 ffmpeg 前」就攔下來。這裡額外鎖定 Step 7 加的
+    // 訊息前綴，把「有沒有真的做預檢」跟「ffmpeg 原始報錯裡剛好也有檔名」區分開來。
+    await expect(render(store, dir, 'test2', { width: 180, height: 320 })).rejects.toThrow(
+      /^render: 找不到素材原檔：/,
+    );
   }, 60_000);
 });
