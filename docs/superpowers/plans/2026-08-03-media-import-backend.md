@@ -20,18 +20,19 @@
 
 每一條都必須對應到一個能真正抓到它的層，或在 EVIDENCE 明列為已知限制。
 
-| 失敗模式                                   | 能抓到它的層                                                                                                       |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `names[]` 帶 `../../etc/passwd` 逃出素材夾 | Task 6 的 traversal 測試（`basename` 防護）                                                                        |
-| 素材夾內是 symlink → **靜默漏檔**          | Task 4 的 symlink 測試（`Dirent.isFile()` 對 symlink 回 false，已實測確認）                                        |
-| 路徑解析退步導致既有相對路徑專案壞掉       | 既有 server 測試（迴歸護甲）＋ Task 1 的相對路徑測試                                                               |
-| 輸出吃到絕對路徑素材時炸掉                 | Task 2 Step 5 的 render 整合測（真 ffmpeg）                                                                        |
-| 原檔被移走後輸出出現無意義的 ffmpeg 錯誤   | Task 7 的缺檔預檢測試                                                                                              |
-| ingest 失敗留下半成品 `derived/`           | Task 7 的清理測試                                                                                                  |
-| 非 ASCII／含空白的檔名                     | Task 4 的檔名測試                                                                                                  |
-| 併發匯入同一支素材產生兩份 derived         | **不覆蓋**（`ingestMedia` 的冪等檢查是 read-then-write）。EVIDENCE 記為已知限制：UI 為單一使用者、序列送出，不觸發 |
-| 巨大素材夾（上萬檔）拖垮回應               | **不覆蓋**。EVIDENCE 記為已知限制                                                                                  |
-| 磁碟寫滿                                   | **不覆蓋**（ffmpeg 會失敗，走 `failed[]`），EVIDENCE 記為已知限制                                                  |
+| 失敗模式                                    | 能抓到它的層                                                                                                       |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `names[]` 帶 `../../etc/passwd` 逃出素材夾  | Task 6 的 traversal 測試（`basename` 防護）                                                                        |
+| 素材夾內是 symlink → **靜默漏檔**           | Task 4 的 symlink 測試（`Dirent.isFile()` 對 symlink 回 false，已實測確認）                                        |
+| 路徑解析退步導致既有相對路徑專案壞掉        | 既有 server 測試（迴歸護甲）＋ Task 1 的相對路徑測試                                                               |
+| 外部素材跑 transcribe/auto_caption 找不到檔 | Task 2 Step 6 的 ASR 參數測試（Task 1 審查發現的計畫缺口）                                                         |
+| 輸出吃到絕對路徑素材時炸掉                  | Task 2 Step 5 的 render 整合測（真 ffmpeg）                                                                        |
+| 原檔被移走後輸出出現無意義的 ffmpeg 錯誤    | Task 7 的缺檔預檢測試                                                                                              |
+| ingest 失敗留下半成品 `derived/`            | Task 7 的清理測試                                                                                                  |
+| 非 ASCII／含空白的檔名                      | Task 4 的檔名測試                                                                                                  |
+| 併發匯入同一支素材產生兩份 derived          | **不覆蓋**（`ingestMedia` 的冪等檢查是 read-then-write）。EVIDENCE 記為已知限制：UI 為單一使用者、序列送出，不觸發 |
+| 巨大素材夾（上萬檔）拖垮回應                | **不覆蓋**。EVIDENCE 記為已知限制                                                                                  |
+| 磁碟寫滿                                    | **不覆蓋**（ffmpeg 會失敗，走 `failed[]`），EVIDENCE 記為已知限制                                                  |
 
 ## Baseline（在隔離 worktree 內實測，`scripts/gauntlet.sh --fast`）
 
