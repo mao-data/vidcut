@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import type { ProjectStore } from './store.js';
+import { scanSourceFolder } from './sourceFolder.js';
+import { resolveMediaPath } from './paths.js';
 
 /**
  * HTTP 面：/api/project（debug）、/media/*（原生 Range，給 <video>）、
@@ -17,6 +19,28 @@ export function createApp(
   app.use(express.json());
   app.get('/api/project', (_req, res) => {
     res.json({ version: store.version, doc: store.doc });
+  });
+
+  // 素材夾掃描（零複製匯入的挑檔來源）。綁 127.0.0.1，故不做根目錄白名單，
+  // 但仍只回白名單副檔名、排除隱藏檔、不遞迴。
+  app.get('/api/source', (req, res, next) => {
+    void (async () => {
+      const dir = typeof req.query.dir === 'string' ? req.query.dir : '';
+      if (!dir) {
+        res.status(400).json({ error: 'need ?dir=' });
+        return;
+      }
+      try {
+        const files = await scanSourceFolder(dir);
+        const imported = new Set(store.doc.media.map((m) => resolveMediaPath(projectDir, m.path)));
+        res.json({
+          dir,
+          files: files.map((f) => ({ ...f, imported: imported.has(join(dir, f.name)) })),
+        });
+      } catch (e) {
+        res.status(400).json({ error: (e as Error).message });
+      }
+    })().catch(next);
   });
 
   // 上傳素材（binary body）。檔名只取 basename（防 path traversal）、重名自動編號。
