@@ -59,7 +59,6 @@ function Toast() {
 
 export function App() {
   const doc = useProject((s) => s.doc);
-  const version = useProject((s) => s.version);
   const connected = useProject((s) => s.connected);
   const leftOpen = useView((s) => s.leftOpen);
   const rightOpen = useView((s) => s.rightOpen);
@@ -98,7 +97,7 @@ export function App() {
 
       if (mod && key === 'z') {
         e.preventDefault();
-        sendCommand({ name: 'undo', steps: 1 });
+        sendCommand({ name: e.shiftKey ? 'redo' : 'undo', steps: 1 });
         return;
       }
       if (mod && key === 'b') {
@@ -209,8 +208,9 @@ export function App() {
         >
           vidcut
         </b>
+        {/* 顯示的是 vidcut 軟體版本；專案修訂號屬於 Activity（那裡語境清楚不會誤讀） */}
         <span className="tag">
-          {doc?.name ?? '—'} · v{version}
+          v{__APP_VERSION__} · {doc?.name ?? '—'}
         </span>
         <span className="tag" style={{ marginLeft: 'auto' }}>
           <span style={{ color: connected ? 'var(--ok)' : 'var(--danger)' }}>●</span>{' '}

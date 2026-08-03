@@ -49,10 +49,12 @@ describe('ProjectStore', () => {
     store.mutate('human', 'trim', (d) => {
       d.tracks.video[0]!.duration = 3;
     });
-    const r = store.undo(1);
+    const r = store.undo('human', 1);
     expect(r?.version).toBe(3);
     expect(store.doc.tracks.video[0]!.duration).toBe(5);
-    expect(store.undo(99)).not.toBeNull(); // 全撤（含撤 undo 自己 = redo 語意，可接受）
+    // 游標式語意（spec 2026-08-03）：連續 undo 一路往回退，退到底就清空軌道
+    expect(store.undo('human', 99)).not.toBeNull();
+    expect(store.doc.tracks.video).toHaveLength(0);
   });
 
   it('flush persists atomically; load round-trips', async () => {

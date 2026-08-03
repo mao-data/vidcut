@@ -24,6 +24,8 @@ const QUALITY: Array<{ label: string; crf: number }> = [
  */
 export function ExportMenu() {
   const render = useProject((s) => s.doc?.render);
+  /** 渲染中的進度走旁路訊息（不進 doc）；doc.render.progress 只在起訖時有意義 */
+  const liveProgress = useProject((s) => s.renderProgress);
   const [open, setOpen] = useState(false);
   const [presetIdx, setPresetIdx] = useState(0);
   const [qualityIdx, setQualityIdx] = useState(1);
@@ -31,7 +33,7 @@ export function ExportMenu() {
   const rootRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const running = render?.status === 'running';
-  const progress = Math.round((render?.progress ?? 0) * 100);
+  const progress = Math.round((liveProgress ?? render?.progress ?? 0) * 100);
 
   // 渲染完成：匯出鈕 pulse 一下提示「好了」
   useGSAP(

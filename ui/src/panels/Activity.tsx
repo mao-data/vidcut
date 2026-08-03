@@ -1,4 +1,4 @@
-import { Undo2 } from 'lucide-react';
+import { Redo2, Undo2 } from 'lucide-react';
 import { useActivity } from '../stores/activity.js';
 import { sendCommand } from '../ws.js';
 
@@ -23,6 +23,13 @@ export function Activity() {
           title="Cmd+Z"
         >
           <Undo2 size={13} /> Undo
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => sendCommand({ name: 'redo', steps: 1 })}
+          title="Cmd+Shift+Z"
+        >
+          <Redo2 size={13} /> Redo
         </button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: 8, fontSize: 12 }}>
