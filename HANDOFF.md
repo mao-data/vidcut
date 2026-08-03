@@ -141,7 +141,8 @@ server/src/editorContext.ts 人的選取/playhead（給 get_editor_context）
 server/src/mcp.ts         23 個 MCP 工具 + /mcp 掛載 ★
 server/src/paths.ts       resolveMediaPath：素材路徑語意（相對＝專案內／絕對＝零複製外部引用）★
 server/src/sourceFolder.ts scanSourceFolder：素材夾掃描（白名單副檔名、排除隱藏檔、不遞迴）
-server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）；ingestMedia 接受絕對路徑
+server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）；ingestMedia 接受絕對路徑；
+                          純音訊素材跳過 proxy/filmstrip 只產 peaks（無 proxyPath/filmstripPath）
 server/src/render.ts      project.json → ffmpeg filter_complex 成品 + blur/定格/音訊混音/匯出選項/封面 ★
 server/src/asr.ts         whisper.cpp 介接：時間軸混音→wav→逐詞時間戳（含 DTW 取用）★
 server/scripts/text_card.py  文字 → 透明 PNG 字卡（Pillow，含逐詞著色與貪婪換行）

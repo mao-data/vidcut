@@ -65,15 +65,19 @@ Node peak RSS 297MB、耗時 919ms；改成 `body: file` + `req.pipe` 後為 1MB
 `request_review` 目前是「阻塞 + UI 核准 + 保活 + 逾時」。
 讓 Claude Code 直接彈出瀏覽器審核頁需要 v2 SDK 遷移，因無法自動驗證而擱置（見 `HANDOFF.md`）。
 
-### 9. 音訊素材支援
+### 9. 音訊素材支援（大半已完成）
 
-素材夾白名單目前收 `.mp3/.m4a/.wav/.aac`，但這條路今天整個不通：`ffmpeg.ts:51` 的
-`probe` 對無視訊串流一律丟錯，`ingest.ts` 的 proxy 又寫死 `-c:v libx264`，所以純音訊檔
-必然進 `POST /api/import` 的 `failed[]`；而 `doc.tracks.audio` 唯一取得 `mediaId` 的
-途徑是 `extract_audio`（從既有影片片段抽聲音），「引用外部 BGM／旁白檔」這條路整條
-不通（見 `EVIDENCE.md`「補記：素材匯入 階段 1」的已知限制）。可行方向：`probe` 放寬
-成無視訊串流時不丟錯、純音訊素材跳過 proxy/filmstrip 只產 peaks、`addClip`/新
-command 支援直接把純音訊素材掛進 `tracks.audio`。
+**匯入這半已經通了**：`main` 的 `ecc5e0f` 放寬 `probe`（無視訊串流不再丟錯）、
+純音訊跳過 proxy/filmstrip 只產 peaks；合併後素材夾裡的 `.mp3/.m4a/.wav/.aac`
+可以被 `GET /api/source` 列出、`POST /api/import` 零複製匯入
+（`import-api.test.ts` 的兩條端到端測試守著）。
+
+**剩下的是「掛上音訊軌」那半**：`doc.tracks.audio` 取得 `mediaId` 的途徑仍只有
+`extract_audio`（從既有影片片段抽聲音）與 `set_audio`（整軌覆寫）。`addClip` 只上
+視訊軌且擋 audio-only，所以 `POST /api/import` 帶 `addToTimeline: true` 匯一支 BGM
+會進 `failed[]`（素材其實已匯入）。可行方向：新增 `addAudio` command
+（`{ mediaId, start, in, duration }` → append 到 `tracks.audio`），
+`/api/import` 依 `hasVideo` 分流到 `addClip` 或 `addAudio`。這是產品決策，待定。
 
 ### 10. Origin／Host header 檢查
 
