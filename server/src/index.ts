@@ -32,8 +32,9 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   // 字型表：resolver 循環——先用空 resolver 建 rasterizer 來 probe 字型，表建好後回頭換上真 resolver。
   const rasterizer = new PillowRasterizer(() => undefined);
   const fonts = await loadFontTable(rasterizer);
-  rasterizer.resolveFontPath = fontResolver(fonts);
-  setCaptionFontResolver(fontResolver(fonts));
+  const resolveFont = fontResolver(fonts);
+  rasterizer.resolveFontPath = resolveFont;
+  setCaptionFontResolver(resolveFont);
   const textCards = new TextCardService(projectDir, rasterizer);
   const cardSync = new CaptionCardSync(store, textCards);
 
