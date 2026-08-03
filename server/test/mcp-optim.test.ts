@@ -294,7 +294,9 @@ describe('B6 transcribe word truncation', () => {
       language: 'en',
       words: mkWords(1500),
       text: 'long transcript',
+      audioPath: 'derived/mix.wav',
       jsonPath: 'derived/transcript.json',
+      model: 'test',
     });
     const r = await call('transcribe', {});
     const s = r.structuredContent as {
@@ -314,7 +316,9 @@ describe('B6 transcribe word truncation', () => {
       language: 'en',
       words: mkWords(5),
       text: 'short',
+      audioPath: 'derived/mix.wav',
       jsonPath: 'derived/transcript.json',
+      model: 'test',
     });
     const r = await call('transcribe', {});
     const s = r.structuredContent as { words: unknown[]; wordsTruncated?: boolean };
