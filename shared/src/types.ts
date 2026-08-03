@@ -53,8 +53,20 @@ export interface VideoClip {
   meta?: Record<string, unknown>;
 }
 
+/** 文字 overlay 的規格：伺服器據此產卡（見 textOverlays.ts），文字可編輯。 */
+export interface OverlayText {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fill: string;
+  stroke?: string;
+  /** 換行寬 0–1 相對畫布，預設 0.9 */
+  maxWidth?: number;
+}
+
 export interface OverlayItem {
   id: string;
+  /** 文字 overlay 時 = 伺服器產物，勿手動指定（由 resolveTextCommand 依 text 產生並寫入） */
   imagePath: string;
   /** 錨定片段（與 start 二選一）：片段被拖動時 overlay 跟著走 */
   anchor?: { clipId: string; offset: number };
@@ -68,6 +80,8 @@ export interface OverlayItem {
    * 滿版直式圖用 {x:0.5, y:0}；y:0.5 是「上緣壓在畫面正中」，不是置中。
    */
   position: { x: number; y: number; scale: number };
+  /** 有值 = 文字 overlay（可編輯文字），imagePath 由伺服器維護；無值 = 預烤 PNG（外部腳本產生，文字不可編輯） */
+  text?: OverlayText;
 }
 
 export interface CaptionStyle {
@@ -187,7 +201,7 @@ export type Command =
       name: 'updateOverlay';
       id: string;
       /** start 與 anchor 互斥：給 start 會清 anchor（轉絕對）、給 anchor 會清 start（轉錨定） */
-      patch: Partial<Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor'>>;
+      patch: Partial<Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor' | 'text' | 'imagePath'>>;
     }
   | {
       name: 'updateCaption';

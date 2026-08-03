@@ -222,6 +222,11 @@ function addOverlay(
   if (o.anchor && !store.doc.tracks.video.some((c) => c.id === o.anchor!.clipId)) {
     return { ok: false, error: `anchor clip not found: ${o.anchor.clipId}` };
   }
+  if (o.text) {
+    if (o.text.text.trim() === '') return { ok: false, error: 'overlay text must not be empty' };
+    if (o.text.fontSize <= 0) return { ok: false, error: 'fontSize must be > 0' };
+    if (o.imagePath === '') return { ok: false, error: 'text overlay card not generated (server error)' };
+  }
   return ok(
     store.mutate(source, `add overlay ${o.imagePath.split('/').pop()}`, (d) => {
       d.tracks.overlays.push(o);
@@ -248,6 +253,13 @@ function updateOverlay(
       return { ok: false, error: 'start and anchor are mutually exclusive' };
     }
   }
+  if (cmd.patch.text) {
+    if (cmd.patch.text.text.trim() === '') return { ok: false, error: 'overlay text must not be empty' };
+    if (cmd.patch.text.fontSize <= 0) return { ok: false, error: 'fontSize must be > 0' };
+    if (cmd.patch.imagePath === '') {
+      return { ok: false, error: 'text overlay card not generated (server error)' };
+    }
+  }
   return ok(
     store.mutate(source, `edit overlay`, (d) => {
       const o = d.tracks.overlays.find((x) => x.id === cmd.id)!;
@@ -263,6 +275,8 @@ function updateOverlay(
       }
       if (cmd.patch.duration !== undefined) o.duration = cmd.patch.duration;
       if (cmd.patch.position !== undefined) o.position = cmd.patch.position;
+      if (cmd.patch.text !== undefined) o.text = cmd.patch.text;
+      if (cmd.patch.imagePath !== undefined) o.imagePath = cmd.patch.imagePath;
     }),
   );
 }
