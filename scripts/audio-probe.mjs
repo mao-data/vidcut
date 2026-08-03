@@ -10,6 +10,8 @@
  * 需求：npm i（devDep playwright-core）＋ ms-playwright 的 Chromium 快取。
  * 用法：node scripts/audio-probe.mjs [url]
  */
+/* global window, document, performance */
+// ↑ addInitScript / evaluate 的 callback 跑在瀏覽器 context，eslint 在 node 環境看不到這些全域
 import { chromium } from 'playwright-core';
 import { readdirSync } from 'node:fs';
 import os from 'node:os';
