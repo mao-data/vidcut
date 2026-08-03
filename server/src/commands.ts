@@ -256,7 +256,10 @@ function updateOverlay(
   if (cmd.patch.text) {
     if (cmd.patch.text.text.trim() === '') return { ok: false, error: 'overlay text must not be empty' };
     if (cmd.patch.text.fontSize <= 0) return { ok: false, error: 'fontSize must be > 0' };
-    if (cmd.patch.imagePath === '') {
+    // patch.text 一定要伴隨一個已 resolve 的 imagePath——沒有這個鍵（呼叫端跳過了
+    // resolveTextCommand 這道前置）跟給空字串一樣危險：都會讓 text 换了、imagePath
+    // 還指著舊卡，畫面與文字對不上。兩種情況都要擋。
+    if (cmd.patch.imagePath === undefined || cmd.patch.imagePath === '') {
       return { ok: false, error: 'text overlay card not generated (server error)' };
     }
   }

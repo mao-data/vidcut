@@ -29,6 +29,9 @@ export async function resolveTextCommand(
     return { ...cmd, overlay: { ...cmd.overlay, imagePath: svc.relBasePath(r.hash) } };
   }
   if (cmd.name === 'updateOverlay' && cmd.patch.text) {
+    // overlay id 不存在的話 applyCommand 反正會擋掉(overlay not found)——
+    // 別浪費一次產卡,原樣放行讓既有的「找不到」錯誤照舊產生。
+    if (!store.doc.tracks.overlays.some((o) => o.id === cmd.id)) return cmd;
     const r = await svc.ensure(overlayTextToCardRequest(cmd.patch.text, store.doc.canvas.width));
     return { ...cmd, patch: { ...cmd.patch, imagePath: svc.relBasePath(r.hash) } };
   }

@@ -70,3 +70,90 @@ describe('resolveTextCommand + 命令層', () => {
     expect(applyCommand(store, 'human', ADD).ok).toBe(false); // imagePath 仍是 ''
   });
 });
+
+describe('updateOverlay text 命令直接呼叫 applyCommand(繞過 resolveTextCommand 的防線)', () => {
+  async function seeded() {
+    const { store, svc } = await setup();
+    const r = applyCommand(store, 'human', await resolveTextCommand(svc, store, ADD));
+    expect(r.ok).toBe(true);
+    return { store, svc };
+  }
+
+  it('patch.text 有值但沒帶 imagePath 鍵(未經 resolve):被拒,text 與 imagePath 都不變、版本不動(零殘留)', async () => {
+    const { store } = await seeded();
+    const beforeOv = store.doc.tracks.overlays[0]!;
+    const beforeText = beforeOv.text;
+    const beforeImagePath = beforeOv.imagePath;
+    const beforeVersion = store.version;
+    const cmd: Command = {
+      name: 'updateOverlay',
+      id: 'ov1',
+      patch: { text: { ...TEXT, text: '未經 resolve 的新標題' } },
+    };
+    const r = applyCommand(store, 'human', cmd); // 直接呼叫,跳過 resolveTextCommand
+    expect(r.ok).toBe(false);
+    const after = store.doc.tracks.overlays[0]!;
+    expect(after.text).toEqual(beforeText);
+    expect(after.imagePath).toBe(beforeImagePath);
+    expect(store.version).toBe(beforeVersion);
+  }, 30_000);
+
+  it('patch.text 有值且 imagePath 為空字串:被拒,text 與 imagePath 都不變、版本不動', async () => {
+    const { store } = await seeded();
+    const beforeOv = store.doc.tracks.overlays[0]!;
+    const beforeText = beforeOv.text;
+    const beforeImagePath = beforeOv.imagePath;
+    const beforeVersion = store.version;
+    const cmd: Command = {
+      name: 'updateOverlay',
+      id: 'ov1',
+      patch: { text: { ...TEXT, text: '改' }, imagePath: '' },
+    };
+    const r = applyCommand(store, 'human', cmd);
+    expect(r.ok).toBe(false);
+    const after = store.doc.tracks.overlays[0]!;
+    expect(after.text).toEqual(beforeText);
+    expect(after.imagePath).toBe(beforeImagePath);
+    expect(store.version).toBe(beforeVersion);
+  }, 30_000);
+
+  it('patch.text.text 為空白字串:被拒,版本不動', async () => {
+    const { store } = await seeded();
+    const beforeOv = store.doc.tracks.overlays[0]!;
+    const beforeText = beforeOv.text;
+    const beforeImagePath = beforeOv.imagePath;
+    const beforeVersion = store.version;
+    const cmd: Command = {
+      name: 'updateOverlay',
+      id: 'ov1',
+      patch: { text: { ...TEXT, text: '   ' } },
+    };
+    const r = applyCommand(store, 'human', cmd);
+    expect(r.ok).toBe(false);
+    const after = store.doc.tracks.overlays[0]!;
+    expect(after.text).toEqual(beforeText);
+    expect(after.imagePath).toBe(beforeImagePath);
+    expect(store.version).toBe(beforeVersion);
+  }, 30_000);
+
+  it('patch.text.fontSize 為 0 或負值:被拒,版本不動', async () => {
+    const { store } = await seeded();
+    const beforeVersion = store.version;
+    for (const fontSize of [0, -1]) {
+      const beforeOv = store.doc.tracks.overlays[0]!;
+      const beforeText = beforeOv.text;
+      const beforeImagePath = beforeOv.imagePath;
+      const cmd: Command = {
+        name: 'updateOverlay',
+        id: 'ov1',
+        patch: { text: { ...TEXT, fontSize } },
+      };
+      const r = applyCommand(store, 'human', cmd);
+      expect(r.ok).toBe(false);
+      const after = store.doc.tracks.overlays[0]!;
+      expect(after.text).toEqual(beforeText);
+      expect(after.imagePath).toBe(beforeImagePath);
+    }
+    expect(store.version).toBe(beforeVersion);
+  }, 30_000);
+});
