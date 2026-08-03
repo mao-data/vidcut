@@ -33,16 +33,25 @@
 | 巨大素材夾（上萬檔）拖垮回應               | **不覆蓋**。EVIDENCE 記為已知限制                                                                                  |
 | 磁碟寫滿                                   | **不覆蓋**（ffmpeg 會失敗，走 `failed[]`），EVIDENCE 記為已知限制                                                  |
 
-## Baseline（2026-08-03，開工前實測，`scripts/gauntlet.sh --fast`）
+## Baseline（在隔離 worktree 內實測，`scripts/gauntlet.sh --fast`）
 
-**既有失敗，不是本次造成的，本計畫只要求「零新增失敗」：**
+分支 `worktree-media-import-backend`，起點 commit `a2c4848`。
 
-1. `格式 (prettier --check)` FAIL —— `server/src/store.ts`（commit `334cb20` 留下）。**不要順手修**，那是 scope creep。
-2. `隨機順序` server FAIL —— `test/store-undo.test.ts` 與 `store-durability.test.ts` 共 **8 條**測試具順序相依性。
-   本計畫新增 4 個 server 測試檔，收尾時必須確認**仍是這 8 條、沒有變多**。
+**全數通過 —— 沒有任何既有失敗。本計畫的門檻因此是「全綠」，不是「零新增失敗」。**
 
-通過的關卡：typecheck、lint、全測試（27 + 148 + 166）、UI 覆蓋率 86.33%、
-隨機順序 ui、npm audit 0 漏洞、秘密掃描。
+| 關卡                          | 結果                                            |
+| ----------------------------- | ----------------------------------------------- |
+| 型別檢查（tsc ×3 workspaces） | PASS                                            |
+| Lint（eslint .）              | PASS                                            |
+| 格式（prettier --check）      | PASS                                            |
+| 全測試套件                    | 27 + 158 + 170 全過                             |
+| UI 覆蓋率                     | Statements 86.38%（2627/3041）、Branches 85.48% |
+| 隨機順序（ui / server）       | 兩者皆 PASS                                     |
+| 秘密掃描                      | PASS                                            |
+
+環境：node v22.18.0、npm 11.5.2、typescript 5.9.3、vitest 3.2.7、ffmpeg 8.1.2。
+
+**任何一個關卡變紅，就是本次造成的**，必須修掉才能 commit —— 沒有「這是既有問題」這條退路。
 
 ## Global Constraints
 
@@ -51,7 +60,7 @@
 - 衍生檔一律產在專案內的 `derived/<mediaId>/`，不論原檔在哪。
 - 測試沿用專案慣例：真 ffmpeg、不 mock；測試專案用 `mkdtemp` 建在 tmp。
 - **每個 Task 結束前跑 `scripts/gauntlet.sh --fast`**（typecheck / lint / format / 全測試 / 覆蓋率 /
-  隨機順序 / audit / 秘密掃描），對照上面的 baseline 確認零新增失敗才 commit。
+  隨機順序 / audit / 秘密掃描），必須全數通過才 commit（baseline 已是全綠）。
   最後一個 Task 跑**完整** `scripts/gauntlet.sh`（含突變）。
   不要用 `npm test && npm run typecheck && npm run lint` 收尾 —— 那會漏掉六個關卡，
   產出的數字也不能寫進 `EVIDENCE.md`。
@@ -151,7 +160,7 @@ Expected: 無輸出
 - [ ] **Step 7: 跑全部測試**
 
 Run: `scripts/gauntlet.sh --fast`
-Expected: 對照 Baseline 一節——僅 `格式` 與 `隨機順序 server` 兩項失敗（既有），其餘全 PASS
+Expected: GAUNTLET 全數通過（baseline 是全綠，任何紅燈都是本次造成的）
 
 - [ ] **Step 8: Commit**
 
@@ -432,7 +441,7 @@ Expected: PASS（5 項）
 - [ ] **Step 6: 跑全部測試**
 
 Run: `scripts/gauntlet.sh --fast`
-Expected: 對照 Baseline，零新增失敗
+Expected: GAUNTLET 全數通過
 
 - [ ] **Step 7: Commit**
 
@@ -629,7 +638,7 @@ Expected: PASS（7 項）
 - [ ] **Step 5: 跑全部測試**
 
 Run: `scripts/gauntlet.sh --fast`
-Expected: 對照 Baseline，零新增失敗
+Expected: GAUNTLET 全數通過
 
 - [ ] **Step 6: Commit**
 
@@ -785,7 +794,7 @@ Expected: PASS（4 項）
 - [ ] **Step 5: 跑全部測試**
 
 Run: `scripts/gauntlet.sh --fast`
-Expected: 對照 Baseline，零新增失敗
+Expected: GAUNTLET 全數通過
 
 - [ ] **Step 6: Commit**
 
@@ -1029,7 +1038,7 @@ Expected: PASS（4 項）
 - [ ] **Step 6: 跑全部測試**
 
 Run: `scripts/gauntlet.sh --fast`
-Expected: 對照 Baseline，零新增失敗
+Expected: GAUNTLET 全數通過
 
 - [ ] **Step 7: 手動驗一次真實流程**
 
@@ -1191,7 +1200,7 @@ Expected: PASS
 - [ ] **Step 9: 跑全部測試**
 
 Run: `scripts/gauntlet.sh --fast`
-Expected: 對照 Baseline，零新增失敗
+Expected: GAUNTLET 全數通過
 
 - [ ] **Step 10: Commit**
 
