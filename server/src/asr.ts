@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import type { Project, TranscriptWord } from '@vidcut/shared';
 import { normalizeWords, totalDuration } from '@vidcut/shared';
 import { runFfmpeg } from './ffmpeg.js';
+import { resolveMediaPath } from './paths.js';
 
 /** ASR 用的取樣率：whisper.cpp 只吃 16kHz 單聲道。 */
 const ASR_SAMPLE_RATE = 16000;
@@ -85,14 +86,14 @@ export function buildAsrAudioArgs(project: Project, projectDir: string, outWav: 
       '-t',
       String(clip.duration),
       '-i',
-      join(projectDir, media.path),
+      resolveMediaPath(projectDir, media.path),
     );
     inputIdxByClip.set(clip.id, inputs++);
   }
   const audioBase = inputs;
   for (const a of audioItems) {
     const media = mediaOf(project, a.mediaId, `audio ${a.id}`);
-    args.push('-i', join(projectDir, media.path));
+    args.push('-i', resolveMediaPath(projectDir, media.path));
     inputs++;
   }
 

@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import { existsSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildRenderArgs, render, renderProgressBus } from '../src/render.js';
 import { buildDemoProject } from '../src/demo.js';
 import { ProjectStore } from '../src/store.js';
-import { probe } from '../src/ffmpeg.js';
+import { probe, runFfmpeg } from '../src/ffmpeg.js';
+import { ingestMedia } from '../src/ingest.js';
 import { createEmptyProject, type Project } from '@vidcut/shared';
 
 function demoLikeProject(): Project {
@@ -138,4 +140,31 @@ describe('render (integration)', () => {
     // demo 有 2 條字幕；本機無 drawtext → 應走 PNG 字卡並回報已燒
     expect(res.captionsBurned).toBe(true);
   }, 180_000);
+
+  it('輸出吃專案外絕對路徑的素材', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-ext-render-'));
+    const src = join(outside, 'ext.mp4');
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x568:rate=30:duration=2',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-pix_fmt',
+      'yuv420p',
+      src,
+    ]);
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-ext-proj-'));
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    const mediaId = await ingestMedia(store, dir, src);
+    store.mutate('ai', 'seed', (d) => {
+      d.tracks.video = [{ id: 'c1', mediaId, in: 0, duration: 1, volume: 1 }];
+    });
+
+    const res = await render(store, dir, 'ext-test', { width: 180, height: 320 });
+    expect(existsSync(join(dir, res.outPath))).toBe(true);
+  }, 60_000);
 });

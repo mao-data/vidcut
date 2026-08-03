@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { ingestMedia } from '../src/ingest.js';
-import { probe } from '../src/ffmpeg.js';
+import { probe, runFfmpeg } from '../src/ffmpeg.js';
 import { makeVideo } from './fixtures.js';
 
 async function setup() {
@@ -71,6 +72,58 @@ describe('ingestMedia', () => {
     await makeVideo(dir, 'src.mp4', {});
     const a = await ingestMedia(store, dir, 'src.mp4');
     const b = await ingestMedia(store, dir, 'src.mp4');
+    expect(b).toBe(a);
+    expect(store.doc.media).toHaveLength(1);
+  }, 60_000);
+
+  it('可以 ingest 專案資料夾外的絕對路徑，原檔不被複製', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-outside-'));
+    const src = join(outside, 'external.mp4');
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x568:rate=30:duration=2',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-pix_fmt',
+      'yuv420p',
+      src,
+    ]);
+
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-proj-'));
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    const id = await ingestMedia(store, dir, src);
+
+    const m = store.doc.media.find((x) => x.id === id)!;
+    expect(m.path).toBe(src); // 絕對路徑原樣保存
+    expect(existsSync(join(dir, 'external.mp4'))).toBe(false); // 沒有複製進專案
+    expect(m.proxyPath).toBeDefined();
+    expect(existsSync(join(dir, m.proxyPath!))).toBe(true); // 衍生檔仍在專案內
+  }, 60_000);
+
+  it('同一個絕對路徑重複 ingest 回同一個 id', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'vidcut-outside2-'));
+    const src = join(outside, 'dup.mp4');
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x568:rate=30:duration=2',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-pix_fmt',
+      'yuv420p',
+      src,
+    ]);
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-proj2-'));
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    const a = await ingestMedia(store, dir, src);
+    const b = await ingestMedia(store, dir, src);
     expect(b).toBe(a);
     expect(store.doc.media).toHaveLength(1);
   }, 60_000);

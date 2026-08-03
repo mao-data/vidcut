@@ -81,6 +81,42 @@ describe('buildAsrAudioArgs', () => {
     const p = createEmptyProject('p', 't');
     expect(() => buildAsrAudioArgs(p, '/proj', 'o.wav')).toThrow(/沒有任何聲音/);
   });
+
+  it('uses an absolute clip media path as-is instead of joining it under projectDir', () => {
+    const p: Project = createEmptyProject('p', 't');
+    p.media = [
+      {
+        id: 'm1',
+        path: '/outside/vid.mp4',
+        probe: { duration: 10, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+      },
+    ];
+    p.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 0, duration: 2, volume: 1 }];
+    const args = buildAsrAudioArgs(p, '/proj', '/proj/derived/asr.wav');
+    expect(args).toContain('/outside/vid.mp4');
+    expect(args).not.toContain('/proj/outside/vid.mp4');
+  });
+
+  it('uses an absolute audio-item media path as-is instead of joining it under projectDir', () => {
+    const p: Project = createEmptyProject('p', 't');
+    p.media = [
+      {
+        id: 'm1',
+        path: 'a.mp4',
+        probe: { duration: 10, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+      },
+      {
+        id: 'vo',
+        path: '/outside/vo.mp3',
+        probe: { duration: 30, width: 0, height: 0, fps: 0, hasAudio: true, rotation: 0 },
+      },
+    ];
+    p.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 0, duration: 2, volume: 1 }];
+    p.tracks.audio = [{ id: 'a1', mediaId: 'vo', start: 0, in: 0, duration: 2, volume: 1 }];
+    const args = buildAsrAudioArgs(p, '/proj', 'o.wav');
+    expect(args).toContain('/outside/vo.mp3');
+    expect(args).not.toContain('/proj/outside/vo.mp3');
+  });
 });
 
 function fcOf(args: string[]): string {
