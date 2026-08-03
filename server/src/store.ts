@@ -37,8 +37,7 @@ type ProjectFile = Project & { rev?: number };
 /** 可撤回 = 只動編輯面（軌道/畫布）。render/review/cover/media 狀態不進 undo。 */
 function isUndoable(patches: JsonPatch[]): boolean {
   return (
-    patches.length > 0 &&
-    patches.every((p) => p.path[0] === 'tracks' || p.path[0] === 'canvas')
+    patches.length > 0 && patches.every((p) => p.path[0] === 'tracks' || p.path[0] === 'canvas')
   );
 }
 

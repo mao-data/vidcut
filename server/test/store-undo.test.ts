@@ -100,7 +100,9 @@ describe('游標式 undo/redo（B4）', () => {
   it('revertSince 一筆回滾指定版本後的全部變更（review 退回用）', () => {
     pushClip('c1');
     const since = store.version;
+    // 同一陣列的多筆連續變更：inverse 必須逆序套用，否則 index 位移會回滾錯項目
     pushClip('c2');
+    pushClip('c3');
     store.mutate('ai', 'canvas fit', (d) => {
       d.canvas.fit = 'blur';
     });

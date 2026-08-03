@@ -162,8 +162,8 @@
   {
     "id": "store-atomic-write",
     "file": "server/src/store.ts",
-    "find": "      const tmp = join(dirname(this.#filePath), `.project.json.tmp`);\n      await writeFile(tmp, JSON.stringify(this.#doc, null, 2), 'utf8');\n      await rename(tmp, this.#filePath);",
-    "replace": "      await writeFile(this.#filePath, JSON.stringify(this.#doc, null, 2), 'utf8');",
+    "find": "      const tmp = join(dirname(this.#filePath), `.project.json.tmp`);\n      const file: ProjectFile = { ...this.#doc, rev: this.#version };\n      await writeFile(tmp, JSON.stringify(file, null, 2), 'utf8');\n      await rename(tmp, this.#filePath);",
+    "replace": "      await writeFile(this.#filePath, JSON.stringify({ ...this.#doc, rev: this.#version }, null, 2), 'utf8');",
     "tests": "server/test/store-durability.test.ts",
     "note": "直接覆寫目標檔（非 tmp+rename）→ 原子落盤斷言必須抓到"
   },
@@ -178,10 +178,10 @@
   {
     "id": "store-undo-order",
     "file": "server/src/store.ts",
-    "find": "      .slice(-n)\n      .reverse()",
-    "replace": "      .slice(-n)",
-    "tests": "server/test/store-durability.test.ts",
-    "note": "undo 沒有逆序套用 inverse patches → N 步 undo 的斷言必須抓到"
+    "find": "    const inverse = entries.reverse().flatMap((h) => h.inversePatches);",
+    "replace": "    const inverse = entries.flatMap((h) => h.inversePatches);",
+    "tests": "server/test/store-undo.test.ts",
+    "note": "revertSince 沒有逆序套用 inverse patches → 審核回滾斷言必須抓到"
   },
   {
     "id": "store-noop-guard",
@@ -194,8 +194,8 @@
   {
     "id": "store-corrupt-load",
     "file": "server/src/store.ts",
-    "find": "      return new ProjectStore(filePath, JSON.parse(raw) as Project);",
-    "replace": "      return new ProjectStore(filePath, JSON.parse(raw + '') as Project);",
+    "find": "      const { rev, ...doc } = JSON.parse(raw) as ProjectFile;",
+    "replace": "      const { rev, ...doc } = JSON.parse(raw + '') as ProjectFile;",
     "tests": "server/test/store-durability.test.ts",
     "note": "等價變異對照組（語意不變，預期存活）——驗突變引擎會如實回報存活",
     "expect": "survive"

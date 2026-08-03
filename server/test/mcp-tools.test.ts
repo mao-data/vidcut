@@ -206,6 +206,10 @@ describe('MCP tools that had no coverage', () => {
   });
 
   it('redo with nothing to redo is flagged isError', async () => {
+    // redo 堆疊是 store 級狀態（beforeEach 的 fixture 重置含 render 欄位，
+    // 不算可撤回編輯所以不會清它）。先做一筆真編輯——依分叉語意這會清空 redo——
+    // 測試才不依賴其他測試的執行順序。
+    await call('update_clip', { clipId: store.doc.tracks.video[0]!.id, patch: { label: 'x' } });
     const r = await call('redo', {});
     expect(text(r)).toContain('nothing to redo');
     expect(r.isError).toBe(true);
