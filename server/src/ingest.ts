@@ -35,6 +35,10 @@ export async function ingestMedia(
   const id = nanoid(8);
   const derivedRel = join('derived', id);
   const derivedAbs = join(projectDir, derivedRel);
+  // 純音訊素材：沒有視訊流可做 proxy/filmstrip，只產 peaks（音訊軌播放直接用原始檔）。
+  // 這道判定刻意排在 mkdir 之前——無可用串流時直接丟錯，不留下空的 derived/ 目錄。
+  const audioOnly = info.hasVideo === false;
+  if (audioOnly && !info.hasAudio) throw new Error(`no usable stream in ${relPath}`);
   await mkdir(derivedAbs, { recursive: true });
   try {
     // 1. proxy —— spec §8.1 精確參數；無音軌補 anullsrc
@@ -70,21 +74,23 @@ export async function ingestMedia(
     );
     if (!info.hasAudio) proxyArgs.push('-shortest');
     proxyArgs.push('-movflags', '+faststart', join(derivedAbs, 'proxy.mp4'));
-    await runFfmpeg(proxyArgs);
+    if (!audioOnly) {
+      await runFfmpeg(proxyArgs);
 
-    // 2. filmstrip —— 每秒 1 幀單列 sprite
-    const frames = Math.max(1, Math.ceil(info.duration));
-    await runFfmpeg([
-      '-i',
-      abs,
-      '-vf',
-      `fps=1,scale=-2:80,tile=${frames}x1`,
-      '-frames:v',
-      '1',
-      '-q:v',
-      '3',
-      join(derivedAbs, 'filmstrip.jpg'),
-    ]);
+      // 2. filmstrip —— 每秒 1 幀單列 sprite
+      const frames = Math.max(1, Math.ceil(info.duration));
+      await runFfmpeg([
+        '-i',
+        abs,
+        '-vf',
+        `fps=1,scale=-2:80,tile=${frames}x1`,
+        '-frames:v',
+        '1',
+        '-q:v',
+        '3',
+        join(derivedAbs, 'filmstrip.jpg'),
+      ]);
+    }
 
     // 3. peaks —— 8kHz mono s16le → 160 樣本/桶 max|amp| 正規化 0–1
     const pcmDir = await mkdtemp(join(tmpdir(), 'vidcut-pcm-'));
@@ -133,8 +139,12 @@ export async function ingestMedia(
     const asset: MediaAsset = {
       id,
       path: relPath,
-      proxyPath: join(derivedRel, 'proxy.mp4'),
-      filmstripPath: join(derivedRel, 'filmstrip.jpg'),
+      ...(audioOnly
+        ? {}
+        : {
+            proxyPath: join(derivedRel, 'proxy.mp4'),
+            filmstripPath: join(derivedRel, 'filmstrip.jpg'),
+          }),
       peaksPath: join(derivedRel, 'peaks.json'),
       probe: info,
       ...(opts.label ? { label: opts.label } : {}),

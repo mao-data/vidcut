@@ -126,6 +126,51 @@ describe('audio track mixing', () => {
   });
 });
 
+describe('mono upmix (amix 隱式 mono→stereo 用 0.707 center level，會讓 mono 素材 −3dB)', () => {
+  const MONO_PAN = 'pan=stereo|c0=c0|c1=c0';
+
+  function withAudioItem(channels?: number): Project {
+    const p = base();
+    p.media.push({
+      id: 'vo',
+      path: 'vo.mp3',
+      probe: {
+        duration: 30,
+        width: 0,
+        height: 0,
+        fps: 0,
+        hasAudio: true,
+        rotation: 0,
+        ...(channels !== undefined ? { audioChannels: channels } : {}),
+      },
+    });
+    p.tracks.audio = [{ id: 'a1', mediaId: 'vo', start: 1, in: 0, duration: 1.5, volume: 1 }];
+    return p;
+  }
+
+  it('explicitly upmixes mono audio items before volume', () => {
+    const fc = fcOf(buildRenderArgs(withAudioItem(1), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    expect(fc).toMatch(/\[1:a\][^;]*aresample=44100,pan=stereo\|c0=c0\|c1=c0,volume=1/);
+  });
+
+  it('leaves stereo audio items untouched', () => {
+    const fc = fcOf(buildRenderArgs(withAudioItem(2), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    expect(fc).not.toContain(MONO_PAN);
+  });
+
+  it('leaves unknown channel counts untouched (old project.json without audioChannels)', () => {
+    const fc = fcOf(buildRenderArgs(withAudioItem(), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    expect(fc).not.toContain(MONO_PAN);
+  });
+
+  it('upmixes mono clip original audio too', () => {
+    const p = withAudioItem(2);
+    p.media[0]!.probe.audioChannels = 1;
+    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }));
+    expect(fc).toMatch(/\[0:a\]pan=stereo\|c0=c0\|c1=c0,volume=1/);
+  });
+});
+
 describe('render integration: blur + frozen + audio', () => {
   it('renders a project with all three features to a valid mp4', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vidcut-rt1-'));
