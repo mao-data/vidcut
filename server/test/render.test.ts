@@ -125,6 +125,16 @@ describe('buildRenderArgs', () => {
     expect(plan.args).toContain('/outside/vo.mp3');
     expect(plan.args).not.toContain(join('/proj', '/outside/vo.mp3'));
   });
+
+  // 錯誤訊息品質：只報 audio item 的 id 會讓人得自己翻 project.json 才知道
+  // 是哪個素材編號錯了。兩個 id 都要出現。
+  it('音訊素材找不到時，錯誤訊息同時含 audio item id 與 mediaId', () => {
+    const p = demoLikeProject();
+    p.tracks.audio = [{ id: 'bgm1', mediaId: 'GHOST_ID', start: 0, in: 0, duration: 1, volume: 1 }];
+    expect(() => buildRenderArgs(p, '/proj', '/proj/out.mp4', { hasDrawtext: false })).toThrow(
+      /bgm1.*GHOST_ID|GHOST_ID.*bgm1/,
+    );
+  });
 });
 
 describe('render (integration)', () => {

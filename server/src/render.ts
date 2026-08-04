@@ -220,7 +220,7 @@ export function buildRenderArgs(
   const audioInputBase = captionInputBase + (useCards ? captionCards.length : 0);
   for (const a of audioItems) {
     const media = project.media.find((m) => m.id === a.mediaId);
-    if (!media) throw new Error(`render: media not found for audio ${a.id}`);
+    if (!media) throw new Error(`render: media not found for audio ${a.id} (mediaId=${a.mediaId})`);
     args.push('-i', resolveMediaPath(projectDir, media.path));
   }
 
