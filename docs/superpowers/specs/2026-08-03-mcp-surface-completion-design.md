@@ -92,7 +92,9 @@ mutate 是既有例外，不再複製）。驗證全部沿用 command 層現有�
 `removeAudio` / `extractAudio`）。沒有任何地方在做「先塞 audio item、之後再補素材」。
 **正常路徑零影響，只有本來會被默默接受的壞資料開始被拒。**
 
-**4. `render.ts:221` 錯誤訊息補上 `mediaId`**
+**4. `render.ts:223` 錯誤訊息補上 `mediaId`**
+
+> 修正：本節初稿寫「`render.ts:221`」，實際行號是 **223**（寫實作計劃時逐行核對發現）。
 
 `render: media not found for audio ${a.id}` → 同時帶上找不到的 `mediaId`，
 否則拿到錯誤的人還要自己翻 `project.json`。
