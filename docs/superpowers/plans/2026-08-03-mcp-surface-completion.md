@@ -227,14 +227,17 @@ git commit -m "refactor(server): 抽出 listSource，HTTP 與 MCP 共用 importe
 
 - [ ] **Step 1: 寫失敗的測試**
 
-加到 `server/test/commands.test.ts` 檔案最後：
+加到 `server/test/commands.test.ts` 檔案最後。檔頭 import 區塊補一行 `import type { AudioItem } from '@vidcut/shared';`：
 
 ```typescript
 // setAudio 原本零驗證（d.tracks.audio = cmd.audio），與 addClip 的五道守衛不對稱。
 // 實測後果：AI 抄錯一個 8 字元 mediaId → 被接受 → 落盤 → 重啟後 undo 堆疊已失效
 // （「nothing to undo」）→ 直到 render 才丟 "media not found for audio"。
 describe('setAudio 驗證', () => {
-  const item = (patch: Record<string, unknown> = {}) => ({
+  // 型別化的 helper：patch 用 Partial<AudioItem> 而非 Record<string, unknown>，
+  // 這樣每個測試都不需要 as never 轉型——'NOPE' 是合法的 string，型別上過得去，
+  // 執行期才該被新驗證擋下，正好是我們要測的東西。
+  const item = (patch: Partial<AudioItem> = {}): AudioItem => ({
     id: 'a1',
     mediaId: 'm1',
     start: 0,
@@ -247,12 +250,12 @@ describe('setAudio 驗證', () => {
   it('mediaId 不存在 → 拒絕，且音訊軌維持原樣（不得半套寫入）', async () => {
     const store = await storeWithClips();
     store.mutate('ai', 'seed audio', (d) => {
-      d.tracks.audio = [item() as never];
+      d.tracks.audio = [item()];
     });
     const before = structuredClone(store.doc.tracks.audio);
     const r = applyCommand(store, 'human', {
       name: 'setAudio',
-      audio: [item({ id: 'a2', mediaId: 'NOPE' })] as never,
+      audio: [item({ id: 'a2', mediaId: 'NOPE' })],
     });
     expect(r.ok).toBe(false);
     expect(store.doc.tracks.audio).toEqual(before);
@@ -262,7 +265,7 @@ describe('setAudio 驗證', () => {
     const store = await storeWithClips();
     const r = applyCommand(store, 'human', {
       name: 'setAudio',
-      audio: [item({ duration: 0 })] as never,
+      audio: [item({ duration: 0 })],
     });
     expect(r.ok).toBe(false);
   });
@@ -271,7 +274,7 @@ describe('setAudio 驗證', () => {
     const store = await storeWithClips();
     const r = applyCommand(store, 'human', {
       name: 'setAudio',
-      audio: [item({ in: -1, duration: 1 })] as never,
+      audio: [item({ in: -1, duration: 1 })],
     });
     expect(r.ok).toBe(false);
   });
@@ -280,7 +283,7 @@ describe('setAudio 驗證', () => {
     const store = await storeWithClips();
     const r = applyCommand(store, 'human', {
       name: 'setAudio',
-      audio: [item({ in: 18, duration: 5 })] as never,
+      audio: [item({ in: 18, duration: 5 })],
     });
     expect(r.ok).toBe(false);
   });
@@ -289,7 +292,7 @@ describe('setAudio 驗證', () => {
     const store = await storeWithClips();
     const r = applyCommand(store, 'human', {
       name: 'setAudio',
-      audio: [item({ in: 0, duration: 20 })] as never,
+      audio: [item({ in: 0, duration: 20 })],
     });
     expect(r.ok).toBe(true);
   });
@@ -299,7 +302,7 @@ describe('setAudio 驗證', () => {
     const before = structuredClone(store.doc.tracks.audio);
     const r = applyCommand(store, 'human', {
       name: 'setAudio',
-      audio: [item(), item({ id: 'a2', mediaId: 'NOPE' })] as never,
+      audio: [item(), item({ id: 'a2', mediaId: 'NOPE' })],
     });
     expect(r.ok).toBe(false);
     expect(store.doc.tracks.audio).toEqual(before);
@@ -310,7 +313,7 @@ describe('setAudio 驗證', () => {
   it('audio: [] 清空音訊軌（既有行為，不得因新驗證而破壞）', async () => {
     const store = await storeWithClips();
     store.mutate('ai', 'seed audio', (d) => {
-      d.tracks.audio = [item() as never];
+      d.tracks.audio = [item()];
     });
     const r = applyCommand(store, 'human', { name: 'setAudio', audio: [] });
     expect(r.ok).toBe(true);
