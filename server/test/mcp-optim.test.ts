@@ -268,7 +268,6 @@ describe('B4 fine-grained edit tools', () => {
     const r = await call('add_overlay', {
       overlay: {
         id: 'txt1',
-        imagePath: '',
         text: { text: 'MCP 文字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
         start: 0,
         duration: 2,
@@ -293,7 +292,6 @@ describe('B4 fine-grained edit tools', () => {
       overlays: [
         {
           id: 'txt2',
-          imagePath: '',
           text: { text: 'set_overlays 文字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
           start: 0,
           duration: 2,
@@ -306,6 +304,71 @@ describe('B4 fine-grained edit tools', () => {
     expect(ov.imagePath).toMatch(/derived\/text\//);
     expect((await stat(join(dir, ov.imagePath))).size).toBeGreaterThan(0);
   }, 60_000);
+
+  // text 與 imagePath 互斥。以前 imagePath 必填、文字 overlay 得傳空字串佔位，而那個空字串
+  // 正是 commands.ts 視為「產卡前置沒跑」的毒藥哨兵；同時呼叫端給的真實路徑會被靜默丟棄。
+  // 現在兩種誤用都要變成明確的 schema 錯誤（而不是靜默接受）。
+  it('add_overlay rejects text together with imagePath instead of silently discarding the path', async () => {
+    const r = await call('add_overlay', {
+      overlay: {
+        id: 'txt_both',
+        imagePath: 'assets/hand_made.png',
+        text: { text: '兩個都給', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/imagePath/);
+    expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('txt_both');
+  });
+
+  it('add_overlay rejects an overlay with neither text nor imagePath', async () => {
+    const r = await call('add_overlay', {
+      overlay: { id: 'txt_none', start: 0, duration: 2, position: { x: 0.5, y: 0.3, scale: 1 } },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/imagePath/);
+    expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('txt_none');
+  });
+
+  // 空字串是舊介面教人傳的值，也是 render 時會變成「把專案目錄餵給 ffmpeg」的那個值。
+  // 純圖 overlay 給空字串必須擋在 schema，不能靠下游。
+  it('add_overlay rejects an empty imagePath on a pure-image overlay', async () => {
+    const r = await call('add_overlay', {
+      overlay: {
+        id: 'img_empty',
+        imagePath: '',
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/imagePath/);
+    expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('img_empty');
+  });
+
+  it('set_overlays applies the same exclusivity rule (shared schema, both entry points)', async () => {
+    const before = store.doc.tracks.overlays.map((o) => o.id);
+    const r = await call('set_overlays', {
+      overlays: [
+        {
+          id: 'txt_both2',
+          imagePath: 'assets/hand_made.png',
+          text: { text: '兩個都給', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+          start: 0,
+          duration: 2,
+          position: { x: 0.5, y: 0.3, scale: 1 },
+        },
+      ],
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/imagePath/);
+    // 整組替換被擋下時不可以留下半套狀態（原本的軌必須原封不動）
+    expect(store.doc.tracks.overlays.map((o) => o.id)).toEqual(before);
+  });
 
   it('remove_audio deletes one audio item', async () => {
     await call('set_audio', {

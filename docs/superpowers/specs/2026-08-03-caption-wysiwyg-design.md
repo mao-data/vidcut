@@ -242,8 +242,16 @@ interface OverlayText {
 - render.ts **一行不改**:它只認 `imagePath`,文字 overlay 的 PNG 是真實檔案。
 - MCP 自動獲得能力(命令層共用);`add_overlay`、`update_overlay`、
   `set_overlays` **三個工具都**接受 `text` 並各自跑 `resolveTextCommand`
-  前置,描述同步補上「text 由伺服器自動產卡並維護 imagePath,imagePath
-  傳空字串即可」。實作時 `set_overlays` 起初共用的 `overlaySchema` 讓它
+  前置。MCP schema 的 `imagePath` 是**選填**,並用 `superRefine` 強制
+  **`text` 與 `imagePath` 恰好給一個**:給 `text` 就不准給 `imagePath`
+  (以前是靜默丟棄呼叫端給的路徑),兩個都不給或 `imagePath: ''` 也是明確
+  錯誤。這條規則是後來補的——初版讓 `imagePath` 必填、文字 overlay 得傳
+  空字串佔位,而**那個空字串正是 `validateOverlayTextCard` 視為「前置沒跑」
+  的毒藥哨兵**:工具描述教呼叫端傳的值,等於驗證層視為致命錯誤的值,只靠
+  `resolveTextCommand` 夾在中間把它換掉才安全。同一個值同時是「請填這裡」
+  和「這個命令有毒」,任何一條沒接前置的新路徑都會踩爆(§6 的 `set_overlays`
+  就是這樣破的)。現在呼叫端根本沒有機會產生那個值。
+  實作時 `set_overlays` 起初共用的 `overlaySchema` 讓它
   可以帶 `text` 卻沒接上前置(整組替換沒有走到 `addOverlay`/`updateOverlay`
   的路徑),code review 抓到後補上——現在 `resolveTextCommand` 對
   `setOverlays` 命令會逐一檢查陣列裡每個 overlay,有 `text` 的各自獨立

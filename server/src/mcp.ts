@@ -110,12 +110,16 @@ const overlayTextSchema = z
 const overlaySchema = z
   .object({
     id: z.string(),
-    imagePath: z.string(),
+    imagePath: z
+      .string()
+      .optional()
+      .describe('純圖 overlay 專用：外部腳本產好的 PNG 路徑。文字 overlay 不要給（見 text）。'),
     text: overlayTextSchema
       .optional()
       .describe(
-        '可編輯文字 overlay：伺服器自動產字卡並維護 imagePath；imagePath 傳空字串即可。' +
-          '不給 text 則是純圖 overlay（外部腳本產的 PNG），imagePath 要給實際路徑。',
+        '可編輯文字 overlay：伺服器自動產字卡並填 imagePath，之後改字直接送新 text。' +
+          'text 與 imagePath 恰好給一個：給 text 就別給 imagePath（會被伺服器算出的路徑取代），' +
+          '給 imagePath 就是純圖 overlay（外部腳本產的 PNG，文字不可編輯）。',
       ),
     anchor: z.object({ clipId: z.string(), offset: z.number() }).optional(),
     start: z.number().optional(),
@@ -127,7 +131,39 @@ const overlaySchema = z
           '滿版直式圖要用 {x:0.5, y:0, scale:1}（y:0.5 會把圖推到下半場外）。',
       ),
   })
-  .strict();
+  .strict()
+  // text 與 imagePath 恰好給一個。以前 imagePath 必填、文字 overlay 得傳空字串佔位，
+  // 但那個空字串正是 commands.ts 的 validateOverlayTextCard 視為「前置沒跑」的毒藥哨兵
+  // ——文件教人傳的值等於驗證層視為致命錯誤的值，只靠 resolveTextCommand 夾在中間換掉才安全。
+  // 現在改成省略，並把「兩個都給/都不給」變成明確錯誤（以前是靜默丟棄呼叫端給的路徑）。
+  .superRefine((o, ctx) => {
+    if (o.text) {
+      if (o.imagePath !== undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['imagePath'],
+          message:
+            '文字 overlay 不要給 imagePath——伺服器產完字卡會自己填。' +
+            '（舊介面要求傳空字串佔位，現已改為整個省略。）',
+        });
+    } else if (o.imagePath === undefined || o.imagePath === '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['imagePath'],
+        message:
+          '要嘛給 text（文字 overlay，伺服器產卡），要嘛給非空的 imagePath（純圖 overlay）。',
+      });
+    }
+  });
+
+/**
+ * 收斂回儲存型別的必填 imagePath 形狀。文字 overlay 這裡先填空字串佔位，由
+ * resolveTextCommand 前置覆寫成真正的字卡路徑；萬一前置沒跑，commands.ts 的
+ * validateOverlayTextCard 會擋下空字串（空路徑到 render 會變成把專案目錄餵給 ffmpeg）。
+ */
+function toOverlayItem(o: z.infer<typeof overlaySchema>): OverlayItem {
+  return { ...o, imagePath: o.imagePath ?? '' } as OverlayItem;
+}
 
 const captionStyleSchema = z.object({
   fontFamily: z.string(),
@@ -202,8 +238,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
-        '疊圖分兩種：文字類用 add_overlay/update_overlay/set_overlays 帶 text（伺服器自動產字卡並維護 ' +
-        'imagePath，imagePath 傳空字串即可，之後改字直接送新 text）；純圖 overlay 照舊自己給 imagePath。' +
+        '疊圖分兩種，text 與 imagePath 恰好給一個：文字類用 add_overlay/update_overlay/set_overlays 帶 ' +
+        'text（伺服器自動產字卡並維護 imagePath，不要自己給，之後改字直接送新 text）；' +
+        '純圖 overlay 自己給 imagePath、不給 text（外部腳本產的 PNG，文字不可編輯）。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
         '小修單一項目用細粒度工具（update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
@@ -416,15 +453,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_overlays',
     {
       description:
-        '整組替換 overlay 軌。陣列裡帶 text 的項目會自動產字卡並填 imagePath（傳空字串即可）；' +
-        '純圖項目照舊給實際 imagePath。',
+        '整組替換 overlay 軌。每個項目 text 與 imagePath 恰好給一個：帶 text 的自動產字卡並填 ' +
+        'imagePath（不要自己給）；純圖項目給實際 imagePath。',
       inputSchema: { overlays: z.array(overlaySchema), ifVersion: z.number().optional() },
     },
     async ({ overlays, ifVersion }) => {
       try {
         const cmd = await resolveTextCommand(textCards, store, {
           name: 'setOverlays',
-          overlays: overlays as OverlayItem[],
+          overlays: overlays.map(toOverlayItem),
         });
         return writeReply(aiWrite(store, cmd, ifVersion));
       } catch (e) {
@@ -512,15 +549,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'add_overlay',
     {
       description:
-        '新增單張疊圖（其他 overlay 不動）。文字類 overlay 帶 text（伺服器自動產字卡並維護 ' +
-        'imagePath，imagePath 傳空字串即可）；純圖 overlay 照舊給實際 imagePath。',
+        '新增單張疊圖（其他 overlay 不動）。text 與 imagePath 恰好給一個：文字類 overlay 帶 text ' +
+        '（伺服器自動產字卡並維護 imagePath，不要自己給）；純圖 overlay 給實際 imagePath。',
       inputSchema: { overlay: overlaySchema, ifVersion: z.number().optional() },
     },
     async ({ overlay, ifVersion }) => {
       try {
         const cmd = await resolveTextCommand(textCards, store, {
           name: 'addOverlay',
-          overlay: overlay as OverlayItem,
+          overlay: toOverlayItem(overlay),
         });
         return writeReply(aiWrite(store, cmd, ifVersion));
       } catch (e) {
