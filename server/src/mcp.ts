@@ -16,6 +16,7 @@ import { ingestMedia } from './ingest.js';
 import { extractFrame } from './frame.js';
 import { extractCover, render } from './render.js';
 import { resolveTextCommand } from './textOverlays.js';
+import { CARD_LIMITS } from './cardBudget.js';
 
 export interface McpDeps {
   store: ProjectStore;
@@ -100,7 +101,9 @@ const overlayTextSchema = z
   .object({
     text: z.string().min(1),
     fontFamily: z.string(),
-    fontSize: z.number().positive(),
+    // 上限與 cardBudget 同源：字卡的高度＝行數×字級，兩者都會被像素預算擋下，
+    // 但在 schema 就擋掉「明顯填錯」的值，錯誤訊息比走到命令層再回一句拒絕更早也更清楚。
+    fontSize: z.number().positive().max(CARD_LIMITS.fontSizeMax),
     fill: z.string(),
     stroke: z.string().optional(),
     maxWidth: z.number().min(0.1).max(1).optional(),
@@ -167,7 +170,9 @@ function toOverlayItem(o: z.infer<typeof overlaySchema>): OverlayItem {
 
 const captionStyleSchema = z.object({
   fontFamily: z.string(),
-  fontSize: z.number(),
+  // 以前這裡完全沒有驗證：fontSize: 20000 會被寫進文件，之後每次 cardSync 都拿它去
+  // 產一張幾 GB 的字卡（單一 worker 是序列化的，等於把字卡佇列鎖死）。
+  fontSize: z.number().positive().max(CARD_LIMITS.fontSizeMax),
   fill: z.string(),
   stroke: z.string().optional(),
   y: z.number(),
@@ -240,7 +245,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
         '疊圖分兩種，text 與 imagePath 恰好給一個：文字類用 add_overlay/update_overlay/set_overlays 帶 ' +
         'text（伺服器自動產字卡並維護 imagePath，不要自己給，之後改字直接送新 text）；' +
-        '純圖 overlay 自己給 imagePath、不給 text（外部腳本產的 PNG，文字不可編輯）。' +
+        '純圖 overlay 自己給 imagePath、不給 text（外部腳本產的 PNG，文字不可編輯）——' +
+        '對純圖 overlay 送 update_overlay + text 會被拒絕（不會偷偷把它換成文字卡），' +
+        '真要轉型請 remove_overlay + add_overlay。' +
+        'update_caption 整句平移（duration 不變只改 start）時，該句的 tokens' +
+        '（逐詞時間戳＝時間軸絕對秒數）會自動一起平移；修邊（改 duration）則不動詞時間。' +
+        '文字太長或字級太大導致字卡超過像素預算時，寫入會被拒絕（錯誤訊息會寫出估到的尺寸）。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
         '小修單一項目用細粒度工具（update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
@@ -488,7 +498,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '只改一句字幕（text/start/duration/style/tokens）。小修用這個，別用 set_captions 整組重送。' +
-        'style 提供時整組替換；tokens 給 [] 代表清除逐詞時間戳。',
+        'style 提供時整組替換；tokens 給 [] 代表清除逐詞時間戳。' +
+        'tokens（逐詞時間戳）存的是時間軸絕對秒數，伺服器只在「整句平移」時自動幫你一起移：' +
+        '只給 start（或給了 start 且 duration 不變）＝整句搬到別的時間點，每個詞的 start/end ' +
+        '平移同樣的差值，不必自己重算。修邊則完全不動詞時間：只給 duration（縮尾巴）、' +
+        '或同時給 start 與 duration 且 duration 跟著變（縮頭：右緣不動、start 往後）——' +
+        '那是在改「這句顯示多久」，不是改「哪個字什麼時候被唸出來」。' +
+        '同一次呼叫若也給了 tokens，則以你給的為準（不再平移）。',
       inputSchema: {
         id: z.string(),
         patch: z
@@ -524,7 +540,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
             text: overlayTextSchema
               .optional()
               .describe(
-                '改文字內容/樣式：伺服器會重新產卡並更新 imagePath，只對本來就是文字 overlay 的項目有效。',
+                '改文字內容/樣式：伺服器會重新產卡並更新 imagePath。只能用在本來就是文字 overlay ' +
+                  '（建立時就帶 text）的項目；對純圖 overlay 送 text 會被拒絕（不會把它轉成文字卡、' +
+                  '不會覆蓋它的 imagePath），真要轉型請 remove_overlay + add_overlay。',
               ),
           })
           .strict(),
@@ -655,7 +673,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         style: z
           .object({
             fontFamily: z.string().optional(),
-            fontSize: z.number().optional(),
+            fontSize: z.number().positive().max(CARD_LIMITS.fontSizeMax).optional(),
             fill: z.string().optional(),
             stroke: z.string().optional(),
             y: z.number().optional(),

@@ -7,6 +7,8 @@ import type { CaptionItem, Project, RenderOptions } from '@vidcut/shared';
 import { locate, overlayWindow, totalDuration } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
+import { cardRequestError } from './cardBudget.js';
+import { capToCardRequest } from './cardSync.js';
 
 /** 渲染進度旁路：'progress' 事件 (0–1)。暫態資料不進版本化 store，由 wsHub 廣播給 UI。 */
 export const renderProgressBus = new EventEmitter();
@@ -47,6 +49,12 @@ export function renderCaptionCard(
   tokenIndex?: number,
 ): Promise<string> {
   const karaoke = tokenIndex !== undefined && cap.tokens && cap.tokens.length > 0;
+  // 匯出這條路自己 spawn python3（不走常駐 worker），所以卡不住字卡佇列——但一樣會被
+  // OOM killer 收掉。文件內容雖然在寫入時已經過命令層的像素預算檢查，**這次改動之前
+  // 存下來的專案**不受那道檢查保護（例如 fontSize 20000 的字幕），一按匯出就會炸。
+  // 這裡再擋一次，讓它變成一句看得懂的渲染錯誤，而不是 python 被訊號殺掉的殘骸。
+  const budgetErr = cardRequestError(capToCardRequest(cap, canvasWidth));
+  if (budgetErr) return Promise.reject(new Error(`caption ${cap.id}: ${budgetErr}`));
   const relPath = join(
     'derived',
     'captions',

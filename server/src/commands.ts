@@ -11,6 +11,9 @@ import type {
 } from '@vidcut/shared';
 import { totalDuration } from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
+import { cardRequestError } from './cardBudget.js';
+import { capToCardRequest } from './cardSync.js';
+import { overlayTextToCardRequest } from './textOverlays.js';
 
 const MIN_CLIP_DURATION = 0.1;
 const DEFAULT_FREEZE_DURATION = 3;
@@ -73,12 +76,19 @@ export function applyCommand(
       return updateCaption(store, source, cmd);
     case 'setOverlays':
       return setOverlays(store, source, cmd);
-    case 'setCaptions':
+    case 'setCaptions': {
+      // 整批中任一句的字卡超出像素預算就整批拒絕、文件完全不動：cardSync 之後會拿
+      // 文件裡的每一句去產卡，讓它落盤等於把一顆定時炸彈存進專案（每次載入都會再試一次）。
+      for (const cap of cmd.captions) {
+        const err = validateCaptionCard(cap as CaptionItem, store.doc.canvas.width);
+        if (err) return { ok: false, error: err };
+      }
       return ok(
         store.mutate(source, 'set captions', (d) => {
           d.tracks.captions = cmd.captions as CaptionItem[];
         }),
       );
+    }
     case 'splitAt':
       return splitAt(store, source, cmd.time);
     case 'deleteBefore':
@@ -208,13 +218,28 @@ function removeClip(
  * overlay 也不會被 mutate 進文件（空字串 imagePath 到 render 時會被當成專案目錄本身餵給
  * ffmpeg，錯誤會出現在很遠的地方且難以理解）。
  */
-function validateOverlayTextCard(text: OverlayText, imagePath: string | undefined): string | null {
+function validateOverlayTextCard(
+  text: OverlayText,
+  imagePath: string | undefined,
+  canvasWidth: number,
+): string | null {
   if (text.text.trim() === '') return 'overlay text must not be empty';
   if (text.fontSize <= 0) return 'fontSize must be > 0';
+  // 像素預算要先於 imagePath 檢查：超出預算時 resolveTextCommand 會刻意不產卡，
+  // imagePath 因此還是空的——先檢查 imagePath 會回一句誤導的「(server error)」，
+  // 而真正的原因是這張卡太大。順序決定使用者看到哪一句。
+  const budgetErr = cardRequestError(overlayTextToCardRequest(text, canvasWidth));
+  if (budgetErr) return `overlay text card rejected: ${budgetErr}`;
   if (imagePath === undefined || imagePath === '') {
     return 'text overlay card not generated (server error)';
   }
   return null;
+}
+
+/** 字幕的字卡也吃同一份像素預算（cardSync 會拿它去產卡）。回 null 代表可以寫進文件。 */
+function validateCaptionCard(cap: CaptionItem, canvasWidth: number): string | null {
+  const err = cardRequestError(capToCardRequest(cap, canvasWidth));
+  return err ? `caption ${cap.id} rejected: ${err}` : null;
 }
 
 function addOverlay(
@@ -236,7 +261,7 @@ function addOverlay(
     return { ok: false, error: `anchor clip not found: ${o.anchor.clipId}` };
   }
   if (o.text) {
-    const textErr = validateOverlayTextCard(o.text, o.imagePath);
+    const textErr = validateOverlayTextCard(o.text, o.imagePath, store.doc.canvas.width);
     if (textErr) return { ok: false, error: textErr };
   }
   return ok(
@@ -251,7 +276,8 @@ function updateOverlay(
   source: MutationSource,
   cmd: Extract<Command, { name: 'updateOverlay' }>,
 ): CommandResult {
-  if (!store.doc.tracks.overlays.some((o) => o.id === cmd.id)) {
+  const target = store.doc.tracks.overlays.find((o) => o.id === cmd.id);
+  if (!target) {
     return { ok: false, error: `overlay not found: ${cmd.id}` };
   }
   if (cmd.patch.duration !== undefined && cmd.patch.duration !== null && cmd.patch.duration <= 0) {
@@ -266,10 +292,27 @@ function updateOverlay(
     }
   }
   if (cmd.patch.text) {
+    // 只有「本來就是文字 overlay」（已有 text 欄位）才能用 patch.text 改字。
+    // 對純圖 overlay（例如外部腳本產的排名徽章 assets/rank_ov_0.png）送 text，
+    // 以前會靜默把它變成一張產生出來的文字卡、覆蓋掉使用者的 imagePath——
+    // 一次無心的呼叫就毀掉素材參照，只能靠 undo 救。要轉型請 removeOverlay + addOverlay。
+    if (!target.text) {
+      return {
+        ok: false,
+        error:
+          `overlay ${cmd.id} is not a text overlay (no text field); ` +
+          'refusing to convert an image overlay into a text card. ' +
+          'Use removeOverlay + addOverlay if conversion is really intended.',
+      };
+    }
     // patch.text 一定要伴隨一個已 resolve 的 imagePath——沒有這個鍵（呼叫端跳過了
     // resolveTextCommand 這道前置）跟給空字串一樣危險：都會讓 text 换了、imagePath
     // 還指著舊卡，畫面與文字對不上。兩種情況都要擋。
-    const textErr = validateOverlayTextCard(cmd.patch.text, cmd.patch.imagePath);
+    const textErr = validateOverlayTextCard(
+      cmd.patch.text,
+      cmd.patch.imagePath,
+      store.doc.canvas.width,
+    );
     if (textErr) return { ok: false, error: textErr };
   }
   return ok(
@@ -303,7 +346,7 @@ function setOverlays(
 ): CommandResult {
   for (const o of cmd.overlays) {
     if (o.text) {
-      const textErr = validateOverlayTextCard(o.text, o.imagePath);
+      const textErr = validateOverlayTextCard(o.text, o.imagePath, store.doc.canvas.width);
       if (textErr) return { ok: false, error: textErr };
     }
   }
@@ -319,12 +362,50 @@ function updateCaption(
   source: MutationSource,
   cmd: Extract<Command, { name: 'updateCaption' }>,
 ): CommandResult {
-  if (!store.doc.tracks.captions.some((c) => c.id === cmd.id)) {
+  const cur = store.doc.tracks.captions.find((c) => c.id === cmd.id);
+  if (!cur) {
     return { ok: false, error: `caption not found: ${cmd.id}` };
   }
   if (cmd.patch.duration !== undefined && cmd.patch.duration <= 0) {
     return { ok: false, error: 'caption duration must be > 0' };
   }
+  // 會影響字卡外觀的三個欄位任一有動，就用「改完後的樣子」跑一次像素預算
+  // （cardSync 之後就是拿文件裡的這一句去產卡）。start/duration 不影響排版，不必驗。
+  if (cmd.patch.text !== undefined || cmd.patch.style !== undefined || cmd.patch.tokens) {
+    const next: CaptionItem = {
+      ...cur,
+      ...(cmd.patch.text !== undefined ? { text: cmd.patch.text } : {}),
+      ...(cmd.patch.style !== undefined ? { style: cmd.patch.style } : {}),
+      ...(cmd.patch.tokens?.length ? { tokens: cmd.patch.tokens } : {}),
+    };
+    const err = validateCaptionCard(next, store.doc.canvas.width);
+    if (err) return { ok: false, error: err };
+  }
+
+  // 平移（drag）與修邊（trim）的判別，決定 tokens 要不要跟著動。
+  //
+  // tokens 存的是**時間軸絕對秒數**（見 shared 的 CaptionToken），不是相對句首的偏移，
+  // 所以整句被拖到別的時間點時，每個詞的時刻都必須跟著移同樣的量；不移的話預覽依新
+  // start 顯示、匯出的逐詞字卡卻還在舊時間出現，兩邊差整整一個 delta。
+  //
+  // 但「start 變了」不等於「整句被拖走了」。時間軸字幕卡的左把手是 **trim-in**：
+  // 右緣釘住不動，start 往後、duration 等量變短（Timeline.tsx 的 edge:'in' 送
+  // {start, duration}）。那是在改「這句顯示多久」，沒有任何一個字被唸出來的時刻改變——
+  // 跟著平移反而會把整條 karaoke 從語音上扯開（實測 start 10→10.5 / duration 3→2.5 會把
+  // 詞推到 10.7–13.3，最後一個詞的 end 13.3 已經超出這句的 end 13，render.ts 的
+  // renderCaptionCards 會把它的視窗夾掉一半高亮）。右把手 trim-out 只送 duration，
+  // 本來就不會走到這裡；但左把手證明了「只看 start」是不夠的。
+  //
+  // 判別規則：**兩端位移相同才算平移**（Δend == Δstart）。因為
+  // Δend − Δstart = Δduration，等價於「duration 沒變」——用 duration 相等來判斷，
+  // 而不是實際去減 (start+duration)，可避免浮點誤差把純平移誤判成微幅修邊。
+  //   拖曳   {start:+d, duration:不變}        → Δduration = 0 → 平移，tokens 跟著動
+  //   trim-in {start:+d, duration:−d}         → Δduration ≠ 0 → 修邊，tokens 不動
+  //   trim-out {duration:−d}                  → 沒給 start   → 修邊，tokens 不動
+  const nextDuration = cmd.patch.duration ?? cur.duration;
+  const delta = cmd.patch.start !== undefined ? cmd.patch.start - cur.start : 0;
+  const isTranslation = delta !== 0 && nextDuration === cur.duration;
+
   return ok(
     store.mutate(source, `edit caption`, (d) => {
       const c = d.tracks.captions.find((x) => x.id === cmd.id)!;
@@ -335,8 +416,15 @@ function updateCaption(
       if (cmd.patch.tokens !== undefined) {
         // 空陣列＝清除逐詞時間戳。JSON 傳不了 undefined（鍵會整個消失），
         // 所以「清除」必須有一個能被序列化的表示法。
+        // 呼叫端明確給的 tokens 就是最終答案，下面的平移必須跳過它
+        //（否則同一次呼叫又給 tokens 又改 start 會位移兩倍）。
         if (cmd.patch.tokens.length === 0) delete c.tokens;
         else c.tokens = cmd.patch.tokens;
+      } else if (isTranslation && c.tokens) {
+        for (const t of c.tokens) {
+          t.start += delta;
+          t.end += delta;
+        }
       }
     }),
   );

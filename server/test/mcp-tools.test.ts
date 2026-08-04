@@ -123,6 +123,67 @@ describe('MCP tools that had no coverage', () => {
     expect(store.doc.tracks.captions.map((c) => c.id)).toEqual(before);
   });
 
+  // 字幕 style 的 fontSize 以前完全沒有驗證：fontSize 20000 會被寫進文件，
+  // 之後每一次 cardSync（每次載入專案都會跑）都拿它去產一張幾 GB 的卡，
+  // 而 rasterizer 只有一個序列化的 worker——等於把字卡功能永久鎖死。
+  it('set_captions 拒絕荒謬的 fontSize（schema 層），字幕軌不動', async () => {
+    const before = store.doc.tracks.captions.map((c) => c.id);
+    const r = await call('set_captions', {
+      captions: [
+        {
+          id: 'huge',
+          text: 'x',
+          start: 0,
+          duration: 1,
+          style: { fontFamily: 'sans-serif', fontSize: 20000, fill: '#fff', y: 0.8 },
+        },
+      ],
+    });
+    expect(r.isError).toBe(true);
+    // 指名要 schema 層擋下（訊息會帶上限值）：命令層的像素預算雖然也擋得住這個值，
+    // 但那要等 zod 放行、走到 applyCommand 才會發生；schema 擋掉的錯誤訊息對模型更好讀。
+    expect(text(r)).toMatch(/less than or equal to 512/);
+    expect(store.doc.tracks.captions.map((c) => c.id)).toEqual(before);
+  });
+
+  it('set_captions 拒絕行數爆量的字幕（schema 過得了，命令層的像素預算擋下）', async () => {
+    const before = store.doc.tracks.captions.map((c) => c.id);
+    const r = await call('set_captions', {
+      captions: [
+        {
+          id: 'lines',
+          text: '\n'.repeat(4000),
+          start: 0,
+          duration: 1,
+          style: { fontFamily: 'sans-serif', fontSize: 48, fill: '#fff', y: 0.8 },
+        },
+      ],
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/too large/);
+    expect(store.doc.tracks.captions.map((c) => c.id)).toEqual(before);
+  });
+
+  it('update_caption 拒絕把既有字幕的 fontSize 改成荒謬值', async () => {
+    await call('set_captions', {
+      captions: [
+        {
+          id: 'c_ok',
+          text: 'hello',
+          start: 0,
+          duration: 2,
+          style: { fontFamily: 'sans-serif', fontSize: 48, fill: '#fff', y: 0.8 },
+        },
+      ],
+    });
+    const r = await call('update_caption', {
+      id: 'c_ok',
+      patch: { style: { fontFamily: 'sans-serif', fontSize: 30000, fill: '#fff', y: 0.8 } },
+    });
+    expect(r.isError).toBe(true);
+    expect(store.doc.tracks.captions[0]!.style.fontSize).toBe(48);
+  });
+
   it('set_canvas_fit switches between letterbox and blur', async () => {
     await call('set_canvas_fit', { fit: 'blur' });
     expect(store.doc.canvas.fit).toBe('blur');

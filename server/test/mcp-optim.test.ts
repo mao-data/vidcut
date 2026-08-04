@@ -249,6 +249,31 @@ describe('B4 fine-grained edit tools', () => {
     expect(store.doc.tracks.overlays.find((o) => o.id === 'o1')!.start).toBe(1.5);
   });
 
+  // update_overlay 的 text 欄位描述宣告「只對本來就是文字 overlay 的項目有效」——
+  // 這條測試釘住描述與行為一致（CLAUDE.md 鐵則）：對純圖 overlay 送 text 必須被拒，
+  // 而不是靜默把使用者的 imagePath 換成產出來的文字卡。
+  it('update_overlay refuses to turn a plain image overlay into a text card', async () => {
+    const r = await call('update_overlay', {
+      id: 'o1', // fixture 的 o1 是純圖 overlay（imagePath: a.png，沒有 text）
+      patch: { text: { text: '偷換', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' } },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('not a text overlay');
+    const ov = store.doc.tracks.overlays.find((o) => o.id === 'o1')!;
+    expect(ov.imagePath).toBe('a.png');
+    expect(ov.text).toBeUndefined();
+  }, 60_000);
+
+  // update_caption 描述宣告「改 start 會連同 tokens 一起平移」——同上，釘住描述=行為。
+  it('update_caption shifts word timestamps with the caption start', async () => {
+    const r = await call('update_caption', { id: 'k1', patch: { start: 1.5 } });
+    expect(r.isError).toBeFalsy();
+    const c = store.doc.tracks.captions.find((x) => x.id === 'k1')!;
+    expect(c.start).toBe(1.5);
+    // 原本 0→0.5；往後平移 1.5 應為 1.5→2.0（方向寫反會是 -1.5→-1.0）
+    expect(c.tokens).toEqual([{ text: 'hello', start: 1.5, end: 2 }]);
+  });
+
   it('add_overlay appends and remove_overlay deletes', async () => {
     await call('add_overlay', {
       overlay: {
@@ -292,7 +317,12 @@ describe('B4 fine-grained edit tools', () => {
       overlays: [
         {
           id: 'txt2',
-          text: { text: 'set_overlays 文字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+          text: {
+            text: 'set_overlays 文字',
+            fontFamily: 'Heiti TC',
+            fontSize: 64,
+            fill: '#ffffff',
+          },
           start: 0,
           duration: 2,
           position: { x: 0.5, y: 0.3, scale: 1 },

@@ -18,11 +18,21 @@ async function setup() {
   return { dir, store, svc: new TextCardService(dir, raster) };
 }
 
-const TEXT = { text: '大標題', fontFamily: 'Heiti TC', fontSize: 72, fill: '#ffffff', stroke: '#000000' };
+const TEXT = {
+  text: '大標題',
+  fontFamily: 'Heiti TC',
+  fontSize: 72,
+  fill: '#ffffff',
+  stroke: '#000000',
+};
 const ADD: Command = {
   name: 'addOverlay',
   overlay: {
-    id: 'ov1', imagePath: '', text: TEXT, start: 0, duration: 3,
+    id: 'ov1',
+    imagePath: '',
+    text: TEXT,
+    start: 0,
+    duration: 3,
     position: { x: 0.5, y: 0.4, scale: 1 },
   } as OverlayItem,
 };
@@ -43,7 +53,11 @@ describe('resolveTextCommand + 命令層', () => {
     const { store, svc } = await setup();
     applyCommand(store, 'human', await resolveTextCommand(svc, store, ADD));
     const before = store.doc.tracks.overlays[0]!.imagePath;
-    const cmd: Command = { name: 'updateOverlay', id: 'ov1', patch: { text: { ...TEXT, text: '改標題' } } };
+    const cmd: Command = {
+      name: 'updateOverlay',
+      id: 'ov1',
+      patch: { text: { ...TEXT, text: '改標題' } },
+    };
     const r = applyCommand(store, 'human', await resolveTextCommand(svc, store, cmd));
     expect(r.ok).toBe(true);
     const ov = store.doc.tracks.overlays[0]!;
@@ -51,11 +65,47 @@ describe('resolveTextCommand + 命令層', () => {
     expect(ov.imagePath).not.toBe(before);
   }, 30_000);
 
+  it('updateOverlay 對「純圖 overlay」送 text:不產卡(原樣放行),命令層再拒絕,原圖零損傷', async () => {
+    const { dir, store, svc } = await setup();
+    store.mutate('human', 'seed png overlay', (d) => {
+      d.tracks.overlays = [
+        {
+          id: 'rank0',
+          imagePath: 'assets/rank_ov_0.png',
+          start: 0,
+          duration: 3,
+          position: { x: 0.5, y: 0.1, scale: 1 },
+        },
+      ];
+    });
+    const cmd: Command = {
+      name: 'updateOverlay',
+      id: 'rank0',
+      patch: { text: { ...TEXT, text: '不該生效' } },
+    };
+    // 前置不產卡:回同一個物件參考(有產卡的話會是新物件、帶 imagePath),
+    // derived/text/ 也不該多出任何孤兒卡。
+    expect(await resolveTextCommand(svc, store, cmd)).toBe(cmd);
+    await expect(stat(join(dir, 'derived', 'text'))).rejects.toThrow();
+    // 命令層是真正的防線(UI 直送也走這裡)
+    const r = applyCommand(store, 'human', cmd);
+    expect(r.ok).toBe(false);
+    const ov = store.doc.tracks.overlays[0]!;
+    expect(ov.imagePath).toBe('assets/rank_ov_0.png');
+    expect(ov.text).toBeUndefined();
+  }, 30_000);
+
   it('無 text 的命令原樣通過(既有排名 PNG 行為不變)', async () => {
     const { store, svc } = await setup();
     const cmd: Command = {
       name: 'addOverlay',
-      overlay: { id: 'png1', imagePath: 'assets/x.png', start: 0, duration: 2, position: { x: 0.5, y: 0, scale: 1 } },
+      overlay: {
+        id: 'png1',
+        imagePath: 'assets/x.png',
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0, scale: 1 },
+      },
     };
     expect(await resolveTextCommand(svc, store, cmd)).toBe(cmd);
   });
@@ -64,7 +114,10 @@ describe('resolveTextCommand + 命令層', () => {
     const { store } = await setup();
     const bad1: Command = {
       name: 'addOverlay',
-      overlay: { ...(ADD as Extract<Command, { name: 'addOverlay' }>).overlay, text: { ...TEXT, text: '  ' } },
+      overlay: {
+        ...(ADD as Extract<Command, { name: 'addOverlay' }>).overlay,
+        text: { ...TEXT, text: '  ' },
+      },
     };
     expect(applyCommand(store, 'human', bad1).ok).toBe(false);
     expect(applyCommand(store, 'human', ADD).ok).toBe(false); // imagePath 仍是 ''
@@ -81,10 +134,7 @@ describe('resolveTextCommand + 命令層', () => {
     };
     const cmd: Command = {
       name: 'setOverlays',
-      overlays: [
-        (ADD as Extract<Command, { name: 'addOverlay' }>).overlay,
-        png,
-      ],
+      overlays: [(ADD as Extract<Command, { name: 'addOverlay' }>).overlay, png],
     };
     const resolved = await resolveTextCommand(svc, store, cmd);
     expect(resolved).not.toBe(cmd);
@@ -104,7 +154,13 @@ describe('resolveTextCommand + 命令層', () => {
     const cmd: Command = {
       name: 'setOverlays',
       overlays: [
-        { id: 'png1', imagePath: 'assets/x.png', start: 0, duration: 1, position: { x: 0.5, y: 0, scale: 1 } },
+        {
+          id: 'png1',
+          imagePath: 'assets/x.png',
+          start: 0,
+          duration: 1,
+          position: { x: 0.5, y: 0, scale: 1 },
+        },
       ],
     };
     expect(await resolveTextCommand(svc, store, cmd)).toBe(cmd);
@@ -210,5 +266,41 @@ describe('updateOverlay text 命令直接呼叫 applyCommand(繞過 resolveTextC
       expect(after.imagePath).toBe(beforeImagePath);
     }
     expect(store.version).toBe(beforeVersion);
+  }, 30_000);
+});
+
+// 前置（resolveTextCommand）碰到超出像素預算的文字時要**跳過產卡**，讓命令層去回一句
+// 可讀的拒絕理由——跟「overlay 不存在」「目標是純圖 overlay」同一個模式。
+// 直接產卡的話 svc.ensure 會 throw，呼叫端只會看到一句包了 stack 的「字卡產生失敗」。
+describe('resolveTextCommand 的像素預算', () => {
+  const BOMB = { ...TEXT, text: `標題${'\n'.repeat(3000)}` }; // 3001 行 → 約 250 Mpx
+
+  it('addOverlay 帶超標的 text：不產卡（cmd 原樣放行），命令層回「太大」且文件不動', async () => {
+    const { dir, store, svc } = await setup();
+    const cmd: Command = {
+      name: 'addOverlay',
+      overlay: { ...(ADD as Extract<Command, { name: 'addOverlay' }>).overlay, text: BOMB },
+    };
+    const t0 = Date.now();
+    const resolved = await resolveTextCommand(svc, store, cmd);
+    expect(Date.now() - t0).toBeLessThan(2000); // 沒有真的去畫（畫下去要好幾分鐘）
+    expect(resolved).toBe(cmd); // 原樣放行：沒有塞 imagePath
+    const r = applyCommand(store, 'human', resolved);
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/too large/);
+    expect(store.doc.tracks.overlays).toHaveLength(0);
+    // 也沒有在 derived/text/ 留下孤兒卡
+    await expect(stat(join(dir, 'derived', 'text'))).rejects.toThrow();
+  }, 30_000);
+
+  it('updateOverlay 改成超標的 text：原本的 overlay（含 imagePath）完全不動', async () => {
+    const { store, svc } = await setup();
+    applyCommand(store, 'human', await resolveTextCommand(svc, store, ADD));
+    const before = store.doc.tracks.overlays[0]!.imagePath;
+    const cmd: Command = { name: 'updateOverlay', id: 'ov1', patch: { text: BOMB } };
+    const r = applyCommand(store, 'human', await resolveTextCommand(svc, store, cmd));
+    expect(r.ok).toBe(false);
+    expect(store.doc.tracks.overlays[0]!.imagePath).toBe(before);
+    expect(store.doc.tracks.overlays[0]!.text?.text).toBe('大標題');
   }, 30_000);
 });
