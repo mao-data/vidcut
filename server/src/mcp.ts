@@ -179,11 +179,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
     { name: 'vidcut', version: '0.1.0' },
     {
       instructions:
-        'vidcut 直式短影音時間軸編輯器（1080×1920）。典型流程：import_media 匯入素材' +
-        '（可直接引用專案外的絕對路徑） → ' +
-        'set_timeline 排片 → timeline_op 粗剪（split/deleteBefore/deleteAfter/freeze）→ ' +
+        'vidcut 直式短影音時間軸編輯器（1080×1920）。典型流程：' +
+        'list_source 看素材夾裡有什麼（dir 為絕對路徑，imported 標示已匯入者）→ ' +
+        'import_media 逐支匯入（可直接引用專案外的絕對路徑，零複製）→ ' +
+        'set_timeline 初次排片，或 add_clip 逐支接到主軌尾端（不動既有片段）→ ' +
+        'timeline_op 粗剪（split/deleteBefore/deleteAfter/freeze）→ ' +
         'set_overlays / set_captions 上字（講話類影片直接用 auto_caption 自動上字幕＋逐詞高亮）→ ' +
         'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
+        '純音訊素材（mp3/wav…）只能上音訊軌，add_clip 與 set_timeline 會擋下它。' +
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +

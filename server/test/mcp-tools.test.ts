@@ -374,3 +374,25 @@ describe('add_clip', () => {
     expect(text(r)).toMatch(/stale/);
   });
 });
+
+// CLAUDE.md 鐵則「改了工具行為或語意必須同步 instructions」的執行面守衛。
+// instructions 是 AI 使用者唯一的總覽文件——工具存在但沒寫進流程，等於沒人會用它。
+describe('instructions 與工具清單同步', () => {
+  it('寫入型的主線工具都出現在 instructions 裡', () => {
+    const instructions = client.getInstructions() ?? '';
+    for (const name of [
+      'list_source',
+      'import_media',
+      'add_clip',
+      'set_timeline',
+      'set_audio',
+      'render',
+    ]) {
+      expect(instructions, `${name} 不在 instructions 裡`).toContain(name);
+    }
+  });
+
+  it('instructions 說明了純音訊素材的軌道限制', () => {
+    expect(client.getInstructions() ?? '').toMatch(/純音訊/);
+  });
+});

@@ -29,8 +29,12 @@ npm run verify:panels                       # 面板控制項的瀏覽器回歸�
 ## 鐵則
 
 - **任何專案狀態變更都走 `applyCommand`**（人）或 `aiWrite`→`applyCommand`（AI）。
-  不要旁路直改 doc。新增一種編輯操作 = 在 `shared` 的 `Command` 加 variant
-  - `commands.ts` 加驗證與 case → UI 與 MCP 自動都能用。
+  不要旁路直改 doc。新增一種編輯操作是**三步，第三步不會自動發生**：
+  1. `shared/src/types.ts` 的 `Command` 加 variant
+  2. `commands.ts` 加驗證與 case（驗證一律寫在這層，不要寫在 MCP 或 UI）
+  3. **`mcp.ts` 手動 `registerTool` 並同步 `instructions`** —— 漏了第三步，
+     AI 就永遠碰不到這個能力（前例：`addClip` 做完八輪 TDD 卻沒人能用，
+     因為只做了 1、2 步）
 - **`projects/*/.env` 與各專案密鑰不得提交或印出內容。**
 - **改了工具行為或語意，必須同步更新 `server/src/mcp.ts` 的工具描述與 instructions。**
   MCP 描述是 AI 使用者唯一的文件，過期描述會直接害它踩坑
