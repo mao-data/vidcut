@@ -8,12 +8,12 @@
 
 設計定案：`docs/superpowers/specs/2026-08-03-media-import-design.md`
 
-| 階段 | 內容                                                                                                                                                        | 狀態   |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 1    | `resolveMediaPath` 路徑語意、`scanSourceFolder`、`GET /api/source`、ingest 接受外部絕對路徑、`addClip` command、`POST /api/import`、更新 MCP `import_media` | 待實作 |
-| 2    | 右側面板新增 `Media` 分頁：素材夾掃描 → 勾選匯入 → 已匯入清單 → 加到時間軸                                                                                  | 待實作 |
+| 階段 | 內容                                                                                                                                                   | 狀態                                       |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| 1    | `resolveMediaPath` 路徑語意、`scanSourceFolder`、`GET /api/source`、ingest 接受外部絕對路徑、`addClip` command、`POST /api/import`、MCP `import_media` | ✅ `main` + `list_source`、`add_clip` 補完 |
+| 2    | 右側面板新增 `Media` 分頁：素材夾掃描 → 勾選匯入 → 已匯入清單 → 加到時間軸                                                                             | 待實作                                     |
 
-階段 1 完成即可透過 MCP 使用，不必等 UI。
+後端零複製能力 + MCP 工具已全部上線；MCP 面原先階段 1 完成時仍有空白（`import_media` 掛、`add_clip` 缺），現已補完。
 
 ## 可行方向（尚未排程）
 
@@ -93,9 +93,7 @@ DNS rebinding 攻擊下，惡意網頁可誘使受害者瀏覽器對 `127.0.0.1:
 八輪 TDD 期間逐條記錄、經 controller 裁決延後的項目（原始紀錄在該分支的
 `.superpowers/sdd/2026-08-03-media-import-backend/progress.md`）：
 
-- **`commands.ts:155`（`updateClip`）與 `:497`（`updateAudio`）的 `1e-6` 容差無 mutant
-  覆蓋**——與 `addClip:218` 同形，但只有 `addClip` 那處有 `addclip-float-tolerance`
-  守著。補兩隻 mutant 即可，屬小 Task。
+- **`updateClip` 與 `updateAudio` 的 `1e-6` 容差無 mutant 覆蓋**——與 `addClip` 同形，但只有 `addClip` 那處有 `addclip-bounds` 守著。補兩隻 mutant 即可，屬小 Task。
 - **`GET /api/source` 的「素材夾無權限」分支無專屬測資**——與「目錄不存在」共用同一條
   catch，行為正確但沒有獨立驗證。
 - **`POST /api/import` 的 `failed[].error` 可能夾帶絕對路徑**——與既有 `/api/source`
