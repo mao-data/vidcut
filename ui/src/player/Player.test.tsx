@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, act } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, act, fireEvent } from '@testing-library/react';
+import type { Command } from '@vidcut/shared';
 import { Player } from './Player.js';
 import { usePlayback } from '../stores/playback.js';
 import { useProject } from '../stores/project.js';
-import { demoProject, seedProject, resetStores } from '../test/fixtures.js';
+import { demoProject, seedProject, resetStores, captureCommands } from '../test/fixtures.js';
+import * as ws from '../ws.js';
+import { dragOverlay, dragCaption } from './dragLayer.js';
 
 /** 把 playhead 移到 t（走真正的 store action）。 */
 function seek(t: number) {
@@ -172,5 +175,115 @@ describe('Player', () => {
     // "secondline"（CJK-aware tokenSeparator，和 server/scripts/text_card.py 的
     // separator() 同規則：拉丁字之間留白）。
     expect(second.parentElement!.textContent).toBe('second line');
+  });
+});
+
+/**
+ * 畫布拖曳（Task 15 fix round 1，Finding 3）：pending 覆蓋不只是防「放手閃回原位」，
+ * 還修正一個更嚴重的問題——doc 還沒追上拖曳結果前，若立刻再拖同一項一次，第二次的
+ * 起點必須讀 pending（上一次放手的結果），不能讀 doc（這時 doc 仍是拖曳前的舊值），
+ * 否則連續兩次拖曳會把第一次的位移吃掉（見 Player.tsx 的 pendingRef / setPendingDrag）。
+ * ui/src/timeline/Timeline.tsx 已有等價機制與同名測試（"a second drag starts from the
+ * pending position, not the stale doc"），這裡把同一種驗證方式搬到畫布拖曳。
+ */
+describe('Player canvas drag (pending baseline, Finding 3)', () => {
+  beforeEach(() => {
+    resetStores();
+    seedProject();
+    // jsdom 沒有真的版面，getBoundingClientRect 預設全 0——畫布拖曳的 delta/bbox 換算
+    // 需要真數字，不然除以 scale=0 會炸出 NaN。這裡按元素角色回固定尺寸：
+    // stage 容器（無這兩個 data 屬性）回 1080 寬 → scale = 1080/1080 = 1；
+    // overlay <img>（data-ov-id）回 400×100，跟 dragLayer.test.ts 的 bbox 案例一致，
+    // 方便用同一個純函式當 oracle 交叉驗證；字幕卡外層 div（data-drag-kind="caption"）
+    // 回 1080×92，貼近實際字幕卡高度。
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const isOverlay = this.hasAttribute('data-ov-id');
+      const isCaption = this.getAttribute('data-drag-kind') === 'caption';
+      const w = isOverlay ? 400 : 1080;
+      const h = isOverlay ? 100 : isCaption ? 92 : 1920;
+      return {
+        width: w,
+        height: h,
+        top: 0,
+        left: 0,
+        right: w,
+        bottom: h,
+        x: 0,
+        y: 0,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  /** pointerdown → move → up（畫布拖曳兩軸都可能變，跟 Timeline.test.tsx 的單軸 drag() 不同）。 */
+  function dragXY(el: Element, from: { x: number; y: number }, to: { x: number; y: number }) {
+    act(() => {
+      fireEvent.pointerDown(el, { clientX: from.x, clientY: from.y, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(el, { clientX: to.x, clientY: to.y, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerUp(el, { clientX: to.x, clientY: to.y, pointerId: 1, bubbles: true });
+    });
+  }
+
+  it('a second overlay drag starts from the pending position, not the stale doc', () => {
+    const sent = captureCommands(ws);
+    const { container } = render(<Player />);
+    seek(2); // ovAbs 視窗內，position {x:0.5, y:0.1, scale:1}
+    const img = container.querySelector('img[src="/media/assets/title.png"]') as HTMLImageElement;
+
+    dragXY(img, { x: 0, y: 0 }, { x: 108, y: -96 });
+    expect(sent).toHaveLength(1);
+    const first = sent[0] as Extract<Command, { name: 'updateOverlay' }>;
+    const firstPos = first.patch.position!;
+
+    // doc 沒有真的更新（測試沒有模擬 server echo）——第二次拖曳理當以 firstPos 為起點
+    dragXY(img, { x: 0, y: 0 }, { x: 108, y: -96 });
+    expect(sent).toHaveLength(2);
+    const second = sent[1] as Extract<Command, { name: 'updateOverlay' }>;
+    const secondPos = second.patch.position!;
+
+    // 用 dragLayer 的純函式（已在 dragLayer.test.ts 獨立驗證過）當 oracle：從 pending 值
+    // 起算、套同一個位移，算出「正確」該有的結果——不管沿途有沒有觸發吸附都成立。
+    const expected = dragOverlay(
+      { x: firstPos.x, y: firstPos.y },
+      { dx: 108, dy: -96 },
+      { w: 400, h: 100 },
+      { w: 1080, h: 1920 },
+    ).position;
+    expect(secondPos.x).toBeCloseTo(expected.x, 3);
+    expect(secondPos.y).toBeCloseTo(expected.y, 3);
+
+    // 反例：若第二次拖曳誤用「stale doc」(0.5, 0.1) 當起點，會跟第一次算出一模一樣的
+    // 結果——用這個差異證明第二次真的往前走了，不是從頭重拖一次（"閃回"以外的症狀）。
+    expect(secondPos).not.toEqual(firstPos);
+  });
+
+  it('a second caption drag starts from the pending y, not the stale doc', () => {
+    const sent = captureCommands(ws);
+    const { container } = render(<Player />);
+    seek(2); // cap1 視窗內，style.y = 0.8
+    const cap = container.querySelector('[data-drag-kind="caption"]') as HTMLElement;
+
+    dragXY(cap, { x: 0, y: 0 }, { x: 0, y: 60 });
+    expect(sent).toHaveLength(1);
+    const first = sent[0] as Extract<Command, { name: 'updateCaption' }>;
+    const firstY = first.patch.style!.y;
+
+    dragXY(cap, { x: 0, y: 0 }, { x: 0, y: 60 });
+    expect(sent).toHaveLength(2);
+    const second = sent[1] as Extract<Command, { name: 'updateCaption' }>;
+    const secondY = second.patch.style!.y;
+
+    const expected = dragCaption(firstY, 60, 92, 1920).y;
+    expect(secondY).toBeCloseTo(expected, 3);
+    expect(secondY).not.toEqual(firstY);
   });
 });

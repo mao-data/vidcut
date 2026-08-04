@@ -79,6 +79,38 @@ export function Player() {
     y?: number;
   } | null>(null);
   const [guides, setGuides] = useState<SnapGuide[]>([]);
+  /**
+   * 放手後、server echo 抵達前的顯示覆蓋（修「放手閃回原位」，同時修一個比閃回更嚴重的
+   * 問題：見下方 overlaysForRender/captionsForRender——渲染跟「下一次拖曳的起點」共用
+   * 同一份合併結果，不然「放手後立刻再拖一次」會從 doc 的舊值起算，把第一次的位移吃掉）。
+   * 同 Timeline.tsx 的 pending 機制：pointerup 送出命令的同時把結果存進這裡繼續蓋著，
+   * 等 doc 真的追上（reconcile 區塊比對相等）才放掉；1.2s 保險絲避免命令被拒/掉包時卡死。
+   * 用 useRef（不是 useState）：這個值變了不需要單獨觸發 re-render——寫入的當下一定伴隨
+   * dragOverride/guides 的 setState（已經會 re-render），只有「timeout 到期、doc 卻還沒追上」
+   * 這條路徑需要額外強制刷新，用下面的 rerender() 手動處理。
+   */
+  const pendingRef = useRef<
+    | { kind: 'overlay'; id: string; position: { x: number; y: number } }
+    | { kind: 'caption'; id: string; y: number }
+    | null
+  >(null);
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [, forceRerender] = useState(0);
+  const rerender = () => forceRerender((n) => n + 1);
+  const setPendingDrag = (v: NonNullable<typeof pendingRef.current>) => {
+    pendingRef.current = v;
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = setTimeout(() => {
+      pendingRef.current = null;
+      rerender();
+    }, 1200);
+  };
+  useEffect(
+    () => () => {
+      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    },
+    [],
+  );
   // useLayoutEffect（不是 useEffect）：doc 剛到位、stage 第一次掛上 DOM 那一幀，
   // 要在瀏覽器畫出來之前就量到寬並設好 scale，否則第一個畫出的畫面會是 scale(0)
   // （疊圖/字幕全部縮到看不見）閃一下才變回正常大小。
@@ -231,6 +263,31 @@ export function Player() {
   }, [doc, plan, time, playing, blurFill]);
 
   if (!doc || !plan) return null;
+
+  // pending 對帳：doc 已反映我們送出的值 → 覆蓋功成身退（同 Timeline.tsx 的對帳區塊）。
+  {
+    const pd = pendingRef.current;
+    if (pd) {
+      const matched =
+        pd.kind === 'overlay'
+          ? (() => {
+              const o = doc.tracks.overlays.find((x) => x.id === pd.id);
+              return !o || (o.position.x === pd.position.x && o.position.y === pd.position.y);
+            })()
+          : (() => {
+              const c = doc.tracks.captions.find((x) => x.id === pd.id);
+              return !c || c.style.y === pd.y;
+            })();
+      if (matched) {
+        pendingRef.current = null;
+        if (pendingTimerRef.current) {
+          clearTimeout(pendingTimerRef.current);
+          pendingTimerRef.current = null;
+        }
+      }
+    }
+  }
+
   const vidStyle = (visible: boolean): CSSProperties => ({
     position: 'absolute',
     inset: 0,
@@ -243,10 +300,47 @@ export function Player() {
   /** 1080 座標空間縮放係數——與下方 1080×1920 layer 的 transform 同一個來源，不得重算/硬編。 */
   const scale = stageW / 1080;
 
-  const onOverlayPointerDown = (
-    e: ReactPointerEvent<HTMLImageElement>,
-    o: { id: string; position: { x: number; y: number; scale: number } },
-  ) => {
+  /**
+   * overlay/字幕的「這一幀該顯示什麼」只算一次、渲染與 pointerdown handler 共用同一份——
+   * 不要各自查一次 dragOverride/pendingRef（曾經各查各的，兩條路徑一條漏改就會不一致，
+   * 見 Task 15 fix round 1 Finding 3）。優先序：拖曳中的本地覆寫 > pending（放手、echo
+   * 未到）> doc 原始值。pointerdown 直接讀這裡算出來的值當拖曳起點，於是「放手後立刻
+   * 再拖一次」自然以上一次放手的結果為起點，不會把第一次的位移吃掉。
+   */
+  const overlaysForRender = plan.overlays.map((o) => {
+    if (dragOverride?.kind === 'overlay' && dragOverride.id === o.id && dragOverride.position) {
+      return { ...o, position: { ...o.position, ...dragOverride.position } };
+    }
+    const pd = pendingRef.current;
+    if (pd?.kind === 'overlay' && pd.id === o.id) {
+      return { ...o, position: { ...o.position, ...pd.position } };
+    }
+    return o;
+  });
+  const captionsForRender = plan.captions.map((c) => {
+    if (
+      dragOverride?.kind === 'caption' &&
+      dragOverride.id === c.id &&
+      dragOverride.y !== undefined
+    ) {
+      return { ...c, style: { ...c.style, y: dragOverride.y } };
+    }
+    const pd = pendingRef.current;
+    if (pd?.kind === 'caption' && pd.id === c.id) {
+      return { ...c, style: { ...c.style, y: pd.y } };
+    }
+    return c;
+  });
+
+  /**
+   * 單一穩定 handler（不在 .map() 裡逐項用 inline arrow 包，避免每個 overlay 每次
+   * render 都配一個新 closure）：從 data-ov-id 找回是哪個 overlay，讀 overlaysForRender
+   * （已經套過 pending）而非 plan.overlays（doc 原始值）。
+   */
+  const onOverlayPointerDown = (e: ReactPointerEvent<HTMLImageElement>) => {
+    const id = e.currentTarget.dataset.ovId;
+    const o = overlaysForRender.find((x) => x.id === id);
+    if (!o) return;
     useSelection.getState().select({ kind: 'overlay', id: o.id });
     e.currentTarget.setPointerCapture(e.pointerId);
     const rect = e.currentTarget.getBoundingClientRect();
@@ -260,6 +354,7 @@ export function Player() {
     };
   };
 
+  /** cap 來自 CaptionLayer 用 captionsForRender 渲染出的項目（已套過 pending），理由同上。 */
   const onCaptionPointerDown = (e: ReactPointerEvent<HTMLDivElement>, cap: CaptionItem) => {
     useSelection.getState().select({ kind: 'caption', id: cap.id });
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -298,29 +393,30 @@ export function Player() {
     if (!d || !o) return;
     if (d.kind === 'overlay' && o.position) {
       const scale0 = doc.tracks.overlays.find((x) => x.id === d.id)?.position.scale ?? 1;
+      // 四位小數（1080 空間下約 0.1px 解析度）：pending 對帳與 sendCommand 送出的必須是
+      // 同一個數字，不然 doc echo 抵達時浮點尾數對不上，pending 永遠對帳不到，只能靠
+      // 1.2s 保險絲清掉（同 Timeline.tsx 對 start/duration 送出前 toFixed(3) 的理由）。
+      const position = { x: Number(o.position.x.toFixed(4)), y: Number(o.position.y.toFixed(4)) };
+      setPendingDrag({ kind: 'overlay', id: d.id, position });
       sendCommand({
         name: 'updateOverlay',
         id: d.id,
-        patch: { position: { ...o.position, scale: scale0 } },
+        patch: { position: { ...position, scale: scale0 } },
       });
     } else if (d.kind === 'caption' && o.y !== undefined) {
       const cap = doc.tracks.captions.find((c) => c.id === d.id);
       if (cap) {
+        const y = Number(o.y.toFixed(4));
+        setPendingDrag({ kind: 'caption', id: d.id, y });
         sendCommand({
           name: 'updateCaption',
           id: d.id,
-          patch: { style: { ...cap.style, y: o.y } },
+          patch: { style: { ...cap.style, y } },
         });
       }
     }
+    rerender();
   };
-
-  /** 拖曳中用本地覆寫蓋掉字幕的 style.y，字幕卡本身不知道拖曳這回事 */
-  const captionsForRender = plan.captions.map((c) =>
-    dragOverride?.kind === 'caption' && dragOverride.id === c.id && dragOverride.y !== undefined
-      ? { ...c, style: { ...c.style, y: dragOverride.y } }
-      : c,
-  );
 
   return (
     <div
@@ -395,26 +491,21 @@ export function Player() {
             pointerEvents: 'none',
           }}
         >
-          {plan.overlays.map((o) => {
-            const drag =
-              dragOverride?.kind === 'overlay' && dragOverride.id === o.id
-                ? dragOverride.position
-                : undefined;
-            const posX = drag?.x ?? o.position.x;
-            const posY = drag?.y ?? o.position.y;
+          {overlaysForRender.map((o) => {
             return (
               <img
                 key={o.id}
+                data-ov-id={o.id}
                 src={o.src}
                 className={fxAdded.has(o.id) ? 'fx-enter' : undefined}
                 alt=""
-                onPointerDown={(e) => onOverlayPointerDown(e, o)}
+                onPointerDown={onOverlayPointerDown}
                 onPointerMove={onDragPointerMove}
                 onPointerUp={onDragPointerUp}
                 style={{
                   position: 'absolute',
-                  left: 1080 * posX,
-                  top: 1920 * posY,
+                  left: 1080 * o.position.x,
+                  top: 1920 * o.position.y,
                   transform: `translate(-50%, 0) scale(${o.position.scale})`,
                   transformOrigin: 'top center',
                   maxWidth: 1080 * 0.9,

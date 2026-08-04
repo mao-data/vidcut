@@ -96,6 +96,7 @@ function CardCaptionForHash({
   return (
     <div
       className={className}
+      data-drag-kind="caption"
       onPointerDown={drag?.onPointerDown}
       onPointerMove={drag?.onPointerMove}
       onPointerUp={drag?.onPointerUp}
@@ -156,6 +157,7 @@ function ApproxCaption({
   return (
     <div
       className={className}
+      data-drag-kind="caption"
       onPointerDown={drag?.onPointerDown}
       onPointerMove={drag?.onPointerMove}
       onPointerUp={drag?.onPointerUp}
@@ -183,7 +185,9 @@ function ApproxCaption({
             // textContent 會撞在一起,靠 textContent 找 span 的測試會誤選到外層(沒有 color)。
             <Fragment key={i}>
               {i > 0 ? tokenSeparator(cap.tokens![i - 1]!.text, t.text) : ''}
-              <span style={{ color: i <= active ? (cap.style.highlight ?? cap.style.fill) : undefined }}>
+              <span
+                style={{ color: i <= active ? (cap.style.highlight ?? cap.style.fill) : undefined }}
+              >
                 {t.text}
               </span>
             </Fragment>
@@ -241,7 +245,13 @@ export function CaptionLayer({
               drag={drag}
             />
           ) : (
-            <ApproxCaption key={c.id} cap={draftCap} time={time} className={className} drag={drag} />
+            <ApproxCaption
+              key={c.id}
+              cap={draftCap}
+              time={time}
+              className={className}
+              drag={drag}
+            />
           );
         }
         return cards[c.id] ? (
