@@ -43,7 +43,7 @@ ui/       @vidcut/ui      React：ws client、A/B 播放器、時間軸
 
 - **M1 看得到** ✅ — ProjectStore + WS 同步 + ingest + 唯讀時間軸 + A/B 無縫預覽
 - **M2 改得動** ✅ — 命令層 + trim 拖拉、排序、Inspector 編輯、undo、活動面板
-- **M3 AI 接上** ✅ — MCP server（15 工具）+ request_review 審核閉環 + 編輯脈絡回報
+- **M3 AI 接上** ✅ — MCP server（工具清單見 mcp.ts）+ request_review 審核閉環 + 編輯脈絡回報
 - **M4 渲染** ✅ — ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + 渲染 UI
 
 - **T1 CapCut 快贏** ✅ — 播放頭分割/刪左右/定格、時間軸縮放吸附、音訊混音與 ducking、blur 填充、匯出選項、封面

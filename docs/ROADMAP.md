@@ -72,12 +72,12 @@ Node peak RSS 297MB、耗時 919ms；改成 `body: file` + `req.pipe` 後為 1MB
 可以被 `GET /api/source` 列出、`POST /api/import` 零複製匯入
 （`import-api.test.ts` 的兩條端到端測試守著）。
 
-**剩下的是「掛上音訊軌」那半**：`doc.tracks.audio` 取得 `mediaId` 的途徑仍只有
-`extract_audio`（從既有影片片段抽聲音）與 `set_audio`（整軌覆寫）。`addClip` 只上
-視訊軌且擋 audio-only，所以 `POST /api/import` 帶 `addToTimeline: true` 匯一支 BGM
-會進 `failed[]`（素材其實已匯入）。可行方向：新增 `addAudio` command
-（`{ mediaId, start, in, duration }` → append 到 `tracks.audio`），
-`/api/import` 依 `hasVideo` 分流到 `addClip` 或 `addAudio`。這是產品決策，待定。
+**MCP 那條也已經通了**：`import_media`（吃絕對路徑）→ `set_audio`（schema 本來就吃
+`mediaId`）→ `render`，實測可產出含 BGM 的成品。缺的只有 `POST /api/import` 帶
+`addToTimeline: true` 時的分流——目前它一律呼叫 `addClip`（只上視訊軌且擋 audio-only），
+所以匯入 BGM 會進 `failed[]`（素材其實已匯入）。可行方向：新增 `addAudio` command
+（`{ mediaId, start, in, duration }` → append 到 `tracks.audio`），`/api/import` 依
+`probe.hasVideo` 分流到 `addClip` 或 `addAudio`。這是產品決策，待定。
 
 ### 10. Origin／Host header 檢查
 
@@ -87,6 +87,23 @@ DNS rebinding 攻擊下，惡意網頁可誘使受害者瀏覽器對 `127.0.0.1:
 新增的能力面（先前只有 `/api/project` 洩漏專案內路徑，範圍小得多）。根目錄白名單
 已核准不做（見 spec 的 YAGNI 段），但 Host header 檢查（拒絕 Host 不是
 `127.0.0.1:<port>` 或 `localhost:<port>` 的請求）是最便宜的等效防護，不需要額外設定。
+
+### 11. 素材匯入分支留下的已知缺口
+
+八輪 TDD 期間逐條記錄、經 controller 裁決延後的項目（原始紀錄在該分支的
+`.superpowers/sdd/2026-08-03-media-import-backend/progress.md`）：
+
+- **`commands.ts:155`（`updateClip`）與 `:497`（`updateAudio`）的 `1e-6` 容差無 mutant
+  覆蓋**——與 `addClip:218` 同形，但只有 `addClip` 那處有 `addclip-float-tolerance`
+  守著。補兩隻 mutant 即可，屬小 Task。
+- **`GET /api/source` 的「素材夾無權限」分支無專屬測資**——與「目錄不存在」共用同一條
+  catch，行為正確但沒有獨立驗證。
+- **`POST /api/import` 的 `failed[].error` 可能夾帶絕對路徑**——與既有 `/api/source`
+  的錯誤格式一致，非新增問題，但若日後要對外開放需一併處理。
+- **無全域 ffmpeg 佇列**——「逐支序列」只在單一 `/api/import` 請求內成立（由
+  `import-api.test.ts` 的 `maxInFlight===1` 守著）；兩個併發請求、或 import 與
+  `render`／`transcribe` 併行時不成立。
+- **`scanSourceFolder` 逐檔序列 `await stat`**——上萬檔的素材夾會慢，目前規模無影響。
 
 ## 上線前必須由人確認
 

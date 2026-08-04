@@ -5,17 +5,17 @@
 
 ## 現況總覽
 
-| 里程碑         | 狀態         | 內容                                                               |
-| -------------- | ------------ | ------------------------------------------------------------------ |
-| M1 看得到      | ✅ `m1-done` | ProjectStore + WS 同步 + ffmpeg ingest + 唯讀時間軸 + A/B 無縫預覽 |
-| M2 改得動      | ✅ `m2-done` | 命令層 + trim 拖拉 + 排序 + Inspector 編輯 + undo + 活動面板       |
-| M3 AI 接上     | ✅ `m3-done` | MCP server（15 工具）+ request_review 審核閉環 + 編輯脈絡回報      |
-| M4 渲染        | ✅ `m4-done` | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕      |
-| T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                             |
-| T2 #8 自動字幕 | ✅           | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節         |
-| UI 重設計      | ✅           | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節             |
+| 里程碑         | 狀態         | 內容                                                                    |
+| -------------- | ------------ | ----------------------------------------------------------------------- |
+| M1 看得到      | ✅ `m1-done` | ProjectStore + WS 同步 + ffmpeg ingest + 唯讀時間軸 + A/B 無縫預覽      |
+| M2 改得動      | ✅ `m2-done` | 命令層 + trim 拖拉 + 排序 + Inspector 編輯 + undo + 活動面板            |
+| M3 AI 接上     | ✅ `m3-done` | MCP server（工具清單見 mcp.ts）+ request_review 審核閉環 + 編輯脈絡回報 |
+| M4 渲染        | ✅ `m4-done` | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕           |
+| T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                                  |
+| T2 #8 自動字幕 | ✅           | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節              |
+| UI 重設計      | ✅           | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節                  |
 
-**自動化狀態全綠**：143 個測試（shared 27 / server 86 / ui 30）、typecheck 三 workspace 乾淨、ESLint 0 問題、UI 可 build。全部走真 ffmpeg、真 whisper 與真 MCP/WS transport 驗證過。
+**自動化狀態全綠**：typecheck 三 workspace 乾淨、ESLint 0 問題、prettier 乾淨、全測試套件通過、突變測試全滅、UI 可 build。全部走真 ffmpeg、真 whisper 與真 MCP/WS transport 驗證過。**當下數字跑 `bash scripts/gauntlet.sh` 看**——這份文件不寫會過期的數字（快照數字看 `EVIDENCE.md`，它帶 commit SHA）。
 
 ## T1（參考 CapCut 的快贏功能，tag `t1-done`）
 
@@ -138,7 +138,7 @@ server/src/commands.ts    applyCommand：人機共用的驗證過的編輯命令
 server/src/aiWrite.ts     AI 寫入守衛（審核中擋 + ifVersion 過期偵測）→ commands
 server/src/reviews.ts     ReviewManager：request_review 的核心（阻塞/核准/退回回滾/逾時）
 server/src/editorContext.ts 人的選取/playhead（給 get_editor_context）
-server/src/mcp.ts         23 個 MCP 工具 + /mcp 掛載 ★
+server/src/mcp.ts         MCP 工具註冊 + /mcp 掛載（工具清單以本檔為準）★
 server/src/paths.ts       resolveMediaPath：素材路徑語意（相對＝專案內／絕對＝零複製外部引用）★
 server/src/sourceFolder.ts scanSourceFolder：素材夾掃描（白名單副檔名、排除隱藏檔、不遞迴）
 server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）；ingestMedia 接受絕對路徑；
