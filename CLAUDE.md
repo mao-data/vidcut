@@ -47,6 +47,28 @@ npm run verify:panels                       # 面板控制項的瀏覽器回歸�
 - **React 不會在同一次 `Runtime.evaluate` 內同步 flush**。程式化點擊後要另一次呼叫才讀得到新 DOM。
 - `theme.css` 檔尾的 `@media (prefers-reduced-motion)` 用 `*{transition:none!important}`，
   **author `!important` 蓋得過 inline style**，所以元件行內的 transition 也會被關掉 —— 這是刻意的。
+- **`getComputedStyle(el).transform` 一律回 `matrix(a,b,c,d,e,f)`**，就算行內寫的是
+  `transform: scale(0.2057)`。字串比對 `scale(...)` 會直接落空；要 `.match(/matrix\(([^)]+)\)/)`
+  拆出 6 個數字，`a` 就是 scaleX。驗證任何 CSS scale/transform 正確性都要走這條路。
+- **`document.querySelector('video')` 可能撞到不是你要的那顆**。Player 同時掛
+  A/B 兩顆播放用 `<video>`，開 blur 填充時還有第三顆背景模糊 video（帶
+  `transform: scale(1.15)` 的刻意放大，遮住模糊邊緣），三顆 DOM 順序在先。
+  量版面要順著程式碼實際用的那條路徑走（例如量 `Player.tsx` 的
+  `ResizeObserver` 觀測的同一個 stage 容器），不要用泛用 selector 猜「反正
+  是第一顆 video」——量出來的數字會看似合理（同比例）但其實是量錯元素。
+- **jsdom 沒有 `ResizeObserver`**，Player 用它量 stage 寬（1080 座標空間縮放係數）
+  ——`ui/src/test/setup.ts` 已全域 polyfill 一個空殼版本，任何會 mount Player
+  的測試都需要它，不要逐檔補。
+- **Node 的 undici `fetch` 對相對 URL（如 `/api/fonts`）直接丟 `TypeError`**，
+  不像瀏覽器會用 `document.baseURI` 解析成絕對路徑。掛載就會發相對路徑
+  fetch 的元件（例如 `App.tsx` 注入 `@font-face`）在 vitest/jsdom 下要有 shim
+  ——`ui/src/test/setup.ts` 已補一個「相對路徑一律當 404」的全域預設，個別
+  測試要驗真實回應時用 `vi.stubGlobal('fetch', ...)` 蓋過。
+- **`useRef` + 空 deps 的 `useEffect` 在元件首次 render 就 `return null` 時永遠不會
+  掛上**——effect 只跑一次，跑的那次目標元素還沒進 DOM，之後就算元件真的
+  render 出來了也不會重新 observe。改用 `useState` 當 ref（callback ref：
+  `<div ref={setStageEl}>`），元素真正掛上時 state 變了會自然重新跑
+  依它為 dep 的 effect（見 `ui/src/player/Player.tsx` 的 `stageEl`/`setStageEl`）。
 
 ## Git
 

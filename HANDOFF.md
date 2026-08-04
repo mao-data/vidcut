@@ -1,7 +1,7 @@
 # HANDOFF — vidcut 開發交接
 
 > 目前做到哪、怎麼驗、已知限制、下一步。
-> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）+ 階段 2（可編輯文字 overlay）完成。
+> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）+ 階段 2（可編輯文字 overlay）+ 階段 3（預覽字卡直出，預覽=成品）完成。
 
 ## 現況總覽
 
@@ -14,9 +14,9 @@
 | T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                             |
 | T2 #8 自動字幕 | ✅           | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節         |
 | UI 重設計      | ✅           | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節             |
-| 字幕 WYSIWYG 階段 2/4 | ✅（分支 `caption-wysiwyg`） | 階段 1：Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步。階段 2：**可編輯文字 overlay**——UI 時間軸「Text」鈕新增文字 overlay、Inspector 可改文字/字級/顏色，MCP `add_overlay`/`update_overlay`/`set_overlays` 皆支援 `text`，見下節。**階段 3–4（字幕預覽走同一張字卡、畫布拖曳）尚未開始**——字幕預覽仍是 DOM 文字 `fontSize/3` 估算，跟渲染成品的字卡不是同一張圖；沒有字型選單、沒有畫布拖曳。 |
+| 字幕 WYSIWYG 階段 3/4 | ✅（分支 `caption-wysiwyg`） | 階段 1：Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步。階段 2：**可編輯文字 overlay**——UI 時間軸「Text」鈕新增文字 overlay、Inspector 可改文字/字級/顏色，MCP `add_overlay`/`update_overlay`/`set_overlays` 皆支援 `text`。階段 3：**字幕預覽改走與成品同一張字卡**——`fontSize/3` 估算已廢除，1080×1920 座標空間 + `transform: scale(stage寬/1080)`；karaoke 用 base+全高亮兩張幾何相同的卡疊 `clip-path` 逐詞揭色；打字三段式即時預覽；真瀏覽器實測驗證縮放公式（見下節）。**階段 4（畫布拖曳+吸附）尚未開始**。 |
 
-**自動化狀態**：396 個測試（shared 27 / server 195 / ui 174，數字含字幕 WYSIWYG 階段 1+2 新增測試；若 `npm test` 整批平行跑，`server/test/cardSync.test.ts` 的 debounce 測試偶爾會因即時渲染子行程與其他重測試（render/demo）搶 CPU 而假性失敗——單獨跑該檔或 `server` workspace 是穩定綠的，屬既有計時假設脆弱，非本次文檔改動引入）、typecheck 三 workspace 乾淨、ESLint 0 問題（`.claude/worktrees/` 下其他 session 的 34 個既有錯誤不算）、UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過。
+**自動化狀態**：422 個測試（shared 31 / server 195 / ui 196，數字含字幕 WYSIWYG 階段 1+2+3 新增測試；若 `npm test` 整批平行跑，`server/test/cardSync.test.ts` 的 debounce 測試偶爾會因即時渲染子行程與其他重測試（render/demo）搶 CPU 而假性失敗——單獨跑該檔或 `server` workspace 是穩定綠的，屬既有計時假設脆弱，非本次文檔改動引入）、typecheck 三 workspace 乾淨、ESLint 0 問題（`.claude/worktrees/` 下其他 session 的 34 個既有錯誤不算；`shared/src/captions.test.ts` 有 1 個既有 `no-unused-vars` warning——`TokenBox` 型別 import 未用——階段 3 引入、不擋 build，本次文檔任務未動原始碼故未修）、UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過；字幕預覽=成品的縮放公式另有真瀏覽器（非 jsdom）三視窗實測，見下節。
 
 ## 字幕 WYSIWYG 階段 1：光柵器地基（分支 `caption-wysiwyg`）
 
@@ -26,10 +26,10 @@
 - **`server/src/rasterizer.ts`（新）**：`PillowRasterizer`（`id='pillow-1'`）把 worker 包成 TS 介面：`resolveFontPath`（public 可變，因為字型表要靠它自己 probe 後再回填）、`probeFont`、`rasterize`、`dispose`。
 - **`server/src/fonts.ts`（新）**：`loadFontTable(rasterizer)` 啟動時用真 Pillow 逐一實測候選字型檔，**開不了的直接剔除**（本機 `/System/Library/Fonts/PingFang.ttc` 開不了，已剔除，落到 Heiti TC）；`fontResolver(table)` 給 family→路徑（完全比對，否則落到表首位，否則 undefined）。新端點 `GET /api/fonts`（回 `{id, family}[]`）與 `GET /fonts/:id`（真的把字型檔案送出，供之後 UI `@font-face` 用）。
 - **`server/src/textCards.ts`（新）**：`cardKey()` 內容雜湊（含 rasterizer id，換引擎全快取自動失效）；`TextCardService.ensure()` 查快取未命中才產卡，寫 `derived/text/<hash>.{base,hl}.json/.png`。HTTP：靜態 `/text-card/*`（`immutable` 強快取）+ `POST /text-card/preview`（只產卡，不碰 doc/history/廣播，供之後打字即時預覽用）。輸入驗證完整（壞掉的 style 回 400，之前會靜默產出預設樣式的卡）。
-- **`server/src/cardSync.ts`（新）**：`CaptionCardSync` 在字幕軌變更後 debounce 300ms 重產全部字幕卡，透過新的 WS 訊息 `{type:'textCards', entries:[{id, hash}]}` 廣播 capId→hash 對照；啟動時預熱、新連線送目前的完整對照表。**單句產卡失敗會被隔離**——失敗的那句直接從 entries 缺席（其餘句照常產出），不會讓整批 latest 被舊資料污染。`ui/src/stores/project.ts` 對 `textCards` 訊息目前是 no-op 早退——**這是必要的**，否則會落進 patch 分支當成版本不符觸發無限 resync。
+- **`server/src/cardSync.ts`（新）**：`CaptionCardSync` 在字幕軌變更後 debounce 300ms 重產全部字幕卡，透過新的 WS 訊息 `{type:'textCards', entries:[{id, hash}]}` 廣播 capId→hash 對照；啟動時預熱、新連線送目前的完整對照表。**單句產卡失敗會被隔離**——失敗的那句直接從 entries 缺席（其餘句照常產出），不會讓整批 latest 被舊資料污染。`ui/src/stores/project.ts` 對 `textCards` 訊息當時（階段 1）是 no-op 早退——**必須是早退**，否則會落進 patch 分支當成版本不符觸發無限 resync；**階段 3 這個早退分支改成真的收下** `{id → hash}` 存進 `captionCards`（早退本身沒變，只是分支內容從空動作變成 `set`），`CaptionLayer` 靠這份對照決定每句字幕該不該走字卡。
 - **匯出路徑接上同一張字型表**：`render.ts` 的 `renderCaptionCard`（匯出用）現在會傳 `fontPath`，用 `setCaptionFontResolver` 在啟動時注入、與預覽路徑**同一個** resolver。在此之前匯出用的是另一條寫死的候選字型鏈，`fontFamily` 對成品完全無效；現在 `fontFamily` 真的同時影響預覽與匯出（過去兩邊都不影響）。有測試比對匯出卡與預覽卡的 PNG sha256 相同，並反向驗證「不注入 resolver 時輸出必須不同」（判別性防護，避免測試假陽性）。
 
-**目前仍然成立、還沒變的事**：匯出成品的字幕仍然只有 PNG 字卡一條路（這台機器 ffmpeg 沒 drawtext，見下方「環境限制與字幕」節）；逐詞高亮在匯出端仍是「一個詞一張卡」。上面新增的是**預覽端的字卡產生通道**（`/text-card/preview` 與字幕軌 debounce 同步），但 UI 還沒有任何程式碼去顯示這些卡——那是階段 3 的工作。
+**階段 1 完成時仍然成立、目前仍未變的事**：匯出成品的字幕仍然只有 PNG 字卡一條路（這台機器 ffmpeg 沒 drawtext，見下方「環境限制與字幕」節）；逐詞高亮在匯出端仍是「一個詞一張卡」。**UI 消費這些卡的部分已在階段 3 補上**——見下方「字幕 WYSIWYG 階段 3」節。
 
 ## 字幕 WYSIWYG 階段 2：可編輯文字 overlay（分支 `caption-wysiwyg`）
 
@@ -44,12 +44,27 @@
 
 **現在使用者可以做什麼**：在瀏覽器 UI 按「Text」鈕直接在畫布上新增一段文字（或請 AI 用 `add_overlay`/`update_overlay`/`set_overlays` 帶 `text` 建立/改字），改完文字/字級/顏色後渲染成品會真的燒出那段文字——這是本功能第一個使用者看得到的行為變化（階段 1 完全無感）。
 
-**目前仍然成立、還沒變的事**：
+**階段 2 完成時仍然成立、階段 3 已解決的事**：字幕預覽當時仍是 DOM 文字 `fontSize / 3` 估算，跟渲染成品的字卡不是同一張圖——見下節「字幕 WYSIWYG 階段 3」，這個落差已消除。
 
-- **字幕預覽仍是 DOM 文字 `fontSize / 3` 估算**（`ui/src/player/Player.tsx`），跟渲染成品的字卡不是同一張圖，也沒有走階段 1 蓋好的字卡通道。字幕本身的「所見即所得」是階段 3 的工作。
+**階段 2 完成時仍然成立、目前仍未變的事**：
+
 - 文字 overlay 在預覽裡確實看得到自己的字卡（`<img src=imagePath>`），但那只是因為預覽本來就把所有 overlay 畫成 `<img>`——是既有機制的副作用，不是本階段刻意做的 WYSIWYG 對齊。
 - 沒有字型選單：`/api/fonts` 端點階段 1 就有了，但目前沒有任何 UI 程式碼消費它；新文字 overlay 一律用預設 `Heiti TC`。
-- 沒有 `@font-face` 串接、沒有打字即時預覽通道（`/text-card/preview`）、沒有畫布拖曳。這些都排在階段 3/4。
+- 沒有畫布拖曳（排在階段 4）。
+
+## 字幕 WYSIWYG 階段 3：預覽字卡直出，預覽=成品（分支 `caption-wysiwyg`）
+
+設計：同上規格 §7（§7 已依實作校對，見設計文件的落地備註）。目標：字幕預覽與匯出成品共用**同一光柵器、同一張 PNG**，消除 `fontSize/3` 這個估算縮放的分歧源。
+
+- **座標空間**：字幕層與 overlay 層共用 `ui/src/player/Player.tsx` 裡同一個 1080×1920 絕對定位 `<div>`，`transform: scale(stage寬/1080)`——`stage寬` 是量測「影片實際填滿的那個元素」（`stageEl`，`ResizeObserver` 觀測）的真實寬度，縮放係數只有這一處來源。`fontSize/3` 魔術除數已整個移除，`ui/src/player/CaptionLayer.tsx` 的 DOM 文字路徑（`ApproxCaption`）現在**只當 fallback**：字卡幾何 fetch 中／失敗、或圖檔本身載入失敗（`onError`）時才會退回近似顯示；正常情況一律是 `<img src=/text-card/<hash>.base.png>` 直出，跟渲染成品同一張圖。
+- **karaoke（預覽端）**：base 卡 + 全高亮卡（`.hl.png`）兩張**幾何完全相同**的圖疊在一起，上層用 `shared/src/captions.ts` 的純函數 `karaokeClip(bboxes, activeIndex, pad)` 算出的 `clip-path` 逐詞揭色（`pad` 補償描邊外擴）；`tokenSeparator(prev, next)` 判斷詞間該不該插空白（CJK 不加、拉丁加），DOM fallback 與伺服端 `text_card.py` 的斷詞規則因此一致。**匯出端維持階段 1 就有的「一個詞一張卡」機制沒有變**（`server/src/render.ts` 的 `renderCaptionCards`）——兩卡+clip-path 目前只在預覽端，渲染端的「一詞一卡爆量」根治仍是後續工作（spec §2 非目標）。
+- **打字三段式即時編輯**：`ui/src/stores/editDraft.ts`（新，`useEditDraft`）存打字中的本地草稿（`{id, text, previewHash}`），不進 history、不碰 project doc、不經 `sendCommand`。每鍵先以 DOM 近似顯示；停手 debounce 後打 `POST /text-card/preview` 換真卡（`previewHash` 到位後 `CaptionLayer` 改走 `CardCaption`）；失焦/Enter 才真的送 `updateCaption` 命令進 history。
+- **真瀏覽器實測（Task 13 驗收）**：headless Chromium 量三個視窗尺寸（1440×820／1280×620／1920×1080），caption/overlay 層 `transform: scale(...)` 與 `stageWidth / 1080` 的誤差全部 **0.000%**（遠低於 ~1% 門檻）——`fontSize/3` 舊估算法在 1280×620 曾量到 3.28× 誤差，新公式在同一視窗尺寸下已消除該誤差。腳本為一次性（未進 repo，正式回歸腳本排 Task 16）。
+- **測試環境補丁**：`ui/src/test/setup.ts` 新增全域 `ResizeObserver` polyfill（jsdom 無實作，Player 量 stage 寬要用）與相對路徑 `fetch` 的預設 404 shim（Node undici `fetch` 對 `/api/...` 這種相對 URL 直接丟 `TypeError`，不像瀏覽器會解成 `document.baseURI`）。
+
+**現在使用者可以做什麼**：預覽看到的字幕字級/斷行/描邊/字型與渲染成品完全一致（同一張 PNG），不再需要「先渲染才知道字幕實際長怎樣」；打字時近似文字先出、~80ms 後換真卡，畫面不空窗。
+
+**目前仍然成立、還沒變的事**：沒有畫布拖曳／吸附導線（字幕 `style.y`、overlay `position`）——排在階段 4；渲染端 karaoke 仍是「一詞一卡」，還沒接上階段 1/3 的「兩卡+clip-path」機制。
 
 ## T1（參考 CapCut 的快贏功能，tag `t1-done`）
 
@@ -155,7 +170,6 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 - `undo` 為逐步 undo，「撤 undo = redo」是簡化；要正式 redo stack 之後再擴。
 - request_review 用「阻塞 + UI 核准 + 保活 + 逾時」；**elicitation URL mode**（Claude Code 直接彈瀏覽器審核頁）列為後續增強——因無法自動驗證故未做，可用 v2 SDK `@modelcontextprotocol/server` + codemod 遷移時一起上。
 - 退回（reject）目前回滾「review 開啟後的全部變更」到 sinceVersion；若人在審核期間也改了東西會一起被回滾（reject = 丟掉這一輪）。
-- 播放/渲染字級換算：預覽用 `fontSize/3` 粗估，未與渲染逐像素對齊。
 - Safari 未測（開發用 Chrome）。
 - MCP 用 v1 SDK 1.30.0（穩定）；v2（2.0.0）功能更多但兩天前才發，之後可用官方 codemod 升級。
 
@@ -166,7 +180,7 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 ```
 shared/src/types.ts       全部型別（spec §3）+ Command/WS 協議
 shared/src/timeline.ts    純時間軸計算（locate/overlayWindow…）
-shared/src/captions.ts    逐字稿→字幕分頁、逐詞高亮索引、ASR 時間戳修正（純函數）★
+shared/src/captions.ts    逐字稿→字幕分頁、逐詞高亮索引、ASR 時間戳修正、karaokeClip（兩卡 clip-path）、tokenSeparator（斷詞規則）（純函數）★
 server/src/store.ts       ProjectStore：唯一真相來源、immer patch、history、undo、原子存檔
 server/src/commands.ts    applyCommand：人機共用的驗證過的編輯命令層 ★
 server/src/aiWrite.ts     AI 寫入守衛（審核中擋 + ifVersion 過期偵測）→ commands
@@ -188,9 +202,11 @@ server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render
 server/src/index.ts       startServer + CLI
 ui/src/theme.css          設計系統：token + 原生控件樣式 + 佈局 class ★
 ui/src/motion.ts          GSAP 進入點（useGSAP + reduced-motion 判斷）
-ui/src/stores/            project（patch 套用）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast
+ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast / editDraft（打字三段式草稿，見下）
+ui/src/stores/editDraft.ts 打字中的本地字幕草稿（text + previewHash）：不進 history、不碰 doc、不經 sendCommand
 ui/src/ws.ts              WS client：命令/脈絡/審核/渲染 送出 + 重連
-ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎）
+ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎，量 stage 寬算 1080 座標空間縮放係數）+ CaptionLayer（見下）
+ui/src/player/CaptionLayer.tsx 字幕預覽：有字卡 hash 就 <img> 直出（與匯出同源），karaoke 疊 hl 卡 + clip-path；無卡/載入失敗才退回 DOM 近似 fallback
 ui/src/timeline/          scale + dragMath + waveform（純函數）+ Timeline（trim/排序/選取/縮放/吸附/transport）
 ui/src/panels/            Inspector / Activity / ReviewBar / ExportMenu / CaptionList（字幕列表）
 ```

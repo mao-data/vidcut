@@ -259,22 +259,44 @@ interface OverlayText {
 
 ### 字卡顯示與 karaoke
 
-- 每句字幕/每個文字 overlay:`<img src=/text-card/<hash>.base.png>`;
-  有 tokens 時上面疊 `<img …hl.png>`,以 `clip-path` 揭到
-  `activeTokenIndex`(沿用 shared 現有函數)。
+> **與實作的形狀差異**(階段 3 完成後校對,§7 原設計把字幕與文字 overlay
+> 寫成同一套「字卡直出 + karaoke」機制,實作只把這套機制接到**字幕**;
+> overlay 走的是階段 2 就有的既有路徑,以下為與程式碼一致的版本。)
+
+- **字幕**(`ui/src/player/CaptionLayer.tsx`):`<img src=/text-card/<hash>.base.png>`;
+  有 tokens(karaoke)時上面疊一張**幾何相同**的 `<img …hl.png>`,以
+  `clip-path` 揭到 `activeTokenIndex`(沿用 shared 現有函數)。capId→hash
+  對照存 `useProject` 的 `captionCards`,由 WS `textCards` 訊息維護(見 §5①)。
+  字卡幾何 fetch 中/失敗、或圖檔本身 `onError`,退回 `ApproxCaption`
+  (DOM 文字近似)——**這是唯一的 fallback 路徑**,不是額外功能。
+- **文字 overlay**:沒有走這套機制。`imagePath` 由 §6 的命令前置
+  (`resolveTextCommand`)保證與 `text` 同步,預覽端直接
+  `<img src=/media/<imagePath>>`(`ui/src/player/plan.ts`)——本來就是
+  真實檔案,不需要另一層 hash 對照或 `/text-card` 路由。overlay 沒有
+  karaoke(`OverlayText` 無 `tokens` 欄位),所以沒有 hl 卡、沒有
+  `clip-path`。overlay 的「預覽=成品」靠的是「同一份檔案」這個更簡單的
+  保證,不是本節描述的字卡直出機制。
 - 多行 clip 區域 = 已唸完整行矩形 + 目前行至目前詞右緣矩形——
-  **shared 純函數 `karaokeClip(bboxes, activeIndex)`**,可單測。
-- capId/overlayId → hash 對照存 store,由 WS `textCards` 訊息維護。
+  **shared 純函數 `karaokeClip(boxes, active, pad?)`**(`pad` 補償描邊外擴),
+  可單測;`tokenSeparator(prev, next)` 判斷詞間空白,與 `text_card.py` 同規則。
 - `fx-enter` 動畫與 `style.y` 定位保留。
 
 ### 三段式即時編輯(打字路徑)
 
-1. **每鍵**:本地 state + 預覽以 DOM 文字**近似**顯示(用 @font-face 同源字型,
+> **與實作的形狀差異**:原設計三段式套用到「字幕/overlay 通用」,實作**只有
+> 字幕**(`ui/src/panels/CaptionList.tsx` + `ui/src/stores/editDraft.ts`)
+> 接了這套流程;文字 overlay(`Inspector.tsx`)仍是階段 2 的作法——
+> uncontrolled input,失焦才直接送完整 `updateOverlay` 命令,沒有本地近似
+> 或預覽卡兩段。
+
+1. **每鍵**:寫入 `useEditDraft`(`{id, text, previewHash: null}`),
+   `CaptionLayer` 讀到後以 DOM 文字**近似**顯示(用 @font-face 同源字型,
    1080 空間內以真字級渲染——近似度高但不保證斷行相同)。
-2. **停手 ~80ms**:打 `POST /text-card/preview` 產真卡,回 hash 後換圖。
-   打字期間持續顯示近似文字,**畫面永不空窗**。
-3. **失焦/Enter**:才送 `updateCaption`/`updateOverlay` 命令——只有這步
-   進 history、可 undo、寫檔、廣播。
+2. **停手 ~80ms**:打 `POST /text-card/preview` 產真卡,回 hash 後寫入
+   `useEditDraft.setPreview`,`CaptionLayer` 換成 `<img>` 直出。打字期間
+   持續顯示近似文字,**畫面永不空窗**。
+3. **失焦/Enter**:才送 `updateCaption` 命令——只有這步進 history、可
+   undo、寫檔、廣播;之後 `useEditDraft.clear()`。
 
 打字**絕不走命令層**(避免一鍵一筆 history 與 WS echo 延遲)。
 
@@ -374,7 +396,7 @@ interface OverlayText {
 | --- | --- | --- | --- |
 | 1 | 光柵器介面 + Pillow worker + 快取 + 端點 + 字型綁定 | API 拿卡;快取命中;字型表正確 | ✅ 完成(分支 `caption-wysiwyg`,commit `c1df31b`..`be7e70d`,8 commits)。落差見 §5/§9 的落地備註。 |
 | 2 | 文字 overlay(模型/命令/Inspector/Text 鈕)+ MCP | 建立/改字/渲染成品正確 | ✅ 完成(分支 `caption-wysiwyg`,commit `2fa4fce`..`9654256`,6 commits)。落差見 §5/§6/§9 的落地備註。 |
-| 3 | 預覽 1080 空間 + 字卡直出 + karaoke 兩卡 + 三段式編輯 | 預覽=成品;打字即時 | 未開始 |
+| 3 | 預覽 1080 空間 + 字卡直出 + karaoke 兩卡 + 三段式編輯 | 預覽=成品;打字即時 | ✅ 完成(分支 `caption-wysiwyg`,commit `3d4ba2f`..`e0056dd`,5 個 phase-3 commit,中間穿插 2 個不相關 fix)。真瀏覽器實測(Task 13,headless Chromium,1440×820/1280×620/1920×1080 三視窗):caption 層 `transform: scale(...)` 與 `stageWidth / 1080` 誤差 0.000%,`fontSize/3` 舊估算在 1280×620 曾量到的 3.28× 誤差已消除。落差見下方落地備註。 |
 | 4 | 拖曳 + 吸附導線(overlay 與字幕) | 真瀏覽器回歸通過 | 未開始 |
 
 每階段獨立可驗收;1→2→3 有依賴,4 只依賴 3 的座標空間。
@@ -382,3 +404,5 @@ interface OverlayText {
 **階段 1 完成後仍待確認**:UI 目前對階段 1 新增的一切(字卡端點、`textCards` WS 廣播)完全無感——`ui/src/stores/project.ts` 收到 `textCards` 訊息目前是刻意的 no-op(見 §9 備註),預覽畫面與匯出成品都還是階段 1 之前的行為。階段 1 只是讓「產卡」這件事本身做對、做快、做出可信賴的快取,沒有任何使用者可見的變化。
 
 **階段 2 完成後仍待確認**:文字 overlay 是本設計第一個使用者看得到的行為——UI 有「Text」鈕、Inspector 能改文字/字級/顏色、AI 也能建立與修改,渲染成品會真的燒出字。但這**不是**§1 講的「預覽=成品」問題被解決:字幕(`tracks.captions`)的預覽仍是 `ui/src/player/Player.tsx` 的 `fontSize / 3` DOM 估算,完全沒有走階段 1 蓋好的字卡通道;文字 overlay 之所以在預覽裡看起來正確,純粹是因為 overlay 軌本來就整層畫成 `<img src=imagePath>`,跟階段 1/3 要解決的「同一光柵器」無關。`/api/fonts` 端點仍無 UI 消費者(沒有字型選單,新 overlay 一律 `Heiti TC`);沒有 `@font-face`、沒有打字即時預覽通道、沒有畫布拖曳——這些都在階段 3/4。
+
+**階段 3 完成後仍待確認**:§1 講的「預覽=成品」問題本身已解決——字幕預覽改走 1080×1920 座標空間 + `transform: scale(stage寬/1080)`,`fontSize/3` 已移除,真瀏覽器實測三視窗誤差 0.000%(見上表)。`@font-face` 同源字型也已接上(`ui/src/App.tsx` 掛載時抓 `/api/fonts`、注入指向 `/fonts/:id` 的 `@font-face`),DOM 近似路徑(`ApproxCaption`)因此跟成品用同一份字型檔,不是瀏覽器預設字型——分歧源 5 在 fallback 期間也已消除。仍沒有的是**字型選單**:`/api/fonts` 只被 `@font-face` 注入消費,沒有任何 UI 讓使用者挑字型,新字幕/新文字 overlay 一律預設 `Heiti TC`。karaoke 的「一詞一卡爆量」問題(§2 非目標)在**匯出端**完全沒動,`server/src/render.ts` 仍是階段 1 就有的「一個詞一張卡」;本階段的 base+全高亮兩卡+`clip-path` 機制只用在**預覽端**。沒有畫布拖曳/吸附導線——排在階段 4。
