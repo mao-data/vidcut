@@ -186,8 +186,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'timeline_op 粗剪（split/deleteBefore/deleteAfter/freeze）→ ' +
         'set_overlays / set_captions 上字（講話類影片直接用 auto_caption 自動上字幕＋逐詞高亮）→ ' +
         'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
-        '純音訊素材（mp3/wav…）只能上音訊軌，add_clip 與 set_timeline 會擋下它。' +
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
+        '純音訊素材（mp3/wav…）只能上音訊軌，add_clip 與 set_timeline 會擋下它。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
