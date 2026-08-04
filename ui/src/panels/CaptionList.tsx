@@ -4,7 +4,46 @@ import { activeTokenIndex, type CaptionItem, type CaptionStyle } from '@vidcut/s
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
+import { useEditDraft } from '../stores/editDraft.js';
 import { sendCommand } from '../ws.js';
+
+/**
+ * 打字第二段:80ms debounce 後打去 read-only 的 /text-card/preview 拿字卡 hash——
+ * 不進 project doc/history/WS broadcast(那是第三段 commit 才做的事)。
+ * 模組級(非 per-instance)計時器:面板通常只掛一份,commit/Escape/unmount 都要能取消,
+ * 否則使用者已經放棄編輯、元件都卸載了,還會有一發遲到的 fetch 打出去(見任務要求)。
+ */
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+function cancelPreview(): void {
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+  }
+}
+function schedulePreview(cap: CaptionItem, text: string): void {
+  cancelPreview();
+  previewTimer = setTimeout(() => {
+    previewTimer = null;
+    void fetch('/text-card/preview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // 故意不帶 tokens:草稿文字的詞邊界屬於舊文字,帶著送只會讓卡片照舊時間戳切詞——
+      // 沒有 tokens,server 就不產生 karaoke 分割,近似預覽自然不會顯示錯的高亮(見任務要求)。
+      body: JSON.stringify({ text, style: cap.style, width: 1080 }),
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<{ hash: string }>) : null))
+      .then((res) => {
+        if (!res) return;
+        // id 相同不夠:同一句在這次回應飛行途中可能又被改過一次字——
+        // 那種情況目前 draft.text 已經跟這次請求送出去的 text 對不上,
+        // 用回應把 previewHash 蓋上去畫面會「跳回舊字」,所以連 text 也要比對過期即丟棄。
+        const cur = useEditDraft.getState().caption;
+        if (cur?.id === cap.id && cur.text === text) {
+          useEditDraft.getState().setPreview(cap.id, res.hash);
+        }
+      });
+  }, 80);
+}
 
 function fmt(t: number): string {
   const m = Math.floor(t / 60);
@@ -54,6 +93,8 @@ export function CaptionList() {
     if (!draft || draft.id !== cap.id) return;
     const text = draft.text.trim();
     setDraft(null);
+    cancelPreview();
+    useEditDraft.getState().clear();
     if (text === '' || text === cap.text) return;
     sendCommand({
       name: 'updateCaption',
@@ -62,6 +103,28 @@ export function CaptionList() {
       patch: { text, tokens: [] },
     });
   };
+
+  // 保險絲:選取換到別句字幕時(通常會先觸發 input 的 blur→commit,但時間軸點擊等路徑
+  // 未必經過那個 DOM 事件),丟掉還沒送出的草稿——留著會讓預覽卡繼續顯示已經不在編輯的舊文字。
+  // 用 ref 讀最新 draft:subscribe 的回呼跑在 React render 之外,不能直接閉包到 state。
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  useEffect(() => {
+    const unsub = useSelection.subscribe((s) => {
+      const d = draftRef.current;
+      if (!d) return;
+      if (s.selected?.kind === 'caption' && s.selected.id === d.id) return;
+      cancelPreview();
+      useEditDraft.getState().clear();
+      setDraft(null);
+    });
+    return () => {
+      unsub();
+      cancelPreview();
+    };
+  }, []);
 
   const applyStyleToAll = (style: CaptionStyle) => {
     sendCommand({ name: 'setCaptions', captions: captions.map((c) => ({ ...c, style })) });
@@ -151,11 +214,22 @@ export function CaptionList() {
                 <input
                   autoFocus
                   value={draft.text}
-                  onChange={(e) => setDraft({ id: cap.id, text: e.target.value })}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    // 第一段:純本地 state,零延遲——CaptionLayer 讀 useEditDraft 立刻用
+                    // DOM 近似文字覆蓋預覽。第二段(schedulePreview)才會真的打伺服器。
+                    setDraft({ id: cap.id, text });
+                    useEditDraft.getState().setText(cap.id, text);
+                    schedulePreview(cap, text);
+                  }}
                   onBlur={() => commit(cap)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') commit(cap);
-                    if (e.key === 'Escape') setDraft(null);
+                    if (e.key === 'Escape') {
+                      setDraft(null);
+                      cancelPreview();
+                      useEditDraft.getState().clear();
+                    }
                   }}
                   style={{ flex: 1, minWidth: 0 }}
                 />

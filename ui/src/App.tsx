@@ -153,6 +153,25 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // 字卡同源字型：注入 @font-face,近似預覽(ApproxCaption)才會用伺服器那顆字型檔渲染,
+  // 跟真的字卡看起來一致。只在掛載時做一次；用 id 檢查擋掉 StrictMode 雙掛載/重複執行
+  // 造成同一批 @font-face 被插入兩次(那樣後面字型會覆蓋前面,浪費且脆弱)。
+  useEffect(() => {
+    if (document.getElementById('server-fonts')) return;
+    void fetch('/api/fonts')
+      .then((r) => (r.ok ? (r.json() as Promise<Array<{ id: string; family: string }>>) : []))
+      .then((fonts) => {
+        if (document.getElementById('server-fonts')) return;
+        const css = fonts
+          .map((f) => `@font-face { font-family: '${f.family}'; src: url('/fonts/${f.id}'); }`)
+          .join('\n');
+        const el = document.createElement('style');
+        el.id = 'server-fonts';
+        el.textContent = css;
+        document.head.appendChild(el);
+      });
+  }, []);
+
   // 回報編輯脈絡給 AI（get_editor_context）。playhead 用防抖避免洗頻。
   // 直接訂 store、不經 React state：playhead 播放中每幀都變，
   // 若用 hook 訂閱會讓整棵 App 樹每幀重渲染。

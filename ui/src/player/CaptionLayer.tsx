@@ -1,6 +1,7 @@
 // 1080×1920 座標系內的字幕層:有卡用卡(和成品同一張圖),沒卡退回 DOM 近似(舊行為)。
 import { Fragment, useEffect, useState } from 'react';
 import { activeTokenIndex, karaokeClip, tokenSeparator, type CaptionItem } from '@vidcut/shared';
+import type { EditDraftState } from '../stores/editDraft.js';
 
 interface Geo {
   width: number;
@@ -162,17 +163,39 @@ export function CaptionLayer({
   cards,
   time,
   added,
+  draft,
 }: {
   captions: CaptionItem[];
   cards: Record<string, string>;
   time: number;
   /** AI 新增項目的進場動畫標記（capId → 出現順序）；沿用 Player 的 useEditFx 選取結果 */
   added?: ReadonlyMap<string, number>;
+  /**
+   * 打字三段式的第一、二段：命中該句時用 draft.text 覆寫顯示——
+   * previewHash 有值（第二段已回來）就當單卡畫，否則退回 DOM 近似（第一段，零延遲）。
+   * 草稿文字沒有對得上的逐詞時間戳（舊 tokens 屬於改字前的文字），
+   * 兩條路徑都必須不帶 tokens，不然 karaoke 高亮會照著錯的詞界跑。
+   */
+  draft?: EditDraftState['caption'];
 }) {
   return (
     <>
       {captions.map((c) => {
         const className = added?.has(c.id) ? 'fx-enter' : undefined;
+        if (draft?.id === c.id) {
+          const draftCap: CaptionItem = { ...c, text: draft.text, tokens: undefined };
+          return draft.previewHash ? (
+            <CardCaption
+              key={c.id}
+              cap={draftCap}
+              hash={draft.previewHash}
+              time={time}
+              className={className}
+            />
+          ) : (
+            <ApproxCaption key={c.id} cap={draftCap} time={time} className={className} />
+          );
+        }
         return cards[c.id] ? (
           <CardCaption key={c.id} cap={c} hash={cards[c.id]!} time={time} className={className} />
         ) : (

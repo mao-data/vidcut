@@ -4,6 +4,7 @@ import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { mediaUrl } from '../ws.js';
 import { useEditFx } from '../stores/editFx.js';
+import { useEditDraft } from '../stores/editDraft.js';
 import { planAt } from './plan.js';
 import { syncAction } from './sync.js';
 import { CaptionLayer } from './CaptionLayer.js';
@@ -33,6 +34,7 @@ export function Player() {
   /** AI 新增的項目在預覽畫面淡入進場（fx-enter）；播放中自然進出窗不動畫 */
   const fxAdded = useEditFx((s) => s.added);
   const captionCards = useProject((s) => s.captionCards);
+  const editDraft = useEditDraft((s) => s.caption);
   // effect 與 render body 共用同一份 plan（播放中每幀都算，別算兩次）
   const plan = useMemo(() => (doc ? planAt(doc, time) : null), [doc, time]);
 
@@ -296,7 +298,13 @@ export function Player() {
               }}
             />
           ))}
-          <CaptionLayer captions={plan.captions} cards={captionCards} time={time} added={fxAdded} />
+          <CaptionLayer
+            captions={plan.captions}
+            cards={captionCards}
+            time={time}
+            added={fxAdded}
+            draft={editDraft}
+          />
         </div>
       </div>
     </div>

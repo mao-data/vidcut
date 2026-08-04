@@ -137,4 +137,54 @@ describe('CaptionLayer', () => {
       expect(img!.getAttribute('width')).toBe('999'); // 用的是 hash2 自己的 geometry
     });
   });
+
+  // ---- Task 12: 打字三段式的 draft 覆寫 ----
+  it('draft 命中該句且無 previewHash:顯示 draft.text 的 DOM 近似,忽略舊 tokens(不高亮)', () => {
+    const { container } = render(
+      <CaptionLayer
+        captions={[CAP]}
+        cards={{ c1: 'abc123' }} // 就算已有成品卡,draft 命中時也要蓋過
+        time={1.5} // 落在第二詞(舊 tokens)的時間點
+        draft={{ id: 'c1', text: '哈囉世界', previewHash: null }}
+      />,
+    );
+    expect(container.querySelector('img')).toBeNull();
+    const div = [...container.querySelectorAll('div')].find((d) =>
+      d.textContent?.includes('哈囉世界'),
+    );
+    expect(div).toBeDefined();
+    // 舊 tokens('你好'/'世界')沒有被拿來切詞高亮——整句就是純文字,沒有內層 <span>
+    expect(div!.querySelector('span')).toBeNull();
+  });
+
+  it('draft 命中該句且 previewHash 有值:用 draft.previewHash 當單卡(不是 cards[id] 那顆舊卡)', async () => {
+    const { container } = render(
+      <CaptionLayer
+        captions={[CAP]}
+        cards={{ c1: 'abc123' }}
+        time={1.5}
+        draft={{ id: 'c1', text: '哈囉世界', previewHash: 'draftHash' }}
+      />,
+    );
+    await waitFor(() => {
+      const img = container.querySelector('img[src="/text-card/draftHash.base.png"]');
+      expect(img).not.toBeNull();
+    });
+    expect(container.querySelector('img[src="/text-card/abc123.base.png"]')).toBeNull();
+    // 無 tokens 送出 → geometry 沒有 tokens → 不會有 hl 圖(單卡,無高亮)
+    expect(container.querySelectorAll('img')).toHaveLength(1);
+  });
+
+  it('draft 不命中任何一句時,其他句照常走 cards/ApproxCaption 原本邏輯', () => {
+    const { container } = render(
+      <CaptionLayer
+        captions={[CAP]}
+        cards={{}}
+        time={0.5}
+        draft={{ id: 'other-id', text: 'x', previewHash: null }}
+      />,
+    );
+    const div = [...container.querySelectorAll('div')].find((d) => d.textContent?.includes('你好'));
+    expect(div).toBeDefined();
+  });
 });
