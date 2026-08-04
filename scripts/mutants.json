@@ -559,5 +559,13 @@
     "replace": "        const files = all.files;",
     "tests": "server/test/mcp-tools.test.ts",
     "note": "拿掉 list_source 的 200 筆截斷 → 上千支檔的素材夾會整包塞回 AI 的 context；truncated 測試的 files 長度斷言必須抓到"
+  },
+  {
+    "id": "addclip-mcp-ifversion",
+    "file": "server/src/mcp.ts",
+    "find": "      const r = aiWrite(store, cmd, ifVersion);",
+    "replace": "      const r = aiWrite(store, cmd);",
+    "tests": "server/test/mcp-tools.test.ts",
+    "note": "add_clip 掉 ifVersion 佈線 → AI 的過期寫入會覆蓋人剛做的修改；stale 測試必須抓到"
   }
 ]

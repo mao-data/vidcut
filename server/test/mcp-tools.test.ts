@@ -70,6 +70,7 @@ beforeEach(() => {
   store.mutate('human', 'reset fixture', (d) => {
     d.tracks = structuredClone(baseline);
     d.render = { status: 'idle' };
+    d.review = null;
     delete d.canvas.fit;
   });
 });
@@ -302,5 +303,74 @@ describe('list_source', () => {
     const { tools } = await client.listTools();
     const t = tools.find((x) => x.name === 'list_source');
     expect(t?.annotations?.readOnlyHint).toBe(true);
+  });
+});
+
+describe('add_clip', () => {
+  it('接到主軌尾端，回新 clip 的 id', async () => {
+    const before = store.doc.tracks.video.length;
+    const r = await call('add_clip', { mediaId, in: 0, duration: 1, label: 'tail' });
+    expect(r.isError ?? false).toBe(false);
+    expect(store.doc.tracks.video).toHaveLength(before + 1);
+
+    const sc = r.structuredContent as { clipId: string; version: number };
+    expect(sc.clipId).toBe(store.doc.tracks.video.at(-1)!.id);
+    expect(store.doc.tracks.video.at(-1)!.label).toBe('tail');
+  });
+
+  it('mediaId 不存在 → isError，主軌不變', async () => {
+    const before = structuredClone(store.doc.tracks.video);
+    const r = await call('add_clip', { mediaId: 'NOPE', in: 0, duration: 1 });
+    expect(r.isError).toBe(true);
+    expect(store.doc.tracks.video).toEqual(before);
+  });
+
+  it('in + duration 超過素材長度 → isError', async () => {
+    // beforeAll 的 a.mp4 是 6 秒
+    const r = await call('add_clip', { mediaId, in: 5, duration: 5 });
+    expect(r.isError).toBe(true);
+  });
+
+  it('純音訊素材 → isError，訊息含 audio-only', async () => {
+    store.mutate('ai', 'seed audio-only media', (d) => {
+      d.media.push({
+        id: 'bgmonly',
+        path: '/outside/bgm.mp3',
+        probe: {
+          duration: 30,
+          width: 0,
+          height: 0,
+          fps: 30,
+          hasAudio: true,
+          rotation: 0,
+          hasVideo: false,
+        },
+      });
+    });
+    const r = await call('add_clip', { mediaId: 'bgmonly', in: 0, duration: 5 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/audio-only/);
+  });
+
+  // aiWrite 守衛：審核進行中不得寫入。若 add_clip 直接呼叫 applyCommand 就會漏掉這道。
+  it('審核進行中 → isError', async () => {
+    store.mutate('human', 'open review', (d) => {
+      d.review = {
+        id: 'r1',
+        summary: 'check',
+        sinceVersion: store.version,
+        requestedAt: '2026-08-03T00:00:00.000Z',
+      };
+    });
+    const r = await call('add_clip', { mediaId, in: 0, duration: 1 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/review/);
+  });
+
+  // aiWrite 守衛：ifVersion 過期不得覆蓋人剛做的修改。
+  it('過期的 ifVersion → isError', async () => {
+    const r = await call('add_clip', { mediaId, in: 0, duration: 1, ifVersion: 999999 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/stale/);
   });
 });

@@ -386,6 +386,30 @@ export function createMcpServer(deps: McpDeps): McpServer {
     },
   );
 
+  server.registerTool(
+    'add_clip',
+    {
+      description:
+        '把已匯入的素材接到主軌尾端（不動既有片段，適合逐支加片）。' +
+        '純音訊素材會被拒——放 BGM／旁白請用 set_audio。回新 clip 的 clipId。',
+      inputSchema: {
+        mediaId: z.string(),
+        in: z.number(),
+        duration: z.number(),
+        label: z.string().optional(),
+        ifVersion: z.number().optional(),
+      },
+    },
+    async ({ mediaId, in: clipIn, duration, label, ifVersion }) => {
+      const cmd = { name: 'addClip', mediaId, in: clipIn, duration, label } as const;
+      const r = aiWrite(store, cmd, ifVersion);
+      if (!r.ok) return err(writeResultText(r));
+      // addClip 的語意就是 append，所以新 clip 必為尾端那一個。
+      const clipId = store.doc.tracks.video.at(-1)!.id;
+      return result({ clipId, version: r.version }, `ok, clipId=${clipId}, version=${r.version}`);
+    },
+  );
+
   // ---- 編輯（經 aiWrite 守衛 → 命令層）----
   server.registerTool(
     'update_clip',
