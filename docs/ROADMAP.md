@@ -88,10 +88,12 @@ DNS rebinding 攻擊下，惡意網頁可誘使受害者瀏覽器對 `127.0.0.1:
 已核准不做（見 spec 的 YAGNI 段），但 Host header 檢查（拒絕 Host 不是
 `127.0.0.1:<port>` 或 `localhost:<port>` 的請求）是最便宜的等效防護，不需要額外設定。
 
-### 11. 素材匯入分支留下的已知缺口
+### 11. 素材匯入／MCP 面補完兩個分支留下的已知缺口
 
-八輪 TDD 期間逐條記錄、經 controller 裁決延後的項目（原始紀錄在該分支的
-`.superpowers/sdd/2026-08-03-media-import-backend/progress.md`）：
+TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保留，所以這裡就是這些項目的
+唯一落盤處——每條都寫到「拿起來就能做」的程度。
+
+**素材匯入分支：**
 
 - **`updateClip` 與 `updateAudio` 的 `1e-6` 容差無 mutant 覆蓋**——與 `addClip` 同形，但只有 `addClip` 那處有 `addclip-bounds` 守著。補兩隻 mutant 即可，屬小 Task。
 - **`GET /api/source` 的「素材夾無權限」分支無專屬測資**——與「目錄不存在」共用同一條
@@ -102,6 +104,36 @@ DNS rebinding 攻擊下，惡意網頁可誘使受害者瀏覽器對 `127.0.0.1:
   `import-api.test.ts` 的 `maxInFlight===1` 守著）；兩個併發請求、或 import 與
   `render`／`transcribe` 併行時不成立。
 - **`scanSourceFolder` 逐檔序列 `await stat`**——上萬檔的素材夾會慢，目前規模無影響。
+
+**MCP 面補完分支（最終全分支審查發現，經裁決不擋合併）：**
+
+- **`setAudio` 只驗了 `mediaId`／`duration`／`in`，沒驗 `start`／`fadeIn`／`fadeOut`／
+  `volume`**——與 `updateAudio` 不對稱。實際後果：負的 `start` 會被接受並落盤，而 render
+  在組濾鏡鏈時不會為負值生成 `adelay`，**音訊被靜默放到 0 秒**，使用者看不到任何錯誤。
+  這正是本輪立案要消滅的那類「壞資料默默落盤」，只是換了個欄位。修法照 `setAudio` 現有
+  的逐項驗證迴圈往下加即可（`server/src/commands.ts` 的 `case 'setAudio'`）。
+- **`add_clip` 的 AC12（審核進行中）可以有 mutant，本輪誤判為做不到**——`mutants.json`
+  加一筆，`find` 是 `mcp.ts` 裡的 `const r = aiWrite(store, cmd, ifVersion);`，`replace`
+  寫成 `const r = (await import('./commands.js')).applyCommand(store, 'ai', cmd);`。審查者
+  已實跑驗證：只有 AC12／AC13 轉紅，快樂路徑維持綠，歸因正確。加完要重跑完整 gauntlet
+  更新 EVIDENCE 的突變數字（70 → 71）。
+- **`add_clip` 的 AC9／AC11 是假綠**——`mcp-tools.test.ts` 只斷言「回 `isError`」，而 MCP
+  SDK 在**工具不存在**時同樣回 `isError`，所以把 `add_clip` 改名後兩條照樣通過。照
+  `list_source` 目錄不存在那條的做法補上訊息內容斷言（例如斷言訊息含 `media not found`
+  ／`out of bounds`）即可。
+- **instructions 同步守衛測試沒有真的呼叫 `listTools()`**——這條測試是為了防「`commands.ts`
+  加了 case 卻忘記在 `mcp.ts` `registerTool`」（`CLAUDE.md` 鐵則第三步）而寫的，但它比對
+  的是靜態字串，工具真的沒註冊時它不會紅。要有保護力必須實際 `listTools()` 並與
+  instructions 裡列出的工具名取交集比對。
+- **測試會洩漏暫存目錄**——真-ffmpeg 測試建的 `vidcut-*` 暫存目錄沒有在 teardown 清掉，
+  本輪累積到 **38,754 個目錄／16GB+**，直接把機器磁碟壓到剩 740Mi 才被發現（已手動清掉、
+  回收 25.5GB）。修法是在建立暫存目錄的測試 helper 加 `afterAll` 清理；沒修之前，長期跑
+  測試的機器會週期性被塞爆。
+- **`mcp-tools.test.ts:317` 有一條套套邏輯斷言**——
+  `expect(sc.clipId).toBe(store.doc.tracks.video.at(-1)!.id)` 兩邊用同一個 `.at(-1)` 讀
+  同一份狀態，恆真。審查者把 `push` 改成 `unshift` 實測，真正轉紅的是鄰行的 `label`
+  斷言（那條才是獨立 oracle）。功能上無漏洞，但這條斷言證明不了它宣稱的「回傳的 id
+  就是新 clip 的 id」。改法：把預期 id 在呼叫前先算好或改用 label／長度等獨立 oracle。
 
 ## 上線前必須由人確認
 

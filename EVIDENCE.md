@@ -6,6 +6,13 @@
 一鍵重跑本報告的每個數字：`bash scripts/gauntlet.sh`
 下列所有數字皆出自**最後一次程式碼修改之後的單一次乾淨執行**。
 
+**引用慣例**：本報告只引用**repo 裡實際存在的東西**——原始碼、測試、`scripts/mutants.json`、
+可重跑的指令。開發過程用的 SDD 過程檔（任務 brief、實作者報告、progress ledger）放在
+被 `.gitignore` 的 `.superpowers/`，**不隨分支保留**，所以本報告一律不引用它們；凡是只
+存在於過程檔的事實，都已把**內容本身**寫進本報告，並在該處標明「（過程檔，不隨分支
+保留）」。看到這個標記＝那句話無法用 repo 核對，只能當作記錄採信；沒有這個標記的每一
+句都應該能就地重跑或就地查證。
+
 | 項目   | 值                                    |
 | ------ | ------------------------------------- |
 | source | `b769331`（`mao-data/vidcut`, main）  |
@@ -465,11 +472,11 @@ Spec：`docs/superpowers/specs/2026-08-03-media-import-design.md`（階段 1：�
 ## Baseline 與最終 GAUNTLET
 
 **開工前**（commit `6cb9107`，Task 7 收尾）：測試數為 **397**（shared 27／server
-200／ui 170）——引用自 `task-7-report.md` 該次 `bash scripts/gauntlet.sh --fast` 的
-實際輸出（`Tests 27 passed (27)` / `Tests 200 passed (200)` / `Tests 170 passed (170)`，
-tsc/eslint/prettier/隨機順序/秘密掃描皆 PASS），**非本 Task 重新執行的數字**。
-`--fast` 只跳過最後一關突變測試，其餘關卡 Task 7 已證實不受影響（見
-`task-7-report.md`「問題與發現」第 3 點），所以測試數與格式/型別結果可信；但也代表
+200／ui 170）——出自 Task 7 收尾那次 `bash scripts/gauntlet.sh --fast` 的實際輸出
+（`Tests 27 passed (27)` / `Tests 200 passed (200)` / `Tests 170 passed (170)`，
+tsc/eslint/prettier/隨機順序/秘密掃描皆 PASS），**非本 Task 重新執行的數字**（過程檔，
+不隨分支保留；要複核請在 `6cb9107` 上自行重跑）。`--fast` 只跳過最後一關突變測試，
+其餘關卡不受它影響，所以測試數與格式/型別結果可信；但也代表
 Task 7 沒有跑過完整版 `gauntlet.sh`——**完整版（含突變）在 `6cb9107` 上從未執行過**，
 不能宣稱「全綠」。真正的開工前缺口是**突變覆蓋率**：Task 1–7 新增的素材匯入程式碼
 （`paths.ts`／`addClip`／`sourceFolder.ts`／`/api/source`／`/api/import`／ingest
@@ -524,8 +531,9 @@ controller 指示再補 3 隻（Task 6／7 的新邏輯，複審時已實測「�
 `mutants.json`。實際嘗試後發現**可以表達**——`mutate.mjs` 的 find/replace 是任意長度
 字面字串比對，可以把整個 19 行的 `for` 迴圈區塊（含 try/catch 本體）當一個 find，
 替換成語意等價、只改頭尾兩行的 `Promise.all` 版本。手動驗證時觀察到與複審者一致的
-紅色輸出（`expected 3 to be 1`），於是正式收進清單而非留成文字記錄，見
-task-8-report.md 第 2.3 節的完整過程與紅燈輸出。
+紅色輸出（`expected 3 to be 1`），於是正式收進清單而非留成文字記錄。它現在是
+`scripts/mutants.json` 裡的一筆，任何人都能用 `node scripts/mutate.mjs import-serial`
+就地重現這段紅燈。
 
 ## Failure Model 覆蓋情況
 
@@ -547,10 +555,10 @@ task-8-report.md 第 2.3 節的完整過程與紅燈輸出。
   該 `path`，查無才動手 ingest），未覆蓋兩個並發請求同時匯入同一支素材的競態。
 - 巨大素材夾無上限、磁碟寫滿：未覆蓋。
 - 既有的 8 條順序相依測試（`store-undo` / `store-durability`）：本次未觸碰，非新增。
-- `commands.ts:155`（`updateClip`）與 `commands.ts:497`（`updateAudio`）另有兩處
-  與 `addClip`（`commands.ts:218`）相同形狀的 `+ 1e-6` 浮點容差，`.superpowers/sdd/
-2026-08-03-media-import-backend/progress.md` 裡 Task 3 遺留一則「Task 8 做突變時
-  一併查」的備註。本次 controller 給的四點修正明確只把範圍限定在 `addClip`
+- `updateClip` 與 `updateAudio` 另有兩處與 `addClip` 相同形狀的 `+ 1e-6` 浮點容差，
+  只有 `addClip` 那處有 `addclip-bounds` 守著，另外兩處無 mutant 覆蓋（Task 3 就記下
+  「Task 8 做突變時一併查」，見 `docs/ROADMAP.md` 第 11 條）。本次 controller 給的
+  四點修正明確只把範圍限定在 `addClip`
   （`addclip-bounds`），為了不擅自擴大變更範圍，這裡只記錄觀察、未新增測試或
   mutant，留給後續 Task 決定是否要補。
 - `GET /api/source?dir=` 的「無權限」400 分支沒有專屬測資（見上表）。
@@ -590,7 +598,9 @@ task-8-report.md 第 2.3 節的完整過程與紅燈輸出。
 - `derived/<mediaId>/{proxy.mp4,filmstrip.jpg,peaks.json}` 兩支都確實在專案目錄內
   產出（真 ffmpeg，非 mock）。
 
-完整 curl 請求與回應貼在 `task-8-report.md` 第 5 節。這一層沒有跳過。
+這一層沒有跳過。上面五條就是那次執行的完整結果記錄；逐條 curl 的原始請求／回應是過程
+檔，不隨分支保留，但整套程序（自訂 port 起 server → `testsrc2` 造素材 → 三支 API 依序
+打）在上一段已寫成可照做的步驟，重跑不需要那份記錄。
 
 ## 需要你親自驗
 
@@ -710,7 +720,7 @@ media.path)`」；實際 `resolveMediaPath` 呼叫點是 **8 處**：`render.ts:
 ## 最終乾淨 GAUNTLET（本輪最後一次程式碼／文件修改之後，`bash scripts/gauntlet.sh` 完整版）
 
 第一次執行（於 `frame.ts` 格式化修正**之前**啟動）在「格式 (prettier --check)」關卡回報
-FAIL——`server/src/frame.ts` 的新 import／註解未跑過 prettier（`.superpowers/sdd/…` 的
+FAIL——`server/src/frame.ts` 的新 import／註解未跑過 prettier（那輪的修復指示裡
 「新測試一律先跑到紅再實作」只涵蓋 §必修一/二兩條測試的紅燈證明，不涵蓋收尾的格式關卡；
 發現後立刻 `npx prettier --write` 修正，非放寬關卡）。修正後重跑一次完整版，是下表**唯一
 引用的一次**：
@@ -830,27 +840,27 @@ commit；本節文字於其後、其上落筆，未再改動任何程式碼）�
 
 ### `add_clip`（AC 7–13）
 
-| AC  | 條件                                                                 | 測試（檔案:行號）                                                                                             |
-| --- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 7   | 合法呼叫 → `ok`，`tracks.video` 尾端多一個 clip，回覆含新 clip 的 id | `server/test/mcp-tools.test.ts:310`「接到主軌尾端，回新 clip 的 id」                                          |
-| 8   | 回覆裡的 id === `tracks.video.at(-1).id`                             | 同上（`sc.clipId` 與 `store.doc.tracks.video.at(-1)!.id` 同條斷言）                                           |
-| 9   | `mediaId` 不存在 → `isError`                                         | `server/test/mcp-tools.test.ts:321`「mediaId 不存在 → isError，主軌不變」                                     |
-| 10  | 純音訊素材（`hasVideo: false`）→ `isError`，訊息含 `audio-only`      | `server/test/mcp-tools.test.ts:334`「純音訊素材 → isError，訊息含 audio-only」                                |
-| 11  | `in + duration` 超過素材長度 → `isError`                             | `server/test/mcp-tools.test.ts:328`「in + duration 超過素材長度 → isError」                                   |
-| 12  | 審核進行中 → `isError`（`aiWrite` 守衛生效）                         | `server/test/mcp-tools.test.ts:356`「審核進行中 → isError」——**有測試守護，無 mutant 覆蓋**（理由見下「二」） |
-| 13  | 過期 `ifVersion` → `isError`（`aiWrite` 守衛生效）                   | `server/test/mcp-tools.test.ts:371`「過期的 ifVersion → isError」——由 mutant `addclip-mcp-ifversion` 守       |
+| AC  | 條件                                                                 | 測試（檔案:行號）                                                                                                                                                                                                                    |
+| --- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 7   | 合法呼叫 → `ok`，`tracks.video` 尾端多一個 clip，回覆含新 clip 的 id | `server/test/mcp-tools.test.ts:310`「接到主軌尾端，回新 clip 的 id」                                                                                                                                                                 |
+| 8   | 回覆裡的 id === `tracks.video.at(-1).id`                             | 同上（`server/test/mcp-tools.test.ts:317`）——**該斷言本身是套套邏輯**（兩邊用同一個 `.at(-1)` 讀同一份狀態，恆真）；把 `push` 改 `unshift` 時真正轉紅的是鄰行的 `label` 斷言，那條才是獨立 oracle。已登記 `docs/ROADMAP.md` 第 11 條 |
+| 9   | `mediaId` 不存在 → `isError`                                         | `server/test/mcp-tools.test.ts:321`「mediaId 不存在 → isError，主軌不變」——**假綠，見下「二」第 2 點**                                                                                                                               |
+| 10  | 純音訊素材（`hasVideo: false`）→ `isError`，訊息含 `audio-only`      | `server/test/mcp-tools.test.ts:334`「純音訊素材 → isError，訊息含 audio-only」                                                                                                                                                       |
+| 11  | `in + duration` 超過素材長度 → `isError`                             | `server/test/mcp-tools.test.ts:328`「in + duration 超過素材長度 → isError」——**假綠，見下「二」第 2 點**                                                                                                                             |
+| 12  | 審核進行中 → `isError`（`aiWrite` 守衛生效）                         | `server/test/mcp-tools.test.ts:356`「審核進行中 → isError」——**有測試守護，無 mutant 覆蓋**（理由見下「二」）                                                                                                                        |
+| 13  | 過期 `ifVersion` → `isError`（`aiWrite` 守衛生效）                   | `server/test/mcp-tools.test.ts:371`「過期的 ifVersion → isError」——由 mutant `addclip-mcp-ifversion` 守                                                                                                                              |
 
 ### `setAudio` 驗證（AC 14–20）
 
-| AC  | 條件                                                     | 測試（檔案:行號）                                                                                                                                                                                             |
-| --- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 14  | `audio: []` → `ok`，音訊軌清空（既有行為必須不變）       | `server/test/commands.test.ts:431`「audio: [] 清空音訊軌（既有行為，不得因新驗證而破壞）」                                                                                                                    |
-| 15  | 合法 item（真實 `mediaId`、在界內）→ `ok`                | `server/test/commands.test.ts:409`「剛好用滿素材長度是允許的（1e-6 容差，與 addClip 一致）」（邊界情形，見 AC19）                                                                                             |
-| 16  | `mediaId` 不存在 → `ok: false`，音訊軌**維持原樣**       | `server/test/commands.test.ts:368`「mediaId 不存在 → 拒絕，且音訊軌維持原樣（不得半套寫入）」                                                                                                                 |
-| 17  | `duration <= 0` → `ok: false`                            | `server/test/commands.test.ts:382`「duration <= 0 → 拒絕」                                                                                                                                                    |
-| 18  | `in < 0` → `ok: false`                                   | `server/test/commands.test.ts:391`「負的 in → 拒絕」                                                                                                                                                          |
-| 19  | `in + duration` 剛好等於素材長度 → `ok`（1e-6 容差保護） | `server/test/commands.test.ts:409`「剛好用滿素材長度是允許的（1e-6 容差，與 addClip 一致）」——殺傷力由 task-2-report.md 修復輪 1 的一次性容差正負號反轉證明（僅此條轉紅，其餘 28 條含另一條立即通過測試仍綠） |
-| 20  | 多個 item 其中一個壞 → 整批拒，音訊軌維持原樣            | `server/test/commands.test.ts:418`「多個 item 其中一個壞 → 整批拒，音訊軌維持原樣」                                                                                                                           |
+| AC  | 條件                                                     | 測試（檔案:行號）                                                                                                                                                                                                                                                                                                     |
+| --- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | `audio: []` → `ok`，音訊軌清空（既有行為必須不變）       | `server/test/commands.test.ts:431`「audio: [] 清空音訊軌（既有行為，不得因新驗證而破壞）」                                                                                                                                                                                                                            |
+| 15  | 合法 item（真實 `mediaId`、在界內）→ `ok`                | `server/test/commands.test.ts:409`「剛好用滿素材長度是允許的（1e-6 容差，與 addClip 一致）」（邊界情形，見 AC19）                                                                                                                                                                                                     |
+| 16  | `mediaId` 不存在 → `ok: false`，音訊軌**維持原樣**       | `server/test/commands.test.ts:368`「mediaId 不存在 → 拒絕，且音訊軌維持原樣（不得半套寫入）」                                                                                                                                                                                                                         |
+| 17  | `duration <= 0` → `ok: false`                            | `server/test/commands.test.ts:382`「duration <= 0 → 拒絕」                                                                                                                                                                                                                                                            |
+| 18  | `in < 0` → `ok: false`                                   | `server/test/commands.test.ts:391`「負的 in → 拒絕」                                                                                                                                                                                                                                                                  |
+| 19  | `in + duration` 剛好等於素材長度 → `ok`（1e-6 容差保護） | `server/test/commands.test.ts:409`「剛好用滿素材長度是允許的（1e-6 容差，與 addClip 一致）」——殺傷力由一次性突變證明：把 `setAudio` 那處容差改成 `- 1e-6` 重跑，僅此條轉紅、其餘 28 條（含另一條立即通過的測試）仍綠。這隻是拋棄式的、未收進 `mutants.json`，要複核請照上句手改 `commands.ts` 重跑 `commands.test.ts` |
+| 20  | 多個 item 其中一個壞 → 整批拒，音訊軌維持原樣            | `server/test/commands.test.ts:418`「多個 item 其中一個壞 → 整批拒，音訊軌維持原樣」                                                                                                                                                                                                                                   |
 
 mutant `setaudio-validate`（拿掉整段逐項驗證）守住 AC16–20 的拒絕路徑，實跑 1/1 killed（見下「四」）。
 
@@ -860,23 +870,36 @@ mutant `setaudio-validate`（拿掉整段逐項驗證）守住 AC16–20 的拒�
 | --- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | 21  | `tracks.audio` 有壞 `mediaId` 時 render → 錯誤訊息同時含 audio item id 與 `mediaId` | `server/test/render.test.ts:131`「音訊素材找不到時，錯誤訊息同時含 audio item id 與 mediaId」 |
 
-## 二、誠實記錄兩項無 mutant 覆蓋者
+## 二、誠實記錄無 mutant 覆蓋者
 
-1. **`add_clip` 的「審核進行中被拒」路徑（AC12，`server/test/mcp-tools.test.ts:356`）**：
-   能表達它的 find/replace 是把 `aiWrite(store, cmd, ifVersion)` 換成
-   `applyCommand(store, 'ai', cmd)`，但 `applyCommand` 沒有被 `mcp.ts` import，突變版
-   會在**執行期**丟 `ReferenceError`。後果不是「審核中」那條測試本身變綠——是**快樂路徑**
-   （「接到主軌尾端」）先在一般（未進入 review 分支）的呼叫上就丟出未捕捉的
-   `ReferenceError`，真正殺掉這隻 mutant 的會是它，而不是「審核進行中 → isError」這條
-   測試本身。也就是說，這隻 mutant 若被加進 `mutants.json`，殺掉它的功勞會被錯誤地記
-   在快樂路徑測試頭上，並不代表審核守衛真的被驗證到——是**錯誤歸因**，不是有效 mutant。
-   `server/test/mcp-tools.test.ts:356` 這條測試**有測試守護，但本案刻意不為它加 mutant
-   覆蓋**，如實記錄在此（task-5-report.md「為何不為『審核進行中』那條加 mutant」）。
-2. **render 錯誤訊息字串（AC21，`server/test/render.test.ts:131`）**：這條新測試本身
-   就是唯一守護——它直接斷言錯誤訊息同時含 audio item id 與 `mediaId`（RED 階段的實際
-   訊息是 `'render: media not found for audio bgm1'`，只含 `bgm1` 不含 `GHOST_ID`，見
-   task-3-report.md）。再打一隻 mutant 只是把同一條斷言換句話說重述一次，不會多驗證到
-   任何東西，故本案不加。
+1. **`add_clip` 的「審核進行中被拒」路徑（AC12，`server/test/mcp-tools.test.ts:356`）
+   ——無 mutant 覆蓋，而且本報告先前給的理由是錯的**。原本的說法是：能表達它的
+   find/replace 是把 `aiWrite(store, cmd, ifVersion)` 換成 `applyCommand(store, 'ai', cmd)`，
+   但 `applyCommand` 沒有被 `mcp.ts` import，突變版會在執行期丟 `ReferenceError`，於是
+   先被快樂路徑測試殺掉、變成**錯誤歸因**，所以「無法做出有效 mutant」。
+
+   **最終全分支審查推翻了這個結論**：改用動態 import 就完全繞開沒有 import 的問題——
+   `replace` 寫成 `const r = (await import('./commands.js')).applyCommand(store, 'ai', cmd);`
+   （`mcp.ts` 那行本來就在 `async` 回呼裡，`await` 合法）。審查者實跑後，轉紅的只有
+   AC12 與 AC13 兩條守衛測試，快樂路徑全程維持綠——歸因完全正確，是一隻**有效**
+   mutant。也就是說 AC12 目前沒有 mutant 覆蓋，**不是因為做不到，只是本輪沒做**。
+   已把它連同上面這段可直接照抄的 `replace` 字串登記到 `docs/ROADMAP.md` 第 11 條。
+
+2. **`add_clip` 的 AC9（`mediaId` 不存在）與 AC11（超界）是「假綠」**：這兩條測試斷言
+   的是「呼叫回 `isError`」，但 MCP 的 SDK 在**工具根本不存在**時同樣回 `isError`。審查
+   者把 `add_clip` 這個工具名改掉後，兩條測試照樣通過——它們無法區分「守衛擋下來」與
+   「工具消失了」。相較之下 AC4（`list_source` 目錄不存在）在 Task 4 修復輪補了
+   `list_source failed:` 前綴斷言，正是為了堵這個洞；`add_clip` 這兩條沒有比照辦理。
+   守衛本身的行為由 `commands.ts` 層的同名測試涵蓋（`commands.test.ts` 的「未知 mediaId
+   被拒絕」「in + duration 超出素材長度被拒絕」，且有 `addclip-media-exists`／
+   `addclip-bounds` 兩隻 mutant 守著），所以**功能有驗證**，但 MCP 這一層的這兩條斷言
+   不構成獨立保護。修法是加上訊息內容斷言，已登記到 `docs/ROADMAP.md` 第 11 條。
+
+3. **render 錯誤訊息字串（AC21，`server/test/render.test.ts:131`）**：這條新測試本身
+   就是唯一守護——它直接斷言錯誤訊息同時含 audio item id 與 `mediaId`。RED 階段觀察到
+   的實際訊息是 `'render: media not found for audio bgm1'`，只含 `bgm1` 不含 `GHOST_ID`，
+   所以這條測試確實看過自己失敗。再打一隻 mutant 只是把同一條斷言換句話說重述一次，
+   不會多驗證到任何東西，故本案不加。
 
 ## 三、套件穩定性問題的完整因果
 
@@ -901,12 +924,12 @@ timeout 是 wall-clock 時間，所以測試沒有卡住、只是被餓死，也
 審查者在不同條件下的量測，跟這裡的 7 支不是同一次執行。併發峰值本身會隨當下機器負載
 浮動，這些數字不互相矛盾，只是分屬不同次量測，見下方逐一標明。）
 
-**決定性實驗**（`progress.md` 記錄的 controller 根因確認實驗，診斷階段做的，早於
-Task 7c 的正式修復與其驗證報告）：同一 seed（1337）只加 `--fileParallelism=false` →
-238/238 全過、51 秒——證實假設成立，才據此定案修法方向。這個 51 秒是診斷階段的單次
-測量，與下方「修復後如何驗證」引用 `task-7c-report.md` 正式跑出的 seed 1337 耗時
-（100.1 秒，仍遠低於 180 秒 timeout）不是同一次執行，數字有落差是不同時間點機器負載
-不同所致，不是矛盾——兩次都是 238/238 全過、無 timeout。
+**決定性實驗**（controller 在診斷階段做的根因確認，早於 Task 7c 的正式修復與驗證）：
+同一 seed（1337）只加 `--fileParallelism=false` → 238/238 全過、51 秒——證實假設成立，
+才據此定案修法方向。這個 51 秒是診斷階段的單次測量，與下方「修復後如何驗證」裡實作者
+正式跑出的 seed 1337 耗時（100.1 秒，仍遠低於 180 秒 timeout）不是同一次執行，數字有
+落差是不同時間點機器負載不同所致，不是矛盾——兩次都是 238/238 全過、無 timeout。
+（兩次都是過程檔，不隨分支保留；重跑方式就是上面那行指令。）
 
 **兩次修復，分工不同**：
 
@@ -924,15 +947,15 @@ Task 7c 的正式修復與其驗證報告）：同一 seed（1337）只加 `--fi
 **修復後如何驗證**——實作者與獨立審查者各自做了不同層次的驗證，出處分開列，
 避免混淆：
 
-- **實作者**（`task-7c-report.md`）：一般循序執行 + `--sequence.shuffle` 的 4 個 seed
+- **實作者**（Task 7c 實作者的驗證；過程檔，不隨分支保留）：一般循序執行 +
+  `--sequence.shuffle` 的 4 個 seed
   （gauntlet 用的 1337、以及 1／42／99999），共 5 種順序組合全部 238/238 通過、無
   timeout；`npm run typecheck`／`npm run lint`／`npx prettier --check` 三項皆乾淨。
   typecheck 未受影響的原因：`server/vitest.config.ts` 不在 `server/tsconfig.json` 的
   `include: ["src", "test"]` 範圍內，新檔案不會觸發任何型別檢查問題。
-- **獨立審查者**（記錄於 `progress.md` 檔尾「Task 7c 審查者的完整實測記錄（controller
-  補登）」這一節，`task-7c-report.md` 本身**不含**這幾項；這些數字原本只在審查者的
-  回報訊息裡、沒有落盤，controller 事後補登進 `progress.md` 讓引用可解析）：另外自選
-  2 個 seed（7、2024）加上 gauntlet 用的 1337，共 3 個 seed
+- **獨立審查者**（Task 7c 審查者自己另做的量測，與上一項不是同一批數字；這些數字原本
+  只存在於審查者的回報訊息裡，本報告是它們唯一的落盤處——過程檔，不隨分支保留）：
+  另外自選 2 個 seed（7、2024）加上 gauntlet 用的 1337，共 3 個 seed
   覆核，皆 238/238（seed 1337／7／2024 個別最重的 render 測試分別是 10.9／10.8／
   11.7 秒）。做了**負向對照組**——把 `server/vitest.config.ts` 拿掉，在**自然條件下
   （未額外加壓）重跑兩次**：第一次 238/238 通過，wall 40.54 秒、tests 累計 104.25
@@ -948,7 +971,7 @@ Task 7c 的正式修復與其驗證報告）：同一 seed（1337）只加 `--fi
   142,954ms（142.9 秒，吃掉 180 秒 timeout 預算的 79%）；有修法時峰值 **15 支**、
   115,584ms（115.6 秒，64%）——同等外部壓力下有修法多出約 30 秒餘裕（快約 19%），
   **這才是真正證明修法有實測效果、不是巧合的那個實驗**。
-- **審查者的獨立意見與此修法的邊界**（同樣記錄於 `progress.md`）：`maxWorkers: 2`
+- **審查者的獨立意見與此修法的邊界**（同樣出自該審查者的回報，過程檔，不隨分支保留）：`maxWorkers: 2`
   這類折衷方案不會更好——單一測試檔內部本來就會併發多支 ffmpeg 子行程，限制 worker
   數解決不了「一支 ffmpeg 吃滿所有核心」這個根本矛盾。審查者也誠實指出此修法的真實
   限制：它只涵蓋**套件自身**的檔案間並行競爭，對「開發者機器上同時有其他重活」這類
@@ -956,18 +979,20 @@ Task 7c 的正式修復與其驗證報告）：同一 seed（1337）只加 `--fi
   的機器上，即使有這個修法，仍可能吃緊。
 
 **這件事對 EVIDENCE 的意義**：old-coder 的整套論述建立在「測試套件是決定性的」這個
-前提上。這個不穩定在專案期間被多位審查者觀察到（`progress.md` 記錄的跨 Task 議題），
-如果默默修掉、不寫進報告，讀者無從判斷 Task 1–7 report 裡那些「238/238」「236/236」
-之類的數字在多大程度上可信。本節把症狀、根因、兩次修復的分工、驗證方式完整攤開，
+前提上。這個不穩定在專案期間被多位審查者跨 Task 觀察到，如果默默修掉、不寫進報告，
+讀者無從判斷本報告裡那些「238/238」「236/236」之類的數字在多大程度上可信。本節把
+症狀、根因、兩次修復的分工、驗證方式完整攤開，
 就是為了不讓這個風險被隱藏。
 
 ## 四、本案新增的 3 隻 mutant 與實跑結果
 
-| id                      | 檔案          | 改了什麼                                             | 被誰殺                                                          | 單獨實跑結果                   |
-| ----------------------- | ------------- | ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ |
-| `setaudio-validate`     | `commands.ts` | 拿掉 `setAudio` 的逐項驗證整段（find/replace 清空）  | `commands.test.ts`「setAudio 驗證」describe 全部 7 條           | 1/1 killed（task-2-report.md） |
-| `listsource-truncate`   | `mcp.ts`      | 拿掉 200 筆截斷（改成 `files = all.files` 不 slice） | `mcp-tools.test.ts`「超過 200 筆只內嵌前 200 筆並標 truncated」 | 1/1 killed（task-4-report.md） |
-| `addclip-mcp-ifversion` | `mcp.ts`      | `aiWrite(store, cmd, ifVersion)` 少傳 `ifVersion`    | `mcp-tools.test.ts`「過期的 ifVersion → isError」               | 1/1 killed（task-5-report.md） |
+三隻都在 `scripts/mutants.json` 裡，各自可用 `node scripts/mutate.mjs <id>` 單獨重跑。
+
+| id                      | 檔案          | 改了什麼                                             | 被誰殺                                                          | 單獨實跑結果 |
+| ----------------------- | ------------- | ---------------------------------------------------- | --------------------------------------------------------------- | ------------ |
+| `setaudio-validate`     | `commands.ts` | 拿掉 `setAudio` 的逐項驗證整段（find/replace 清空）  | `commands.test.ts`「setAudio 驗證」describe 全部 7 條           | 1/1 killed   |
+| `listsource-truncate`   | `mcp.ts`      | 拿掉 200 筆截斷（改成 `files = all.files` 不 slice） | `mcp-tools.test.ts`「超過 200 筆只內嵌前 200 筆並標 truncated」 | 1/1 killed   |
+| `addclip-mcp-ifversion` | `mcp.ts`      | `aiWrite(store, cmd, ifVersion)` 少傳 `ifVersion`    | `mcp-tools.test.ts`「過期的 ifVersion → isError」               | 1/1 killed   |
 
 三隻皆在本節「六、GAUNTLET 表」引用的那次完整執行中，隨其餘 67 隻一起被殺（gauntlet
 log 的 `tail -3` 只印出最後一隻的名稱 `addclip-mcp-ifversion`，逐隻結果彙總為
@@ -1017,6 +1042,13 @@ ifVersion)`）。`commands.ts:109` 是驗證/執行端，不是呼叫端；`shar
 
 換句話說：這個行為變更不會讓任何現有正常呼叫方變紅，只會讓原本就是壞資料的呼叫從
 「默默接受、之後在 render 才爆炸」變成「當下就被拒絕、給出明確原因」。
+
+**但這個補洞只補了一半，如實記在這裡**：新增的驗證只涵蓋 `mediaId`／`duration`／`in`
+三個欄位，**沒有涵蓋 `start`／`fadeIn`／`fadeOut`／`volume`**，與 `updateAudio` 的驗證
+並不對稱。最具體的後果是**負的 `start` 仍會被接受並落盤**——render 組濾鏡鏈時不會為
+負值生成 `adelay`，該段音訊被**靜默放到 0 秒**，使用者不會看到任何錯誤。也就是說，本節
+宣告要消滅的「壞資料默默落盤」這個類別，換到 `start` 欄位上依然成立。這是最終全分支
+審查發現、經裁決不擋合併的項目，已登記在 `docs/ROADMAP.md` 第 11 條。
 
 ## 六、新發現但本輪不修的缺陷：暫存目錄洩漏
 
