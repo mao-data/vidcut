@@ -4,6 +4,7 @@ import { useProject } from '../stores/project.js';
 import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
 import { useView } from '../stores/view.js';
+import { __resetCaptionGeoCacheForTests } from '../player/CaptionLayer.js';
 
 /**
  * 元件測試用的示範專案：2 段影片（第 2 段定格）、1 條音訊、1 張錨定疊圖、
@@ -103,6 +104,10 @@ export function resetStores(): void {
   usePlayback.setState({ time: 0, playing: false, total: 0 });
   useView.setState({ pxPerSecond: 40, snapEnabled: false, leftOpen: true, rightOpen: true });
   localStorage.clear();
+  // CaptionLayer 的 geometry fetch 快取是模組級的，不會隨 store 重置——不清的話，
+  // 一個測試檔裡不同 case 重用同一個 text-card hash 會讓後面的測試靜靜地讀到前一個
+  // 測試留下的 geometry，看起來像通過但其實測錯東西。
+  __resetCaptionGeoCacheForTests();
 }
 
 /**

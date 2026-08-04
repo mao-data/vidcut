@@ -139,6 +139,17 @@ describe('Player', () => {
     expect(container.textContent).toContain('second');
   });
 
+  it('overlay position converts into the 1080×1920 space, not the old percentage space', () => {
+    const { container } = render(<Player />);
+    seek(2); // ovAbs 窗內, position { x: 0.5, y: 0.1, scale: 1 }
+    const img = container.querySelector('img[src="/media/assets/title.png"]') as HTMLImageElement;
+    // x 是水平置中點（配 translateX(-50%)）、y 是「頂邊」不是中心——1080/1920 空間裡
+    // 這兩者換算方式不對稱，別套同一條公式：left = 1080*x，top = 1920*y（無 -50% 補償）。
+    expect(img.style.left).toBe('540px'); // 1080 * 0.5
+    expect(img.style.top).toBe('192px'); // 1920 * 0.1
+    expect(img.style.maxWidth).toBe('972px'); // 1080 * 0.9（原本的 CSS 90%）
+  });
+
   it('anchored overlays follow their clip (c2 starts at 6s, offset .5)', () => {
     const { container } = render(<Player />);
     seek(6.7); // 6.5–8.5 窗內
@@ -157,5 +168,9 @@ describe('Player', () => {
     // 未唸到的詞沒有設 inline color——繼承外層 div 的 fill（CaptionLayer 的 ApproxCaption）
     expect(line.style.color).toBe('');
     expect(getComputedStyle(line).color).toBe('rgb(255, 255, 255)');
+    // 兩個詞之間的分隔白不是空氣——DOM fallback 要讀成 "second line"，不是黏死的
+    // "secondline"（CJK-aware tokenSeparator，和 server/scripts/text_card.py 的
+    // separator() 同規則：拉丁字之間留白）。
+    expect(second.parentElement!.textContent).toBe('second line');
   });
 });

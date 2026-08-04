@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { totalDuration } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
@@ -47,7 +47,10 @@ export function Player() {
    */
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
-  useEffect(() => {
+  // useLayoutEffect（不是 useEffect）：doc 剛到位、stage 第一次掛上 DOM 那一幀，
+  // 要在瀏覽器畫出來之前就量到寬並設好 scale，否則第一個畫出的畫面會是 scale(0)
+  // （疊圖/字幕全部縮到看不見）閃一下才變回正常大小。
+  useLayoutEffect(() => {
     if (!stageEl) return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;

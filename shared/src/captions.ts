@@ -102,17 +102,22 @@ export function textUnits(s: string): number {
   return n;
 }
 
+/**
+ * 兩個相鄰詞之間該不該插空白：CJK 與任何字之間不加（中文排版慣例）、拉丁字之間加。
+ * 與 server/scripts/text_card.py 的 separator() 同規則（用最後/第一個字元判斷）——
+ * UI 端的字幕 fallback（CaptionLayer 的 ApproxCaption）也用這個函式，
+ * 好讓瀏覽器近似排版與成片字卡的斷詞規則一致。
+ */
+export function tokenSeparator(prev: string, next: string): string {
+  if (!prev || !next) return '';
+  return CJK.test(prev[prev.length - 1]!) || CJK.test(next[0]!) ? '' : ' ';
+}
+
 /** CJK 與 CJK／CJK 與拉丁之間不加空白（中文排版慣例）；拉丁之間加空白。 */
 function joinTokens(parts: string[]): string {
   let out = '';
   for (const p of parts) {
-    if (out === '') {
-      out = p;
-      continue;
-    }
-    const prev = out[out.length - 1]!;
-    const next = p[0]!;
-    out += CJK.test(prev) || CJK.test(next) ? p : ` ${p}`;
+    out = out === '' ? p : out + tokenSeparator(out, p) + p;
   }
   return out;
 }
