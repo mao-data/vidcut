@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, act, fireEvent } from '@testing-library/react';
 import type { Command } from '@vidcut/shared';
 import { App } from './App.js';
-import { useProject } from './stores/project.js';
 import { usePlayback } from './stores/playback.js';
 import { useView } from './stores/view.js';
+import { useToast } from './stores/toast.js';
 import * as ws from './ws.js';
 import { seedProject, resetStores } from './test/fixtures.js';
 
@@ -28,6 +28,9 @@ describe('App', () => {
     // container 裡——testing-library 的 cleanup() 不會清到它,不同 test 之間會殘留一顆空的,
     // 讓後面測 fetch 行為的 case 因為「id 已存在」guard 提早 return,根本沒真的打到 fetch。
     document.getElementById('server-fonts')?.remove();
+    // toast 是模組級 zustand store，resetStores() 不管它：不清的話一個測試留下的
+    // 訊息會殘留到下一個測試（App 每次 render 都會把它畫出來）。
+    useToast.setState({ message: null });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -169,14 +172,38 @@ describe('App', () => {
   });
 
   it('surfaces a rejected edit as a toast', () => {
+    // 舊版是「applyServerMsg({type:'commandError'}) 之後 textContent 含 'demo'」——
+    // 'demo' 是專案名,沒有 toast 也一直都在,而且 applyServerMsg 對 commandError
+    // 本來就是 no-op(toast 是 ws.ts 的 onmessage 發的),那條斷言測不到任何東西。
+    // 這裡改走**真正的產線路徑**:假 WebSocket → connectWs() → onmessage(commandError)
+    // → useToast.show → App 的 <Toast/> 真的把訊息畫出來。
+    const sockets: FakeWs[] = [];
+    class FakeWs {
+      static OPEN = 1;
+      readyState = 1;
+      onopen?: () => void;
+      onmessage?: (ev: { data: string }) => void;
+      onclose?: () => void;
+      onerror?: () => void;
+      send = vi.fn();
+      close = vi.fn();
+      constructor() {
+        sockets.push(this);
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeWs);
+
     seedProject();
     const { container } = render(<App />);
+    expect(container.textContent).not.toContain('Edit rejected');
+
     act(() => {
-      useProject.getState().applyServerMsg({ type: 'commandError', error: 'nope' });
+      ws.connectWs('ws://test/ws');
     });
-    // commandError 本身不改 store；toast 由 ws.ts 觸發（見 ws 層），
-    // 這裡確認 App 不會因為這類訊息崩掉
-    expect(container.textContent).toContain('demo');
+    act(() => {
+      sockets[0]!.onmessage!({ data: JSON.stringify({ type: 'commandError', error: 'nope' }) });
+    });
+    expect(container.textContent).toContain('Edit rejected: nope');
   });
 
   it('a network-level failure fetching /api/fonts degrades silently (no throw, no @font-face injected)', async () => {

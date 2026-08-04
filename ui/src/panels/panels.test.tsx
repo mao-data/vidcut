@@ -228,6 +228,49 @@ describe('Inspector', () => {
     expect(fieldAfter(container, 'Fill').value).toBe('#ff0000');
   });
 
+  // 上面那條「換選取」其實用 `key={ov.id}` 也會通過（換 overlay 時 id 跟值一起變）。
+  // 這條才是那個修法真正要擋的情形：**id 沒變、值從外部變了**——AI 用 update_overlay
+  // 改了字級/顏色，或別的 session 的編輯 echo 回來。React 沿用同一個 DOM 節點，
+  // 非受控 input 的 defaultValue 不會重新套用，面板會一直顯示舊值；使用者接著在
+  // 那個欄位 blur，就會拿舊值把 AI 剛寫進去的值蓋掉（silent overwrite）。
+  it('AI 從外部改了同一個 overlay 的字級/顏色（id 不變）→ 面板要跟著更新', () => {
+    const doc = demoProject();
+    doc.tracks.overlays = [
+      {
+        id: 'txtA',
+        imagePath: 'derived/text/a.base.png',
+        text: { text: 'A字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    ];
+    seedProject(doc);
+    useSelection.getState().select({ kind: 'overlay', id: 'txtA' });
+    const { container, rerender } = render(<Inspector />);
+    expect(fieldAfter(container, 'Font size').value).toBe('64');
+    expect(fieldAfter(container, 'Fill').value).toBe('#ffffff');
+    const before = fieldAfter(container, 'Font size');
+
+    // server echo：同一個 overlay id，只有值變了（走真正的 applyServerMsg 路徑）
+    const patched = structuredClone(doc);
+    patched.tracks.overlays[0]!.text = {
+      text: 'A字',
+      fontFamily: 'Heiti TC',
+      fontSize: 96,
+      fill: '#00ff00',
+    };
+    act(() => {
+      seedProject(patched, 2);
+    });
+    rerender(<Inspector />);
+
+    expect(fieldAfter(container, 'Font size').value).toBe('96');
+    expect(fieldAfter(container, 'Fill').value).toBe('#00ff00');
+    // 而且是**換了一個 DOM 節點**（key 變 → remount），不是靠 React 去改非受控 input
+    expect(fieldAfter(container, 'Font size')).not.toBe(before);
+  });
+
   it('blurring Font size without changing it sends nothing (silent-overwrite guard)', () => {
     const doc = demoProject();
     doc.tracks.overlays = [

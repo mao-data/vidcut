@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
+import type { CaptionItem } from '@vidcut/shared';
 import { cardKey, TextCardService } from '../src/textCards.js';
+import { capToCardRequest } from '../src/cardSync.js';
 import { estimateCard, MAX_CARD_PIXELS } from '../src/cardBudget.js';
 import { PillowRasterizer, type CardRequest } from '../src/rasterizer.js';
 import { ProjectStore } from '../src/store.js';
@@ -28,12 +30,84 @@ const REQ: CardRequest = {
 };
 
 describe('cardKey', () => {
-  it('same input → same key; 與時間無關的欄位不影響 key', () => {
-    expect(cardKey(REQ, 'pillow-1')).toBe(cardKey({ ...REQ }, 'pillow-1'));
+  // 舊版這條是 `cardKey(REQ) === cardKey({ ...REQ })`——淺拷貝必然序列化成同一串,
+  // 不管 cardKey 怎麼寫都會通過。真正有內容的「同輸入同 key」是:**結構相同但寫法
+  // 不同**的兩個請求要算出同一把 key(欄位順序不同、省略的可選欄位 vs 顯式預設值)。
+  // 這是內容定址的實質要求:同一張卡不能因為呼叫端怎麼組物件而算出兩把 key
+  // (那會讓快取永遠 miss、同一張圖重畫兩份)。
+  it('same input → same key：欄位順序與「省略 vs 顯式預設值」都不影響 key', () => {
+    const shuffled: CardRequest = {
+      width: 1080,
+      style: {
+        highlight: '#FCDE5A',
+        stroke: '#000000',
+        fill: '#ffffff',
+        fontSize: 64,
+        fontFamily: 'Heiti TC',
+      },
+      tokens: ['哈囉', '世界'],
+      text: '哈囉世界',
+      maxWidthFrac: 0.9, // REQ 省略了它,預設就是 0.9 → 必須算出同一把 key
+    };
+    expect(cardKey(shuffled, 'pillow-1')).toBe(cardKey(REQ, 'pillow-1'));
   });
-  it('改字必變;換 rasterizerId 必變', () => {
-    expect(cardKey({ ...REQ, text: '改了' }, 'pillow-1')).not.toBe(cardKey(REQ, 'pillow-1'));
-    expect(cardKey(REQ, 'chromium-1')).not.toBe(cardKey(REQ, 'pillow-1'));
+
+  // 每一個會影響「畫出來長什麼樣」的欄位都必須改變 key。少任何一個,改了樣式卻沿用
+  // 舊圖,使用者會看到「改了但畫面沒變」——而且因為是內容定址,再也修不回來。
+  it('每個影響渲染的欄位都會改變 key（含 rasterizerId）', () => {
+    const variants: Array<[string, CardRequest, string]> = [
+      ['原樣', REQ, 'pillow-1'],
+      ['改字', { ...REQ, text: '改了' }, 'pillow-1'],
+      ['改詞界', { ...REQ, tokens: ['哈', '囉世界'] }, 'pillow-1'],
+      ['去掉 tokens', { ...REQ, tokens: undefined }, 'pillow-1'],
+      ['換字型', { ...REQ, style: { ...REQ.style, fontFamily: 'PingFang TC' } }, 'pillow-1'],
+      ['改字級', { ...REQ, style: { ...REQ.style, fontSize: 65 } }, 'pillow-1'],
+      ['改填色', { ...REQ, style: { ...REQ.style, fill: '#fffffe' } }, 'pillow-1'],
+      ['改描邊', { ...REQ, style: { ...REQ.style, stroke: '#010101' } }, 'pillow-1'],
+      ['去掉描邊', { ...REQ, style: { ...REQ.style, stroke: undefined } }, 'pillow-1'],
+      ['改高亮色', { ...REQ, style: { ...REQ.style, highlight: '#FCDE5B' } }, 'pillow-1'],
+      ['去掉高亮色', { ...REQ, style: { ...REQ.style, highlight: undefined } }, 'pillow-1'],
+      ['改畫布寬', { ...REQ, width: 1081 }, 'pillow-1'],
+      ['改換行寬', { ...REQ, maxWidthFrac: 0.8 }, 'pillow-1'],
+      ['換 rasterizerId', REQ, 'chromium-1'],
+    ];
+    const keys = variants.map(([, req, id]) => cardKey(req, id));
+    const dupes = variants
+      .map(([name], i) => [name, keys[i]!] as const)
+      .filter(([, k], i) => keys.indexOf(k) !== i);
+    expect(dupes, `這些變體與前面某個變體撞 key：${JSON.stringify(dupes)}`).toEqual([]);
+  });
+
+  // spec §10 的「改時間不變」。CardRequest 本身沒有任何時間欄位,所以這個性質只有在
+  // 「CaptionItem → CardRequest」那一層才表達得出來——時間就是在那裡被丟掉的。
+  it('改時間不變：只動字幕的時間欄位（含逐詞時間戳）不得改變 key', () => {
+    const cap: CaptionItem = {
+      id: 'c1',
+      text: '哈囉世界',
+      start: 0,
+      duration: 2,
+      style: { fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff', y: 0.8 },
+      tokens: [
+        { text: '哈囉', start: 0, end: 1 },
+        { text: '世界', start: 1, end: 2 },
+      ],
+    };
+    const moved: CaptionItem = {
+      ...cap,
+      start: 37.5,
+      duration: 9,
+      tokens: [
+        { text: '哈囉', start: 37.5, end: 42 },
+        { text: '世界', start: 42, end: 46.5 },
+      ],
+    };
+    expect(cardKey(capToCardRequest(moved, 1080), 'pillow-1')).toBe(
+      cardKey(capToCardRequest(cap, 1080), 'pillow-1'),
+    );
+    // 對照組:同一層改「字」照樣要變 key,證明上面那條不是因為兩邊都退化成常數才相等。
+    expect(cardKey(capToCardRequest({ ...cap, text: '改了' }, 1080), 'pillow-1')).not.toBe(
+      cardKey(capToCardRequest(cap, 1080), 'pillow-1'),
+    );
   });
 });
 

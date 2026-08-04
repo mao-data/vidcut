@@ -1,9 +1,69 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { inflateSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { PillowRasterizer, type CardRequest } from '../src/rasterizer.js';
+
+/**
+ * 最小 PNG 解碼器——只認 Pillow 產出的那一種（8-bit RGBA、非交錯）。
+ *
+ * 為什麼要自己解：base/hl 兩張卡「幾何一致」的唯一有意義證據是**逐像素**的
+ * alpha 相同（同一套字形、同一個位置，只有顏色不同）。比 PNG 檔頭的 IHDR
+ * 寬高位元組（bytes 16–24）等於什麼都沒驗：兩張圖出自 render_cards() 同一次
+ * 排版、同一組 (width, height) 區域變數、同一行 Image.new，沒有任何程式路徑
+ * 能讓它們的檔頭不同。為了測試多拉一個 PNG 相依進來不划算，這裡 40 行搞定。
+ */
+function decodeRgba(buf: Buffer): { width: number; height: number; data: Buffer } {
+  if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('不是 PNG');
+  let p = 8;
+  let width = 0;
+  let height = 0;
+  const idat: Buffer[] = [];
+  while (p + 8 <= buf.length) {
+    const len = buf.readUInt32BE(p);
+    const type = buf.toString('ascii', p + 4, p + 8);
+    const body = buf.subarray(p + 8, p + 8 + len);
+    if (type === 'IHDR') {
+      width = body.readUInt32BE(0);
+      height = body.readUInt32BE(4);
+      const [depth, colour, interlace] = [body[8]!, body[9]!, body[12]!];
+      if (depth !== 8 || colour !== 6 || interlace !== 0) {
+        throw new Error(`只支援 8-bit RGBA 非交錯 PNG（depth=${depth} colour=${colour})`);
+      }
+    } else if (type === 'IDAT') {
+      idat.push(Buffer.from(body));
+    } else if (type === 'IEND') {
+      break;
+    }
+    p += 12 + len; // len(4) + type(4) + data + crc(4)
+  }
+  const raw = inflateSync(Buffer.concat(idat));
+  const bpp = 4;
+  const stride = width * bpp;
+  const out = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]!;
+    const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? out[y * stride + x - bpp]! : 0; // 左
+      const b = y > 0 ? out[(y - 1) * stride + x]! : 0; // 上
+      const c = x >= bpp && y > 0 ? out[(y - 1) * stride + x - bpp]! : 0; // 左上
+      let v = line[x]!;
+      if (filter === 1) v += a;
+      else if (filter === 2) v += b;
+      else if (filter === 3) v += (a + b) >> 1;
+      else if (filter === 4) {
+        const pp = a + b - c;
+        const [pa, pb, pc] = [Math.abs(pp - a), Math.abs(pp - b), Math.abs(pp - c)];
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      } else if (filter !== 0) throw new Error(`未知的 PNG filter ${filter}`);
+      out[y * stride + x] = v & 0xff;
+    }
+  }
+  return { width, height, data: out };
+}
 
 /** 取出私有的 child 來做「真的用訊號殺掉 worker」的測試——沒有別的方法能模擬 OOM kill。 */
 function childOf(r: PillowRasterizer): ChildProcess {
@@ -39,22 +99,49 @@ describe('PillowRasterizer', () => {
       join(dir, 'a.base.png'),
       join(dir, 'a.hl.png'),
     );
-    expect(geo.width).toBe(1080);
     expect(geo.height).toBeGreaterThan(60);
     expect(geo.tokens).toHaveLength(3);
     // bbox 單調遞增且在畫布內
     const t = geo.tokens!;
     expect(t[1]!.x).toBeGreaterThan(t[0]!.x);
     expect(t[2]!.x + t[2]!.w).toBeLessThanOrEqual(1080);
-    // 兩張卡都存在且非空(幾何一致由同一次排版保證)
-    expect((await stat(join(dir, 'a.base.png'))).size).toBeGreaterThan(0);
-    expect((await stat(join(dir, 'a.hl.png'))).size).toBeGreaterThan(0);
-    // 兩卡尺寸相同(PNG IHDR 寬高 bytes 16-24 相同)
+
     const [b, h] = await Promise.all([
       readFile(join(dir, 'a.base.png')),
       readFile(join(dir, 'a.hl.png')),
     ]);
-    expect(b.subarray(16, 24)).toEqual(h.subarray(16, 24));
+    const [bPng, hPng] = [decodeRgba(b), decodeRgba(h)];
+    // 回報的 geometry 必須是圖**真正的**尺寸,不是把請求的 width 原封抄回來。
+    // （舊版寫 `expect(geo.width).toBe(1080)`：rasterizer.ts 把 req.width 直接放進
+    // 回覆,那條斷言只是把自己的輸入讀回來,任何排版錯誤都攔不到。）
+    expect([bPng.width, bPng.height]).toEqual([geo.width, geo.height]);
+    expect(bPng.width).toBe(1080);
+    expect([hPng.width, hPng.height]).toEqual([bPng.width, bPng.height]);
+
+    // ---- 「兩卡幾何一致」的真證據：alpha 通道逐像素相同 ----
+    // 同一套字形、同一個位置,只有顏色不同 → 覆蓋率(alpha)必須完全重合。
+    // clip-path 揭色的前提就是這個:hl 疊在 base 上,任何位移/換行差異都會露餡。
+    let alphaDiff = 0;
+    for (let i = 3; i < bPng.data.length; i += 4) {
+      if (bPng.data[i] !== hPng.data[i]) alphaDiff++;
+    }
+    expect(alphaDiff).toBe(0);
+    // 但**不是**同一張圖:每個 token 的 bbox 內都要有筆畫(alpha>0),而且 base 與 hl
+    // 在該處的顏色不同(base=fill #ffffff、hl=highlight #FCDE5A)——bbox 若標錯位置,
+    // 這裡就找不到那個「同形不同色」的區域。
+    for (const [i, box] of t.entries()) {
+      let ink = 0;
+      let coloured = 0;
+      for (let y = box.y; y < Math.min(box.y + box.h, bPng.height); y++) {
+        for (let x = Math.round(box.x); x < Math.min(box.x + box.w, bPng.width); x++) {
+          const o = (y * bPng.width + x) * 4;
+          if (bPng.data[o + 3]! > 0) ink++;
+          if (bPng.data[o + 2] !== hPng.data[o + 2]) coloured++; // 藍通道:ff vs 5a
+        }
+      }
+      expect(ink, `token ${i} 的 bbox 內沒有任何筆畫`).toBeGreaterThan(0);
+      expect(coloured, `token ${i} 的 bbox 內 base/hl 顏色完全相同`).toBeGreaterThan(0);
+    }
   }, 30_000);
 
   it('renders a plain card (no tokens) without hl output', async () => {
@@ -72,16 +159,27 @@ describe('PillowRasterizer', () => {
     expect(await r.probeFont('/nonexistent.ttf')).toBe(false);
   }, 30_000);
 
+  // 每一筆用**不同的字級**送出:這樣「回覆有沒有配對到正確的請求」才驗得到。
+  // 全部同字級的話,回覆張冠李戴也看不出來——而那正是拿掉 queue 的實際症狀:
+  // 5 個請求都往同一個 readline 掛 'line' listener,worker 吐出的第一行會同時
+  // resolve 全部 5 個 promise,五筆拿到一模一樣的幾何。
   it('serializes concurrent requests through one worker', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vidcut-ras-'));
-    const reqs = Array.from({ length: 5 }, (_, i) =>
-      r.rasterize(
-        { text: `並發${i}`, style: { fontFamily: 'x', fontSize: 40, fill: '#fff' }, width: 1080 },
-        join(dir, `c${i}.base.png`),
+    const sizes = [40, 48, 56, 64, 72]; // height = size + max(6, size//5) + 8 → 嚴格遞增
+    const geos = await Promise.all(
+      sizes.map((fontSize, i) =>
+        r.rasterize(
+          { text: `並發${i}`, style: { fontFamily: 'x', fontSize, fill: '#fff' }, width: 1080 },
+          join(dir, `c${i}.base.png`),
+        ),
       ),
     );
-    const geos = await Promise.all(reqs);
-    for (const g of geos) expect(g.width).toBe(1080);
+    for (const [i, g] of geos.entries()) {
+      expect(g.height, `第 ${i} 筆的回覆對不上它自己的字級`).toBe(
+        sizes[i]! + Math.max(6, Math.floor(sizes[i]! / 5)) + 8,
+      );
+      expect((await stat(join(dir, `c${i}.base.png`))).size).toBeGreaterThan(0);
+    }
   }, 30_000);
 });
 
@@ -107,6 +205,9 @@ describe('PillowRasterizer 的存活性（worker 死掉不能拖垮整個編輯�
         rk.rasterize(CARD('復活二'), join(dir, 'c.base.png')),
         rk.probeFont('/System/Library/Fonts/STHeiti Medium.ttc'),
       ]);
+      // 註:這裡的 `width === 1080` 不具鑑別力(rasterizer.ts 把請求的 width 原封抄回
+      // 回覆),它們的作用只是「這個 promise 真的 resolve 了」——本測試要抓的失敗模式
+      // 是永遠 pending / reject,不是幾何算錯。真正有內容的斷言是下面的檔案大小與 pid。
       expect(g1.width).toBe(1080);
       expect(g2.width).toBe(1080);
       expect(ok).toBe(true);
@@ -126,8 +227,12 @@ describe('PillowRasterizer 的存活性（worker 死掉不能拖垮整個編輯�
       const inflight = rk.rasterize(CARD('進行中'), join(dir, 'x.base.png'));
       dead.kill('SIGKILL'); // 排隊中的 run() 還沒跑，它會拿到這具正在斷氣的 child
       await expect(inflight).rejects.toThrow(/rasterizer/);
+      // 「resolve 了」本身就是斷言(失敗的請求不能讓 rasterizer 永久壞掉);width 只是
+      // 順手看一眼回覆結構完整,它等於 1080 是因為 rasterizer 把請求的 width 抄回來,
+      // 不具鑑別力。真正的證據是圖有落盤。
       const geo = await rk.rasterize(CARD('之後'), join(dir, 'y.base.png'));
-      expect(geo.width).toBe(1080); // 失敗的請求不能讓 rasterizer 永久壞掉
+      expect(geo.width).toBe(1080);
+      expect((await stat(join(dir, 'y.base.png'))).size).toBeGreaterThan(0);
     } finally {
       rk.dispose();
     }
@@ -172,6 +277,8 @@ describe('PillowRasterizer 的存活性（worker 死掉不能拖垮整個編輯�
       rk.dispose();
       await expect(inflight).rejects.toThrow();
       // queue 串在上一個 promise 後面：上一個若沒 settle，這一個永遠不會開始。
+      // 同上:這條測的是「還會不會動」,`geo.width` 只是回覆結構的煙霧測試,
+      // 有內容的斷言是圖真的落盤了。
       const geo = await rk.rasterize(CARD('之後'), join(dir, 'a.base.png'));
       expect(geo.width).toBe(1080);
       expect((await stat(join(dir, 'a.base.png'))).size).toBeGreaterThan(0);

@@ -11,8 +11,9 @@
  * 執行：`npm run verify:canvas`
  * Chrome 路徑可用 CHROME_BIN 覆寫；視窗尺寸可用 VIDCUT_VIEWPORT（如 1280x620）。
  *
- * ⚠️ 檢查 2（拖曳 overlay）會真的透過 WS 送 updateOverlay 命令，把 demo 專案裡
- * 第一個在畫面上看得到的 overlay 位置往旁邊挪一點並寫回 projects/demo/doc.json。
+ * ⚠️ 檢查 2/4（拖曳 overlay）會真的透過 WS 送 updateOverlay 命令，把 demo 專案裡
+ * 第一個在畫面上看得到的 overlay 位置往旁邊挪一點並寫回 projects/demo/project.json
+ * （專案檔就叫 project.json，不是 doc.json——`doc` 是它裡面的鍵）。
  * 這是預期的（demo 專案本來就是拿來被操作的），不是要清乾淨的副作用。
  *
  * 沿用 ui/e2e/panel-affordance.mjs 的 findChrome/connect/send/evalJs 與
@@ -174,6 +175,15 @@ async function main() {
     // 背景模糊 video，量到它會得到一個看似合理但 ~15% 錯的數字，見 CLAUDE.md「UI 驗證的
     // 陷阱」）。wrapper 的 parentElement 就是 Player.tsx 的 ResizeObserver 實際觀測的
     // stage 容器,量它的寬才是 ground truth。
+    //
+    // ⚠️ 這項檢查證明的範圍很窄,別過度解讀:它只讀 matrix(a,b,c,d,e,f) 的 **a**（scaleX）,
+    // 不看 d（scaleY）、不看 e/f（平移）、也不看 transform-origin。做過對抗性驗證——
+    // 刻意把整層改成 transformOrigin: 'center'（整片位移 391×696px）、把 transform 改成
+    // scale(a, a*1.5)（垂直比例錯掉），這段量測**照樣回報 0.000%**。
+    // 它是一個貨真價實的獨立量測（新鮮的 getBoundingClientRect vs 解析出來的矩陣，
+    // 不是把同一個值比對自己），但它成立的命題是「ResizeObserver 拿到的寬不是舊值、
+    // 除數確實是 1080」，**不是**「預覽跟匯出成品對齊」。後者只能真的 render 一次比像素,
+    // 目前沒有任何自動化在做這件事。
     console.log('檢查 1：縮放正確');
     const scaleResult = await evalJs(`(() => {
       const wrapper = [...document.querySelectorAll('div')].find((d) => {
@@ -216,23 +226,29 @@ async function main() {
     // 兩項共用同一次連續拖曳（先小幅移動、確認水平置中導線出現，再繼續拖遠、放手），
     // 貼近真實使用者的拖曳手感,也避免各自獨立拖曳時「第一次拖完的殘留位置」影響第二次
     // 判斷「是否還在置中附近」的前提。
-    console.log('檢查 2/3：拖曳 overlay（導線 + 位置持久化）');
+    console.log('檢查 2/3：拖曳 overlay（導線 + 落點正確且持久化）');
     const ov = await evalJs(`(() => {
       const el = document.querySelector('[data-ov-id]');
       if (!el) return null;
       const r = el.getBoundingClientRect();
-      return { id: el.dataset.ovId, cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+      return {
+        id: el.dataset.ovId,
+        cx: r.left + r.width / 2,
+        cy: r.top + r.height / 2,
+        w: r.width,
+        h: r.height,
+      };
     })()`);
     if (!ov) {
       console.log('  ✗ DOM 裡沒有任何 [data-ov-id] overlay 可拖（前置條件不成立）');
-      failures.push('導線出現', '拖曳位置持久化');
+      failures.push('導線出現', '拖曳落點正確');
     } else {
       const before = await fetchProject();
       const beforeOv = before.doc.tracks.overlays.find((o) => o.id === ov.id);
       const beforePos = beforeOv?.position;
       if (!beforePos) {
         console.log(`  ✗ /api/project 裡找不到 overlay ${ov.id}（前置條件不成立）`);
-        failures.push('導線出現', '拖曳位置持久化');
+        failures.push('導線出現', '拖曳落點正確');
       } else {
         // Input.dispatchMouseEvent 用真的滑鼠事件（不是 el.dispatchEvent 那種合成 JS
         // 事件）——Chrome 會照真實硬體輸入路徑轉成 PointerEvent，setPointerCapture 才會
@@ -282,7 +298,16 @@ async function main() {
         // （兩者都離水平置中候選 540 夠遠、不會誤觸吸附,兩個目標本身也不可能相等),
         // 保證「拖曳前」與「拖曳後」的 x 座標永遠不同,不管這支腳本已經被跑過幾次。
         const targetXFrac = beforePos.x < 0.5 ? 0.75 : 0.25;
-        const targetYFrac = 0.3; // 遠離上/下安全邊距與垂直置中候選,不會被吸附影響終值
+        // y 的目標不能隨便挑一個「看起來在中間」的數字（原本寫死 0.3 就是）:
+        // position.y 的錨點是圖的**上緣**（x 才是水平中心,見 dragLayer.ts 開頭註解),
+        // 所以上緣的合法上限是 1 - bboxH/1920——demo 這張近乎滿版高的圖只有 ~0.1。
+        // 目標若落在合法區間外,clampAxis 會把它拉回來,而我們就會斷言在一個不可能達到
+        // 的落點上（等於斷言一個 bug）。改成從實際量到的 bbox 高度算出合法區間,取區間的
+        // 20% / 80% 兩個位置交替瞄準:兩者都離三個垂直吸附候選（中心/上安全邊/下安全邊,
+        // threshold 16 畫布 px）夠遠,且每跑一次都會換一邊,重跑不會收斂到同一點。
+        const bboxHCanvas = ov.h / scale;
+        const yHi = Math.max(0, 1 - bboxHCanvas / 1920);
+        const targetYFrac = beforePos.y < yHi / 2 ? yHi * 0.8 : yHi * 0.2;
         const bigDx = (targetXFrac * 1080 - beforePos.x * 1080) * scale;
         const bigDy = (targetYFrac * 1920 - beforePos.y * 1920) * scale;
         await send('Input.dispatchMouseEvent', {
@@ -306,11 +331,22 @@ async function main() {
         await sleep(500);
         const after = await fetchProject();
         const afterPos = after.doc.tracks.overlays.find((o) => o.id === ov.id)?.position;
-        const changed = !!afterPos && (afterPos.x !== beforePos.x || afterPos.y !== beforePos.y);
+        // 斷言的是「落在**指定的目標**上」,不是「有變」。只驗「有變」的話,錨點慣例
+        // 寫反（x 用左緣、y 用中心）、dx/dy 少一個負號、螢幕 px↔畫布 px 的 scale 換算
+        // 乘反,每一種都照樣讓座標「變了」——而 x 是圖的水平中心、y 卻是上緣這個不對稱
+        // 正是這個專案唯一一次線上事故的成因（見 shared/src/snap.ts 開頭）。
+        // 容差 6 畫布 px：合成滑鼠座標會被四捨五入,送出前又 toFixed(4);任何錨點/正負號/
+        // 縮放層級的錯誤都是幾十到幾百 px 級,不會躲在這個容差裡。
+        const TOL_CANVAS_PX = 6;
+        const errX = afterPos ? Math.abs(afterPos.x - targetXFrac) * 1080 : Infinity;
+        const errY = afterPos ? Math.abs(afterPos.y - targetYFrac) * 1920 : Infinity;
+        const landed = errX <= TOL_CANVAS_PX && errY <= TOL_CANVAS_PX;
         console.log(
-          `  ${changed ? '✓' : '✗'} /api/project 裡 overlay ${ov.id} 的位置真的變了：before=${JSON.stringify(beforePos)} after=${JSON.stringify(afterPos)}`,
+          `  ${landed ? '✓' : '✗'} /api/project 裡 overlay ${ov.id} 落在指定目標上：` +
+            `before=${JSON.stringify(beforePos)} target={"x":${targetXFrac.toFixed(4)},"y":${targetYFrac.toFixed(4)}} ` +
+            `after=${JSON.stringify(afterPos)} 誤差=${errX.toFixed(1)}×${errY.toFixed(1)} 畫布 px`,
         );
-        if (!changed) failures.push('拖曳位置持久化');
+        if (!landed) failures.push('拖曳落點正確');
       }
 
       // ---- 檢查 4：拖曳中 playhead 離開項目的時間窗，不得「盲拖」 ----
