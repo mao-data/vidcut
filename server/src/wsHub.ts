@@ -99,7 +99,11 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
             const result = applyCommand(store, 'human', resolved);
             if (!result.ok) send(ws, { type: 'commandError', reqId, error: result.error });
           } catch (e) {
-            send(ws, { type: 'commandError', reqId, error: `字卡產生失敗：${(e as Error).message}` });
+            send(ws, {
+              type: 'commandError',
+              reqId,
+              error: `字卡產生失敗：${(e as Error).message}`,
+            });
           }
         };
         commandQueue = commandQueue.then(run, run);

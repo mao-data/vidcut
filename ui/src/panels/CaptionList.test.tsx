@@ -60,7 +60,10 @@ afterEach(() => {
 
 describe('CaptionList — typing pipeline', () => {
   it('typing sends no command (stage 1 is local-only, never reaches sendCommand)', () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse({ hash: 'h' }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(jsonResponse({ hash: 'h' }))),
+    );
     seedProject();
     const { container } = render(<CaptionList />);
     const input = startEdit(container, 'first line');
@@ -183,7 +186,10 @@ describe('CaptionList — typing pipeline', () => {
   });
 
   it('draft cleared on Escape', () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse({ hash: 'h' }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(jsonResponse({ hash: 'h' }))),
+    );
     seedProject();
     const { container } = render(<CaptionList />);
     const input = startEdit(container, 'first line');

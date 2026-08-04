@@ -18,7 +18,11 @@ async function setup() {
     d.tracks.captions = [
       { id: 'c1', text: '第一句', start: 0, duration: 1, style: DEFAULT_CAPTION_STYLE },
       {
-        id: 'c2', text: '第二句', start: 1, duration: 1, style: DEFAULT_CAPTION_STYLE,
+        id: 'c2',
+        text: '第二句',
+        start: 1,
+        duration: 1,
+        style: DEFAULT_CAPTION_STYLE,
         tokens: [
           { text: '第二', start: 1, end: 1.5 },
           { text: '句', start: 1.5, end: 2 },
