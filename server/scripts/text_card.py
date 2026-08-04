@@ -3,7 +3,13 @@
 
 用法：讀 stdin 的 JSON：
   {"out": "...png", "text": "字幕", "fontSize": 64, "fill": "#ffffff",
-   "stroke": "#000000"|null, "width": 1080}
+   "stroke": "#000000"|null, "width": 1080, "margin": 54}
+
+自動換行：可用寬 = width - margin*2。`margin` 由呼叫端算（TS 那側是
+`cardMargin(width, maxWidthFrac)`，見 server/src/rasterizer.ts），省略時退回
+`max(32, width // 20)`（＝ 1080 寬時的 maxWidthFrac 0.9）。有無 tokens 都會換行：
+CJK 逐字、拉丁在空白處（不切進單字中間）、真的 `\n` 強制換行、
+單一原子超寬時逐字硬切（見 wrap_text / break_overwide）。
 
 逐詞高亮（karaoke）時額外給：
   {"tokens": ["這","隻","貓"], "activeIndex": 1, "highlight": "#FCDE5A"}
@@ -63,6 +69,100 @@ def separator(prev: str, nxt: str) -> str:
     return "" if is_cjk(prev[-1]) or is_cjk(nxt[0]) else " "
 
 
+# 不得置於行首的字元（中文標點禁則的最小版本）。這些字在切「原子」時會被黏回
+# 前一個原子，所以永遠不會變成某一行的開頭。**只做「行首禁則」**：
+# 「開頭引號不得置於行尾」（「（《…）沒有做，那需要往後看一個原子的預讀，
+# 而且會讓「每個原子至少消耗一次迴圈」的收斂論證變複雜——刻意留白，不是漏掉。
+NO_BREAK_BEFORE = "。，、．：；！？）〕］｝」』〉》】…—～·%!?,.:;)]}"
+
+
+def _atom_class(ch: str) -> str:
+    if ch.isspace():
+        return "space"
+    return "cjk" if is_cjk(ch) else "word"
+
+
+def split_atoms(s: str):
+    """段落 → 不可再拆的排版單位（原子）。回傳 [(text, cls), ...]。
+
+    - **CJK 逐字**：中文可以在任意兩字之間換行，所以每個漢字/假名/全形標點自成一個原子。
+    - **拉丁整個單字**：連續的非空白、非 CJK 字元合成一個原子 → 換行不會切進單字中間。
+    - **空白成串**：只是換行機會本身，換到下一行時會被丟掉（不帶到行首）。
+    - 行首禁則字元（見 NO_BREAK_BEFORE）黏回前一個原子。
+
+    只做合併、不做拆分 → 原子數 ≤ 字元數，這是 cardBudget.ts 上界估算的依據。
+    """
+    atoms = []  # [(text, cls)]
+    for ch in s:
+        # 禁則字元黏回前一個原子——但**不能黏到空白原子上**：空白原子在行首會被整個丟掉，
+        # 黏上去等於把這個標點一起吞掉（實測 " 。" 曾經整段變成空字串）。
+        if atoms and atoms[-1][1] != "space" and ch in NO_BREAK_BEFORE:
+            atoms[-1] = (atoms[-1][0] + ch, atoms[-1][1])
+            continue
+        cls = _atom_class(ch)
+        # CJK 永遠自成一個原子；word/space 與同類的前一個原子合併
+        if cls != "cjk" and atoms and atoms[-1][1] == cls:
+            atoms[-1] = (atoms[-1][0] + ch, cls)
+        else:
+            atoms.append((ch, cls))
+    return atoms
+
+
+def break_overwide(draw, atom: str, font, max_width: float):
+    """單一原子自己就超過可用寬時（超長英文網址、maxWidthFrac 調到極小…）的退路：
+    逐字硬切（等同 CSS 的 break-word）。
+
+    為什麼不是「讓它整條溢出」：那正是這次要修的舊行為——文字被畫布邊緣裁掉，
+    使用者看不到也收不到警告。硬切至少每個字都看得見。
+    **每一段保證至少放一個字元**，所以一定收斂（不會無窮迴圈），
+    代價是「單一字元本身就比可用寬還寬」時該行仍會溢出——那已經無解，
+    但溢出的只有一個字。
+    """
+    if draw.textlength(atom, font=font) <= max_width:
+        return [atom]
+    out, cur = [], ""
+    for ch in atom:
+        if cur and draw.textlength(cur + ch, font=font) > max_width:
+            out.append(cur)
+            cur = ch
+        else:
+            cur += ch
+    if cur:
+        out.append(cur)
+    return out
+
+
+def wrap_text(draw, text: str, font, max_width: float):
+    """沒有 tokens 時的自動換行（貪婪填行）。回傳每一行的字串。
+
+    - 真的 `\\n` 一律強制換行（原本唯一的行為，維持不變）。
+    - 段落內依 split_atoms 給的換行機會貪婪填行；量測與繪製用同一套 textlength。
+    - 換行點上的空白丟掉（不會讓下一行以空白開頭，也不會讓上一行尾端多一段
+      看不見的寬度而害置中偏移）。
+
+    **行數上界**：每一行至少含一個非空白字元，且各行不重複使用同一個字元
+    → 行數 ≤ max(1, 段落內字元數)。`server/src/cardBudget.ts` 的預算估算就是靠這條。
+    """
+    lines = []
+    for para in text.split("\n"):
+        cur = ""
+        emitted = 0
+        for atom, cls in split_atoms(para):
+            if cls == "space":
+                if cur:
+                    cur += atom  # 尾端空白先留著，真的換行時再 rstrip 掉
+                continue
+            for piece in break_overwide(draw, atom, font, max_width):
+                if cur and draw.textlength(cur + piece, font=font) > max_width:
+                    lines.append(cur.rstrip())
+                    emitted += 1
+                    cur = ""
+                cur += piece
+        if cur or emitted == 0:
+            lines.append(cur.rstrip())  # 空段落（連續 \n）仍佔一行，與舊行為一致
+    return lines
+
+
 def layout_tokens(draw, tokens, font, max_width):
     """貪婪換行。回傳 [[(token, x, index), ...], ...]，每個內層 list 是一行。
 
@@ -117,10 +217,17 @@ def render_cards(cfg, font_cache):
     measure = ImageDraw.Draw(tmp)
     line_h = size + max(6, size // 5)
 
+    # 可用寬（換行寬）：兩條路徑共用同一個式子，才不會出現「karaoke 折在這裡、
+    # 一般文字折在別的地方」。max(1, ...) 只是防呆：margin 由呼叫端給，
+    # width 很小時（下限 16）CLI 的預設 margin 可能大於半個寬。
+    max_width = max(1, width - margin * 2)
+
     if tokens:
-        lines = layout_tokens(measure, tokens, font, width - margin * 2)
+        lines = layout_tokens(measure, tokens, font, max_width)
     else:
-        lines = [[(part, 0.0, -1)] for part in cfg["text"].split("\n")]
+        # 沒有 tokens 也要換行（以前這裡只有 split("\n")，maxWidth 因此是死欄位，
+        # 長文字直接被畫布邊緣裁掉）。
+        lines = [[(part, 0.0, -1)] for part in wrap_text(measure, cfg["text"], font, max_width)]
 
     height = line_h * len(lines) + stroke_w * 2 + 8
     y_start = stroke_w + 4

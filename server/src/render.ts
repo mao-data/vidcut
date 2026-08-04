@@ -8,6 +8,7 @@ import { locate, overlayWindow, totalDuration } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 import { cardRequestError } from './cardBudget.js';
+import { cardMargin } from './rasterizer.js';
 import { capToCardRequest } from './cardSync.js';
 
 /** 渲染進度旁路：'progress' 事件 (0–1)。暫態資料不進版本化 store，由 wsHub 廣播給 UI。 */
@@ -68,6 +69,10 @@ export function renderCaptionCard(
     fill: cap.style.fill,
     stroke: cap.style.stroke ?? null,
     width: canvasWidth,
+    // 換行寬要**明講**，不能靠 python 的預設值：字幕沒有 maxWidth 欄位 → 分數固定 0.9，
+    // 但 python 的預設是 `max(32, width // 20)`，畫布寬 < 640 時與 cardMargin() 不同值。
+    // 不傳的話「預覽=成品」在小畫布上會靜默失效（兩邊折行位置不同 → 不同張 PNG）。
+    margin: cardMargin(canvasWidth),
     fontPath: captionFontResolver(cap.style.fontFamily) ?? null,
     ...(karaoke
       ? {

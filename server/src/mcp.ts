@@ -106,7 +106,19 @@ const overlayTextSchema = z
     fontSize: z.number().positive().max(CARD_LIMITS.fontSizeMax),
     fill: z.string(),
     stroke: z.string().optional(),
-    maxWidth: z.number().min(0.1).max(1).optional(),
+    maxWidth: z
+      .number()
+      .min(CARD_LIMITS.maxWidthFracMin)
+      .max(CARD_LIMITS.maxWidthFracMax)
+      .optional()
+      .describe(
+        '自動換行寬度，相對畫布寬的分數（0.1–1），預設 0.9。' +
+          '文字超過這個寬度會**自動折行**：中文逐字折、英數在空白處折（不會切進單字中間）、' +
+          '字串裡真的 \\n 一律強制換行；單一超長不可斷字串（如網址）會逐字硬切。' +
+          '調小＝更窄更多行，卡片會變高（卡片一律畫布全寬，高度隨行數長）。' +
+          '⚠️ 行數會吃字卡的像素預算，而伺服器這側量不到字寬，只能用「每個字元各佔一行」' +
+          '的最壞情況估算——所以很長的文字可能被拒絕（錯誤訊息會告訴你），縮短文字或縮小 fontSize 即可。',
+      ),
   })
   .strict();
 
@@ -253,7 +265,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '真要轉型請 remove_overlay + add_overlay。' +
         'update_caption 整句平移（duration 不變只改 start）時，該句的 tokens' +
         '（逐詞時間戳＝時間軸絕對秒數）會自動一起平移；修邊（改 duration）則不動詞時間。' +
-        '文字太長或字級太大導致字卡超過像素預算時，寫入會被拒絕（錯誤訊息會寫出估到的尺寸）。' +
+        '文字 overlay 與字幕都會**自動換行**：預設折在畫布寬的 90%（文字 overlay 可用 maxWidth 調），' +
+        '中文逐字折、英數在空白處折、字串裡的 \\n 強制換行——不必自己算要斷在哪。' +
+        '文字太長或字級太大導致字卡超過像素預算時，寫入會被拒絕（錯誤訊息會寫出估到的尺寸；' +
+        '行數是「每個字元各佔一行」的最壞情況上界，實際折出來通常少很多）。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
         '小修單一項目用細粒度工具（update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +

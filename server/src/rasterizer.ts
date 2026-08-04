@@ -19,8 +19,28 @@ export interface CardRequest {
   style: TextCardStyle;
   /** 畫布寬(1080) */
   width: number;
-  /** 換行寬 0–1,預設 0.9(= text_card 既有 margin 預設) */
+  /**
+   * 自動換行的可用寬,相對畫布寬的分數,0–1,預設 0.9。
+   * **真的會折行**(2026-08-04 起):可用寬 = `width - cardMargin() * 2`,
+   * 有無 tokens 都吃這個值。CJK 逐字斷、拉丁在空白處斷(不切進單字中間)、
+   * 真的 `\n` 仍強制換行、單一超寬原子逐字硬切。規則在 `text_card.py` 的
+   * `wrap_text()`。在這之前它只影響 `layout_tokens()`(＝只有 karaoke 字幕),
+   * 對文字 overlay 與一般字幕是死欄位。
+   */
   maxWidthFrac?: number;
+}
+
+/**
+ * 換行寬 → text_card.py 的 `margin`(單側留白 px)。**唯一的換算來源**:預覽路徑
+ * (`rasterize()`)與匯出路徑(`render.ts` 的 `renderCaptionCard`)都得用它,
+ * 兩邊才會折在同一個位置、輸出同一張 PNG。
+ *
+ * 曾經只有預覽端傳 `margin`,匯出端靠 python 的預設 `max(32, width // 20)`
+ * ——1080/720/640 寬時兩式剛好同值(54/36/32),所以「不換行」的年代看不出差別;
+ * 一旦真的折行,畫布寬 < 640 的專案就會出現「預覽折三行、成品折兩行」。
+ */
+export function cardMargin(width: number, maxWidthFrac = 0.9): number {
+  return Math.round((width * (1 - maxWidthFrac)) / 2);
 }
 export interface TokenBox {
   x: number;
@@ -199,7 +219,7 @@ export class PillowRasterizer {
   }
 
   async rasterize(req: CardRequest, outBase: string, outHl?: string): Promise<CardGeometry> {
-    const margin = Math.round((req.width * (1 - (req.maxWidthFrac ?? 0.9))) / 2);
+    const margin = cardMargin(req.width, req.maxWidthFrac ?? 0.9);
     const r = await this.request({
       text: req.text,
       tokens: req.tokens ?? null,

@@ -61,14 +61,21 @@ export interface OverlayText {
   fill: string;
   stroke?: string;
   /**
-   * 原本的語意是「換行寬 0–1 相對畫布，預設 0.9」，**但目前是死欄位**（2026-08-04 實測）：
-   * `text_card.py` 只在 `layout_tokens()` 裡用這個邊界換行，而 `layout_tokens()` 只有帶
-   * tokens 時才會跑；`server/src/textOverlays.ts` 從來不給文字 overlay 塞 tokens，所以
-   * 文字 overlay 走的是 `text.split('\n')` 那條路——**完全不換行**。
-   * 實測：同一段長文字分別給 0.9 與 0.3，產出的 PNG sha256 相同、`lines` 都是 1。
-   * 實際後果：長文字不折行，超出的部分直接被畫布邊緣裁掉（字卡寬度固定＝畫布寬）。
-   * 這個值目前只會進快取 key（換值會重產一張長得一樣的卡），不影響像素。
-   * 真的要換行是之後的工作；在那之前不要拿它當「排版控制項」對外宣傳。
+   * 自動換行寬度，0–1 相對畫布寬，預設 0.9。**真的生效**（2026-08-04 起；
+   * 在那之前它是死欄位，`text_card.py` 只在帶 tokens 的 karaoke 路徑用它，
+   * 文字 overlay 走 `text.split('\n')` 完全不換行，長字直接被畫布邊緣裁掉）。
+   *
+   * 換行規則（實作在 `server/scripts/text_card.py` 的 `wrap_text()`）：
+   * - 可用寬 = `width - cardMargin(width, maxWidth) * 2`（`server/src/rasterizer.ts`，
+   *   預覽與匯出兩條路徑共用同一個換算）。
+   * - CJK 逐字斷；拉丁/數字整個單字為單位，不會切進單字中間；
+   *   換行點上的空白丟掉；行首禁則標點（。，」）…）會黏回前一行。
+   * - 文字裡真的 `\n` 一律強制換行（原本唯一的行為，沒有變）。
+   * - 單一不可斷字串（超長網址、maxWidth 調到極小）比可用寬還長時**逐字硬切**
+   *   （等同 CSS `break-word`），不會溢出被裁掉，也不會無窮迴圈。
+   *
+   * 卡片寬度仍固定＝畫布寬（多的行只讓卡片變高）。改這個值會改變快取 key **也會**
+   * 改變像素——舊卡變孤兒，是預期的。
    */
   maxWidth?: number;
 }

@@ -72,7 +72,7 @@ npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，
 
 **這件事有自動化在守了：`npm run verify:wysiwyg`**（`ui/e2e/preview-vs-export.mjs`）
 會真的 render 一支影片、抽幀量墨跡外框，再用 headless Chromium 截同一時刻的預覽畫面、
-換算回 1080×1920 座標量同一個外框，兩邊比。**現在三項全綠（最大差 1.0px，容差 4）**——
+換算回 1080×1920 座標量同一個外框，兩邊比。**現在四項全綠（最大差 1.0px，容差 4）**——
 任何一項轉紅都是真的回歸，先看 `measure/` 裡的 PNG，不要動斷言。
 
 - ✅ **字幕（無逐詞高亮）**：預覽與匯出走同一支 `text_card.py`、同一份參數，輸出 PNG
@@ -96,16 +96,45 @@ npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，
   會把**下一個還沒唸到的詞**露出約 4px 的高亮色；(b) 兩層 alpha 疊合讓描邊的反鋸齒邊變厚。
   實測單行 6 詞 CJK（64px、有描邊）各高亮狀態差 793–2764 個像素，最大單通道差 255。
 
-順帶一提另一個「文件寫了但不存在」的行為：**`OverlayText.maxWidth` 是死欄位**。
-`server/scripts/text_card.py` 只在 `layout_tokens()` 裡用它折行，而 `layout_tokens()`
-只有請求帶 `tokens` 時才跑，`server/src/textOverlays.ts` 從不給文字 overlay 塞 tokens。
-實測同一段長文字給 0.9 與 0.3，輸出 PNG 的 sha256 相同、`lines` 都是 1。
-**文字 overlay 與字幕都不會自動換行**，只認真的 `\n`；太長的字直接被畫布邊緣裁掉。
-
 還有一顆未爆彈：`server/src/render.ts` 在「ffmpeg 有 drawtext **且**沒有 karaoke」時會走
-**原生 `drawtext` 分支**——那條路沒有 `fontfile=`、不換行，是完全不同的光柵器。本機
-ffmpeg 沒有 freetype 所以踩不到；換一台有 freetype 的機器，「預覽=成品」會**靜默**失效，
-目前沒有任何測試或 assertion 擋著。
+**原生 `drawtext` 分支**——那條路沒有 `fontfile=`、不換行（連 `\n` 都不處理），是完全不同的
+光柵器。本機 ffmpeg 沒有 freetype 所以踩不到；換一台有 freetype 的機器，「預覽=成品」會
+**靜默**失效，目前沒有任何測試或 assertion 擋著。**自動換行上線後這顆彈更大了**：字卡路徑
+現在會折行，drawtext 分支還是單行——兩條路的差別從「字型不同」變成「排版整個不同」。
+
+## 自動換行（2026-08-04；`OverlayText.maxWidth` 從死欄位變成真的生效）
+
+在這之前 **`maxWidth` 是死欄位**：`text_card.py` 只在 `layout_tokens()` 裡用它折行，
+而 `layout_tokens()` 只有請求帶 `tokens` 時才跑（＝只有 karaoke 字幕），
+`server/src/textOverlays.ts` 從不給文字 overlay 塞 tokens。實測同一段長文字給 0.9 與 0.3，
+輸出 PNG 的 sha256 相同、`lines` 都是 1——**文字 overlay 與字幕都不會換行，
+太長的字直接被畫布邊緣裁掉，而且沒有任何警告**。
+
+現在無 tokens 的路徑也會折行（`text_card.py` 的 `wrap_text()`）：
+
+- 可用寬 = `width - cardMargin(width, maxWidthFrac) * 2`；`cardMargin()` 在
+  `server/src/rasterizer.ts`，是**唯一**的換算來源。預覽（rasterizer worker）與匯出
+  （`render.ts` 自己 spawn 的 CLI）都得用它——匯出端以前不傳 `margin`、靠 python 的預設
+  `max(32, width // 20)`，那兩式只在畫布寬 ≥ 640 時同值，小畫布一折行就會分岔。
+- **CJK 逐字折、拉丁整個單字為單位**（不切進單字中間）、換行點的空白丟掉、
+  行首禁則標點（。，」）…）黏回前一行；**真的 `\n` 仍然強制換行**。
+- 單一不可斷字串（超長網址、`maxWidth` 調到極小）比可用寬還長 → **逐字硬切**
+  （等同 CSS `break-word`）。不會溢出被裁掉、不會無窮迴圈；只有「單一字元本身就比
+  可用寬還寬」時該行才會溢出，而且只溢出一個字。
+- ⚠️ **`server/src/cardBudget.ts` 的行數估算改成「每個字元各佔一行」的上界。**
+  折行之後一行長文字可以變成幾百行，舊的 `split('\n').length` 會**低估**，像素預算就
+  不再是保證（那個預算擋的是實測 40 GB／17 分鐘的 payload）。Node 這側沒有字型量測，
+  所以只能取上界——代價是**很長的文字會被誤拒**（1080 寬、fontSize 64 時上限約 146 字，
+  即使實際只會折成十行）。這個上界在「可用寬只放得下一個字」時會被真的打到
+  （`textCards.test.ts` 有測試釘住等號），不是隨手放大的保險係數。
+- ⚠️ **副作用（預期內）**：已存專案裡被裁掉的長文字現在會折行 → 字卡變高、
+  hash 改變（內容定址，舊 PNG 變孤兒檔）。`projects/demo` 的 `try_text`（「拖我 213」，
+  200px）實測寬 783 < 可用寬 918 → 仍是一行、PNG 位元組完全相同，不受影響。
+- 回歸守門：`npm run verify:wysiwyg` 有一個「長文字自動換行」的 case（`ov_wrap`，
+  maxWidth 0.7，t=3.5s）；`server/test/rasterizer.test.ts` 有一組行為測試（折行點 ≡ 手打 `\n`
+  的 PNG 位元組相同）。**文字 overlay 的預覽與成品吃的是同一張 PNG**，所以
+  `verify:wysiwyg` 的兩邊比對本身抓不到「換行沒實作」——那一項另外釘住了成品側的
+  墨跡形狀（高 ≥ 2 行、寬 ≤ 可用寬），拿掉換行就會當場失敗。
 
 ## 鐵則
 

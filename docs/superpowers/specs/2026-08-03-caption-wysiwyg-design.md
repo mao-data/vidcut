@@ -119,7 +119,7 @@ interface CardRequest {
   tokens?: string[];          // 逐詞(karaoke);無則整段
   style: TextCardStyle;       // fontFamily/fontSize/fill/stroke/highlight
   width: number;              // 畫布寬(1080)
-  maxWidthFrac?: number;      // 0–1,換行寬度,預設 0.9(文字 overlay 用;字幕沿用預設)
+  maxWidthFrac?: number;      // 0–1,換行寬度,預設 0.9(2026-08-04 起真的會折行,見 §6)
 }
 interface CardGeometry {
   width: number; height: number; lines: number;
@@ -220,25 +220,47 @@ interface OverlayText {
   fontSize: number;
   fill: string;
   stroke?: string;
-  maxWidth?: number; // 0–1 相對畫布,預設 0.9 —— ⚠️ 目前是死欄位,見下
+  maxWidth?: number; // 0–1 相對畫布,預設 0.9 —— 自動換行寬,見下
 }
 ```
 
-> **`maxWidth` 目前不生效(2026-08-04 實測)**:`text_card.py` 只在 `layout_tokens()`
-> 裡用這個邊界折行,而 `layout_tokens()` 只有請求帶 `tokens` 時才會跑;
-> `server/src/textOverlays.ts` 的 `overlayTextToCardRequest()` **從不設 `tokens`**,
-> 所以文字 overlay 一律走 `text.split('\n')` 那條路——**完全不自動換行**,長文字
-> 直接被畫布邊緣裁掉(字卡寬度固定＝畫布寬)。實測:同一段長文字分別給
-> `maxWidthFrac` 0.9 與 0.3,兩個 hash 不同但輸出 PNG 的 sha256 相同、`lines` 都是 1。
-> 這個值目前唯一的作用是進快取 key。§2「單色文字塊(改字/字型/字級/顏色/描邊/**換行**)」
-> 的「換行」這一項因此尚未兌現;真的實作換行是之後另開的批次,本文件先把現況寫實。
-> 同一件事也記在 `shared/src/types.ts` 的 `OverlayText.maxWidth` 註解與 `HANDOFF.md`。
-> MCP schema(`server/src/mcp.ts` 的 `overlayTextSchema`)仍把 `maxWidth` 開成
-> `z.number().min(0.1).max(1).optional()` 且沒有任何 `.describe()` 說明它不生效——
-> AI 呼叫端只會看到一個「可以調的換行寬」,一併待修(改 schema 屬行為/介面變更,
-> 不在本次文件校對的範圍)。
-> (`server/src/rasterizer.ts` 的 `maxWidthFrac` 註解同樣只寫「換行寬」;
-> `server/src/cardBudget.ts` 則已經寫對——它明講「沒有 tokens 時 python 完全不換行」。)
+> **`maxWidth` 的落地備註(2026-08-04 實作完成)**
+>
+> 這個欄位曾經是**死欄位**:`text_card.py` 只在 `layout_tokens()` 裡用它折行,而
+> `layout_tokens()` 只有請求帶 `tokens` 時才會跑;`overlayTextToCardRequest()` **從不設
+> `tokens`**,所以文字 overlay 一律走 `text.split('\n')`——完全不換行,長文字直接被畫布
+> 邊緣裁掉(實測:同一段長文字給 0.9 與 0.3,兩個 hash 不同但 PNG 的 sha256 相同、
+> `lines` 都是 1)。§2「單色文字塊(…/**換行**)」的「換行」因此一直沒有兌現。
+>
+> **現在兌現了。** `text_card.py` 新增 `wrap_text()`,無 tokens 的路徑也折行:
+>
+> - 可用寬 = `width - cardMargin(width, maxWidthFrac) * 2`。`cardMargin()` 在
+>   `server/src/rasterizer.ts`,是**唯一**的換算來源——預覽路徑與匯出路徑
+>   (`render.ts` 自己 spawn 的 CLI,以前不傳 `margin`、靠 python 預設
+>   `max(32, width // 20)`)都用它,兩式只在畫布寬 ≥ 640 時同值,不統一的話
+>   小畫布專案會「預覽折三行、成品折兩行」。
+> - CJK 逐字折;拉丁/數字整個單字為單位(不切進單字中間);換行點的空白丟掉;
+>   行首禁則標點黏回前一行;真的 `\n` 仍強制換行。
+> - 單一不可斷字串超過可用寬 → **逐字硬切**(等同 CSS `break-word`):保證收斂、
+>   不溢出被裁掉。**沒做**「開頭引號不得置於行尾」(需要往後預讀一個原子,
+>   會讓收斂論證變複雜),刻意留白。
+> - `layout_tokens()`(karaoke)沒有改行為,只是與一般文字共用同一個 `max_width`。
+>
+> **像素預算被迫變保守**:`server/src/cardBudget.ts` 的行數估算從 `split('\n').length`
+> 改成 `maxWrappedLines()`(每個字元最壞情況各佔一行)。折行之後一行長文字可以變成
+> 幾百行,舊式子會**低估**,預算就不再是保證。Node 這側沒有字型量測,只能取上界;
+> 代價是很長的文字會被誤拒(1080 寬、fontSize 64 約 146 字)。這個上界**可以被打到**
+> (可用寬只放得下一個字時實際行數＝字元數),不是隨手放大的保險係數。
+> 要拿回精確度得把判斷搬到 python(排完版、`Image.new` 之前),那會讓
+> `cardRequestError` 變成非同步——不在本次範圍。
+>
+> MCP schema(`server/src/mcp.ts` 的 `overlayTextSchema.maxWidth`)以前**完全沒有
+> `.describe()`**,AI 呼叫端只看得到一個「可以調的換行寬」;現在補上了換行規則與
+> 「行數估算是上界、可能被拒」的說明,server `instructions` 也同步。
+> `shared/src/types.ts` 的 `OverlayText.maxWidth` 註解、`server/src/rasterizer.ts` 的
+> `maxWidthFrac` 註解、`CLAUDE.md` 與 `HANDOFF.md` 一併更新。
+> 回歸守門:`npm run verify:wysiwyg` 的 `ov_wrap` case(多行 + CJK,本檔第一個)與
+> `server/test/rasterizer.test.ts` 的一組行為測試(折行點 ≡ 手打 `\n` 的 PNG 位元組相同)。
 
 - 既有排名 PNG 無 `text` 欄位,行為完全不變(向下相容免費)。
 - **不新增命令**:`updateOverlay` patch 型別擴大到含 `text`(以及既有的

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdir, mkdtemp, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
@@ -289,14 +289,20 @@ describe('HTTP: /text-card/*', () => {
 
 // 像素預算的可信度完全建立在「Node 這側估的高度 ≥ python 真的畫出來的高度」上。
 // 估算式一旦跟 text_card.py 的 render_cards 漂開，預算就變成一個好看的假數字。
-describe('estimateCard 與 text_card.py 的實際幾何一致', () => {
+//
+// ⚠️ 2026-08-04（自動換行上線）之後這裡從「等號」改成「上界」：python 的無 tokens 路徑
+// 現在會折行，一行長文字可以變成幾百行，而 Node 這側量不到字寬。`estimateCard` 因此
+// 改成「每個字元最壞情況各佔一行」的上界（見 cardBudget.ts 的 maxWrappedLines）。
+// **不要**把這些斷言改回 `toBe`：那等於要求估算式精確重現 Pillow 的字型量測，做不到，
+// 而且改回去的當下預算就會開始低估。
+describe('estimateCard ≥ text_card.py 的實際幾何（上界，不是等號）', () => {
   const cases: Array<[string, CardRequest]> = [
     [
       '單行',
       { text: '一行字', style: { fontFamily: 'x', fontSize: 64, fill: '#fff' }, width: 1080 },
     ],
     [
-      '多行（無 tokens：python 完全不換行，行數＝\\n 數+1，這條路徑就是漏洞所在）',
+      '多行（每個 \\n 一定是一行）',
       {
         text: 'a\nb\nc\nd\ne',
         style: { fontFamily: 'x', fontSize: 48, fill: '#fff' },
@@ -315,15 +321,53 @@ describe('estimateCard 與 text_card.py 的實際幾何一致', () => {
       '小字級（line_h 的 max(6, size//5) 分支）',
       { text: 'a\nb', style: { fontFamily: 'x', fontSize: 10, fill: '#fff' }, width: 720 },
     ],
+    [
+      '長中文（真的會折行的那種）',
+      {
+        text: '這是一段很長的中文字幕測試自動換行行為，混合 Latin words 與中文標點。',
+        style: { fontFamily: 'x', fontSize: 64, fill: '#fff' },
+        width: 1080,
+      },
+    ],
+    [
+      '超長不可斷單字（逐字硬切）',
+      {
+        text: 'x'.repeat(120),
+        style: { fontFamily: 'x', fontSize: 48, fill: '#fff' },
+        width: 1080,
+        maxWidthFrac: 0.3,
+      },
+    ],
   ];
   for (const [name, req] of cases) {
-    it(`${name}：估算高度 = 實際高度`, async () => {
+    it(`${name}：估算高度 ≥ 實際高度`, async () => {
       const dir = await mkdtemp(join(tmpdir(), 'vidcut-est-'));
       const geo = await raster.rasterize(req, join(dir, 'e.base.png'));
-      expect(estimateCard(req).height).toBe(geo.height);
-      expect(estimateCard(req).pixels).toBe(geo.width * geo.height);
+      const est = estimateCard(req);
+      expect(est.lines).toBeGreaterThanOrEqual(geo.lines);
+      expect(est.height).toBeGreaterThanOrEqual(geo.height);
+      expect(est.pixels).toBeGreaterThanOrEqual(geo.width * geo.height);
     }, 30_000);
   }
+
+  // 這條是上界說明裡「可以被打到」那句話的證據。沒有它，`maxWrappedLines` 看起來
+  // 只是一個隨手放大的保險係數，下一個人就會想「一定過度保守吧」而把它調鬆。
+  // 構造：可用寬 = 1080 × 0.1 = 108px < 一個 512px 的 CJK 字（全形＝1em）
+  // → 每個字真的各佔一行 → 實際行數 = 字元數 = 上界，等號成立。
+  it('最壞情況會打到上界（每個字元各佔一行）——證明它不是隨手放大的保險係數', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-est-worst-'));
+    const req: CardRequest = {
+      text: '一二三四五六七八九十',
+      style: { fontFamily: 'x', fontSize: 512, fill: '#fff' },
+      width: 1080,
+      maxWidthFrac: 0.1,
+    };
+    const est = estimateCard(req);
+    expect(est.lines).toBe(10);
+    const geo = await raster.rasterize(req, join(dir, 'w.base.png'));
+    expect(geo.lines).toBe(est.lines); // 等號：再緊一點的估算就會低估
+    expect(geo.width * geo.height).toBe(est.pixels);
+  }, 30_000);
 
   it('有 tokens 時估算是上界（每行至少一個詞）——寧可高估，絕不低估', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vidcut-est-tok-'));
@@ -380,8 +424,11 @@ describe('TextCardService.ensure 的像素預算（所有產卡路徑的最後�
     const svc = new TextCardService(dir, raster);
     // 1080 寬、fontSize 64（line_h 76）→ 157 行 = 11,940px 高 ≈ 12.9 Mpx（超標，用來卡上界）
     const overLines = 156;
+    // 每段刻意只有**一個字元**：這樣「上界行數」＝「實際行數」＝ 段落數，
+    // 邊界才卡得準。（自動換行上線後估算改成逐字元上界，用「第123行」這種
+    // 多字元段落會讓上界＝字元數，邊界就不是行數了。）
     const under: CardRequest = {
-      text: Array.from({ length: 145 }, (_, i) => `第${i}行`).join('\n'),
+      text: Array.from({ length: 145 }, () => '字').join('\n'),
       style: { fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
       width: 1080,
     };
@@ -392,7 +439,7 @@ describe('TextCardService.ensure 的像素預算（所有產卡路徑的最後�
     // 多幾行就越界 → 拒絕（邊界兩側都驗過，不是只驗一邊）
     const over: CardRequest = {
       ...under,
-      text: Array.from({ length: overLines }, (_, i) => `第${i}行`).join('\n'),
+      text: Array.from({ length: overLines }, () => '字').join('\n'),
     };
     expect(estimateCard(over).pixels).toBeGreaterThan(MAX_CARD_PIXELS);
     await expect(svc.ensure(over)).rejects.toThrow(/too large/);
@@ -437,5 +484,43 @@ describe('render 的字卡也吃同一份預算（保護改動前存下來的舊
       1080,
     );
     expect((await stat(join(dir, rel))).size).toBeGreaterThan(0);
+  }, 30_000);
+});
+
+/**
+ * 自動換行讓「匯出端的 margin 從哪來」第一次變成看得見的事。
+ *
+ * 匯出路徑（render.ts 自己 spawn `text_card.py`）以前**不傳 margin**，靠 python 的
+ * 預設 `max(32, width // 20)`；預覽路徑（rasterizer）傳的是 `cardMargin(width, 0.9)`
+ * ＝ `round(width * 0.05)`。兩式在 width ≥ 640 時剛好同值（1080→54、720→36、640→32），
+ * 所以「不換行」的年代永遠看不出差別。畫布寬 < 640 時兩式會分岔（500 → 25 vs 32），
+ * 一旦真的折行就會變成「預覽折三行、成品折兩行」——這是本分支招牌宣稱的直接破口，
+ * 而且只在小畫布的專案上出現，最容易漏掉。
+ */
+describe('小畫布寬時匯出字卡與預覽字卡仍然是同一張圖（換行寬同源）', () => {
+  it('canvas width 500：renderCaptionCard 與 rasterize 的 PNG 位元組相同，且真的折行了', async () => {
+    const width = 500; // python 預設 margin = max(32, 25) = 32；cardMargin(500) = 25
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-margin-'));
+    await mkdir(join(dir, 'derived', 'captions'), { recursive: true });
+    // fontSize 45 刻意挑過：全形字 advance 恰好 45px，可用寬 450（cardMargin）放得下
+    // 整整 10 字、436（python 預設 margin 32）只放得下 9 字 → 兩式會折出 2 行 vs 3 行。
+    // 換成 48 之類的字級兩邊都是 9 字/行，這條測試就會變成永遠通過的假斷言。
+    const cap: CaptionItem = {
+      id: 'narrow',
+      text: '一二三四五六七八九十壹貳參肆伍陸柒捌玖拾',
+      start: 0,
+      duration: 2,
+      style: { fontFamily: 'Heiti TC', fontSize: 45, fill: '#ffffff', y: 0.8 },
+    };
+    const rel = await renderCaptionCard(dir, cap, width);
+    const previewPath = join(dir, 'preview.png');
+    const geo = await raster.rasterize(capToCardRequest(cap, width), previewPath);
+    // 這條卡真的被折過（否則兩邊相同只是因為「都只有一行」，斷言就沒有鑑別力）
+    expect(geo.lines).toBeGreaterThan(1);
+    const [exportBuf, previewBuf] = await Promise.all([
+      readFile(join(dir, rel)),
+      readFile(previewPath),
+    ]);
+    expect(exportBuf.equals(previewBuf)).toBe(true);
   }, 30_000);
 });

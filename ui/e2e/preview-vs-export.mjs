@@ -16,9 +16,9 @@
  * 「上一次的終點變成下一次的起點」的坑在這裡不存在）。
  * Chrome 路徑可用 CHROME_BIN 覆寫；視窗尺寸可用 VIDCUT_VIEWPORT（如 1400x1000）。
  *
- * ⚠️ 這支腳本**現在應該是紅的**：overlay 的兩項是已知缺陷（見 CLAUDE.md
- * 「『預覽即成品』的實際範圍」），字幕那項應該綠。字幕也紅＝量測本身壞了，先修腳本；
- * overlay 兩項綠＝斷言鬆掉了，也是腳本壞了。
+ * ⚠️ 這支腳本**現在應該是全綠的**（四個 case）。任何一項轉紅都是真的回歸：
+ * 字幕那項紅＝量測本身壞了（兩邊同一張 PNG、同一個位置），先修腳本不要動斷言；
+ * overlay 三項紅＝幾何落差回來了，先看 `measure/` 裡的 PNG。
  *
  * CDP 那段（findChrome/connect/send/evalJs 與 failures/exit code 慣例）是照抄
  * ui/e2e/canvas-direct.mjs 的——刻意不抽共用模組：抽了就得改 canvas-direct.mjs，
@@ -202,8 +202,9 @@ async function mcp(name, args) {
 /**
  * 專門為了「量得準」而設計的素材：純深灰滿版直式影片（沒有 testsrc2 的花紋，
  * 亮度門檻才切得乾淨）、白字深描邊（墨跡＝白色字身，跟背景差 200+ luma）、
- * 三個項目各佔一段互不重疊的時間窗（同一幀只有一個東西，墨跡外框＝那個項目的外框，
- * 不必做連通區域分割這種會自己引入誤差的事）。
+ * 四個項目各佔一段互不重疊的時間窗（同一幀只有一個東西，墨跡外框＝那個項目的外框，
+ * 不必做連通區域分割這種會自己引入誤差的事）。多行那一項的墨跡外框是**整塊文字**
+ * 的外框（不是單行），折行位置一分岔外框就會變——正是我們要抓的東西。
  */
 const CASES = [
   {
@@ -224,6 +225,22 @@ const CASES = [
     frame: 75, // t = 2.5s
     note: '兩邊同一張 PNG、同一個位置——這一項綠才代表量測本身是準的',
   },
+  {
+    key: 'overlay-wrap',
+    title: '文字 overlay（長文字自動換行，maxWidth 0.7）',
+    frame: 105, // t = 3.5s
+    /**
+     * 這一項的「預覽 vs 成品」比對本身抓不到「換行沒實作」——文字 overlay 兩邊吃的是
+     * 同一個 imagePath、同一張 PNG，不折行也會兩邊一樣地不折行。所以額外釘住成品側的
+     * 墨跡形狀：真的折了三行 → 高 > 2 個 line_h（76×2=152）、寬 ≤ 可用寬（1080×0.7=756）。
+     * 換行一旦被拿掉，這段文字會排成單行 2600px 寬、被畫布邊緣裁掉 → 高度掉到一行、
+     * 寬度貼滿 1080，兩個條件同時破。
+     */
+    exportInk: { minH: 152, maxW: 756 },
+    note:
+      '自動換行（2026-08-04）：maxWidth 以前是死欄位，長文字不折行、被畫布邊緣裁掉。' +
+      '這一項紅通常代表折行位置在預覽與成品之間分岔——先看兩張 measure/*.png 的行數',
+  },
 ];
 
 async function buildFixture() {
@@ -238,7 +255,7 @@ async function buildFixture() {
     '-f',
     'lavfi',
     '-i',
-    `color=c=0x181818:s=${CANVAS.w}x${CANVAS.h}:d=3:r=${CANVAS.fps}`,
+    `color=c=0x181818:s=${CANVAS.w}x${CANVAS.h}:d=4:r=${CANVAS.fps}`,
     '-c:v',
     'libx264',
     '-preset',
@@ -259,7 +276,7 @@ async function populateProject() {
 
   const imported = await mcp('import_media', { relPath: 'bg.mp4', label: 'bg' });
   const mediaId = imported.data.mediaId;
-  await mcp('set_timeline', { clips: [{ mediaId, in: 0, duration: 3 }] });
+  await mcp('set_timeline', { clips: [{ mediaId, in: 0, duration: 4 }] });
 
   const text = {
     text: 'WYSIWYG',
@@ -284,6 +301,25 @@ async function populateProject() {
       start: 1,
       duration: 1,
       position: { x: 0.5, y: 0.2, scale: 0.5 },
+    },
+  });
+  // 換行 case：一段中英混排、在 maxWidth 0.7（可用寬 756px）之下必然折成多行的長文字。
+  // 這是本檔唯一的多行 / CJK case——2026-08-04 之前「沒有多行也沒有 CJK」是這支腳本
+  // 自己寫在檔尾的已知限制，而 maxWidth 當時是死欄位（長文字直接被畫布邊緣裁掉）。
+  await mcp('add_overlay', {
+    overlay: {
+      id: 'ov_wrap',
+      text: {
+        text: '這是一段會自動換行的長標題 with mixed Latin words 一起測折行',
+        fontFamily: family,
+        fontSize: 64,
+        fill: '#ffffff',
+        stroke: '#000000',
+        maxWidth: 0.7,
+      },
+      start: 3,
+      duration: 1,
+      position: { x: 0.5, y: 0.2, scale: 1 },
     },
   });
   await mcp('set_captions', {
@@ -405,6 +441,17 @@ async function main() {
       exportInk[c.key] = inkBBox(await exportFrame(mp4, c.frame));
       if (!exportInk[c.key]) {
         throw new Error(`成品第 ${c.frame} 幀完全沒有墨跡（${c.title}）——fixture 或渲染壞了`);
+      }
+      if (c.exportInk) {
+        const b = exportInk[c.key];
+        if (b.h < c.exportInk.minH || b.w > c.exportInk.maxW) {
+          throw new Error(
+            `${c.title}：成品的墨跡外框 ${fmtBox(b)} 不符合預期形狀` +
+              `（高應 ≥ ${c.exportInk.minH}、寬應 ≤ ${c.exportInk.maxW}）。` +
+              '這代表這段文字根本沒有折行（單行被畫布邊緣裁掉），' +
+              '下面的「預覽 vs 成品」比對抓不到這件事——兩邊吃的是同一張 PNG。',
+          );
+        }
       }
       await runProc('ffmpeg', [
         '-hide_banner',
@@ -691,7 +738,7 @@ async function main() {
   if (failures.length) {
     console.error(
       `\n✗ ${failures.length} 項「預覽 ≠ 成品」：${failures.join('、')}\n` +
-        '  （這支腳本在修掉 overlay 那兩個缺陷之前本來就該是紅的；字幕那項若也紅，先懷疑量測本身）',
+        '  （四項本來全綠；字幕那項若也紅，先懷疑量測本身而不是渲染）',
     );
     process.exit(1);
   }

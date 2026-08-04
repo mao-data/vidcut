@@ -4,7 +4,7 @@ import { inflateSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
-import { PillowRasterizer, type CardRequest } from '../src/rasterizer.js';
+import { cardMargin, PillowRasterizer, type CardRequest } from '../src/rasterizer.js';
 
 /**
  * 最小 PNG 解碼器——只認 Pillow 產出的那一種（8-bit RGBA、非交錯）。
@@ -180,6 +180,168 @@ describe('PillowRasterizer', () => {
       );
       expect((await stat(join(dir, `c${i}.base.png`))).size).toBeGreaterThan(0);
     }
+  }, 30_000);
+});
+
+/**
+ * 無 tokens 的自動換行（2026-08-04）。在這之前 `maxWidth`/`maxWidthFrac` 是**死欄位**：
+ * `text_card.py` 只在 `layout_tokens()`（＝只有 karaoke 字幕會跑）裡用它折行，
+ * 文字 overlay 與一般字幕走的是 `text.split("\n")`，長文字被畫布邊緣裁掉、沒有任何警告。
+ *
+ * 這一組測試全部是**行為性**的（比 PNG 位元組、比 lines、比墨跡外框），
+ * 把 `wrap_text()` 換回 `split("\n")` 每一條都會紅——沒有「只是護欄、不可能失敗」那種。
+ */
+describe('無 tokens 的自動換行（maxWidth 不再是死欄位）', () => {
+  const LONG = '這是一段很長的中文字幕測試自動換行行為，混合 Latin words 與中文標點。';
+  const style = { fontFamily: 'x', fontSize: 64, fill: '#ffffff' };
+
+  /** 同一段文字、只差 maxWidthFrac → 以前輸出逐位元組相同，這正是「死欄位」的實測證據。 */
+  it('maxWidthFrac 真的影響輸出：0.9 與 0.3 的行數、高度、PNG 位元組都不同', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-wrap-'));
+    const wide = await r.rasterize(
+      { text: LONG, style, width: 1080, maxWidthFrac: 0.9 },
+      join(dir, 'wide.base.png'),
+    );
+    const narrow = await r.rasterize(
+      { text: LONG, style, width: 1080, maxWidthFrac: 0.3 },
+      join(dir, 'narrow.base.png'),
+    );
+    expect(wide.lines).toBeGreaterThan(1); // 0.9 就已經放不下這段話
+    expect(narrow.lines).toBeGreaterThan(wide.lines);
+    expect(narrow.height).toBeGreaterThan(wide.height);
+    const [a, b] = await Promise.all([
+      readFile(join(dir, 'wide.base.png')),
+      readFile(join(dir, 'narrow.base.png')),
+    ]);
+    expect(a.equals(b)).toBe(false);
+  }, 30_000);
+
+  /**
+   * 「折行點正確」最強的斷言：自動折出來的結果必須跟「在同一個位置手打 \n」
+   * **逐位元組相同**。折錯一個字（或把空白留在行尾害置中偏移）就會不同。
+   *
+   * CJK 用得起這種精確斷言是因為全形字的 advance 恰好 = 1em：fontSize 64、
+   * 可用寬 972（frac 0.9）→ 15 字 960px 放得下、16 字 1024px 放不下 → 每行 15 字。
+   */
+  it('CJK 逐字斷行：自動折 30 字 ≡ 手打 \\n 折在第 15 字（PNG 位元組相同）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-wrap-cjk-'));
+    const chars = '一二三四五六七八九十壹貳參肆伍陸柒捌玖拾甲乙丙丁戊己庚辛壬癸';
+    expect(chars).toHaveLength(30);
+    const auto = await r.rasterize(
+      { text: chars, style, width: 1080, maxWidthFrac: 0.9 },
+      join(dir, 'auto.base.png'),
+    );
+    const manual = await r.rasterize(
+      // frac 1 → 可用寬 1080，兩段各 15 字（960px）都不會再被折一次
+      {
+        text: `${chars.slice(0, 15)}\n${chars.slice(15)}`,
+        style,
+        width: 1080,
+        maxWidthFrac: 1,
+      },
+      join(dir, 'manual.base.png'),
+    );
+    expect(auto.lines).toBe(2);
+    expect(manual.lines).toBe(2);
+    const [a, b] = await Promise.all([
+      readFile(join(dir, 'auto.base.png')),
+      readFile(join(dir, 'manual.base.png')),
+    ]);
+    expect(a.equals(b)).toBe(true);
+  }, 30_000);
+
+  /**
+   * 拉丁在空白處斷、不從單字中間斷。同樣用「≡ 手打 \n」當斷言：
+   * 若折進單字裡（例如 `xxxxxxxxxx y` / `yyyyyyyyy`），位元組必然不同。
+   * 可用寬取 486px：10 個 x 約 310px 放得下，整串 21 字約 666px 放不下 → 必須折一次。
+   */
+  it('拉丁在空白處斷行、不切進單字中間（≡ 手打 \\n，PNG 位元組相同）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-wrap-latin-'));
+    const auto = await r.rasterize(
+      { text: 'xxxxxxxxxx yyyyyyyyyy', style, width: 1080, maxWidthFrac: 0.45 },
+      join(dir, 'auto.base.png'),
+    );
+    const manual = await r.rasterize(
+      { text: 'xxxxxxxxxx\nyyyyyyyyyy', style, width: 1080, maxWidthFrac: 1 },
+      join(dir, 'manual.base.png'),
+    );
+    expect(auto.lines).toBe(2);
+    expect(manual.lines).toBe(2);
+    const [a, b] = await Promise.all([
+      readFile(join(dir, 'auto.base.png')),
+      readFile(join(dir, 'manual.base.png')),
+    ]);
+    expect(a.equals(b)).toBe(true);
+  }, 30_000);
+
+  /**
+   * 換行邏輯不得吃掉任何非空白字元。這條擋的是一個真的踩到過的實作 bug：
+   * 行首禁則字元（。，」…）本來無條件黏回「前一個原子」，而前一個原子若是空白，
+   * 空白原子在行首整個會被丟掉——連黏上去的標點一起消失（`" 。"` 曾經排成空字串）。
+   * 斷言用「≡ 沒有那個前導空白的版本」：行首空白本來就該被丟掉，所以兩者應該
+   * 逐位元組相同；標點若被吞掉，這張卡會是全透明的，位元組立刻不同。
+   */
+  it('行首空白丟掉但不吃字：" 。" 與 "。" 的 PNG 位元組相同（不是空白卡）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-wrap-punct-'));
+    await r.rasterize({ text: ' 。', style, width: 1080 }, join(dir, 'lead.base.png'));
+    await r.rasterize({ text: '。', style, width: 1080 }, join(dir, 'bare.base.png'));
+    const [lead, bare] = await Promise.all([
+      readFile(join(dir, 'lead.base.png')),
+      readFile(join(dir, 'bare.base.png')),
+    ]);
+    expect(lead.equals(bare)).toBe(true);
+    // 判別性：這張卡真的畫了東西（否則「兩張都是空白卡」也會通過）
+    const png = decodeRgba(bare);
+    let ink = 0;
+    for (let i = 3; i < png.data.length; i += 4) if (png.data[i]! > 0) ink++;
+    expect(ink).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('顯式 \\n 仍然強制換行（就算兩行都放得下同一行）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-wrap-nl-'));
+    const geo = await r.rasterize(
+      { text: 'A\nB', style, width: 1080, maxWidthFrac: 1 },
+      join(dir, 'nl.base.png'),
+    );
+    expect(geo.lines).toBe(2);
+    // 連續 \n 的空段落也照樣佔一行（舊行為，換行實作不得吃掉它）
+    const blank = await r.rasterize(
+      { text: 'A\n\nB', style, width: 1080, maxWidthFrac: 1 },
+      join(dir, 'blank.base.png'),
+    );
+    expect(blank.lines).toBe(3);
+  }, 30_000);
+
+  /**
+   * 單一「不可斷」原子比可用寬還長（超長英文網址、maxWidthFrac 調到極小）：
+   * 決策是**逐字硬切**（等同 CSS break-word），不是讓它整條溢出被裁掉、也不是無窮迴圈。
+   * 斷言用墨跡外框：硬切之後每一行都在可用寬之內，所以整張圖的墨跡寬 ≤ 可用寬。
+   * 舊行為（不換行）在同一個輸入下墨跡會撐滿並超出 1080 被裁掉。
+   */
+  it('超長不可斷單字 → 逐字硬切，墨跡不超出可用寬（不是溢出被裁掉，也不會卡住）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-wrap-break-'));
+    const width = 1080;
+    const frac = 0.5;
+    const geo = await r.rasterize(
+      { text: 'x'.repeat(200), style, width, maxWidthFrac: frac },
+      join(dir, 'b.base.png'),
+    );
+    expect(geo.lines).toBeGreaterThan(1);
+    const png = decodeRgba(await readFile(join(dir, 'b.base.png')));
+    let minX = png.width;
+    let maxX = -1;
+    for (let y = 0; y < png.height; y++) {
+      for (let x = 0; x < png.width; x++) {
+        if (png.data[(y * png.width + x) * 4 + 3]! > 0) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+        }
+      }
+    }
+    expect(maxX).toBeGreaterThan(0); // 真的有畫東西
+    // 可用寬 = width - margin*2（margin = round(width*(1-frac)/2)）；+2px 容差給反鋸齒
+    const usable = width - cardMargin(width, frac) * 2;
+    expect(maxX - minX + 1).toBeLessThanOrEqual(usable + 2);
   }, 30_000);
 });
 
