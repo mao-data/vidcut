@@ -912,16 +912,27 @@ mutant `setaudio-validate`（拿掉整段逐項驗證）守住 AC16–20 的拒�
   拖過各自的 timeout。這是本節要求「不要只寫治本那一半」的原因：兩次修復不是簡單的
   「先小修再大修」，第一次修法本身可能加劇了第二次要解決的問題。
 
-**修復後如何驗證**（`task-7c-report.md`）：
+**修復後如何驗證**——實作者與獨立審查者各自做了不同層次的驗證，出處分開列，
+避免混淆：
 
-- 審查者自驗 3 個額外 seed（1、42、99999）+ gauntlet 用的 1337，共 5 種順序組合
-  （含正常循序）全部 238/238 通過，無 timeout。
-- **負向對照組**：把 `server/vitest.config.ts` 拿掉重跑，同一 seed 1337 下確認會退回
-  併發、原始的 958 秒撞牆症狀重現。
-- **外部加壓對照**：外加 8 支 ffmpeg 對機器加壓的情境下，無修法 142.9 秒（吃掉 180
-  秒預算的 79%）、有修法 115.6 秒（64%）——證明修法有實測效果，不是巧合。
-- typecheck 未受影響：`server/vitest.config.ts` 不在 `server/tsconfig.json` 的
+- **實作者**（`task-7c-report.md`）：一般循序執行 + `--sequence.shuffle` 的 4 個 seed
+  （gauntlet 用的 1337、以及 1／42／99999），共 5 種順序組合全部 238/238 通過、無
+  timeout；`npm run typecheck`／`npm run lint`／`npx prettier --check` 三項皆乾淨。
+  typecheck 未受影響的原因：`server/vitest.config.ts` 不在 `server/tsconfig.json` 的
   `include: ["src", "test"]` 範圍內，新檔案不會觸發任何型別檢查問題。
+- **獨立審查者**（記錄於 `progress.md` 的 Task 7c 條目，`task-7c-report.md` 本身
+  **不含**這幾項）：另外自選 3 個 seed（含 gauntlet 用的 1337，與兩個審查者自選、
+  未見於 `task-7c-report.md` 的新 seed）覆核，同樣全部 238/238；做了**負向對照組**
+  ——把 `server/vitest.config.ts` 拿掉重跑，在同一批 seed 下確認會退回併發、原始的
+  958 秒撞牆症狀重現；做了**8x 外部加壓對照**——另外對機器加壓 8 支 ffmpeg 的情境下，
+  無修法時該測試耗時 142.9 秒（吃掉 180 秒 timeout 預算的 79%）、有修法時 115.6 秒
+  （64%），證明修法在額外負載下確實有實測效果、不是巧合。
+- **審查者的獨立意見與此修法的邊界**（同樣記錄於 `progress.md`）：`maxWorkers: 2`
+  這類折衷方案不會更好——單一測試檔內部本來就會併發多支 ffmpeg 子行程，限制 worker
+  數解決不了「一支 ffmpeg 吃滿所有核心」這個根本矛盾。審查者也誠實指出此修法的真實
+  限制：它只涵蓋**套件自身**的檔案間並行競爭，對「開發者機器上同時有其他重活」這類
+  **外部**負載沒有防護；`render.test.ts` 那條 180 秒的 wall-clock timeout 常數在較慢
+  的機器上，即使有這個修法，仍可能吃緊。
 
 **這件事對 EVIDENCE 的意義**：old-coder 的整套論述建立在「測試套件是決定性的」這個
 前提上。這個不穩定在專案期間被多位審查者觀察到（`progress.md` 記錄的跨 Task 議題），
@@ -948,24 +959,40 @@ addClip 對稱`）之前，任何不存在的 `mediaId`、負值、超界的音�
 直到 render 時才炸；改動後這些壞資料在寫入當下就被拒絕（`ok: false`，音訊軌維持原樣，
 見 AC16–20）。
 
-查證結果（全 repo 掃描產品程式碼，排除測試檔與型別宣告）：
+查證結果分兩層——**生產程式碼**（誰會建構 `setAudio` 命令物件）與**測試**（誰呼叫
+`set_audio` 這個 MCP 工具、驗證新驗證不會擋到既有用法）：
 
 ```
-$ grep -rn "'setAudio'" --include="*.ts" --include="*.tsx" . | grep -v node_modules | grep -v '\.test\.'
+$ grep -rn "setAudio\|set_audio" server/src server/test | grep -v node_modules
+server/src/mcp.ts:700:          'set_audio',
 server/src/mcp.ts:706:      writeReply(aiWrite(store, { name: 'setAudio', audio: audio as AudioItem[] }, ifVersion)),
-server/src/commands.ts:109:    case 'setAudio': {        # 驗證/執行端，非呼叫端
-shared/src/types.ts:223:  | { name: 'setAudio'; audio: AudioItem[] }   # 型別宣告
+server/src/commands.ts:109:    case 'setAudio': {                                    # 驗證/執行端，非呼叫端
+server/test/mcp-optim.test.ts:262:    await call('set_audio', { audio: [...] });      # 傳真實 mediaId
+server/test/mcp-tools.test.ts:175:    await call('set_audio', { audio: [] });         # 清空音訊軌
+server/test/mcp-tools.test.ts:388:      'set_audio',                                  # instructions 守衛測試裡的字串，非呼叫
 ```
 
-- **全 repo 只有一處呼叫**：`server/src/mcp.ts:706`，就是 `set_audio` 這個 MCP 工具
-  本身建構命令物件的地方。
-- **UI 完全不走 `setAudio`**：對 `ui/src/` 內 `'setAudio'` 字面字串的搜尋零命中——UI
-  沒有任何路徑會建構這個 command，音訊相關的 UI 操作走的是 `updateAudio` /
-  `removeAudio` 等細粒度 command，與 `setAudio`（整批覆蓋音訊軌）是不同的 command
-  variant。
-- **兩處呼叫都會過新驗證**：`set_audio` MCP 工具本身沒有繞過驗證的邏輯，驗證寫在
-  `commands.ts` 這一層由 MCP 原樣轉發；`mcp-tools.test.ts` 既有的
-  `set_audio replaces the whole audio track` 測試在本輪全程保持綠燈、斷言未被放寬。
+- **生產程式碼裡建構 `setAudio` 命令物件的呼叫點只有一處**：`server/src/mcp.ts:706`
+  （`set_audio` 這個 MCP 工具的 handler，`aiWrite(store, { name: 'setAudio', ... },
+ifVersion)`）。`commands.ts:109` 是驗證/執行端，不是呼叫端；`shared/src/types.ts`
+  的型別宣告同理不算呼叫點。
+- **測試裡呼叫 `set_audio` 工具的地方有兩處**，兩處新驗證都會過（即新增的逐項驗證
+  不會擋到既有的合法用法）：
+  - `server/test/mcp-optim.test.ts:262`「`remove_audio` deletes one audio item」——
+    先用 `set_audio` 傳一個帶真實 `mediaId`、在界內的音訊項（合法輸入，對應 AC15），
+    再測 `remove_audio` 能刪掉它；`set_audio` 這一步本身在本輪全程綠燈。
+  - `server/test/mcp-tools.test.ts:175`「set_audio replaces the whole audio track」——
+    傳 `audio: []`（對應 AC14，既有行為必須不變），本輪全程保持綠燈、斷言未被放寬。
+    （`mcp-tools.test.ts:388` 的 `'set_audio'` 字串出現在「instructions 與工具清單同步」
+    守衛測試裡，檢查的是 instructions 文案有沒有提到這個工具名，不是呼叫工具，不算
+    呼叫點。）
+- **UI 完全不走 `setAudio`**：對 `ui/src/` 內 `'setAudio'`／`set_audio` 字面字串的搜尋
+  零命中。實際讀碼確認：`ui/src/panels/Inspector.tsx` 與 `ui/src/timeline/Timeline.tsx`
+  只**讀** `doc.tracks.audio`，寫音訊軌走的是細粒度 command——
+  `Inspector.tsx:172` 的 `updateAudio`、`:224` 的 `removeAudio`、`:151` 的
+  `extractAudio`（把某段影片的聲軌抽成獨立音訊項）；`Timeline.tsx:504` 同樣是
+  `updateAudio`。這些都是與 `setAudio`（整批覆蓋音訊軌）不同的 command variant，
+  UI 沒有任何路徑會建構 `setAudio` 命令物件。
 
 換句話說：這個行為變更不會讓任何現有正常呼叫方變紅，只會讓原本就是壞資料的呼叫從
 「默默接受、之後在 render 才爆炸」變成「當下就被拒絕、給出明確原因」。
