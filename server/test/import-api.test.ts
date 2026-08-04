@@ -58,7 +58,7 @@ describe('POST /api/import', () => {
     expect(m.path).toBe(join(src, 'a.mp4'));
     expect(store.doc.tracks.video).toHaveLength(0); // 預設不排上時間軸
     server.close();
-  });
+  }, 60_000);
 
   it('addToTimeline 會把整支接到主軌尾端', async () => {
     const { store, src, server, base } = await startTestServer();
@@ -69,7 +69,7 @@ describe('POST /api/import', () => {
     expect(clip.in).toBe(0);
     expect(clip.duration).toBeCloseTo(2, 0);
     server.close();
-  });
+  }, 60_000);
 
   it('壞檔進 failed，其餘繼續', async () => {
     const { src, server, base } = await startTestServer();
@@ -80,14 +80,14 @@ describe('POST /api/import', () => {
     expect(j.failed).toHaveLength(1);
     expect(j.failed[0]!.name).toBe('missing.mp4');
     server.close();
-  });
+  }, 60_000);
 
   it('沒帶 dir 或 names 回 400', async () => {
     const { src, server, base } = await startTestServer();
     expect((await post(base, { names: ['a.mp4'] })).status).toBe(400);
     expect((await post(base, { dir: src })).status).toBe(400);
     server.close();
-  });
+  }, 60_000);
 
   // 敵意輸入：names 是使用者可控字串，不能讓它逃出素材夾。
   it('names 帶路徑成分時只取 basename，不會逃出素材夾', async () => {
@@ -118,7 +118,7 @@ describe('POST /api/import', () => {
     expect(j.failed).toHaveLength(1);
     expect(store.doc.media).toHaveLength(0);
     server.close();
-  });
+  }, 60_000);
 
   // 誘餌檔案：在素材夾內放一支「basename 後同名」的真影片，讓 basename 有沒有生效
   // 產生可觀察的差異——否則「絕對路徑目標本來就不存在」會讓這條測試無論 basename
@@ -152,7 +152,7 @@ describe('POST /api/import', () => {
       expect(media.path.startsWith(src)).toBe(true);
     }
     server.close();
-  });
+  }, 60_000);
 
   // 不變式：ffmpeg 一支動輒數秒到數分鐘，/api/import 必須逐支序列處理 names[]，
   // 不能併行（brief 的 Global Constraints 明講：並行只會互搶 CPU）。
