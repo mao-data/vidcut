@@ -1,13 +1,23 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { totalDuration } from '@vidcut/shared';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import { totalDuration, type CaptionItem, type SnapGuide } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
-import { mediaUrl } from '../ws.js';
+import { useSelection } from '../stores/selection.js';
+import { mediaUrl, sendCommand } from '../ws.js';
 import { useEditFx } from '../stores/editFx.js';
 import { useEditDraft } from '../stores/editDraft.js';
 import { planAt } from './plan.js';
 import { syncAction } from './sync.js';
 import { CaptionLayer } from './CaptionLayer.js';
+import { dragOverlay, dragCaption } from './dragLayer.js';
 
 const DRIFT_TOLERANCE = 0.06; // 60ms
 const PRELAUNCH = 0.05; // 邊界前 50ms 啟動 next
@@ -49,6 +59,26 @@ export function Player() {
    */
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
+  /**
+   * 畫布拖曳（overlay position / 字幕 style.y）：pointerdown 記起點到 ref（不觸發 render）；
+   * pointermove 只更新本地覆寫 + 導線（同 Timeline 的拖曳模式：move 不送命令，
+   * 一次 mouse-move 一個 command 會灌爆 undo history）；pointerup 才 sendCommand。
+   */
+  const dragRef = useRef<{
+    kind: 'overlay' | 'caption';
+    id: string;
+    startX: number;
+    startY: number;
+    startPos: { x: number; y: number };
+    bbox: { w: number; h: number };
+  } | null>(null);
+  const [dragOverride, setDragOverride] = useState<{
+    kind: 'overlay' | 'caption';
+    id: string;
+    position?: { x: number; y: number };
+    y?: number;
+  } | null>(null);
+  const [guides, setGuides] = useState<SnapGuide[]>([]);
   // useLayoutEffect（不是 useEffect）：doc 剛到位、stage 第一次掛上 DOM 那一幀，
   // 要在瀏覽器畫出來之前就量到寬並設好 scale，否則第一個畫出的畫面會是 scale(0)
   // （疊圖/字幕全部縮到看不見）閃一下才變回正常大小。
@@ -209,6 +239,89 @@ export function Player() {
     objectFit: 'contain',
     opacity: visible ? 1 : 0,
   });
+
+  /** 1080 座標空間縮放係數——與下方 1080×1920 layer 的 transform 同一個來源，不得重算/硬編。 */
+  const scale = stageW / 1080;
+
+  const onOverlayPointerDown = (
+    e: ReactPointerEvent<HTMLImageElement>,
+    o: { id: string; position: { x: number; y: number; scale: number } },
+  ) => {
+    useSelection.getState().select({ kind: 'overlay', id: o.id });
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragRef.current = {
+      kind: 'overlay',
+      id: o.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPos: { x: o.position.x, y: o.position.y },
+      bbox: { w: rect.width / scale, h: rect.height / scale },
+    };
+  };
+
+  const onCaptionPointerDown = (e: ReactPointerEvent<HTMLDivElement>, cap: CaptionItem) => {
+    useSelection.getState().select({ kind: 'caption', id: cap.id });
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragRef.current = {
+      kind: 'caption',
+      id: cap.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPos: { x: 0, y: cap.style.y },
+      bbox: { w: 1080, h: rect.height / scale },
+    };
+  };
+
+  const onDragPointerMove = (e: ReactPointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const delta = { dx: (e.clientX - d.startX) / scale, dy: (e.clientY - d.startY) / scale };
+    if (d.kind === 'overlay') {
+      const r = dragOverlay(d.startPos, delta, d.bbox, { w: 1080, h: 1920 });
+      setDragOverride({ kind: 'overlay', id: d.id, position: r.position });
+      setGuides(r.guides);
+    } else {
+      const r = dragCaption(d.startPos.y, delta.dy, d.bbox.h, 1920);
+      setDragOverride({ kind: 'caption', id: d.id, y: r.y });
+      setGuides(r.guides);
+    }
+  };
+
+  const onDragPointerUp = () => {
+    const d = dragRef.current;
+    const o = dragOverride;
+    dragRef.current = null;
+    setGuides([]);
+    setDragOverride(null);
+    if (!d || !o) return;
+    if (d.kind === 'overlay' && o.position) {
+      const scale0 = doc.tracks.overlays.find((x) => x.id === d.id)?.position.scale ?? 1;
+      sendCommand({
+        name: 'updateOverlay',
+        id: d.id,
+        patch: { position: { ...o.position, scale: scale0 } },
+      });
+    } else if (d.kind === 'caption' && o.y !== undefined) {
+      const cap = doc.tracks.captions.find((c) => c.id === d.id);
+      if (cap) {
+        sendCommand({
+          name: 'updateCaption',
+          id: d.id,
+          patch: { style: { ...cap.style, y: o.y } },
+        });
+      }
+    }
+  };
+
+  /** 拖曳中用本地覆寫蓋掉字幕的 style.y，字幕卡本身不知道拖曳這回事 */
+  const captionsForRender = plan.captions.map((c) =>
+    dragOverride?.kind === 'caption' && dragOverride.id === c.id && dragOverride.y !== undefined
+      ? { ...c, style: { ...c.style, y: dragOverride.y } }
+      : c,
+  );
+
   return (
     <div
       style={{
@@ -278,33 +391,80 @@ export function Player() {
             width: 1080,
             height: 1920,
             transformOrigin: 'top left',
-            transform: `scale(${stageW / 1080})`,
+            transform: `scale(${scale})`,
             pointerEvents: 'none',
           }}
         >
-          {plan.overlays.map((o) => (
-            <img
-              key={o.id}
-              src={o.src}
-              className={fxAdded.has(o.id) ? 'fx-enter' : undefined}
-              alt=""
-              style={{
-                position: 'absolute',
-                left: 1080 * o.position.x,
-                top: 1920 * o.position.y,
-                transform: `translate(-50%, 0) scale(${o.position.scale})`,
-                transformOrigin: 'top center',
-                maxWidth: 1080 * 0.9,
-              }}
-            />
-          ))}
+          {plan.overlays.map((o) => {
+            const drag =
+              dragOverride?.kind === 'overlay' && dragOverride.id === o.id
+                ? dragOverride.position
+                : undefined;
+            const posX = drag?.x ?? o.position.x;
+            const posY = drag?.y ?? o.position.y;
+            return (
+              <img
+                key={o.id}
+                src={o.src}
+                className={fxAdded.has(o.id) ? 'fx-enter' : undefined}
+                alt=""
+                onPointerDown={(e) => onOverlayPointerDown(e, o)}
+                onPointerMove={onDragPointerMove}
+                onPointerUp={onDragPointerUp}
+                style={{
+                  position: 'absolute',
+                  left: 1080 * posX,
+                  top: 1920 * posY,
+                  transform: `translate(-50%, 0) scale(${o.position.scale})`,
+                  transformOrigin: 'top center',
+                  maxWidth: 1080 * 0.9,
+                  pointerEvents: 'auto',
+                  cursor: 'grab',
+                  touchAction: 'none',
+                }}
+              />
+            );
+          })}
           <CaptionLayer
-            captions={plan.captions}
+            captions={captionsForRender}
             cards={captionCards}
             time={time}
             added={fxAdded}
             draft={editDraft}
+            onCaptionPointerDown={onCaptionPointerDown}
+            onCaptionPointerMove={onDragPointerMove}
+            onCaptionPointerUp={onDragPointerUp}
           />
+          {/* 吸附導線：命中時才畫，畫在同一 1080 座標空間內（已被外層 scale 換算成畫面 px） */}
+          {guides.map((g, i) =>
+            g.axis === 'x' ? (
+              <div
+                key={i}
+                style={{
+                  position: 'absolute',
+                  left: g.pos,
+                  top: 0,
+                  width: 2,
+                  height: 1920,
+                  background: 'var(--warn, #eab308)',
+                  pointerEvents: 'none',
+                }}
+              />
+            ) : (
+              <div
+                key={i}
+                style={{
+                  position: 'absolute',
+                  top: g.pos,
+                  left: 0,
+                  height: 2,
+                  width: 1080,
+                  background: 'var(--warn, #eab308)',
+                  pointerEvents: 'none',
+                }}
+              />
+            ),
+          )}
         </div>
       </div>
     </div>

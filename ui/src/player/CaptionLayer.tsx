@@ -1,7 +1,14 @@
 // 1080×1920 座標系內的字幕層:有卡用卡(和成品同一張圖),沒卡退回 DOM 近似(舊行為)。
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { activeTokenIndex, karaokeClip, tokenSeparator, type CaptionItem } from '@vidcut/shared';
 import type { EditDraftState } from '../stores/editDraft.js';
+
+/** 拖曳掛鉤：外層卡片的 pointerdown/move/up（畫布拖字幕 y，見 Player.tsx）。 */
+interface DragHooks {
+  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerMove?: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp?: (e: ReactPointerEvent<HTMLDivElement>) => void;
+}
 
 interface Geo {
   width: number;
@@ -58,11 +65,13 @@ function CardCaptionForHash({
   hash,
   time,
   className,
+  drag,
 }: {
   cap: CaptionItem;
   hash: string;
   time: number;
   className?: string;
+  drag?: DragHooks;
 }) {
   const [geo, setGeo] = useState<Geo | 'pending' | 'failed'>(
     () => geoResolved.get(hash) ?? 'pending',
@@ -78,7 +87,8 @@ function CardCaptionForHash({
   }, [hash]);
 
   if (geo === 'pending') return null; // 首次抓取中:寧可空一幀,不畫錯的
-  if (geo === 'failed') return <ApproxCaption cap={cap} time={time} className={className} />;
+  if (geo === 'failed')
+    return <ApproxCaption cap={cap} time={time} className={className} drag={drag} />;
 
   const active = activeTokenIndex(cap, time);
   const pad = cap.style.stroke ? strokeWidth(cap.style.fontSize) : 0;
@@ -86,7 +96,18 @@ function CardCaptionForHash({
   return (
     <div
       className={className}
-      style={{ position: 'absolute', left: 0, top: 1920 * cap.style.y, width: 1080 }}
+      onPointerDown={drag?.onPointerDown}
+      onPointerMove={drag?.onPointerMove}
+      onPointerUp={drag?.onPointerUp}
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 1920 * cap.style.y,
+        width: 1080,
+        pointerEvents: 'auto',
+        cursor: 'grab',
+        touchAction: 'none',
+      }}
     >
       <img
         src={`/text-card/${hash}.base.png`}
@@ -110,7 +131,13 @@ function CardCaptionForHash({
   );
 }
 
-function CardCaption(props: { cap: CaptionItem; hash: string; time: number; className?: string }) {
+function CardCaption(props: {
+  cap: CaptionItem;
+  hash: string;
+  time: number;
+  className?: string;
+  drag?: DragHooks;
+}) {
   return <CardCaptionForHash key={props.hash} {...props} />;
 }
 
@@ -118,15 +145,20 @@ function ApproxCaption({
   cap,
   time,
   className,
+  drag,
 }: {
   cap: CaptionItem;
   time: number;
   className?: string;
+  drag?: DragHooks;
 }) {
   const active = activeTokenIndex(cap, time);
   return (
     <div
       className={className}
+      onPointerDown={drag?.onPointerDown}
+      onPointerMove={drag?.onPointerMove}
+      onPointerUp={drag?.onPointerUp}
       style={{
         position: 'absolute',
         left: 0,
@@ -139,6 +171,9 @@ function ApproxCaption({
         WebkitTextStroke: cap.style.stroke
           ? `${strokeWidth(cap.style.fontSize)}px ${cap.style.stroke}`
           : undefined,
+        pointerEvents: 'auto',
+        cursor: 'grab',
+        touchAction: 'none',
       }}
     >
       {cap.tokens?.length
@@ -164,6 +199,9 @@ export function CaptionLayer({
   time,
   added,
   draft,
+  onCaptionPointerDown,
+  onCaptionPointerMove,
+  onCaptionPointerUp,
 }: {
   captions: CaptionItem[];
   cards: Record<string, string>;
@@ -177,11 +215,20 @@ export function CaptionLayer({
    * 兩條路徑都必須不帶 tokens，不然 karaoke 高亮會照著錯的詞界跑。
    */
   draft?: EditDraftState['caption'];
+  /** 畫布拖曳字幕 y（見 Player.tsx）：外層卡片 pointerdown 帶對應 CaptionItem，move/up 通用。 */
+  onCaptionPointerDown?: (e: ReactPointerEvent<HTMLDivElement>, cap: CaptionItem) => void;
+  onCaptionPointerMove?: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  onCaptionPointerUp?: (e: ReactPointerEvent<HTMLDivElement>) => void;
 }) {
   return (
     <>
       {captions.map((c) => {
         const className = added?.has(c.id) ? 'fx-enter' : undefined;
+        const drag: DragHooks = {
+          onPointerDown: onCaptionPointerDown ? (e) => onCaptionPointerDown(e, c) : undefined,
+          onPointerMove: onCaptionPointerMove,
+          onPointerUp: onCaptionPointerUp,
+        };
         if (draft?.id === c.id) {
           const draftCap: CaptionItem = { ...c, text: draft.text, tokens: undefined };
           return draft.previewHash ? (
@@ -191,15 +238,23 @@ export function CaptionLayer({
               hash={draft.previewHash}
               time={time}
               className={className}
+              drag={drag}
             />
           ) : (
-            <ApproxCaption key={c.id} cap={draftCap} time={time} className={className} />
+            <ApproxCaption key={c.id} cap={draftCap} time={time} className={className} drag={drag} />
           );
         }
         return cards[c.id] ? (
-          <CardCaption key={c.id} cap={c} hash={cards[c.id]!} time={time} className={className} />
+          <CardCaption
+            key={c.id}
+            cap={c}
+            hash={cards[c.id]!}
+            time={time}
+            className={className}
+            drag={drag}
+          />
         ) : (
-          <ApproxCaption key={c.id} cap={c} time={time} className={className} />
+          <ApproxCaption key={c.id} cap={c} time={time} className={className} drag={drag} />
         );
       })}
     </>
