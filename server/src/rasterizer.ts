@@ -68,7 +68,16 @@ function toError(e: unknown): Error {
 }
 
 export class PillowRasterizer {
-  readonly id = 'pillow-1';
+  /**
+   * 進 `cardKey` 的引擎版本。**改變輸出像素的任何行為都必須把這個號碼往上加**——
+   * 字卡是內容定址的，同一組輸入永遠算出同一把鑰匙，所以舊卡不會自己重畫：
+   * 忘了加號碼，既有專案就永遠停在舊排版，而且使用者在 UI 上做什麼都修不好它
+   * （2026-08-04 實例：加了自動換行卻沒動這個號碼，長文字的既有字卡繼續維持
+   * 「排成一行、頭尾被畫布切掉」的樣子，重打一模一樣的字也照樣命中舊卡）。
+   *
+   * pillow-1 → pillow-2：無 tokens 路徑加入自動換行（見 text_card.py 的 wrap_text）。
+   */
+  readonly id = 'pillow-2';
   private child: ChildProcessWithoutNullStreams | null = null;
   private rl: Interface | null = null;
   private queue: Promise<unknown> = Promise.resolve();

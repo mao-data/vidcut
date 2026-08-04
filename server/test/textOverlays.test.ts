@@ -6,7 +6,7 @@ import { ProjectStore } from '../src/store.js';
 import { applyCommand } from '../src/commands.js';
 import { PillowRasterizer } from '../src/rasterizer.js';
 import { TextCardService } from '../src/textCards.js';
-import { resolveTextCommand } from '../src/textOverlays.js';
+import { resolveTextCommand, refreshTextOverlayCards } from '../src/textOverlays.js';
 import type { Command, OverlayItem } from '@vidcut/shared';
 
 const raster = new PillowRasterizer(() => undefined);
@@ -302,5 +302,56 @@ describe('resolveTextCommand 的像素預算', () => {
     expect(r.ok).toBe(false);
     expect(store.doc.tracks.overlays[0]!.imagePath).toBe(before);
     expect(store.doc.tracks.overlays[0]!.text?.text).toBe('大標題');
+  }, 30_000);
+});
+
+// 光柵器換版本（PillowRasterizer.id 往上加）之後，既有專案的 imagePath 仍指著舊 hash
+// 的檔案，而且因為是內容定址，使用者重打一模一樣的字也救不回來（同輸入→同 key→命中
+// 舊卡）。2026-08-04 就是這樣讓「加了自動換行」對已存檔的作品完全沒有發生：長文字的
+// 字卡繼續維持「排成一行、頭尾被畫布切掉」的樣子。
+describe('refreshTextOverlayCards：光柵器換版本後既有專案的字卡要跟上', () => {
+  it('imagePath 對不上就重新產卡並更新；第二次呼叫是完全靜默的 no-op', async () => {
+    const { dir, store, svc } = await setup();
+    const resolved = await resolveTextCommand(svc, store, ADD);
+    expect(applyCommand(store, 'human', resolved).ok).toBe(true);
+    const good = store.doc.tracks.overlays[0]!.imagePath;
+
+    // 模擬「舊版光柵器產的卡」：把 imagePath 換成一個不同 hash 的路徑
+    store.mutate('human', 'simulate stale card', (d) => {
+      d.tracks.overlays[0]!.imagePath = 'derived/text/0000000000000000.base.png';
+    });
+    const staleVersion = store.version;
+
+    const n = await refreshTextOverlayCards(svc, store);
+    expect(n).toBe(1);
+    const fixed = store.doc.tracks.overlays[0]!.imagePath;
+    expect(fixed).toBe(good); // 回到這組輸入「現在」該有的那張卡
+    expect((await stat(join(dir, fixed))).size).toBeGreaterThan(0); // 檔案真的在
+    expect(store.version).toBeGreaterThan(staleVersion); // 真的送了命令
+
+    // 冪等：已經對上了就不該再送任何命令（否則每次開機都灌爆 undo history）
+    const after = store.version;
+    expect(await refreshTextOverlayCards(svc, store)).toBe(0);
+    expect(store.version).toBe(after);
+  }, 60_000);
+
+  it('純圖 overlay 不受影響（沒有 text 就沒有卡可以重解析）', async () => {
+    const { store, svc } = await setup();
+    expect(
+      applyCommand(store, 'human', {
+        name: 'addOverlay',
+        overlay: {
+          id: 'img1',
+          imagePath: 'assets/rank.png',
+          start: 0,
+          duration: 2,
+          position: { x: 0.5, y: 0, scale: 1 },
+        } as OverlayItem,
+      }).ok,
+    ).toBe(true);
+    const v = store.version;
+    expect(await refreshTextOverlayCards(svc, store)).toBe(0);
+    expect(store.doc.tracks.overlays[0]!.imagePath).toBe('assets/rank.png');
+    expect(store.version).toBe(v);
   }, 30_000);
 });

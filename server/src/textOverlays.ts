@@ -5,6 +5,7 @@ import type { ProjectStore } from './store.js';
 import type { CardRequest } from './rasterizer.js';
 import type { TextCardService } from './textCards.js';
 import { cardRequestError } from './cardBudget.js';
+import { applyCommand } from './commands.js';
 
 export function overlayTextToCardRequest(t: OverlayText, canvasWidth: number): CardRequest {
   return {
@@ -28,6 +29,43 @@ export function overlayTextToCardRequest(t: OverlayText, canvasWidth: number): C
  */
 function overBudget(t: OverlayText, canvasWidth: number): boolean {
   return cardRequestError(overlayTextToCardRequest(t, canvasWidth)) !== null;
+}
+
+/**
+ * 啟動時把文字 overlay 的字卡重新解析一次，`imagePath` 對不上就更新。
+ *
+ * 為什麼需要：字卡是內容定址的，`imagePath` 在命令套用當下就烤進了 project.json。
+ * 光柵器行為改變（`PillowRasterizer.id` 往上加號碼）之後，新的 key 會變，但**既有專案
+ * 裡那些 imagePath 仍指著舊 hash 的檔案**，而且使用者在 UI 上重打一模一樣的字也救不回來
+ * （同輸入→同 key→命中舊卡）。沒有這道重解析，換行這種修正對已存檔的作品等於沒發生。
+ *
+ * 走 applyCommand（鐵則：任何狀態變更都走命令層），但**只在 hash 真的變了才送命令**，
+ * 所以第二次啟動起是完全靜默的 no-op，不會每次開機都灌爆 undo history。
+ * 單張失敗不影響其餘（產卡可能因預算或 worker 掛掉而失敗），錯誤只記 warn。
+ */
+export async function refreshTextOverlayCards(
+  svc: TextCardService,
+  store: ProjectStore,
+): Promise<number> {
+  const targets = store.doc.tracks.overlays.filter((o) => o.text);
+  let changed = 0;
+  for (const o of targets) {
+    try {
+      const r = await svc.ensure(overlayTextToCardRequest(o.text!, store.doc.canvas.width));
+      const next = svc.relBasePath(r.hash);
+      if (next === o.imagePath) continue;
+      const res = applyCommand(store, 'human', {
+        name: 'updateOverlay',
+        id: o.id,
+        patch: { text: o.text!, imagePath: next },
+      });
+      if (res.ok) changed++;
+      else console.warn(`⚠ 文字 overlay ${o.id} 的字卡重新解析被拒：${res.error}`);
+    } catch (e: unknown) {
+      console.warn(`⚠ 文字 overlay ${o.id} 的字卡重新解析失敗：${(e as Error).message}`);
+    }
+  }
+  return changed;
 }
 
 export async function resolveTextCommand(

@@ -13,6 +13,7 @@ import { loadFontTable, fontResolver, type FontEntry } from './fonts.js';
 import { setCaptionFontResolver } from './render.js';
 import { TextCardService } from './textCards.js';
 import { CaptionCardSync } from './cardSync.js';
+import { refreshTextOverlayCards } from './textOverlays.js';
 
 /**
  * 預設 :3845。`VIDCUT_PORT` 可覆寫——為的是「同時再起第二個 server 吃另一個專案」
@@ -79,6 +80,14 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
   deps.baseUrl = `http://127.0.0.1:${actualPort}`;
   cardSync.schedule(); // 啟動預熱字卡快取(錯誤已在 runNow 內吞,不會拖垮啟動)
+  // 文字 overlay 的字卡不像字幕會被 cardSync 自動重算——imagePath 烤在 doc 裡，
+  // 光柵器版本一變就會指著舊排版的檔案且永遠救不回來。啟動時重解析一次（hash 沒變就
+  // 完全不動，所以只有升級後的第一次會做事）。不 await：不拖慢 listen，失敗只記 warn。
+  void refreshTextOverlayCards(textCards, store)
+    .then((n) => {
+      if (n > 0) console.log(`字卡光柵器已更新：重新產生 ${n} 個文字 overlay 的字卡`);
+    })
+    .catch((e: unknown) => console.warn(`⚠ 文字 overlay 字卡重解析失敗：${(e as Error).message}`));
   return { server, store, editorContext, reviews };
 }
 
