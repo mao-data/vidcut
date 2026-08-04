@@ -907,7 +907,12 @@ git commit -m "feat(mcp): add_clip 工具，AI 能把素材接到主軌尾端"
         'timeline_op 粗剪（split/deleteBefore/deleteAfter/freeze）→ ' +
 ```
 
-在 `set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ` 那句後面補一句純音訊語意：
+> **修正（執行時發現）**：初稿要求把純音訊那句補在 `set_audio …→ ` 之後。那個位置是
+> 錯的——它會讓 `set_audio` 的 `→` 指向一句非步驟的說明，而真正的下一步 `request_review`
+> 反而沒有箭頭引導，步驟鏈就斷了。正確做法是比照同段的 `set_canvas_fit blur` 補充句，
+> **放在主鏈（`render 輸出。`）結束之後**的補充句區塊。以下文字內容不變，只改擺放位置。
+
+在主鏈結束後的補充句區塊補一句純音訊語意：
 
 ```typescript
         '純音訊素材（mp3/wav…）只能上音訊軌，add_clip 與 set_timeline 會擋下它。' +
