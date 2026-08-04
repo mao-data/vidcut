@@ -20,6 +20,7 @@ npm run lint                                # 目前 exit 1，見下
 npm run format:check                        # 見下
 npm run verify:panels                       # 面板控制項的瀏覽器回歸檢查
 npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線的瀏覽器回歸檢查（4 項檢查、6 條斷言）
+npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，比對「預覽 vs 成品」的墨跡外框（⚠️ 目前故意是紅的，見下）
 ```
 
 - **改完 UI 原始碼必須 `npm run build -w @vidcut/ui`**，否則 :3845 上跑的還是舊版。
@@ -47,6 +48,13 @@ npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線�
   永遠不發生。`/text-card` 與 `/fonts` 曾經漏掉，整個字卡功能在 dev 模式下是死的；已補上
   並在 dev port 的真頁面裡驗過（幾何 200/JSON、preview 200 回 hash、字型檔 200、卡片
   `<img>` 載入成功、`@font-face` 有注入）。
+- **`npm run verify:wysiwyg` 不需要你先起 server**，它自己在 :3999 起一台吃
+  `os.tmpdir()/vidcut-wysiwyg-fixture` 的臨時專案（每次跑先整個刪掉重建），**不碰
+  `projects/demo`、也不碰 :3845 上那台**。要換 port 用 `VIDCUT_WYSIWYG_PORT`。
+  仍需要 `ui/dist` 是最新的（`npm run build -w @vidcut/ui`）與 python3/Pillow。
+  兩邊量到的畫面會存成 PNG 放在臨時專案的 `measure/`，數字對不上時直接開圖看。
+  `VIDCUT_PORT` 環境變數（`server/src/index.ts`）就是為了這支腳本才加的，
+  要自己再開一台 server 吃別的專案時也用得上。
 - **`npm run lint` 目前 exit 1**：34 個錯誤全部在 `.claude/worktrees/**`（別的 session 做到
   一半的 worktree，跟本 repo 追蹤的原始碼無關）。所以
   `npm run typecheck && npm run lint && npm run format:check` 這種 `&&` 串**永遠跑不到
@@ -62,6 +70,12 @@ npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線�
 `caption-wysiwyg` 分支的招牌宣稱是「預覽看到的就是成品」。**只有非 karaoke 字幕真的成立**，
 另外兩類是已知的、可重現的不一致：
 
+**這件事現在有自動化在守了：`npm run verify:wysiwyg`**（`ui/e2e/preview-vs-export.mjs`）
+會真的 render 一支影片、抽幀量墨跡外框，再用 headless Chromium 截同一時刻的預覽畫面、
+換算回 1080×1920 座標量同一個外框，兩邊比。**它現在是紅的，而且應該是紅的**——
+overlay 兩項失敗、字幕那項通過（誤差 ≤1.0px）。字幕那項若也紅代表量測本身壞了；
+overlay 兩項若變綠而缺陷還在，代表斷言鬆掉了。修掉下面兩個缺陷之後它才該全綠。
+
 - ✅ **字幕（無逐詞高亮）**：預覽與匯出走同一支 `text_card.py`、同一份參數，輸出 PNG
   **逐位元組相同**（sha256 相等）。實測涵蓋超寬文字、內嵌換行、未知字型、非 1080 畫布寬。
 - ❌ **overlay（含文字 overlay）**：預覽端 `ui/src/player/Player.tsx` 給 overlay `<img>`
@@ -70,6 +84,10 @@ npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線�
   更糟的是 `position.scale`：預覽端吃（CSS transform），**渲染端完全沒有實作**
   （overlay 濾鏡鏈上沒有任何 scale），而 `ui/src/panels/Inspector.tsx` 有一個
   使用者改得動的 scale 欄位。改它 → 預覽變、成品不變。
+  `verify:wysiwyg` 的實測（1080 空間、白字 96px、成品墨跡 `x0=318 w=444`）：
+  **scale=1 → 預覽 `x0=340.1 w=400.1`，寬只有成品的 0.901**（＝那個 0.9 夾制）；
+  **scale=0.5 → 預覽 `x0=440.1 w=200.0`，寬只有成品的 0.451**（＝0.9 夾制 × 0.5 CSS
+  縮放，成品那邊兩者都沒發生）。同一支腳本的字幕那項誤差 ≤1.0px，證明差的不是量測。
 - ❌ **karaoke 字幕**：預覽是「base 卡 + 全高亮卡疊 `clip-path`」，匯出是「**一個詞一張卡**」，
   不是同一張圖。兩個成因：(a) 描邊補償 `pad`（`max(2, fontSize/16)`，64px 字＝4px）
   會把**下一個還沒唸到的詞**露出約 4px 的高亮色；(b) 兩層 alpha 疊合讓描邊的反鋸齒邊變厚。
@@ -110,6 +128,18 @@ ffmpeg 沒有 freetype 所以踩不到；換一台有 freetype 的機器，「�
 - **`getComputedStyle(el).transform` 一律回 `matrix(a,b,c,d,e,f)`**，就算行內寫的是
   `transform: scale(0.2057)`。字串比對 `scale(...)` 會直接落空；要 `.match(/matrix\(([^)]+)\)/)`
   拆出 6 個數字，`a` 就是 scaleX。驗證任何 CSS scale/transform 正確性都要走這條路。
+- **`*{animation:none!important}` 擋不住 GSAP**。GSAP 是用 JS 逐幀寫 inline style，
+  CSS 那條路關掉的只有 CSS 動畫/過渡。要讓 GSAP 整批不跑，唯一的開關是
+  `ui/src/motion.ts` 的 `motionOK()`——在 CDP 端下
+  `Emulation.setEmulatedMedia({features:[{name:'prefers-reduced-motion',value:'reduce'}]})`。
+  沒下這道時實測踩過：讀完 stage 的 `getBoundingClientRect` 到 `Page.captureScreenshot`
+  之間版面被面板動畫挪走，量到的墨跡座標整整偏 18 個畫布 px，看起來像一個貨真價實
+  卻不存在的第三個「預覽≠成品」落差（`preview-vs-export.mjs` 因此還加了一道
+  「截圖後複驗 rect 沒變」的保險——版面在動就當場失敗，不要輸出一個很有說服力的錯數字）。
+- **`Page.captureScreenshot` 的 `clip` 會先被對齊到整數 CSS px 再乘 `scale`**，所以
+  「我要 1080 寬」拿回來的可能是 1078。別假設輸出尺寸等於你要求的：一律用
+  「實得影像尺寸 ÷ 實際送出的 clip 尺寸」回推每 CSS px 幾個影像 px，再加上
+  clip 原點與目標元素原點的差去換算，否則會帶一個隨視窗尺寸浮動的系統性偏差。
 - **`verify:canvas` 檢查 1 的「誤差 0.000%」不等於「預覽跟成品對齊」**。那段量測只讀
   `matrix(a,b,c,d,e,f)` 的 `a`（scaleX）：不看 `d`（scaleY）、不看 `e`/`f`（平移）、
   也不看 `transform-origin`。做過對抗性驗證——刻意把整層改成 `transformOrigin: center`
@@ -117,7 +147,8 @@ ffmpeg 沒有 freetype 所以踩不到；換一台有 freetype 的機器，「�
   同一段量測**照樣回報 0.000%**。它是一個貨真價實的獨立量測（新鮮的
   `getBoundingClientRect` vs 解析出來的 transform 矩陣），但它證明的只有
   「`ResizeObserver` 拿到的寬不是舊值、除數確實是 1080」，**不是**「畫面跟成品對齊」。
-  要驗對齊只能真的 render 一次去比像素——那件事目前沒有人做過。
+  要驗對齊只能真的 render 一次去比像素——那件事現在由 `npm run verify:wysiwyg` 做了
+  （overlay/字幕的墨跡外框，不是整幀像素）。
 - **`document.querySelector('video')` 可能撞到不是你要的那顆**。Player 同時掛
   A/B 兩顆播放用 `<video>`，開 blur 填充時還有第三顆背景模糊 video（帶
   `transform: scale(1.15)` 的刻意放大，遮住模糊邊緣），三顆 DOM 順序在先。

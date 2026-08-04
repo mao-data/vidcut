@@ -46,6 +46,8 @@
 - UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過。
 - 真瀏覽器（非 jsdom）回歸：`npm run verify:panels`（面板）與 `npm run verify:canvas`
   （縮放/拖曳/導線/不盲拖，**4 項檢查、6 條斷言**）**都綠**，見下節「階段 4」。
+  `npm run verify:wysiwyg`（真 render vs 預覽截圖的墨跡外框）**是紅的，而且應該是紅的**
+  ——它守的是 overlay 那兩個已知缺陷，見「預覽 vs 成品的幾何回歸」節。
   ⚠️ `verify:canvas` 檢查 1 印的「誤差 0.000%」只驗了 transform 矩陣的 `a`（scaleX），
   **不足以推論「預覽跟成品對齊」**——理由見 `CLAUDE.md`「UI 驗證的陷阱」。
 
@@ -132,14 +134,46 @@
 
 **現在使用者可以做什麼**：直接在預覽畫布上把 overlay 或字幕拖到想要的位置，接近中心線/安全邊距時會有導線輔助對齊，放開滑鼠就存檔（可 undo）——不必再靠 Inspector 打 0–1 的座標數字。
 
+## 預覽 vs 成品的幾何回歸（`npm run verify:wysiwyg`，分支 `caption-wysiwyg`）
+
+`ui/e2e/preview-vs-export.mjs`。補的正是上面那條「從來沒有人 render 一次去比像素」的缺口。
+
+- **做法**：自己在 `os.tmpdir()/vidcut-wysiwyg-fixture` 建一個臨時專案（純深灰 1080×1920
+  影片 3 秒、白字深描邊、三個項目各佔一段互不重疊的時間窗），自己在 :3999 起一台 server
+  （`VIDCUT_PORT` 環境變數是為此加的），**全程走 MCP**（import_media/set_timeline/
+  add_overlay/set_captions/render，跟 AI 使用者同一條路徑）→ 真 render → `select=eq(n,N)`
+  抽指定幀 → 量「亮度 >128 的像素外接矩形」（＝白色字身，稱墨跡外框）。預覽端用 headless
+  Chromium 開真 UI、用 ArrowRight 走到同一幀（拿工具列 timecode 複驗）、`Page.captureScreenshot`
+  只截 stage、換算回 1080×1920 座標量同一個外框。**不碰 `projects/demo`、不碰 :3845**，
+  每次跑先把臨時專案刪掉重建（重跑任意次起點都一樣）。
+- **三個 case、目前的實測結果（成品墨跡 `x0=318 y0=399 w=444 h=74`）**：
+  - ❌ overlay `scale=1` → 預覽 `x0=340.1 y0=398.0 w=400.1 h=67.0`，**最大差 43.9px**，寬比 0.901
+  - ❌ overlay `scale=0.5` → 預覽 `x0=440.1 y0=391.0 w=200.0 h=34.0`，**最大差 244.0px**，寬比 0.451
+  - ✅ 字幕（無 karaoke，成品 `x0=334 y0=1166 w=410 h=75`）→ 預覽 `x0=334.1 y0=1167.0 w=410.1 h=74.0`，
+    **最大差 1.0px**
+- **所以這支腳本現在是紅的（exit 1），而且應該是紅的**——它守的是兩個已知缺陷（見
+  `CLAUDE.md`「『預覽即成品』的實際範圍」）。修掉那兩個缺陷之後它才該全綠。
+  字幕那項若也紅＝量測本身壞了，先修腳本不要改斷言。
+- **容差 4 畫布 px**：字幕那條路徑兩邊是同一張 PNG、同一個位置，它量到的誤差就是這套量測
+  的本底雜訊（h264 4:2:0 + crf 壓縮讓邊緣斜坡位移、截圖重新光柵化、clip 原點取整）。
+  實測本底 ≤1.0px，跨 1200×1400 與 1440×820 兩種視窗（stage 寬 628 vs 302 CSS px）都一樣，
+  取 4px ＝ 四倍餘裕；要抓的兩個落差是 44px 與 244px 級。
+- **反向驗證（證明它不是「什麼都判紅」）**：暫時把 `Player.tsx` 的 `maxWidth: 1080*0.9`
+  與 `scale(${o.position.scale})` 拿掉（讓預覽跟渲染端一樣不吃這兩件事）再跑，三項全部
+  轉綠、誤差都 ≤1.0px；驗完已還原。
+- **已知限制**：只比「墨跡外框」（位置與尺寸），不比字形、不比顏色、不比 alpha 邊緣，
+  所以描邊粗細/反鋸齒差異這類（karaoke 的已知落差正是這一類）它抓不到；只涵蓋
+  非 karaoke 字幕與文字 overlay，**karaoke 與純圖 overlay 沒有 case**；每個時間窗只放
+  一個項目（同幀多個項目會讓全域外框失去意義）；預覽端的 `<video>` 內容不參與比對
+  （素材刻意是純深灰，門檻切不到它）——所以它**不驗影片畫面本身的縮放/裁切/blur 填充**。
+
 **階段 4 完成後仍待確認**：
 
 - 體感類（需要使用者親眼/親手驗）：拖曳的手感（吸附靈敏度、導線出現的時機是否符合直覺）、打字三段式（階段 3）與拖曳同時操作時是否順手。
-- **從來沒有人做過「render 一次，比對成品像素與預覽畫面」這件事。** e2e 只驗了「伺服器存了新座標」；
-  `verify:canvas` 檢查 1 那個 0.000% 只驗了 transform 矩陣的 `a`（連 scaleY 與平移都沒看，見 `CLAUDE.md`「UI 驗證的陷阱」）。
-  所以「拖曳後成品位置＝預覽位置」目前是**未驗證**的，不是已驗證的。
-  已知的**非位置**落差（overlay 尺寸差 ~11%、`position.scale` 渲染端沒實作、karaoke 高亮邊緣差）
-  見 `CLAUDE.md`「『預覽即成品』的實際範圍」，那些是缺陷不是待驗。
+- ~~**從來沒有人做過「render 一次，比對成品像素與預覽畫面」這件事。**~~
+  **已補上：`npm run verify:wysiwyg`（`ui/e2e/preview-vs-export.mjs`）**——見下節。
+  在它之前，e2e 只驗了「伺服器存了新座標」，`verify:canvas` 檢查 1 那個 0.000% 只驗了
+  transform 矩陣的 `a`（連 scaleY 與平移都沒看，見 `CLAUDE.md`「UI 驗證的陷阱」）。
 
 ## T1（參考 CapCut 的快贏功能，tag `t1-done`）
 
@@ -354,6 +388,7 @@ npm run demo      # ⚠️ 重建 demo（覆蓋既有內容）+ 起 server
 npm run dev:ui    # Vite dev（proxy 到 :3845；port 未必是 5173，且只綁 IPv6 → 用 localhost）
 npm run verify:panels  # 面板控制項真瀏覽器回歸（前置：server 在跑 + ui/dist 最新）
 npm run verify:canvas  # 畫布縮放/拖曳/吸附/不盲拖真瀏覽器回歸（前置同上；見 CLAUDE.md）
+npm run verify:wysiwyg # 真 render vs 預覽截圖的墨跡外框（自己起 :3999 + 臨時專案；目前故意是紅的）
 ```
 
 > `npm run lint` exit 1 代表 `typecheck && lint && format:check` 這種 `&&` 串會停在 lint，

@@ -14,7 +14,16 @@ import { setCaptionFontResolver } from './render.js';
 import { TextCardService } from './textCards.js';
 import { CaptionCardSync } from './cardSync.js';
 
-const DEFAULT_PORT = 3845;
+/**
+ * 預設 :3845。`VIDCUT_PORT` 可覆寫——為的是「同時再起第二個 server 吃另一個專案」
+ * 這個需求（例如 `npm run verify:wysiwyg` 要用自己的臨時專案跑一次真渲染，
+ * 不能碰使用者手上那台 :3845 與 `projects/demo`）。壞值（非數字/超範圍）一律
+ * 退回 3845，不要讓一個打錯的環境變數變成 `listen(NaN)` 那種難懂的失敗。
+ */
+const DEFAULT_PORT = (() => {
+  const raw = Number(process.env.VIDCUT_PORT);
+  return Number.isInteger(raw) && raw > 0 && raw < 65536 ? raw : 3845;
+})();
 
 export interface StartedServer {
   server: Server;
