@@ -499,6 +499,13 @@ export function Player() {
                 src={o.src}
                 className={fxAdded.has(o.id) ? 'fx-enter' : undefined}
                 alt=""
+                // <img> 預設瀏覽器原生可拖曳（HTML5 drag-and-drop）——按下後只要一移動,
+                // 原生拖曳手勢就會搶走這個手勢:dragstart 觸發、隨即 pointercancel,
+                // 我們的 pointerup 永遠不會到達,onDragPointerUp 不會跑,sendCommand
+                // 永遠不會送出。畫面上看起來拖曳「成功」了（本地覆蓋卡在放開時的座標
+                // 不會消失),但伺服器端座標從未更新——使用者以為存了,其實沒有,重新整理
+                // 就會打回原形。draggable={false} 關掉原生手勢,讓 pointer 事件序列完整跑完。
+                draggable={false}
                 onPointerDown={onOverlayPointerDown}
                 onPointerMove={onDragPointerMove}
                 onPointerUp={onDragPointerUp}

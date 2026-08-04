@@ -57,8 +57,12 @@ Node peak RSS 297MB、耗時 919ms；改成 `body: file` + `req.pipe` 後為 1MB
 
 ### 7. e2e 檢查擴充
 
-`ui/e2e/panel-affordance.mjs` 目前涵蓋面板收合/展開控制項（12 項斷言、4 種視窗尺寸）。
-同樣的手法（真瀏覽器命中測試）可延伸到時間軸拖曳與字幕編輯 —— jsdom 量不出被遮擋與捲動裁切。
+`ui/e2e/panel-affordance.mjs` 涵蓋面板收合/展開控制項（12 項斷言、4 種視窗尺寸）；
+`ui/e2e/canvas-direct.mjs`（`npm run verify:canvas`，字幕 WYSIWYG Task 16 新增）涵蓋
+預覽畫布的 1080 空間縮放正確性、overlay/字幕直接拖曳、吸附導線——這部分**已完成**，
+不再是待辦。同樣的手法（真瀏覽器命中測試 + CDP 合成 pointer 事件）仍可延伸到**時間軸**
+本身的拖曳（trim/排序/縮放吸附）與字幕列表面板的雙擊改字 —— jsdom 量不出被遮擋、
+捲動裁切，也沒有真的 pointer capture 可以測拖曳。
 
 ### 8. MCP elicitation URL mode
 
@@ -72,3 +76,6 @@ Node peak RSS 297MB、耗時 919ms；改成 `body: file` + `req.pipe` 後為 1MB
 - 播放流暢度與 A/B 無縫切換的實際觀感
 - 成品觀感（字幕排版、ducking 音量、blur 填充）
 - Claude Code 的真實 MCP 連線（目前驗過 transport，未驗過完整對話流程）
+- 畫布拖曳/吸附的手感（吸附靈敏度、導線時機）與打字三段式的體感；拖曳/改字後
+  實際渲染一次，比對成品與預覽畫布是否一致（e2e 只驗了伺服器座標值有變，
+  沒有跑過真的 render 去比對成品像素）

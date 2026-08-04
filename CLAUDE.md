@@ -17,13 +17,18 @@ npm run dev:ui                              # UI 熱重載（:5173，另外開�
 npm test                                    # 全部（真 ffmpeg + 真 whisper，約 25 秒）
 npm run typecheck && npm run lint && npm run format:check
 npm run verify:panels                       # 面板控制項的瀏覽器回歸檢查
+npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線的瀏覽器回歸檢查
 ```
 
 - **改完 UI 原始碼必須 `npm run build -w @vidcut/ui`**，否則 :3845 上跑的還是舊版。
   只有 `npm run dev:ui` 那條路不用 build。
-- `verify:panels` 需要 server 已在跑 + `ui/dist` 是最新的。
-  換視窗尺寸：`VIDCUT_VIEWPORT=1280x620 npm run verify:panels`；
+- `verify:panels` 與 `verify:canvas` 都需要 server 已在跑 + `ui/dist` 是最新的。
+  換視窗尺寸：`VIDCUT_VIEWPORT=1280x620 npm run verify:panels`（`verify:canvas` 同樣吃這個環境變數）；
   Chrome 路徑可用 `CHROME_BIN` 覆寫（這台機器沒有 Chrome，用 playwright 快取的 Chromium）。
+  **不要**用 `npm run demo` 當 `verify:canvas` 的前置——它會重新產生 `projects/demo`；
+  直接 `npx tsx server/src/index.ts projects/demo` 起 server 即可。
+  `verify:canvas` 的拖曳檢查會真的透過 WS 把 demo 專案裡一個 overlay 的位置寫回
+  `projects/demo` 的 `doc.json`（位置小幅挪動，非破壞性，是 demo 專案本來就該承受的操作）。
 - `npm run format:check` 會抓到 `ui/coverage/*.json` 這類產生檔，不是你的問題。
 
 ## 鐵則
@@ -69,6 +74,26 @@ npm run verify:panels                       # 面板控制項的瀏覽器回歸�
   render 出來了也不會重新 observe。改用 `useState` 當 ref（callback ref：
   `<div ref={setStageEl}>`），元素真正掛上時 state 變了會自然重新跑
   依它為 dep 的 effect（見 `ui/src/player/Player.tsx` 的 `stageEl`/`setStageEl`）。
+- **`<img>` 預設瀏覽器原生可拖曳（HTML5 drag-and-drop），會搶走自訂的 pointer 拖曳**。
+  在一個掛了 `onPointerDown`/`setPointerCapture` 的 `<img>` 上按下再移動，只要沒設
+  `draggable={false}`，原生拖曳手勢會在移動的瞬間搶走事件序列：`dragstart` 觸發、
+  隨即 `pointercancel`，你自己的 `pointerup` 永遠不會到達。後果不是「拖曳沒反應」這種
+  一眼看穿的失敗——本地的拖曳中覆蓋值（optimistic UI）會**永久卡在放手時的座標**（因為
+  「放手」事件從未真正發生，沒有任何 commit/reconcile 邏輯會被觸發），畫面上看起來拖
+  曳成功了，但從未送出過任何命令，伺服器端座標從未更新，重新整理就打回原形。這不是
+  headless/CDP 合成事件才有的假象——是標準瀏覽器行為，真人用真滑鼠拖也會踩到（Task 16
+  的 `verify:canvas` 就是這樣抓到 overlay 與字幕卡拖曳全壞掉的真 bug）。**任何要用
+  pointer 事件做自訂拖曳的 `<img>` 都要 `draggable={false}`**（`ui/src/player/Player.tsx`
+  的 overlay、`ui/src/player/CaptionLayer.tsx` 的字卡 `<img>` 已修）。用真瀏覽器驗證拖曳
+  時，「放手後位置沒變」不能只看一次就結論「拖曳邏輯有 bug」——先確認 `pointerup`
+  真的有送達目標元素（例如監聽 `pointercancel`/`dragstart` 排除這個坑），不然會誤修錯地方。
+
+- **會真的寫回專案狀態的 e2e 腳本，位移量不能是「相對起點的固定偏移」**——`verify:canvas`
+  的拖曳檢查每次跑都會把 demo 專案的 overlay 位置存回 `doc.json`，下一次跑的起點就是
+  上一次的終點。固定偏移量（例如「永遠往右下拖 160px」）跑幾次後會把元素逼到畫布邊緣，
+  clamp 會讓「拖曳前」與「拖曳後」的值撞在同一個被夾住的數字上，讓斷言穩定假性失敗
+  （看起來像「拖曳沒生效」，其實是腳本自己把狀態作到牆角去了）。改成算絕對目標座標
+  （依目前值在畫布哪一側，交替瞄準另一側），才能保證重跑任意次都不會收斂到邊界。
 
 ## Git
 

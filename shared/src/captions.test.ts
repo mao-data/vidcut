@@ -7,7 +7,6 @@ import {
   DEFAULT_CAPTION_STYLE,
   karaokeClip,
   type TranscriptWord,
-  type TokenBox,
 } from './captions.js';
 
 const w = (text: string, start: number, end: number): TranscriptWord => ({ text, start, end });

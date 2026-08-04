@@ -1,7 +1,7 @@
 # HANDOFF — vidcut 開發交接
 
 > 目前做到哪、怎麼驗、已知限制、下一步。
-> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）+ 階段 2（可編輯文字 overlay）+ 階段 3（預覽字卡直出，預覽=成品）完成。
+> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）+ 階段 2（可編輯文字 overlay）+ 階段 3（預覽字卡直出，預覽=成品）+ 階段 4（畫布拖曳+吸附導線）**四階段全部完成**，含真瀏覽器回歸（`npm run verify:canvas`）。
 
 ## 現況總覽
 
@@ -14,9 +14,9 @@
 | T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                             |
 | T2 #8 自動字幕 | ✅           | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節         |
 | UI 重設計      | ✅           | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節             |
-| 字幕 WYSIWYG 階段 3/4 | ✅（分支 `caption-wysiwyg`） | 階段 1：Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步。階段 2：**可編輯文字 overlay**——UI 時間軸「Text」鈕新增文字 overlay、Inspector 可改文字/字級/顏色，MCP `add_overlay`/`update_overlay`/`set_overlays` 皆支援 `text`。階段 3：**字幕預覽改走與成品同一張字卡**——`fontSize/3` 估算已廢除，1080×1920 座標空間 + `transform: scale(stage寬/1080)`；karaoke 用 base+全高亮兩張幾何相同的卡疊 `clip-path` 逐詞揭色；打字三段式即時預覽；真瀏覽器實測驗證縮放公式（見下節）。**階段 4（畫布拖曳+吸附）尚未開始**。 |
+| 字幕 WYSIWYG 階段 1–4 | ✅（分支 `caption-wysiwyg`，**四階段全完成**） | 階段 1：Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步。階段 2：**可編輯文字 overlay**——UI 時間軸「Text」鈕新增文字 overlay、Inspector 可改文字/字級/顏色，MCP `add_overlay`/`update_overlay`/`set_overlays` 皆支援 `text`。階段 3：**字幕預覽改走與成品同一張字卡**——`fontSize/3` 估算已廢除，1080×1920 座標空間 + `transform: scale(stage寬/1080)`；karaoke 用 base+全高亮兩張幾何相同的卡疊 `clip-path` 逐詞揭色；打字三段式即時預覽；真瀏覽器實測驗證縮放公式（見下節）。階段 4：**畫布直接拖曳 overlay/字幕 + 吸附導線**——`shared/src/snap.ts` 的 `snapBBox` 純函數（水平置中/垂直置中/上下 5% 安全邊距，16px 吸附半徑）+ `ui/src/player/dragLayer.ts` 的錨點↔bbox 換算 + `Player.tsx` 的 pointer 拖曳與「放手後 echo 未到前」的本地覆蓋橋接；真瀏覽器 e2e 回歸（`npm run verify:canvas`，見下節）過程中抓到並修掉一個真 bug（`<img>` 原生瀏覽器拖曳手勢劫持 pointer 事件序列，見下節與 `CLAUDE.md`）。 |
 
-**自動化狀態**：422 個測試（shared 31 / server 195 / ui 196，數字含字幕 WYSIWYG 階段 1+2+3 新增測試；若 `npm test` 整批平行跑，`server/test/cardSync.test.ts` 的 debounce 測試偶爾會因即時渲染子行程與其他重測試（render/demo）搶 CPU 而假性失敗——單獨跑該檔或 `server` workspace 是穩定綠的，屬既有計時假設脆弱，非本次文檔改動引入）、typecheck 三 workspace 乾淨、ESLint 0 問題（`.claude/worktrees/` 下其他 session 的 34 個既有錯誤不算；`shared/src/captions.test.ts` 有 1 個既有 `no-unused-vars` warning——`TokenBox` 型別 import 未用——階段 3 引入、不擋 build，本次文檔任務未動原始碼故未修）、UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過；字幕預覽=成品的縮放公式另有真瀏覽器（非 jsdom）三視窗實測，見下節。
+**自動化狀態**：438 個測試（shared 39 / server 195 / ui 204，數字含字幕 WYSIWYG 階段 1–4 全部新增測試；若 `npm test` 整批平行跑，`server/test/cardSync.test.ts` 的 debounce 測試偶爾會因即時渲染子行程與其他重測試（render/demo）搶 CPU 而假性失敗——單獨跑該檔或 `server` workspace 是穩定綠的，屬既有計時假設脆弱，非本次文檔改動引入）、typecheck 三 workspace 乾淨、ESLint 0 問題（`.claude/worktrees/` 下其他 session 的 34 個既有錯誤不算，已確認與本分支動過的檔案無關；階段 3 引入的 `shared/src/captions.test.ts` 未用 `TokenBox` import 警告本次已順手修掉）、UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過；字幕預覽=成品的縮放公式與畫布拖曳/吸附另有真瀏覽器（非 jsdom）回歸——`npm run verify:panels`（面板）與 `npm run verify:canvas`（縮放/拖曳/導線，Task 16 新增，三項斷言穩定通過）都綠，見下節「階段 4」。
 
 ## 字幕 WYSIWYG 階段 1：光柵器地基（分支 `caption-wysiwyg`）
 
@@ -56,7 +56,7 @@
 
 設計：同上規格 §7（§7 已依實作校對，見設計文件的落地備註）。目標：字幕預覽與匯出成品共用**同一光柵器、同一張 PNG**，消除 `fontSize/3` 這個估算縮放的分歧源。
 
-- **座標空間**：字幕層與 overlay 層共用 `ui/src/player/Player.tsx` 裡同一個 1080×1920 絕對定位 `<div>`，`transform: scale(stage寬/1080)`——`stage寬` 是量測「影片實際填滿的那個元素」（`stageEl`，`ResizeObserver` 觀測）的真實寬度，縮放係數只有這一處來源。`fontSize/3` 魔術除數已整個移除，`ui/src/player/CaptionLayer.tsx` 的 DOM 文字路徑（`ApproxCaption`）現在**只當 fallback**：字卡幾何 fetch 中／失敗、或圖檔本身載入失敗（`onError`）時才會退回近似顯示；正常情況一律是 `<img src=/text-card/<hash>.base.png>` 直出，跟渲染成品同一張圖。
+- **座標空間**：字幕層與 overlay 層共用 `ui/src/player/Player.tsx` 裡同一個 1080×1920 絕對定位 `<div>`，`transform: scale(stage寬/1080)`——`stage寬` 是量測「影片實際填滿的那個元素」（`stageEl`，`ResizeObserver` 觀測）的真實寬度，縮放係數只有這一處來源。`fontSize/3` 魔術除數已整個移除，`ui/src/player/CaptionLayer.tsx` 的 DOM 文字路徑（`ApproxCaption`）現在**只當 fallback**：字卡幾何**還沒開始 fetch 之前（該句尚無 hash）**或**已 fetch 但失敗**、或圖檔本身載入失敗（`onError`）時才會退回近似顯示；正常情況一律是 `<img src=/text-card/<hash>.base.png>` 直出，跟渲染成品同一張圖。**易錯點（已修過一次文檔用詞）**：字卡幾何「fetch 進行中」那個瞬間不是 fallback——`CardCaptionForHash` 對 `geo === 'pending'` 直接 `return null`，畫面是**空白一幀**，不是近似文字；近似文字只出現在「這句根本還沒有 hash（`cards[c.id]` 不存在）」或「fetch/圖檔載入確定失敗」這兩種情況。
 - **karaoke（預覽端）**：base 卡 + 全高亮卡（`.hl.png`）兩張**幾何完全相同**的圖疊在一起，上層用 `shared/src/captions.ts` 的純函數 `karaokeClip(bboxes, activeIndex, pad)` 算出的 `clip-path` 逐詞揭色（`pad` 補償描邊外擴）；`tokenSeparator(prev, next)` 判斷詞間該不該插空白（CJK 不加、拉丁加），DOM fallback 與伺服端 `text_card.py` 的斷詞規則因此一致。**匯出端維持階段 1 就有的「一個詞一張卡」機制沒有變**（`server/src/render.ts` 的 `renderCaptionCards`）——兩卡+clip-path 目前只在預覽端，渲染端的「一詞一卡爆量」根治仍是後續工作（spec §2 非目標）。
 - **打字三段式即時編輯**：`ui/src/stores/editDraft.ts`（新，`useEditDraft`）存打字中的本地草稿（`{id, text, previewHash}`），不進 history、不碰 project doc、不經 `sendCommand`。每鍵先以 DOM 近似顯示；停手 debounce 後打 `POST /text-card/preview` 換真卡（`previewHash` 到位後 `CaptionLayer` 改走 `CardCaption`）；失焦/Enter 才真的送 `updateCaption` 命令進 history。
 - **真瀏覽器實測（Task 13 驗收）**：headless Chromium 量三個視窗尺寸（1440×820／1280×620／1920×1080），caption/overlay 層 `transform: scale(...)` 與 `stageWidth / 1080` 的誤差全部 **0.000%**（遠低於 ~1% 門檻）——`fontSize/3` 舊估算法在 1280×620 曾量到 3.28× 誤差，新公式在同一視窗尺寸下已消除該誤差。腳本為一次性（未進 repo，正式回歸腳本排 Task 16）。
@@ -64,7 +64,22 @@
 
 **現在使用者可以做什麼**：預覽看到的字幕字級/斷行/描邊/字型與渲染成品完全一致（同一張 PNG），不再需要「先渲染才知道字幕實際長怎樣」；打字時近似文字先出、~80ms 後換真卡，畫面不空窗。
 
-**目前仍然成立、還沒變的事**：沒有畫布拖曳／吸附導線（字幕 `style.y`、overlay `position`）——排在階段 4；渲染端 karaoke 仍是「一詞一卡」，還沒接上階段 1/3 的「兩卡+clip-path」機制。
+**目前仍然成立、還沒變的事**：畫布拖曳／吸附導線見下節（階段 4，已完成）；渲染端 karaoke 仍是「一詞一卡」，還沒接上階段 1/3 的「兩卡+clip-path」機制（spec §2 非目標，本次未變）。
+
+## 字幕 WYSIWYG 階段 4：畫布拖曳 + 吸附導線（分支 `caption-wysiwyg`）
+
+設計：同上規格 §7（§7 已依實作校對，見設計文件的落地備註）。目標：overlay 與字幕可以直接在預覽畫布上拖曳，吸附到畫布中心線與安全邊距，取代「只能在 Inspector 打數字」的編輯方式。
+
+- **吸附純函數**：`shared/src/snap.ts` 的 `snapBBox(bbox, canvas, threshold=16)`——只認「實際 bbox」（左上角 x/y + 寬高），不認 `OverlayItem.position` 的錨點座標。水平只有一個候選（畫布中心）；垂直三個候選（中心、上 5% 安全邊距、下 5% 安全邊距）互斥取最近者，避免同時吸兩條 y 導線。命中回傳 `SnapGuide[]`，Player.tsx 直接拿它畫黃色導線（`var(--warn, #eab308)`，視覺同時間軸吸附黃線）。
+- **錨點↔bbox 換算**：`ui/src/player/dragLayer.ts` 的 `dragOverlay`/`dragCaption`——`OverlayItem.position` 的錨點刻意不對稱（x 是 bbox 水平**中心**、y 是 bbox **上緣**，對應預覽 `translate(-50%, 0)` 與 ffmpeg 端 `x=(W*x)-(w/2), y=H*y`）。曾經因為這個不對稱出過事故：把 `y: 0.5` 誤當成「置中」會把整片畫布高的圖推出畫面下緣約 960px（見 `shared/src/snap.ts` 開頭註解）。`dragLayer.ts` 專職做這個換算，`snapBBox` 本身完全不用知道錨點語意；`y` 的 clamp 上限是 `canvas.h - bbox.h`（不是 `1`）——clamp 到 `1` 代表上緣頂到畫布最底端＝整個元素 100% 掉出畫面，是同一個不對稱事故的另一種踩法，回歸測試已釘住（`dragLayer.test.ts`）。
+- **拖曳手勢**：`Player.tsx` 的 `onOverlayPointerDown`/`onCaptionPointerDown` 在按下時 `setPointerCapture`，`pointermove` 只更新本地覆寫（`dragOverride`）與導線（不逐 move 送命令，一次 mousemove 一筆 command 會灌爆 undo history，同 Timeline 既有拖曳模式），`pointerup` 才 `sendCommand`。
+- **pending-echo 橋接**：放手瞬間到 server echo 抵達之間有個空窗——不橋接的話畫面會「閃回拖曳前的位置」再跳到新位置。`pendingRef`（配 1.2s 保險絲，避免命令被拒/掉包時卡死）在這段空窗內繼續顯示放手時的值，且**渲染與下一次拖曳的起點共用同一份合併結果**（`overlaysForRender`/`captionsForRender`）——不然「放手後立刻再拖一次」會從 doc 的舊值起算，把第一次的位移吃掉（round 1 review 抓到的真實 bug，已修並有回歸測試）。
+- **真瀏覽器 e2e 回歸（Task 16，`npm run verify:canvas`）**：仿 `ui/e2e/panel-affordance.mjs` 的 CDP harness（`ui/e2e/canvas-direct.mjs`），三項斷言：① 字幕/overlay 層 `transform` 的 scale 與 `stage寬/1080` 誤差 ≤1%；② 合成 pointer 事件（CDP `Input.dispatchMouseEvent`）拖曳第一個看得到的 overlay，放手後 `/api/project` 裡的座標真的變了；③ 拖近水平中心時 DOM 裡出現置中導線。**跑這支腳本時真的抓到一個會影響所有使用者的真 bug**：overlay 與字幕卡的 `<img>` 元素沒有關掉瀏覽器原生 HTML5 拖放（預設 `draggable=true`）——按下後只要指標一移動，原生拖曳手勢就搶走事件序列（`dragstart` 觸發→隨即 `pointercancel`），我們的 `pointerup` 永遠到不了，`sendCommand` 永遠不會送出；畫面上覆蓋值（`dragOverride`）會**永久卡在放手時的座標**（沒有 1.2s 保險絲能救，因為根本沒進入 pending 狀態），看起來像是拖曳成功了，但伺服器端座標從未更新，重新整理就打回原形。這不是 CDP 合成事件才有的假象——是標準瀏覽器行為，真人用真滑鼠拖也會踩到。已修：`Player.tsx` 的 overlay `<img>` 與 `CaptionLayer.tsx` 的兩張卡片 `<img>`（base/hl）都加上 `draggable={false}`；修完三項斷言穩定通過（含重跑多次、起點在畫布不同位置的情況）。詳見 `CLAUDE.md`「UI 驗證的陷阱」新增條目。
+- **前置與副作用**：`verify:canvas` 需要 `npm run build -w @vidcut/ui` 是最新的 + 一個吃著真專案的 server 已在跑（`npx tsx server/src/index.ts projects/demo`；**不要**用 `npm run demo`，會重建 demo 專案覆蓋既有內容）。⚠️ 檢查②會真的把 demo 專案裡一個 overlay 的位置透過 WS 寫回 `projects/demo` 的 `doc.json`——這是預期的（demo 專案本來就是拿來被操作的),不是要清乾淨的副作用；腳本本身用「依目前 x 落在畫布左/右哪一側,交替瞄準另一側四分之一處」的絕對目標(不是相對起點的固定位移量),保證重跑很多次也不會把 overlay 逼到畫布邊緣夾住,誤判成「位置沒變」。
+
+**現在使用者可以做什麼**：直接在預覽畫布上把 overlay 或字幕拖到想要的位置，接近中心線/安全邊距時會有導線輔助對齊，放開滑鼠就存檔（可 undo）——不必再靠 Inspector 打 0–1 的座標數字。
+
+**階段 4 完成後仍待確認（體感類，需要使用者親眼/親手驗）**：拖曳的手感（吸附靈敏度、導線出現的時機是否符合直覺）、打字三段式（階段 3）與拖曳同時操作時是否順手、匯出成品的字幕/overlay 位置是否真的跟預覽拖曳後看到的一致（e2e 只驗了「伺服器存了新座標」，沒有跑一次真的 render 去比對成品像素）。
 
 ## T1（參考 CapCut 的快贏功能，tag `t1-done`）
 
@@ -117,7 +132,7 @@ spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/s
 
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
-我驗證了「邏輯正確、程式能跑、端到端 transport 通」，但**播放流暢度、成品觀感、Claude Code 真實連線**要你的眼睛與環境。
+字幕 WYSIWYG 四階段（含畫布拖曳）都做完、自動化測試與真瀏覽器 e2e（`verify:panels` + `verify:canvas`）都綠了，但**手感類的東西自動化測不出來**，需要你的眼睛與手：
 
 ### A. 開起來看
 
@@ -127,12 +142,15 @@ npm run demo        # 終端機 A：建 demo + 起 server（127.0.0.1:3845，MCP
 npm run dev:ui      # 終端機 B：http://localhost:5173
 ```
 
-驗收（重點在體感）：
+驗收（重點在體感，e2e 只驗了「機制有沒有跑」，沒驗「順不順手」）：
 
-1. 時間軸 5 clip（縮圖 + 波形；No.3 無音軌 → 平線），按 ▶ **切換有無黑幀/停頓**（M1 最關鍵）。
+1. 時間軸 5 clip（縮圖 + 波形；No.3 無音軌 → 平線），按 ▶ **切換有無黑幀/停頓**（M1 最關鍵，這條仍然是回歸底線）。
 2. 拖 clip 左右邊緣 trim、拖 clip 本體換順序、點 clip 在左欄改屬性、Cmd+Z 復原、右欄活動記錄。
-3. 底部「🎬 渲染成品」→ 進度條 → 完成後「開啟成品」連結播放，確認畫面/音訊/overlay/字幕。
-4. **自動字幕**：素材要有人聲才有意義。請 AI 跑 `auto_caption`，右上字幕列表會出現句子，
+3. **拖曳手感（階段 4，新）**：在預覽畫布上直接拖動一個 overlay（排名徽章）或一句字幕——吸附到中心線/安全邊距時的靈敏度是否符合直覺？導線出現/消失的時機會不會太早/太晚、會不會抖動？拖到畫布邊緣時元素會不會整個消失不見（設計上應該最多露出一半，見 `dragLayer.ts` 的 clamp 說明）？
+4. **打字體感（階段 3）**：在字幕列表或畫布上編輯一句字幕文字，感受「近似文字先出、~80ms 後換真卡」這個切換是否明顯/突兀；改字型級數或加長文字讓它換行，確認換行位置跟渲染成品排版一致。
+5. 底部「🎬 渲染成品」→ 進度條 → 完成後「開啟成品」連結播放，確認畫面/音訊/overlay/字幕。
+6. **預覽=成品的最終檢驗（階段 4 收尾，新）**：把上面拖過的 overlay/字幕、改過的文字，用同一次渲染比對——畫面上字幕/overlay 的位置、字級、換行、描邊是否跟你在預覽畫布上看到的**完全一致**（這是整個字幕 WYSIWYG 專案要解決的核心問題；e2e 只驗了「伺服器存了新座標」，沒有跑一次真的 render 去比對成品像素）。
+7. **自動字幕**：素材要有人聲才有意義。請 AI 跑 `auto_caption`，右上字幕列表會出現句子，
    播放時預覽的字會逐詞亮起；渲染後成品也應該逐詞亮（我用像素數驗過，但觀感要你看）。
 
 ### B. 接 Claude Code（M3 的重點價值）
@@ -181,6 +199,7 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 shared/src/types.ts       全部型別（spec §3）+ Command/WS 協議
 shared/src/timeline.ts    純時間軸計算（locate/overlayWindow…）
 shared/src/captions.ts    逐字稿→字幕分頁、逐詞高亮索引、ASR 時間戳修正、karaokeClip（兩卡 clip-path）、tokenSeparator（斷詞規則）（純函數）★
+shared/src/snap.ts        snapBBox：畫布拖曳吸附純函數（水平置中/垂直置中/上下 5% 安全邊距，16px 半徑，只認 bbox 不認錨點）
 server/src/store.ts       ProjectStore：唯一真相來源、immer patch、history、undo、原子存檔
 server/src/commands.ts    applyCommand：人機共用的驗證過的編輯命令層 ★
 server/src/aiWrite.ts     AI 寫入守衛（審核中擋 + ifVersion 過期偵測）→ commands
@@ -205,8 +224,9 @@ ui/src/motion.ts          GSAP 進入點（useGSAP + reduced-motion 判斷）
 ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast / editDraft（打字三段式草稿，見下）
 ui/src/stores/editDraft.ts 打字中的本地字幕草稿（text + previewHash）：不進 history、不碰 doc、不經 sendCommand
 ui/src/ws.ts              WS client：命令/脈絡/審核/渲染 送出 + 重連
-ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎，量 stage 寬算 1080 座標空間縮放係數）+ CaptionLayer（見下）
+ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎，量 stage 寬算 1080 座標空間縮放係數 + 畫布拖曳事件處理）+ CaptionLayer（見下）+ dragLayer（見下）
 ui/src/player/CaptionLayer.tsx 字幕預覽：有字卡 hash 就 <img> 直出（與匯出同源），karaoke 疊 hl 卡 + clip-path；無卡/載入失敗才退回 DOM 近似 fallback
+ui/src/player/dragLayer.ts dragOverlay/dragCaption：畫布拖曳數學（純函數）——overlay 的 position 錨點不對稱（x=中心、y=上緣），這裡負責錨點↔bbox 左上角的雙向換算，呼叫 shared 的 snapBBox 做實際吸附 ★
 ui/src/timeline/          scale + dragMath + waveform（純函數）+ Timeline（trim/排序/選取/縮放/吸附/transport）
 ui/src/panels/            Inspector / Activity / ReviewBar / ExportMenu / CaptionList（字幕列表）
 ```
@@ -224,6 +244,8 @@ npm run lint      # ESLint（目前 0 問題）
 npm run format    # Prettier 寫入
 npm run demo      # 建 demo + 起 server
 npm run dev:ui    # Vite dev（proxy 到 :3845）
+npm run verify:panels  # 面板控制項真瀏覽器回歸（前置：server 在跑 + ui/dist 最新）
+npm run verify:canvas  # 畫布縮放/拖曳/吸附導線真瀏覽器回歸（前置同上；見 CLAUDE.md）
 ```
 
 ## 下一步建議（依價值排序）

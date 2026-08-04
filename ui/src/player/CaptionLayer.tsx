@@ -115,6 +115,12 @@ function CardCaptionForHash({
         width={geo.width}
         height={geo.height}
         alt=""
+        // <img> 預設瀏覽器原生可拖曳——外層卡片 div 的 pointerdown/move/up 是畫布拖曳
+        // 字幕 y 的手勢(見 Player.tsx onCaptionPointerDown),按下點幾乎必然落在這張
+        // 滿版的卡片圖上;不關掉原生拖曳,一移動原生手勢就搶走事件序列(dragstart→
+        // pointercancel),pointerup 永遠到不了,字幕拖曳會跟 overlay 拖曳一樣「看起來動了
+        // 但沒存到」。
+        draggable={false}
         // 幾何 fetch 成功不保證圖檔本身能載入(競態的部分產出、快取被清等)——
         // 圖載入失敗就整句退回 DOM fallback,不留一張看不到的卡在畫面上（Finding 1）。
         onError={() => setGeo('failed')}
@@ -125,6 +131,7 @@ function CardCaptionForHash({
           width={geo.width}
           height={geo.height}
           alt=""
+          draggable={false}
           style={{ position: 'absolute', left: 0, top: 0, clipPath: clip }}
         />
       )}

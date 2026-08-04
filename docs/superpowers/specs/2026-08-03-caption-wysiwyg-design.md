@@ -300,7 +300,7 @@ interface OverlayText {
 
 打字**絕不走命令層**(避免一鍵一筆 history 與 WS echo 延遲)。
 
-### 拖曳與吸附
+### 拖曳與吸附(階段 4 完成,與原設計的形狀差異見下方落地備註)
 
 - 沿用 Timeline 既有模式:pointermove 只動本地 preview,pointerup 才
   `sendCommand`(overlay:`position`;字幕:`style.y`)。
@@ -308,8 +308,49 @@ interface OverlayText {
   (視覺同時間軸黃線)。**吸附以實際 bbox 計算,不用 position 錨點**——
   overlay 錨點不對稱(x 是中心、y 是上緣,`translate(-50%, 0)`),
   用錨點算「垂直置中」會偏。
-- shared 純函數 `snapPosition(bbox, canvas, targets)` 回吸附後位置與命中線。
-- 選取與時間軸雙向同步(點畫布上的項目,時間軸對應塊亮起)。
+- shared 純函數 `snapBBox(bbox, canvas, threshold?)` 回吸附後位置與命中線。
+- 點畫布上的 overlay/字幕會同步選取狀態,時間軸對應塊跟著亮起
+  (一個方向:畫布→選取 store→時間軸;反方向——在時間軸選取——目前
+  不會在畫布上畫出選取框,見下方落地備註)。
+
+> **與實作的形狀差異**(階段 4 完成後校對,以下為與程式碼一致的版本):
+>
+> - **函數名與簽名**:原設計寫 `snapPosition(bbox, canvas, targets)`,實作是
+>   `shared/src/snap.ts` 的 `snapBBox(b: BBox, canvas, threshold = 16): { x, y, guides }`
+>   ——沒有 `targets` 參數(候選點是寫死的水平中心/垂直中心/上下安全邊距,不可外部
+>   注入),吸附半徑是有預設值(16,畫布 px)、可覆寫的 `threshold`,不是原設計暗示的
+>   固定值。垂直的三個候選(中心/上邊距/下邊距)互斥,只讓「離 bbox 最近的那一個」在
+>   半徑內生效,避免同時吸兩條 y 導線;水平只有一個候選(中心)。
+> - **錨點↔bbox 換算獨立成一層**:`snapBBox` 只認 bbox(左上角 x/y + 寬高),完全不知道
+>   `position` 錨點的不對稱語意。這層換算實際由呼叫端 `ui/src/player/dragLayer.ts` 的
+>   `dragOverlay`/`dragCaption` 兩個純函數負責(位移 canvas px → 呼叫 `snapBBox` → 换算
+>   回 `position`),原設計沒有把這層獨立出來寫成一個具名模組,是實作校對後補的形狀。
+>   `dragOverlay` 的 y 值 clamp 上限是 `canvas.h - bbox.h`(不是 `1`)——clamp 到 `1`
+>   代表 bbox 上緣頂到畫布最底端,等於整個元素 100% 掉出畫面下緣,是本節開頭提到的
+>   「錨點不對稱事故」的另一種踩法(見 `shared/src/snap.ts` 開頭註解),已用回歸測試
+>   釘住(`ui/src/player/dragLayer.test.ts`)。
+> - **pending-echo 橋接(原設計未提及)**:放手到 server echo 抵達之間有個空窗,
+>   `Player.tsx` 用 `pendingRef`(配 1.2s 保險絲)在這段空窗內繼續顯示放手時的值,
+>   且渲染與「下一次拖曳的起點」共用同一份合併結果——不然放手後立刻再拖一次會
+>   從 doc 的舊值起算,把第一次的位移吃掉(round 1 review 抓到的真實 bug)。這是
+>   Timeline 既有拖曳模式本來就有、字幕/overlay 拖曳延用過來的機制,原設計「沿用
+>   Timeline 既有模式」這句話涵蓋了它,但沒有點名這個機制本身。
+> - **選取同步是單向,不是「雙向」**:原設計寫「選取與時間軸雙向同步」。實作是
+>   `Player.tsx` 的 `onOverlayPointerDown`/`onCaptionPointerDown` 在按下時呼叫
+>   `useSelection.getState().select(...)`,`Timeline.tsx` 讀同一個 store 高亮對應
+>   區塊——這個方向(畫布點選→時間軸高亮)確實成立。但 `Player.tsx` 從未讀
+>   `useSelection` 來畫任何「目前選取的 overlay/字幕」視覺標記,所以反方向(在
+>   時間軸點選一個 overlay/字幕)不會在畫布上出現任何選取框或高亮——不是雙向
+>   同步,只是共用同一個選取 store 的單向效果。
+> - **`<img>` 原生拖放的坑(原設計未提及,實作發現並修正)**:Task 16 的真瀏覽器
+>   e2e 回歸(`npm run verify:canvas`)發現 overlay 的 `<img>`(`Player.tsx`)與
+>   字幕卡的兩張 `<img>`(`CaptionLayer.tsx` 的 base/hl 卡)都沒有關掉瀏覽器原生
+>   HTML5 拖放——按下後只要指標一移動,原生拖曳手勢就搶走事件序列(`dragstart`
+>   觸發、隨即 `pointercancel`),自訂的 `pointerup` 永遠到不了,`sendCommand`
+>   永遠不會送出;畫面上的本地覆蓋值會永久卡在放手時的座標(看起來像拖曳成功,
+>   實際上伺服器端座標從未更新)。這不是合成事件才有的假象,真人用真滑鼠拖也會
+>   踩到。已修:三個 `<img>` 都加上 `draggable={false}`。詳見 `CLAUDE.md`
+>   「UI 驗證的陷阱」。
 
 ### 新增入口
 
@@ -365,16 +406,18 @@ interface OverlayText {
 
 ## 10. 測試
 
-- **shared 純函數**:`karaokeClip`(單行/多行/無 tokens)、`snapPosition`
-  (中心/邊距/不吸附)、hash key 穩定性(同輸入同 key;改時間不變;改字必變;
+- **shared 純函數**:`karaokeClip`(單行/多行/無 tokens)、`snapBBox`
+  (中心/邊距/不吸附/垂直候選互斥;見 §7 落地備註,函數名與原設計的
+  `snapPosition` 不同)、hash key 穩定性(同輸入同 key;改時間不變;改字必變;
   換 rasterizerId 必變)。
 - **server(真 Pillow worker)**:base/hl 幾何一致(尺寸與 bbox 相同)、
   bbox 與繪製一致、快取命中不重產、worker 重啟恢復、字型表剔除不可用字型、
   文字 overlay 命令原子性(text 與 imagePath 同版本變更)。
 - **UI**:Player 字卡渲染 smoke(有 hash 用 img、無 hash 走近似)、
   三段式編輯狀態機、CaptionList 現有測試不回歸。
-- **真瀏覽器(verify:panels 模式)**:拖曳/吸附導線/1080 空間縮放正確性
-  (jsdom 無版面引擎,量不出)。
+- **真瀏覽器**:1080 空間縮放正確性/拖曳/吸附導線(jsdom 無版面引擎、無真
+  pointer capture,量不出也拖不動)——實作為 `npm run verify:canvas`
+  (`ui/e2e/canvas-direct.mjs`,仿 `verify:panels` 的 CDP harness,Task 16)。
 - **端到端**:預覽字卡 hash 與渲染輸入一致(同 text_card.py 同參數)。
 
 ## 11. 升級路徑:Chromium 光柵器(本次不做,介面已備)
@@ -397,7 +440,7 @@ interface OverlayText {
 | 1 | 光柵器介面 + Pillow worker + 快取 + 端點 + 字型綁定 | API 拿卡;快取命中;字型表正確 | ✅ 完成(分支 `caption-wysiwyg`,commit `c1df31b`..`be7e70d`,8 commits)。落差見 §5/§9 的落地備註。 |
 | 2 | 文字 overlay(模型/命令/Inspector/Text 鈕)+ MCP | 建立/改字/渲染成品正確 | ✅ 完成(分支 `caption-wysiwyg`,commit `2fa4fce`..`9654256`,6 commits)。落差見 §5/§6/§9 的落地備註。 |
 | 3 | 預覽 1080 空間 + 字卡直出 + karaoke 兩卡 + 三段式編輯 | 預覽=成品;打字即時 | ✅ 完成(分支 `caption-wysiwyg`,commit `3d4ba2f`..`e0056dd`,5 個 phase-3 commit,中間穿插 2 個不相關 fix)。真瀏覽器實測(Task 13,headless Chromium,1440×820/1280×620/1920×1080 三視窗):caption 層 `transform: scale(...)` 與 `stageWidth / 1080` 誤差 0.000%,`fontSize/3` 舊估算在 1280×620 曾量到的 3.28× 誤差已消除。落差見下方落地備註。 |
-| 4 | 拖曳 + 吸附導線(overlay 與字幕) | 真瀏覽器回歸通過 | 未開始 |
+| 4 | 拖曳 + 吸附導線(overlay 與字幕) | 真瀏覽器回歸通過 | ✅ 完成(分支 `caption-wysiwyg`,commit `c35b39b`..`442e2b0`,4 commits;真瀏覽器 e2e 回歸為 Task 16 新增,`ui/e2e/canvas-direct.mjs` / `npm run verify:canvas`,見 HANDOFF.md「階段 4」節)。落差見 §7 的落地備註。 |
 
 每階段獨立可驗收;1→2→3 有依賴,4 只依賴 3 的座標空間。
 
@@ -406,3 +449,5 @@ interface OverlayText {
 **階段 2 完成後仍待確認**:文字 overlay 是本設計第一個使用者看得到的行為——UI 有「Text」鈕、Inspector 能改文字/字級/顏色、AI 也能建立與修改,渲染成品會真的燒出字。但這**不是**§1 講的「預覽=成品」問題被解決:字幕(`tracks.captions`)的預覽仍是 `ui/src/player/Player.tsx` 的 `fontSize / 3` DOM 估算,完全沒有走階段 1 蓋好的字卡通道;文字 overlay 之所以在預覽裡看起來正確,純粹是因為 overlay 軌本來就整層畫成 `<img src=imagePath>`,跟階段 1/3 要解決的「同一光柵器」無關。`/api/fonts` 端點仍無 UI 消費者(沒有字型選單,新 overlay 一律 `Heiti TC`);沒有 `@font-face`、沒有打字即時預覽通道、沒有畫布拖曳——這些都在階段 3/4。
 
 **階段 3 完成後仍待確認**:§1 講的「預覽=成品」問題本身已解決——字幕預覽改走 1080×1920 座標空間 + `transform: scale(stage寬/1080)`,`fontSize/3` 已移除,真瀏覽器實測三視窗誤差 0.000%(見上表)。`@font-face` 同源字型也已接上(`ui/src/App.tsx` 掛載時抓 `/api/fonts`、注入指向 `/fonts/:id` 的 `@font-face`),DOM 近似路徑(`ApproxCaption`)因此跟成品用同一份字型檔,不是瀏覽器預設字型——分歧源 5 在 fallback 期間也已消除。仍沒有的是**字型選單**:`/api/fonts` 只被 `@font-face` 注入消費,沒有任何 UI 讓使用者挑字型,新字幕/新文字 overlay 一律預設 `Heiti TC`。karaoke 的「一詞一卡爆量」問題(§2 非目標)在**匯出端**完全沒動,`server/src/render.ts` 仍是階段 1 就有的「一個詞一張卡」;本階段的 base+全高亮兩卡+`clip-path` 機制只用在**預覽端**。沒有畫布拖曳/吸附導線——排在階段 4。
+
+**階段 4 完成後仍待確認**:overlay 與字幕都可以直接在預覽畫布上拖曳,吸附到水平/垂直中心與上下 5% 安全邊距時會出現黃色導線,放手才 `sendCommand`(`shared/src/snap.ts` 的 `snapBBox` + `ui/src/player/dragLayer.ts` 的錨點↔bbox 換算,細節見下方§7 落地備註)。真瀏覽器 e2e 回歸(Task 16,`npm run verify:canvas`)驗了三件事:縮放正確、拖曳後座標真的存到伺服器、拖近中心出現導線——三項都通過,過程中抓到並修掉一個會讓「拖曳」整個失效的真 bug(`<img>` 原生瀏覽器拖放搶走 pointer 事件序列,見 `CLAUDE.md`「UI 驗證的陷阱」)。仍待人親自驗收的是**體感**:吸附靈敏度/導線時機是否符合直覺、拖曳與階段 3 的打字三段式同時操作順不順手——這些自動化測不出來,e2e 只驗「機制有沒有跑」;另外 e2e 也沒有驗過「拖完之後跑一次真的 render,成品裡的位置是否與拖曳後看到的預覽一致」,只驗了「伺服器存的座標值變了」。

@@ -17,7 +17,8 @@
     "dev:server": "tsx server/src/index.ts",
     "dev:ui": "npm run dev -w @vidcut/ui",
     "demo": "tsx server/src/demo.ts projects/demo && tsx server/src/index.ts projects/demo",
-    "verify:panels": "node ui/e2e/panel-affordance.mjs"
+    "verify:panels": "node ui/e2e/panel-affordance.mjs",
+    "verify:canvas": "node ui/e2e/canvas-direct.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
