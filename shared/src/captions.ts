@@ -27,6 +27,13 @@ export const DEFAULT_PAGE_OPTIONS: Required<Omit<CaptionPageOptions, 'karaoke'>>
   maxUnits: 24,
 };
 
+export interface TokenBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   fontFamily: 'PingFang TC',
   fontSize: 64,
@@ -188,4 +195,23 @@ export function activeTokenIndex(cap: CaptionItem, t: number): number {
     else break;
   }
   return idx;
+}
+
+/**
+ * 逐詞揭色的 CSS clip-path。active<0 → null(hl 層整個不顯示)。pad=描邊外擴補償
+ * 回傳 `path('M.. Z M.. Z')`:0..active 每個 box 一個矩形子路徑(先 pad 外擴)。
+ */
+export function karaokeClip(boxes: TokenBox[], active: number, pad = 0): string | null {
+  if (active < 0 || boxes.length === 0) return null;
+  const rects = boxes
+    .slice(0, Math.min(active + 1, boxes.length))
+    .map((b) => {
+      const x = b.x - pad;
+      const y = b.y - pad;
+      const w = b.w + pad * 2;
+      const h = b.h + pad * 2;
+      return `M${x},${y} h${w} v${h} h${-w} Z`;
+    })
+    .join(' ');
+  return `path('${rects}')`;
 }
