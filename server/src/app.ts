@@ -3,8 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import type { ProjectStore } from './store.js';
-import { scanSourceFolder } from './sourceFolder.js';
-import { resolveMediaPath } from './paths.js';
+import { listSource } from './sourceFolder.js';
 import { ingestMedia } from './ingest.js';
 import { applyCommand } from './commands.js';
 
@@ -33,12 +32,7 @@ export function createApp(
         return;
       }
       try {
-        const files = await scanSourceFolder(dir);
-        const imported = new Set(store.doc.media.map((m) => resolveMediaPath(projectDir, m.path)));
-        res.json({
-          dir,
-          files: files.map((f) => ({ ...f, imported: imported.has(join(dir, f.name)) })),
-        });
+        res.json(await listSource(dir, store.doc.media, projectDir));
       } catch (e) {
         res.status(400).json({ error: (e as Error).message });
       }

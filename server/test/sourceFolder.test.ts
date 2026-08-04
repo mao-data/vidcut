@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, writeFile, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { scanSourceFolder } from '../src/sourceFolder.js';
+import type { MediaAsset } from '@vidcut/shared';
+import { scanSourceFolder, listSource } from '../src/sourceFolder.js';
 
 async function folderWith(names: string[]): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'vidcut-src-'));
@@ -97,5 +98,40 @@ describe('scanSourceFolder', () => {
     // B(charCode 66) < a(charCode 97)，但 localeCompare 認為 'a' < 'B'
     // 期望升冪順序：['a.mp4', 'B.mp4']
     expect(files.map((f) => f.name)).toEqual(['a.mp4', 'B.mp4']);
+  });
+});
+
+describe('listSource', () => {
+  it('標記素材夾內哪些檔案已匯入本專案（絕對路徑素材）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-ls-'));
+    await writeFile(join(dir, 'a.mp4'), 'x');
+    await writeFile(join(dir, 'b.mp4'), 'x');
+    const media: MediaAsset[] = [
+      {
+        id: 'm1',
+        path: join(dir, 'a.mp4'),
+        probe: { duration: 1, width: 10, height: 10, fps: 30, hasAudio: false, rotation: 0 },
+      },
+    ];
+    const r = await listSource(dir, media, '/proj');
+    expect(r.dir).toBe(dir);
+    expect(r.files.map((f) => [f.name, f.imported])).toEqual([
+      ['a.mp4', true],
+      ['b.mp4', false],
+    ]);
+  });
+
+  it('專案內的相對路徑素材也比對得出來（解析後才比）', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'vidcut-ls-proj-'));
+    await writeFile(join(projectDir, 'c.mp4'), 'x');
+    const media: MediaAsset[] = [
+      {
+        id: 'm1',
+        path: 'c.mp4', // 相對路徑＝專案內
+        probe: { duration: 1, width: 10, height: 10, fps: 30, hasAudio: false, rotation: 0 },
+      },
+    ];
+    const r = await listSource(projectDir, media, projectDir);
+    expect(r.files.find((f) => f.name === 'c.mp4')!.imported).toBe(true);
   });
 });

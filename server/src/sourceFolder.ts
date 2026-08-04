@@ -1,5 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
+import type { MediaAsset } from '@vidcut/shared';
+import { resolveMediaPath } from './paths.js';
 
 /** 可匯入的副檔名（小寫比對）。影片與音訊都收，音訊可放旁白／BGM。 */
 export const MEDIA_EXTENSIONS = [
@@ -51,4 +53,26 @@ export async function scanSourceFolder(dir: string): Promise<SourceFile[]> {
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export interface SourceListing {
+  dir: string;
+  files: Array<SourceFile & { imported: boolean }>;
+}
+
+/**
+ * 掃素材夾並標記哪些檔案已匯入本專案。HTTP（GET /api/source）與 MCP（list_source）
+ * 共用同一個實作，兩邊回應形狀因此保證一致。
+ *
+ * `imported` 比對的是**解析後的絕對路徑**：doc.media 裡相對路徑代表專案內、
+ * 絕對路徑代表零複製外部引用，直接比字串會漏判。
+ */
+export async function listSource(
+  dir: string,
+  media: readonly MediaAsset[],
+  projectDir: string,
+): Promise<SourceListing> {
+  const files = await scanSourceFolder(dir);
+  const imported = new Set(media.map((m) => resolveMediaPath(projectDir, m.path)));
+  return { dir, files: files.map((f) => ({ ...f, imported: imported.has(join(dir, f.name)) })) };
 }
