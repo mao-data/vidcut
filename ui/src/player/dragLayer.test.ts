@@ -32,13 +32,16 @@ describe('dragOverlay', () => {
     expect(r.position.y).toBeCloseTo(860 / 1920, 6);
   });
 
-  it('大位移往下拖不會把元素整個推出畫布下緣（clamp 上限＝canvas.h - bbox.h，不是 1）', () => {
+  it('大位移往下拖不會把元素整個推出畫布下緣（上限＝中心貼齊畫布下緣）', () => {
     // y 錨=上緣：clamp 到 1 代表上緣頂到畫布最底端＝整個元素 100% 掉出畫面
-    // （shared/src/snap.ts:5-8 記錄過的事故正是這個誤解）。上限必須是
-    // 「上緣最多落在 canvas.h - bbox.h」，元素底邊剛好貼齊畫布下緣、仍完整可見。
+    // （shared/src/snap.ts:5-8 記錄過的事故正是這個誤解）。
+    // 2026-08-04 起規則放寬成「中心留在畫布內」（使用者要求四邊都能超出），
+    // 所以上限從「上緣最多 canvas.h - bbox.h（元素完整可見）」變成
+    // 「中心最多貼齊下緣＝上緣 1 - h/2H（露出下半）」。仍然擋掉「整個掉出畫面」。
     const r = dragOverlay({ x: 0.5, y: 0.4 }, { dx: 0, dy: 5000 }, { w: 400, h: 100 }, CANVAS);
-    expect(r.position.y).toBeLessThanOrEqual(1 - 100 / 1920);
-    expect(r.position.y).toBeCloseTo(1 - 100 / 1920, 6);
+    expect(r.position.y).toBeLessThanOrEqual(1 - 100 / (2 * 1920));
+    expect(r.position.y).toBeCloseTo(1 - 100 / (2 * 1920), 6);
+    expect(r.position.y).toBeLessThan(1); // 上緣沒有頂到畫布最底端＝沒有整個掉出去
   });
 
   it('純水平拖曳不得挪動 y：clamp 不能動使用者這次沒碰的那條軸', () => {
@@ -74,8 +77,9 @@ describe('dragOverlay', () => {
 describe('dragCaption', () => {
   it('y 位移換算 + 夾限', () => {
     expect(dragCaption(0.72, 192, 92, 1920).y).toBeCloseTo(0.82);
-    expect(dragCaption(0.9, 500, 92, 1920).y).toBeLessThanOrEqual(1 - 92 / 1920);
-    expect(dragCaption(0.1, -500, 92, 1920).y).toBeGreaterThanOrEqual(0);
+    // 2026-08-04 起：中心留在畫布內，上下各可露出半張卡（舊規則是必須完整可見）
+    expect(dragCaption(0.9, 500, 92, 1920).y).toBeLessThanOrEqual(1 - 92 / (2 * 1920));
+    expect(dragCaption(0.1, -500, 92, 1920).y).toBeGreaterThanOrEqual(-92 / (2 * 1920));
   });
 
   it('高字卡且起點在界外：1px 的手勢不得把字幕彈上去（clamp 規則與 dragOverlay 一致）', () => {
@@ -85,7 +89,60 @@ describe('dragCaption', () => {
     expect(dragCaption(0.9, 1, 400, 1920).y).toBeCloseTo(0.9, 6);
     // 往界內拖不受限：一路拖得回合法區間，不會被鎖在 0.9
     expect(dragCaption(0.9, -400, 400, 1920).y).toBeCloseTo(0.9 - 400 / 1920, 6);
-    // 起點本來就合法時行為與舊版逐字相同：硬拖出下緣仍夾在 1-cardH/canvasH
-    expect(dragCaption(0.5, 5000, 400, 1920).y).toBeCloseTo(1 - 400 / 1920, 6);
+    // 起點本來就合法時：硬拖出下緣夾在「中心貼齊下緣」＝ 1 - cardH/2H
+    expect(dragCaption(0.5, 5000, 400, 1920).y).toBeCloseTo(1 - 400 / (2 * 1920), 6);
+  });
+});
+
+// 2026-08-04：使用者回報「字幕/overlay 左右可以超出畫布，上下不行」。成因不是「上下忘了做」，
+// 是兩條軸各自夾錨點的值——x 錨中心、y 錨上緣，同樣的寫法產生不同的視覺語意。
+// 新規則：中心留在畫布內，四邊各可露出一半。
+describe('四邊都可以超出畫布（中心留在畫布內）', () => {
+  const CANVAS = { w: 1080, h: 1920 };
+  const BOX = { w: 400, h: 300 };
+
+  it('可以往上拖到掛在畫布上緣外（y 變負值）', () => {
+    // 起點上緣 y=0.1（=192px），往上拖 150px → 上緣 42px…再往上就是舊版夾死的地方
+    const r = dragOverlay({ x: 0.5, y: 0.1 }, { dx: 0, dy: -260 }, BOX, CANVAS);
+    expect(r.position.y).toBeLessThan(0); // 舊版這裡恆為 0
+    // 中心仍在畫布內：中心 = y*H + h/2 >= 0
+    expect(r.position.y * CANVAS.h + BOX.h / 2).toBeGreaterThanOrEqual(-0.01);
+  });
+
+  it('可以往下拖到掛在畫布下緣外（超過舊上限 1-h/H）', () => {
+    const oldLimit = 1 - BOX.h / CANVAS.h; // 0.84375
+    const r = dragOverlay({ x: 0.5, y: 0.8 }, { dx: 0, dy: 400 }, BOX, CANVAS);
+    expect(r.position.y).toBeGreaterThan(oldLimit);
+  });
+
+  it('中心不得離開畫布：硬往上拖到底也只停在「中心貼齊上緣」', () => {
+    const r = dragOverlay({ x: 0.5, y: 0.5 }, { dx: 0, dy: -99999 }, BOX, CANVAS);
+    expect(r.position.y).toBeCloseTo(-BOX.h / (2 * CANVAS.h), 4); // 中心 = 0
+  });
+
+  it('中心不得離開畫布：硬往下拖到底也只停在「中心貼齊下緣」', () => {
+    const r = dragOverlay({ x: 0.5, y: 0.5 }, { dx: 0, dy: 99999 }, BOX, CANVAS);
+    expect(r.position.y).toBeCloseTo(1 - BOX.h / (2 * CANVAS.h), 4); // 中心 = H
+  });
+
+  it('水平行為不變：中心仍夾在 [0,1]，最多露出一半', () => {
+    const l = dragOverlay({ x: 0.5, y: 0.3 }, { dx: -99999, dy: 0 }, BOX, CANVAS);
+    const rr = dragOverlay({ x: 0.5, y: 0.3 }, { dx: 99999, dy: 0 }, BOX, CANVAS);
+    expect(l.position.x).toBeCloseTo(0, 4);
+    expect(rr.position.x).toBeCloseTo(1, 4);
+  });
+
+  it('純水平拖曳仍然不得挪動 y（clampAxis 的區間含起點性質沒被放寬弄丟）', () => {
+    const start = { x: 0.4, y: 0.95 }; // 舊上限 0.84375 之外
+    const r = dragOverlay(start, { dx: 50, dy: 0 }, BOX, CANVAS);
+    expect(r.position.y).toBeCloseTo(start.y, 4);
+  });
+
+  it('字幕同一條規則：可以拖到掛在畫布下緣外', () => {
+    const cardH = 300;
+    const oldLimit = 1 - cardH / 1920;
+    const r = dragCaption(0.8, 400, cardH, 1920);
+    expect(r.y).toBeGreaterThan(oldLimit);
+    expect(r.y).toBeLessThanOrEqual(1 - cardH / (2 * 1920) + 1e-9);
   });
 });

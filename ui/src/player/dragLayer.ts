@@ -19,24 +19,41 @@ export function dragOverlay(
     h: bbox.h,
   };
   const s = snapBBox(raw, canvas);
+  return { position: clampCentre(s, bbox, canvas, startPos), guides: s.guides };
+}
+
+/**
+ * 夾制規則：**元素的中心必須留在畫布內**，四個邊一視同仁——每一邊最多露出自身的一半。
+ *
+ * 在 **bbox 空間**做，不是各自夾錨點的值。舊版就是各自夾錨點，寫起來看似對稱
+ * （兩條都是「夾在 0 到某值」），但因為 x 錨的是水平中心、y 錨的是上緣，
+ * 同樣的寫法產生了完全不同的視覺語意：x 可以露出一半，y 卻必須整個留在畫布內
+ * （上限 1-h/H）——使用者拖起來就是「左右出得去、上下出不去」（2026-08-04 回報）。
+ * 錨點不對稱只該活在「錨點↔bbox」的換算裡，不該滲進規則本身；這也是 snapBBox
+ * 只認 bbox 的同一個理由。
+ *
+ * 注意 `clampAxis` 的 `start` 必須跟被夾的值在**同一個空間**：y 這條夾的是「中心」，
+ * 所以起點也要換算成起點的中心（`startPos.y + h/2H`），不能直接傳上緣的 startPos.y。
+ *
+ * 允許 y 為負值（元素掛在畫布上緣外）。實測 ffmpeg `overlay=y=負數` 會從畫面上緣裁掉
+ * 超出的部分（1920 畫布、200px 高的圖、y=-0.05 → 只露下面 104px），與預覽 stage 的
+ * `overflow: hidden` 裁切方式一致，所以放寬夾制不會製造新的「預覽≠成品」。
+ *
+ * clamp 會不會蓋掉已吸附的結果？只要 bbox 不比畫布大，snapBBox 的候選（中心、上/下
+ * 安全邊距）算出來的 bbox 中心必然落在畫布內，所以對任何已吸附的候選都是 no-op，
+ * snap 永遠贏；clamp 只在完全沒吸附、使用者硬拖到連中心都要出畫布時才生效。
+ */
+function clampCentre(
+  s: { x: number; y: number },
+  bbox: { w: number; h: number },
+  canvas: { w: number; h: number },
+  startPos: { x: number; y: number },
+): { x: number; y: number } {
+  const halfH = bbox.h / (2 * canvas.h); // 上緣錨點 → 中心的正規化位移
+  const cy = clampAxis((s.y + bbox.h / 2) / canvas.h, 0, 1, startPos.y + halfH);
   return {
-    position: {
-      // x 錨=中心：clamp 到 [0,1] 讓中心點不出畫布，元素頂多露出一半，符合「不得完全
-      // 拖出畫面」。
-      x: clampAxis((s.x + bbox.w / 2) / canvas.w, 0, 1, startPos.x),
-      // y 錨=上緣（不對稱！）：上限不能是 1——clamp 到 1 代表上緣頂到畫布最底端，
-      // 也就是整個元素 100% 掉出畫面下緣，正是本任務要防的「拖到完全看不見」
-      // （shared/src/snap.ts:5-8 記錄過的事故就是這個誤解）。上限必須是
-      // 「上緣最多落在 canvas.h - bbox.h」，跟 dragCaption 下面同一種 clamp 一致。
-      //
-      // clamp 會不會蓋掉一個已吸附的結果？只要 bbox.h <= canvas.h（元素不比畫布高，
-      // 一般情況恆成立），snapBBox 的三個垂直候選（中心 cy-h/2、上安全邊 top、
-      // 下安全邊 bottom-h）算出來的 y 值全部落在 [0, canvas.h-h] 這個合法區間內
-      // （見 dragLayer.test.ts 的 no-op 驗證）——所以這裡的 clamp 對任何已吸附的
-      // 候選都是 no-op，snap 永遠贏；clamp 只在完全沒吸附、使用者硬拖出邊界時才生效。
-      y: clampAxis(s.y / canvas.h, 0, 1 - bbox.h / canvas.h, startPos.y),
-    },
-    guides: s.guides,
+    x: clampAxis((s.x + bbox.w / 2) / canvas.w, 0, 1, startPos.x), // x 錨本來就是中心
+    y: cy - halfH, // 中心 → 上緣，換算回 position 的語意
   };
 }
 
@@ -61,8 +78,8 @@ function clampAxis(v: number, lo: number, hi: number, start: number): number {
 }
 
 /**
- * 字幕拖曳：只動 style.y(0–1，夾在 0..1-高度佔比)，clamp 規則與 dragOverlay 同一條
- * （clampAxis，區間永遠含起點）。
+ * 字幕拖曳：只動 style.y，clamp 規則與 dragOverlay 同一條（中心留在畫布內、
+ * 上下各可露出半張卡；clampAxis 的區間永遠含起點）。
  *
  * 曾經以為「字幕只有一條軸，不會有沒碰到的軸被 clamp 挪走的問題」而留了硬 clamp——錯了。
  * 一樣會炸，只是換個樣子：字卡很高時（字級大或多行）上限 1-cardH/1920 會壓得很低，
@@ -82,6 +99,11 @@ export function dragCaption(
     { x: 0, y: startY * canvasH + dyCanvas, w: 1080, h: cardH },
     { w: 1080, h: canvasH },
   );
-  const y = clampAxis(s.y / canvasH, 0, 1 - cardH / canvasH, startY);
+  const { y } = clampCentre(
+    s,
+    { w: 1080, h: cardH },
+    { w: 1080, h: canvasH },
+    { x: 0.5, y: startY },
+  );
   return { y, guides: s.guides.filter((g) => g.axis === 'y') };
 }
