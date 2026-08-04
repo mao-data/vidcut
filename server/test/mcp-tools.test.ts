@@ -276,6 +276,9 @@ describe('list_source', () => {
   it('目錄不存在 → isError', async () => {
     const r = await call('list_source', { dir: join(tmpdir(), 'vidcut-does-not-exist-12345') });
     expect(r.isError).toBe(true);
+    // 只斷言 isError 分不出「工具根本不存在」與「工具存在但目錄不存在」；
+    // 這個前綴只有 list_source 真正執行、scanSourceFolder 丟錯時才會出現。
+    expect(text(r)).toContain('list_source failed:');
   });
 
   // AI 的 context 有限，一個放了幾千支檔的素材夾不能整包塞回去。
