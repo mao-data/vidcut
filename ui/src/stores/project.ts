@@ -7,12 +7,17 @@ import { analyzeAiPatches } from '../fx/aiPatches.js';
 
 enablePatches();
 
+/** 模組級常數 fallback——selector 不得回傳新 reference（見 CLAUDE.md 鐵則） */
+const NO_CARDS: Record<string, string> = {};
+
 interface ProjectState {
   doc: Project | null;
   version: number;
   connected: boolean;
   /** 渲染中的暫態進度（走旁路 WS 訊息，不進 doc/版本）；非渲染中為 null */
   renderProgress: number | null;
+  /** capId → text-card hash（Task 11：預覽字幕直出用） */
+  captionCards: Record<string, string>;
   setConnected: (b: boolean) => void;
   /** 回 'resync' 表示 patch 版本跳號，呼叫端（ws.ts）需要重新同步 */
   applyServerMsg: (msg: WsServerMsg) => 'ok' | 'resync';
@@ -23,6 +28,7 @@ export const useProject = create<ProjectState>((set, get) => ({
   version: 0,
   connected: false,
   renderProgress: null,
+  captionCards: NO_CARDS,
   setConnected: (b) => set({ connected: b }),
   applyServerMsg: (msg) => {
     if (msg.type === 'full') {
@@ -39,7 +45,9 @@ export const useProject = create<ProjectState>((set, get) => ({
       return 'ok';
     }
     if (msg.type === 'textCards') {
-      // Task 11 消費(卡片顯示);這裡先 no-op 避免撞 patch 分支的 resync 迴圈。
+      // 早期 return 是關鍵:若落到下面 patch 分支,msg.version 是 undefined,
+      // 會被判成 'resync' 觸發再廣播,形成無限迴圈(Task 4 修過的坑)。
+      set({ captionCards: Object.fromEntries(msg.entries.map((e) => [e.id, e.hash])) });
       return 'ok';
     }
     const { doc, version } = get();

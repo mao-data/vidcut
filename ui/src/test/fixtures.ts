@@ -98,7 +98,7 @@ export function seedProject(doc: Project = demoProject(), version = 1): Project 
 
 /** 每個測試前把所有 store 歸零，避免測試互相污染。 */
 export function resetStores(): void {
-  useProject.setState({ doc: null, version: 0, connected: false });
+  useProject.setState({ doc: null, version: 0, connected: false, captionCards: {} });
   useSelection.setState({ selected: null });
   usePlayback.setState({ time: 0, playing: false, total: 0 });
   useView.setState({ pxPerSecond: 40, snapEnabled: false, leftOpen: true, rightOpen: true });

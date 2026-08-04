@@ -1,39 +1,17 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
-import { activeTokenIndex, totalDuration, type CaptionItem } from '@vidcut/shared';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { totalDuration } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { mediaUrl } from '../ws.js';
 import { useEditFx } from '../stores/editFx.js';
 import { planAt } from './plan.js';
 import { syncAction } from './sync.js';
+import { CaptionLayer } from './CaptionLayer.js';
 
 const DRIFT_TOLERANCE = 0.06; // 60ms
 const PRELAUNCH = 0.05; // 邊界前 50ms 啟動 next
 /** ducking 時影片原聲的壓低比例——必須與 server/src/render.ts 的 DUCK_LEVEL 同值，預覽才等於成品 */
 const DUCK_LEVEL = 0.25;
-
-/**
- * 逐詞高亮。預覽端只是把每個詞包成 span 依 playhead 換顏色——
- * 渲染端要一個詞一張 PNG 字卡，但這裡幾乎免費，所以預覽是「真的所見即所得」。
- * 排版交給瀏覽器換行，與 text_card.py 的貪婪換行不會完全一致（字型度量不同），
- * 位置與斷行的最終依據是成片。
- */
-function Karaoke({ cap, time }: { cap: CaptionItem; time: number }) {
-  const active = activeTokenIndex(cap, time);
-  return (
-    <>
-      {cap.tokens!.map((tok, i) => (
-        <span
-          key={i}
-          style={{ color: i <= active ? (cap.style.highlight ?? cap.style.fill) : cap.style.fill }}
-        >
-          {i > 0 && /\w$/.test(cap.tokens![i - 1]!.text) && /^\w/.test(tok.text) ? ' ' : ''}
-          {tok.text}
-        </span>
-      ))}
-    </>
-  );
-}
 
 /**
  * 雙 <video> A/B 無縫引擎（spec §7）。active 出聲、spare premount 下一片段並靜音；
@@ -54,8 +32,31 @@ export function Player() {
   const blurFill = doc?.canvas.fit === 'blur';
   /** AI 新增的項目在預覽畫面淡入進場（fx-enter）；播放中自然進出窗不動畫 */
   const fxAdded = useEditFx((s) => s.added);
+  const captionCards = useProject((s) => s.captionCards);
   // effect 與 render body 共用同一份 plan（播放中每幀都算，別算兩次）
   const plan = useMemo(() => (doc ? planAt(doc, time) : null), [doc, time]);
+
+  /**
+   * 疊圖/字幕層的 1080×1920 座標空間縮放係數，量測「影片實際填滿的那個元素」
+   * （stage div，objectFit:contain + aspectRatio 9/16 讓 video 精確填滿它）的寬度。
+   * 唯一的縮放來源——不得再引入第二條路徑或魔術常數（見任務需求）。
+   *
+   * ref 用 state（非 useRef）：doc 到位前 `!doc → return null` 不會 render stage div，
+   * 若用 useRef+空 deps 的 effect，第一次（也是唯一一次）跑的時候元素還不存在，
+   * 之後 doc 抵達、stage 真的掛上 DOM 時就再也不會重新 observe。
+   */
+  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
+  const [stageW, setStageW] = useState(0);
+  useEffect(() => {
+    if (!stageEl) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setStageW(w);
+    });
+    ro.observe(stageEl);
+    setStageW(stageEl.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, [stageEl]);
 
   useEffect(() => {
     if (doc) usePlayback.getState().setTotal(totalDuration(doc));
@@ -214,6 +215,7 @@ export function Player() {
       }}
     >
       <div
+        ref={setStageEl}
         style={{
           position: 'relative',
           aspectRatio: '9/16',
@@ -259,42 +261,40 @@ export function Player() {
             />
           ) : null;
         })}
-        {plan.overlays.map((o) => (
-          <img
-            key={o.id}
-            src={o.src}
-            className={fxAdded.has(o.id) ? 'fx-enter' : undefined}
-            alt=""
-            style={{
-              position: 'absolute',
-              left: `${o.position.x * 100}%`,
-              top: `${o.position.y * 100}%`,
-              transform: `translate(-50%, 0) scale(${o.position.scale})`,
-              maxWidth: '90%',
-              pointerEvents: 'none',
-            }}
-          />
-        ))}
-        {plan.captions.map((c) => (
-          <div
-            key={c.id}
-            className={fxAdded.has(c.id) ? 'fx-enter' : undefined}
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: `${c.style.y * 100}%`,
-              textAlign: 'center',
-              fontFamily: c.style.fontFamily,
-              fontSize: c.style.fontSize / 3,
-              color: c.style.fill,
-              WebkitTextStroke: c.style.stroke ? `1px ${c.style.stroke}` : undefined,
-              pointerEvents: 'none',
-            }}
-          >
-            {c.tokens && c.tokens.length > 0 ? <Karaoke cap={c} time={time} /> : c.text}
-          </div>
-        ))}
+        {/*
+          1080×1920 座標空間：與匯出畫布同尺寸，用量測到的 stage 寬縮放——
+          縮放係數只有這一處來源，不得再有第二條路徑或魔術常數（fontSize/3 已廢除）。
+        */}
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: 1080,
+            height: 1920,
+            transformOrigin: 'top left',
+            transform: `scale(${stageW / 1080})`,
+            pointerEvents: 'none',
+          }}
+        >
+          {plan.overlays.map((o) => (
+            <img
+              key={o.id}
+              src={o.src}
+              className={fxAdded.has(o.id) ? 'fx-enter' : undefined}
+              alt=""
+              style={{
+                position: 'absolute',
+                left: 1080 * o.position.x,
+                top: 1920 * o.position.y,
+                transform: `translate(-50%, 0) scale(${o.position.scale})`,
+                transformOrigin: 'top center',
+                maxWidth: 1080 * 0.9,
+              }}
+            />
+          ))}
+          <CaptionLayer captions={plan.captions} cards={captionCards} time={time} added={fxAdded} />
+        </div>
       </div>
     </div>
   );

@@ -73,7 +73,18 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-// 5) PointerEvent：舊 jsdom 沒有；用 MouseEvent 補出拖曳測試需要的欄位
+// 5) ResizeObserver：jsdom 無實作。Player 量 stage 寬（1080 座標空間縮放係數）要用，
+//    任何會 mount Player 的測試（直接或經 App/面板）都需要——放在全域邊界，不要逐檔補。
+if (typeof window.ResizeObserver === 'undefined') {
+  class ResizeObserverPolyfill {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  window.ResizeObserver = ResizeObserverPolyfill as unknown as typeof ResizeObserver;
+}
+
+// 6) PointerEvent：舊 jsdom 沒有；用 MouseEvent 補出拖曳測試需要的欄位
 if (typeof window.PointerEvent === 'undefined') {
   class PointerEventPolyfill extends MouseEvent {
     pointerId: number;

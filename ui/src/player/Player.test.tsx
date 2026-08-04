@@ -34,6 +34,7 @@ function watch(el: HTMLMediaElement) {
 }
 
 describe('Player', () => {
+  // ResizeObserver 的 jsdom polyfill 在 src/test/setup.ts 全域補（量 stage 寬要用）。
   beforeEach(() => {
     resetStores();
     seedProject();
@@ -149,11 +150,12 @@ describe('Player', () => {
   it('highlights karaoke tokens up to the playhead', () => {
     const { container } = render(<Player />);
     seek(5.5); // 第 1 個 token 進行中
-    // 詞間空格由元件補在 span 內，故比對用 trim
     const spans = Array.from(container.querySelectorAll('span'));
-    const second = spans.find((s) => s.textContent?.trim() === 'second')!;
-    const line = spans.find((s) => s.textContent?.trim() === 'line')!;
+    const second = spans.find((s) => s.textContent === 'second')!;
+    const line = spans.find((s) => s.textContent === 'line')!;
     expect(second.style.color).toBe('rgb(251, 191, 36)'); // highlight #fbbf24
-    expect(line.style.color).toBe('rgb(255, 255, 255)'); // 尚未唸到 → fill
+    // 未唸到的詞沒有設 inline color——繼承外層 div 的 fill（CaptionLayer 的 ApproxCaption）
+    expect(line.style.color).toBe('');
+    expect(getComputedStyle(line).color).toBe('rgb(255, 255, 255)');
   });
 });
