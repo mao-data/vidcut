@@ -6,29 +6,41 @@ import type { ProjectStore } from './store.js';
 import type { FontEntry } from './fonts.js';
 import type { CardRequest } from './rasterizer.js';
 import type { TextCardService } from './textCards.js';
+import { cardRequestError } from './cardBudget.js';
 
-/** POST /text-card/preview 的手寫 body 驗證（故意不用 zod）：回 null 代表通過，否則回錯誤訊息。 */
-function validateCardRequest(b: unknown): string | null {
+/**
+ * POST /text-card/preview 的手寫 body 驗證（故意不用 zod）：回 null 代表通過，否則回錯誤訊息。
+ *
+ * 這裡只做**型別/形狀**檢查；「這張卡會不會大到把 worker 撐爆」的判斷一律交給
+ * cardBudget 的 cardRequestError——那是所有產卡路徑（本端點、cardSync、文字 overlay 前置）
+ * 共用的同一份規則。以前上限只寫在這個 handler 裡，於是會落盤的那兩條路徑完全沒有上限。
+ *
+ * width 要帶預設值進來一起驗：body 省略 width 時實際送給 Pillow 的是畫布寬，
+ * 驗一個 undefined 等於沒驗。
+ */
+function validateCardRequest(b: unknown, defaultWidth: number): string | null {
   if (!b || typeof b !== 'object') return 'need text + style';
   const r = b as Partial<CardRequest>;
   if (typeof r.text !== 'string') return 'text must be a string';
   if (!r.style || typeof r.style !== 'object') return 'style is required';
   const s = r.style as Partial<CardRequest['style']>;
-  if (typeof s.fontFamily !== 'string' || s.fontFamily === '') return 'style.fontFamily must be a non-empty string';
+  if (typeof s.fontFamily !== 'string' || s.fontFamily === '')
+    return 'style.fontFamily must be a non-empty string';
   if (typeof s.fontSize !== 'number' || !Number.isFinite(s.fontSize) || s.fontSize <= 0)
     return 'style.fontSize must be a finite number > 0';
   if (typeof s.fill !== 'string' || s.fill === '') return 'style.fill must be a non-empty string';
-  if (s.stroke !== undefined && typeof s.stroke !== 'string') return 'style.stroke must be a string';
-  if (s.highlight !== undefined && typeof s.highlight !== 'string') return 'style.highlight must be a string';
-  if (r.tokens !== undefined && (!Array.isArray(r.tokens) || !r.tokens.every((t) => typeof t === 'string')))
+  if (s.stroke !== undefined && typeof s.stroke !== 'string')
+    return 'style.stroke must be a string';
+  if (s.highlight !== undefined && typeof s.highlight !== 'string')
+    return 'style.highlight must be a string';
+  if (
+    r.tokens !== undefined &&
+    (!Array.isArray(r.tokens) || !r.tokens.every((t) => typeof t === 'string'))
+  )
     return 'tokens must be an array of strings';
   if (r.width !== undefined && (typeof r.width !== 'number' || !Number.isFinite(r.width)))
     return 'width must be a finite number';
-  if (r.maxWidthFrac !== undefined) {
-    if (typeof r.maxWidthFrac !== 'number' || !Number.isFinite(r.maxWidthFrac)) return 'maxWidthFrac must be a finite number';
-    if (r.maxWidthFrac < 0.1 || r.maxWidthFrac > 1) return 'maxWidthFrac must be within 0.1–1';
-  }
-  return null;
+  return cardRequestError({ ...(r as CardRequest), width: r.width ?? defaultWidth });
 }
 
 /**
@@ -93,7 +105,7 @@ export function createApp(
         res.status(503).json({ error: 'text cards unavailable' });
         return;
       }
-      const err = validateCardRequest(req.body);
+      const err = validateCardRequest(req.body, store.doc.canvas.width);
       if (err) {
         res.status(400).json({ error: err });
         return;

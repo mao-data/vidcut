@@ -9,7 +9,7 @@ import { EditorContext } from './editorContext.js';
 import { ReviewManager } from './reviews.js';
 import { mountMcp } from './mcp.js';
 import { PillowRasterizer } from './rasterizer.js';
-import { loadFontTable, fontResolver } from './fonts.js';
+import { loadFontTable, fontResolver, type FontEntry } from './fonts.js';
 import { setCaptionFontResolver } from './render.js';
 import { TextCardService } from './textCards.js';
 import { CaptionCardSync } from './cardSync.js';
@@ -31,7 +31,18 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
 
   // 字型表：resolver 循環——先用空 resolver 建 rasterizer 來 probe 字型，表建好後回頭換上真 resolver。
   const rasterizer = new PillowRasterizer(() => undefined);
-  const fonts = await loadFontTable(rasterizer);
+  // loadFontTable 會真的跑 python3 去 probe 字型。python3 不在 PATH 上（或 Pillow 沒裝）時
+  // 這一步會失敗——而它在 listen() 之前，讓它冒出去等於整個 server 起不來、連 UI 都打不開，
+  // 只為了一個「字幕比較好看」的附屬功能。降級成空字型表：字卡產不出來，字幕預覽退回
+  // DOM 近似、匯出走原本的無字卡路徑，其餘功能（時間軸、播放、渲染、MCP）完全正常。
+  let fonts: FontEntry[] = [];
+  try {
+    fonts = await loadFontTable(rasterizer);
+  } catch (e: unknown) {
+    console.warn(`⚠ 字卡光柵器無法啟動，字幕/文字 overlay 的字卡功能停用：${(e as Error).message}`);
+    console.warn('  需要 PATH 上有 python3 且已安裝 Pillow（pip3 install pillow）。');
+    console.warn('  server 仍會正常啟動；字幕預覽會退回 DOM 近似顯示。');
+  }
   const resolveFont = fontResolver(fonts);
   rasterizer.resolveFontPath = resolveFont;
   setCaptionFontResolver(resolveFont);
