@@ -85,7 +85,9 @@ async function main() {
     const r = await fetch(APP_URL);
     if (!r.ok) throw new Error(String(r.status));
   } catch (e) {
-    console.error(`✗ ${APP_URL} 沒有回應（先起 server：npx tsx server/src/index.ts projects/demo）：${e.message}`);
+    console.error(
+      `✗ ${APP_URL} 沒有回應（先起 server：npx tsx server/src/index.ts projects/demo）：${e.message}`,
+    );
     process.exit(2);
   }
 
@@ -142,13 +144,17 @@ async function main() {
     // playhead。若哪天 demo 內容換了導致 t=0 沒有 overlay，這裡會逾時，訊息會指出來。
     let ready = false;
     for (let i = 0; i < 60; i++) {
-      ready = await evalJs(`!!document.querySelector('video') && !!document.querySelector('[data-ov-id]')`);
+      ready = await evalJs(
+        `!!document.querySelector('video') && !!document.querySelector('[data-ov-id]')`,
+      );
       if (ready) break;
       await sleep(250);
     }
     if (!ready) {
       failures.push('專案載入');
-      console.log('✗ 專案沒有在 15 秒內載入完成（找不到 <video> 或任何 [data-ov-id] overlay，見上方注解：demo 在 t=0 應該要有 overlay 可見）');
+      console.log(
+        '✗ 專案沒有在 15 秒內載入完成（找不到 <video> 或任何 [data-ov-id] overlay，見上方注解：demo 在 t=0 應該要有 overlay 可見）',
+      );
       throw new Error('load-timeout');
     }
 
@@ -263,7 +269,9 @@ async function main() {
           return [...document.querySelectorAll('div')].filter((d) => d.style.width === '2px' && d.style.height === '1920px').length;
         })()`);
         const guidePass = guideCount > 0;
-        console.log(`  ${guidePass ? '✓' : '✗'} 拖近水平中心時出現置中導線（找到 ${guideCount} 條）`);
+        console.log(
+          `  ${guidePass ? '✓' : '✗'} 拖近水平中心時出現置中導線（找到 ${guideCount} 條）`,
+        );
         if (!guidePass) failures.push('導線出現');
 
         // 繼續拖遠（離開吸附半徑），放手，讓最終位置是一個「真的移動過」的位置。
@@ -298,12 +306,138 @@ async function main() {
         await sleep(500);
         const after = await fetchProject();
         const afterPos = after.doc.tracks.overlays.find((o) => o.id === ov.id)?.position;
-        const changed =
-          !!afterPos && (afterPos.x !== beforePos.x || afterPos.y !== beforePos.y);
+        const changed = !!afterPos && (afterPos.x !== beforePos.x || afterPos.y !== beforePos.y);
         console.log(
           `  ${changed ? '✓' : '✗'} /api/project 裡 overlay ${ov.id} 的位置真的變了：before=${JSON.stringify(beforePos)} after=${JSON.stringify(afterPos)}`,
         );
         if (!changed) failures.push('拖曳位置持久化');
+      }
+
+      // ---- 檢查 4：拖曳中 playhead 離開項目的時間窗，不得「盲拖」 ----
+      // 這是 jsdom 驗不到的那一類：plan.overlays 依 playhead 過濾，項目一出窗就不在清單裡，
+      // 拖曳中的本地覆寫沒東西可套 → 畫面停住不動，但手勢還在跑、放手照樣送出。
+      // 使用者最後看到的是 A、文件拿到的是 B（實測差過 250px @1080 空間）。
+      // 這裡在真瀏覽器裡用真實輸入事件全程重現：按住 → 用 shift+→ 把 playhead 踩出時間窗
+      // → 繼續移動 → 放手，然後比對「畫面上最後顯示的座標」與「/api/project 真的存下的座標」。
+      console.log('檢查 4：拖曳中 playhead 離開時間窗（不盲拖）');
+      const sel = `[data-ov-id="${ov.id}"]`;
+      // shift+→ 一次 10 幀（App.tsx 的快捷鍵），fps 30 → 0.333s；踩到 overlay 消失為止，
+      // 先量出「幾步會出窗」（此時沒有在拖曳，量到的是真正的時間窗邊界，與修法無關）。
+      const stepPlayhead = async (n) => {
+        for (let i = 0; i < Math.abs(n); i++) {
+          for (const type of ['rawKeyDown', 'keyUp']) {
+            await send('Input.dispatchKeyEvent', {
+              type,
+              key: n > 0 ? 'ArrowRight' : 'ArrowLeft',
+              code: n > 0 ? 'ArrowRight' : 'ArrowLeft',
+              windowsVirtualKeyCode: n > 0 ? 39 : 37,
+              nativeVirtualKeyCode: n > 0 ? 39 : 37,
+              modifiers: 8, // Shift → 一次 10 幀
+            });
+          }
+        }
+        await sleep(200); // React 不會在同一次呼叫內同步 flush
+      };
+      let steps = 0;
+      while (steps < 60 && (await evalJs(`!!document.querySelector('${sel}')`))) {
+        await stepPlayhead(1);
+        steps++;
+      }
+      if (steps >= 60) {
+        console.log(`  ✗ ${ov.id} 踩了 60 步（約 20 秒）還沒出窗，前置條件不成立`);
+        failures.push('不盲拖');
+      } else {
+        await stepPlayhead(-steps); // 回到原本的 playhead
+        const box = await evalJs(`(() => {
+          const el = document.querySelector('${sel}');
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+        })()`);
+        // 讀「畫面上顯示的位置」＝ inline style 的 left/top（1080×1920 座標空間內的 px）
+        const shown = () =>
+          evalJs(`(() => {
+            const el = document.querySelector('${sel}');
+            return el ? { x: parseFloat(el.style.left) / 1080, y: parseFloat(el.style.top) / 1920 } : null;
+          })()`);
+        if (!box) {
+          console.log(`  ✗ 回到原 playhead 後 ${ov.id} 不見了，前置條件不成立`);
+          failures.push('不盲拖');
+        } else {
+          await send('Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: box.cx,
+            y: box.cy,
+            button: 'left',
+            buttons: 1,
+            clickCount: 1,
+          });
+          // 走 **x 軸**：這個 demo overlay 是幾乎滿版高的圖，bbox 高 → y 的合法上限剛好
+          // 壓在它目前的 y 上，往下拖是 no-op（clamp 正確地擋住「整張圖掉出畫布」），
+          // 拿它當「畫面有沒有跟著手指」的訊號會永遠量到 0。x 沒有這個限制。
+          // 往左拖（遠離右邊界）避免撞到 x 的 clamp，位移量夠大也不會被中心吸附吃掉差異。
+          // 方向依目前落點決定（往畫布另一側拖），這支腳本每跑一次都會把位置寫回 demo，
+          // 固定往同一邊拖遲早會把它頂到 x 的 clamp 邊界、讓「有沒有跟著手指」的差異被夾平。
+          const start0 = await shown();
+          const dir = (start0?.x ?? 0.5) < 0.5 ? 1 : -1;
+          const px = (canvasDx) => box.cx + dir * canvasDx * scale;
+          await send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: px(40),
+            y: box.cy,
+            button: 'left',
+            buttons: 1,
+          });
+          await sleep(200);
+          const seenBefore = await shown();
+
+          await stepPlayhead(steps + 2); // 手還按著，playhead 推出時間窗
+          const stillThere = await shown();
+          const visiblePass = !!stillThere;
+          console.log(
+            `  ${visiblePass ? '✓' : '✗'} 出窗後被拖的 overlay 仍在畫面上（有回饋，不是盲拖）`,
+          );
+          if (!visiblePass) failures.push('不盲拖');
+
+          // 繼續拖：畫面必須跟著動（盲拖時這裡會完全不動，或根本讀不到元素）
+          await send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: px(300),
+            y: box.cy,
+            button: 'left',
+            buttons: 1,
+          });
+          await sleep(200);
+          const seenLast = await shown();
+          const movedPass =
+            !!seenLast && !!seenBefore && Math.abs(seenLast.x - seenBefore.x) > 0.01;
+          console.log(
+            `  ${movedPass ? '✓' : '✗'} 出窗後繼續拖，畫面持續跟著手指：${JSON.stringify(seenBefore)} → ${JSON.stringify(seenLast)}`,
+          );
+          if (!movedPass) failures.push('不盲拖');
+
+          await send('Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: px(300),
+            y: box.cy,
+            button: 'left',
+            buttons: 0,
+          });
+          await sleep(500);
+          const persisted = (await fetchProject()).doc.tracks.overlays.find(
+            (o) => o.id === ov.id,
+          )?.position;
+          // 核心斷言：**存進文件的＝畫面最後顯示的**（送出前 toFixed(4)，容差取 0.001）
+          const samePass =
+            !!persisted &&
+            !!seenLast &&
+            Math.abs(persisted.x - seenLast.x) < 0.001 &&
+            Math.abs(persisted.y - seenLast.y) < 0.001;
+          console.log(
+            `  ${samePass ? '✓' : '✗'} 存進 doc 的位置＝畫面最後顯示的位置：shown=${JSON.stringify(seenLast)} doc=${JSON.stringify(persisted)}`,
+          );
+          if (!samePass) failures.push('不盲拖');
+        }
       }
     }
   } finally {

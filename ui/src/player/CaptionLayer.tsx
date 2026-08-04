@@ -3,11 +3,14 @@ import { Fragment, useEffect, useState, type PointerEvent as ReactPointerEvent }
 import { activeTokenIndex, karaokeClip, tokenSeparator, type CaptionItem } from '@vidcut/shared';
 import type { EditDraftState } from '../stores/editDraft.js';
 
-/** 拖曳掛鉤：外層卡片的 pointerdown/move/up（畫布拖字幕 y，見 Player.tsx）。 */
+/**
+ * 拖曳掛鉤：外層卡片只掛 pointerdown（畫布拖字幕 y，見 Player.tsx）。
+ * move/up/cancel 一律由 Player 掛在 window 上——字幕卡在手勢進行中被卸載/重掛是常態
+ * （出時間窗、hash 變、ApproxCaption↔CardCaption 互換），掛在卡片上的 pointerup 到那時
+ * 就永遠不會來了，命令送不出去、本地覆寫卻永久卡住（見 Player.tsx beginDrag 的長註解）。
+ */
 interface DragHooks {
   onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerMove?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerUp?: (e: ReactPointerEvent<HTMLDivElement>) => void;
 }
 
 interface Geo {
@@ -98,8 +101,6 @@ function CardCaptionForHash({
       className={className}
       data-drag-kind="caption"
       onPointerDown={drag?.onPointerDown}
-      onPointerMove={drag?.onPointerMove}
-      onPointerUp={drag?.onPointerUp}
       style={{
         position: 'absolute',
         left: 0,
@@ -166,14 +167,20 @@ function ApproxCaption({
       className={className}
       data-drag-kind="caption"
       onPointerDown={drag?.onPointerDown}
-      onPointerMove={drag?.onPointerMove}
-      onPointerUp={drag?.onPointerUp}
       style={{
         position: 'absolute',
         left: 0,
         right: 0,
         top: 1920 * cap.style.y,
         textAlign: 'center',
+        // 這條路徑是「真的文字節點」，不像字卡那條是兩張 draggable={false} 的 <img>：
+        // 不關掉選取的話，在字上按下再移動就會選到字（真 Chromium 實測會發 selectstart），
+        // 而在**已選取的文字**上開始的下一次拖曳會被瀏覽器判定成原生 text drag：
+        // dragstart → pointercancel，pointerup 永不到達，就是 CLAUDE.md 記過的那種
+        // 「畫面上動了、命令沒送出」靜默失敗。加 user-select:none 後實測 selectstart 消失，
+        // 這個入口就從源頭沒了（收尾路徑的保險絲另外做在 Player.tsx 的 finishDrag）。
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
         fontFamily: cap.style.fontFamily,
         fontSize: cap.style.fontSize, // 1080 空間內就是真字級——/3 粗估正式退役
         color: cap.style.fill,
@@ -211,8 +218,6 @@ export function CaptionLayer({
   added,
   draft,
   onCaptionPointerDown,
-  onCaptionPointerMove,
-  onCaptionPointerUp,
 }: {
   captions: CaptionItem[];
   cards: Record<string, string>;
@@ -226,10 +231,8 @@ export function CaptionLayer({
    * 兩條路徑都必須不帶 tokens，不然 karaoke 高亮會照著錯的詞界跑。
    */
   draft?: EditDraftState['caption'];
-  /** 畫布拖曳字幕 y（見 Player.tsx）：外層卡片 pointerdown 帶對應 CaptionItem，move/up 通用。 */
+  /** 畫布拖曳字幕 y（見 Player.tsx）：外層卡片 pointerdown 帶對應 CaptionItem，之後由 window 接手。 */
   onCaptionPointerDown?: (e: ReactPointerEvent<HTMLDivElement>, cap: CaptionItem) => void;
-  onCaptionPointerMove?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onCaptionPointerUp?: (e: ReactPointerEvent<HTMLDivElement>) => void;
 }) {
   return (
     <>
@@ -237,8 +240,6 @@ export function CaptionLayer({
         const className = added?.has(c.id) ? 'fx-enter' : undefined;
         const drag: DragHooks = {
           onPointerDown: onCaptionPointerDown ? (e) => onCaptionPointerDown(e, c) : undefined,
-          onPointerMove: onCaptionPointerMove,
-          onPointerUp: onCaptionPointerUp,
         };
         if (draft?.id === c.id) {
           const draftCap: CaptionItem = { ...c, text: draft.text, tokens: undefined };

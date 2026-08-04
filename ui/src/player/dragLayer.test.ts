@@ -41,6 +41,26 @@ describe('dragOverlay', () => {
     expect(r.position.y).toBeCloseTo(1 - 100 / 1920, 6);
   });
 
+  it('純水平拖曳不得挪動 y：clamp 不能動使用者這次沒碰的那條軸', () => {
+    // overlay 在 {x:0.4, y:0.9}、bbox 300×400（例如字級大的圖卡）：y 的正常 clamp 上限是
+    // 1-400/1920 = 0.79167，起始值 0.9 本來就在上限外（AI 用 update_overlay 設偏下、或圖
+    // 變高都拿得到這種值，不是髒資料）。使用者只往右拖 50px（dy=0），舊寫法會順手把 y 夾到
+    // 0.79167——元素在畫面上自己往上跳 208px，而且會跟著這次拖曳被送出、永久存進 doc。
+    const r = dragOverlay({ x: 0.4, y: 0.9 }, { dx: 50, dy: 0 }, { w: 300, h: 400 }, CANVAS);
+    expect(r.position.y).toBeCloseTo(0.9, 6); // 沒碰的軸＝原封不動
+    expect(r.position.x).toBeGreaterThan(0.4); // 有碰的軸＝照常移動
+  });
+
+  it('起點在界外時，clamp 只能把元素往畫布內拉，不能推得比起點更外面', () => {
+    // 同上的起點，這次帶一點點垂直位移（dy=2px，人手拖曳幾乎不可能剛好是 0）——
+    // 「只特判 dy===0」的修法在這裡就破功了，y 一樣會彈回 0.79167。
+    const down = dragOverlay({ x: 0.4, y: 0.9 }, { dx: 50, dy: 2 }, { w: 300, h: 400 }, CANVAS);
+    expect(down.position.y).toBeCloseTo(0.9, 6); // 往界外拖：擋在起點，不會愈拖愈糟
+    // 往界內拖不受限：能一路拖回合法區間，clamp 不會把他鎖在 0.9
+    const up = dragOverlay({ x: 0.4, y: 0.9 }, { dx: 0, dy: -400 }, { w: 300, h: 400 }, CANVAS);
+    expect(up.position.y).toBeCloseTo(0.9 - 400 / 1920, 6);
+  });
+
   it('底部安全邊距吸附時，新的 y clamp 不會蓋掉吸附結果（snap 贏過 clamp）', () => {
     // bbox h=100：底部安全邊距候選 y = canvas.h*(1-0.05) - h = 1824-100 = 1724，
     // 落在吸附半徑內。新 clamp 上限 = canvas.h - h = 1820（換算 0-1 是 1820/1920），
@@ -56,5 +76,16 @@ describe('dragCaption', () => {
     expect(dragCaption(0.72, 192, 92, 1920).y).toBeCloseTo(0.82);
     expect(dragCaption(0.9, 500, 92, 1920).y).toBeLessThanOrEqual(1 - 92 / 1920);
     expect(dragCaption(0.1, -500, 92, 1920).y).toBeGreaterThanOrEqual(0);
+  });
+
+  it('高字卡且起點在界外：1px 的手勢不得把字幕彈上去（clamp 規則與 dragOverlay 一致）', () => {
+    // cardH=400（字級大或多行的字卡）→ 正常上限只有 1-400/1920 = 0.79167，
+    // 而 y=0.9 是 set_captions 正常設得出來的值。硬 clamp 的話，使用者只碰了 1px，
+    // 字幕就往上跳 208px（0.9 → 0.79167），並且跟著這次拖曳被送出、永久存進 doc。
+    expect(dragCaption(0.9, 1, 400, 1920).y).toBeCloseTo(0.9, 6);
+    // 往界內拖不受限：一路拖得回合法區間，不會被鎖在 0.9
+    expect(dragCaption(0.9, -400, 400, 1920).y).toBeCloseTo(0.9 - 400 / 1920, 6);
+    // 起點本來就合法時行為與舊版逐字相同：硬拖出下緣仍夾在 1-cardH/canvasH
+    expect(dragCaption(0.5, 5000, 400, 1920).y).toBeCloseTo(1 - 400 / 1920, 6);
   });
 });

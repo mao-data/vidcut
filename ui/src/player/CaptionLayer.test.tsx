@@ -50,6 +50,19 @@ describe('CaptionLayer', () => {
     expect(div.style.fontSize).toBe('64px');
   });
 
+  it('DOM fallback 的字不可被選取(選得到字 → 第二次拖曳會被判成原生 text drag → 拖曳靜默失敗)', () => {
+    // 字卡那條路徑是兩張 draggable={false} 的 <img>、沒有文字節點,天生免疫;
+    // 這條 DOM fallback 是真的文字,在字上按下再移動就會選到字(真 Chromium 實測會發
+    // selectstart),而從**已選取的文字**上開始的下一次拖曳會被瀏覽器接管成 text drag:
+    // dragstart → pointercancel,自訂的 pointer 拖曳手勢被攔腰砍斷(CLAUDE.md「UI 驗證的
+    // 陷阱」記過的同一種靜默失敗)。加了 user-select:none 之後實測 selectstart 不再出現。
+    const { container } = render(<CaptionLayer captions={[CAP]} cards={{}} time={0.5} />);
+    const div = [...container.querySelectorAll('div')].find((d) =>
+      d.textContent?.includes('你好'),
+    )!;
+    expect(div.style.userSelect).toBe('none');
+  });
+
   // ---- Finding 1: 失敗的 geometry fetch 不得讓字幕永久消失 ----
   it('geometry fetch 404:退回 DOM fallback,不是空白(不永久消失)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({}) })));

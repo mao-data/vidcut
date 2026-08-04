@@ -14,7 +14,7 @@ import { useSelection } from '../stores/selection.js';
 import { mediaUrl, sendCommand } from '../ws.js';
 import { useEditFx } from '../stores/editFx.js';
 import { useEditDraft } from '../stores/editDraft.js';
-import { planAt } from './plan.js';
+import { planAt, overlayView } from './plan.js';
 import { syncAction } from './sync.js';
 import { CaptionLayer } from './CaptionLayer.js';
 import { dragOverlay, dragCaption } from './dragLayer.js';
@@ -23,6 +23,36 @@ const DRIFT_TOLERANCE = 0.06; // 60ms
 const PRELAUNCH = 0.05; // 邊界前 50ms 啟動 next
 /** ducking 時影片原聲的壓低比例——必須與 server/src/render.ts 的 DUCK_LEVEL 同值，預覽才等於成品 */
 const DUCK_LEVEL = 0.25;
+
+/**
+ * NaN／Infinity 保險絲：送出前擋掉非有限數。
+ *
+ * 怎麼會有 NaN：stageW 還沒量到時 `scale = 0/1080 = 0`，pointerdown 存下的 `d.scale` 就是 0，
+ * `dx / 0` → Infinity，一路算下來 `Number(NaN.toFixed(4))` → NaN。NaN 進 `JSON.stringify`
+ * 會變成 **null**，而 server 的 `updateOverlay` 不做數值驗證，`{"x":null}` 會直接寫進專案檔
+ * ——之後每次載入都是壞的 position。真瀏覽器要踩到很難（stage 有 aspect-ratio + 版面已定），
+ * 但保險絲一行、壞掉的成本是整個專案檔，比例懸殊。擋下來的後果只是「這次拖曳不生效」，
+ * 而拖曳本來就是隨手可以再做一次的操作。
+ */
+function finite(...ns: number[]): boolean {
+  return ns.every((n) => Number.isFinite(n));
+}
+
+/**
+ * 讓 `id` 這一項一定出現在渲染清單裡：已經在裡面就原樣回傳（絕大多數情況，零成本），
+ * 不在就用 `from` 從 doc 撈回來補在**最後**（畫在最上層——正在拖的東西本來就該在最上面）。
+ * 補回來的項目沿用同一個 id 當 React key，所以是「同一個節點繼續存在」，不是重新掛載。
+ * 呼叫端與理由見 Player 內 planOverlays/planCaptions 的長註解。
+ */
+function withDragged<T extends { id: string }>(
+  list: T[],
+  id: string | null,
+  from: (id: string) => T | null,
+): T[] {
+  if (!id || list.some((x) => x.id === id)) return list;
+  const item = from(id);
+  return item ? [...list, item] : list;
+}
 
 /**
  * 雙 <video> A/B 無縫引擎（spec §7）。active 出聲、spare premount 下一片段並靜音；
@@ -62,15 +92,26 @@ export function Player() {
   /**
    * 畫布拖曳（overlay position / 字幕 style.y）：pointerdown 記起點到 ref（不觸發 render）；
    * pointermove 只更新本地覆寫 + 導線（同 Timeline 的拖曳模式：move 不送命令，
-   * 一次 mouse-move 一個 command 會灌爆 undo history）；pointerup 才 sendCommand。
+   * 一次 mouse-move 一個 command 會灌爆 undo history）；收尾才 sendCommand。
+   *
+   * 整個手勢掛在 **window** 上（見 beginDrag），不是掛在被拖的那個元素上——
+   * 元素可能在手勢進行中被 React 卸載/重掛，掛在它身上的 pointerup 就永遠不會來。
    */
   const dragRef = useRef<{
     kind: 'overlay' | 'caption';
     id: string;
+    /** 只認這一根手指/這一顆滑鼠的事件（多點觸控下別被第二根手指的 pointerup 收掉） */
+    pointerId: number;
     startX: number;
     startY: number;
+    /** 按下當下的縮放係數：bbox 與位移換算共用同一個值，手勢中途版面變寬也不會前後不一致 */
+    scale: number;
     startPos: { x: number; y: number };
     bbox: { w: number; h: number };
+    /** 最後一次 pointermove 算出的預覽值；null＝按下後沒移動過（純點選，不送命令） */
+    last: { position?: { x: number; y: number }; y?: number } | null;
+    /** 解除這次手勢掛在 window 上的監聽 */
+    detach: () => void;
   } | null>(null);
   const [dragOverride, setDragOverride] = useState<{
     kind: 'overlay' | 'caption';
@@ -108,6 +149,8 @@ export function Player() {
   useEffect(
     () => () => {
       if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+      // Player 自己被卸載時也要把 window 上的拖曳監聽拆掉，否則洩漏到下一次掛載
+      dragRef.current?.detach();
     },
     [],
   );
@@ -301,13 +344,53 @@ export function Player() {
   const scale = stageW / 1080;
 
   /**
+   * 拖曳中的項目**豁免時間窗過濾**：手勢沒結束前，它一定留在畫面上。
+   *
+   * 不做這件事會出現「盲拖」——`plan.overlays/plan.captions` 是照 playhead 過濾的，播放中
+   * 拖曳（一句字幕常常只有 2–3 秒）拖到一半就出窗，項目直接從 plan 消失；dragOverride 是在
+   * 這兩個清單的 .map() 裡套的，清單裡沒有它就沒有東西可套，畫面**停住不動**，但 window 上的
+   * pointermove 照樣在更新 d.last。實測：y=0.8 往下拖 40px（畫面顯示 0.8208）→ 出窗消失 →
+   * 使用者沒有任何回饋卻繼續拖到 +900px → 放手送出 0.9521。他最後看到的是 0.82，文件卻拿到
+   * 0.95，1080 空間裡差 250px。附帶症狀：吸附導線還照畫，畫布上飄著幾條沒有主人的黃線。
+   *
+   * 兩個修法都能讓「送出的＝使用者最後看到的」成立，這裡選**留住元素**而不是**凍結 d.last**：
+   *  - 凍結 d.last：元素依舊在眼前消失，之後的拖曳全部無效（手指還按著、畫面卻毫無反應
+   *    ——看起來像當掉），放手後位置停在消失前那一刻，跟游標差了 250px；而且要另外處理
+   *    導線（元素不見了導線得跟著收），凍結／解凍的判斷還得靠額外的 ref 把「目前 plan 有誰」
+   *    傳進掛在 window 上的 handler（那條 closure 是 pointerdown 當下那一次 render 的，
+   *    讀不到最新的 plan），為了一個「畫面沒反應」的體驗加一層狀態同步，划不來。
+   *  - 留住元素（本作法）：全程看得到自己拖的東西跟著手指跑，放手送出的就是眼前那個位置，
+   *    finishDrag 那句「使用者確實看到它移到那裡」的前提才真的成立；導線也自然有主人。
+   *    代價是手勢進行中畫面會短暫顯示一個「照時間軸不該出現在這一刻」的項目——但它正是
+   *    使用者手指下的那一個，而且放手就恢復正常過濾，比讓它憑空消失更符合直覺。
+   *    附帶好處：key 沒變，React 會沿用同一個 DOM 節點，連帶把「出窗卸載」這條最常見的
+   *    卸載路徑一起消掉（其餘卸載路徑仍由 window 上的監聽兜底，見 beginDrag）。
+   * 項目在拖曳途中被真的刪掉時補不回來（doc 裡也沒有了），畫面消失是正確的，
+   * finishDrag 對這種情況本來就不送命令，不會有盲拖後果。
+   */
+  const dragging = dragRef.current;
+  const planOverlays = withDragged(
+    plan.overlays,
+    dragging?.kind === 'overlay' ? dragging.id : null,
+    (id) => {
+      const o = doc.tracks.overlays.find((x) => x.id === id);
+      return o ? overlayView(o) : null;
+    },
+  );
+  const planCaptions = withDragged(
+    plan.captions,
+    dragging?.kind === 'caption' ? dragging.id : null,
+    (id) => doc.tracks.captions.find((c) => c.id === id) ?? null,
+  );
+
+  /**
    * overlay/字幕的「這一幀該顯示什麼」只算一次、渲染與 pointerdown handler 共用同一份——
    * 不要各自查一次 dragOverride/pendingRef（曾經各查各的，兩條路徑一條漏改就會不一致，
    * 見 Task 15 fix round 1 Finding 3）。優先序：拖曳中的本地覆寫 > pending（放手、echo
    * 未到）> doc 原始值。pointerdown 直接讀這裡算出來的值當拖曳起點，於是「放手後立刻
    * 再拖一次」自然以上一次放手的結果為起點，不會把第一次的位移吃掉。
    */
-  const overlaysForRender = plan.overlays.map((o) => {
+  const overlaysForRender = planOverlays.map((o) => {
     if (dragOverride?.kind === 'overlay' && dragOverride.id === o.id && dragOverride.position) {
       return { ...o, position: { ...o.position, ...dragOverride.position } };
     }
@@ -317,7 +400,7 @@ export function Player() {
     }
     return o;
   });
-  const captionsForRender = plan.captions.map((c) => {
+  const captionsForRender = planCaptions.map((c) => {
     if (
       dragOverride?.kind === 'caption' &&
       dragOverride.id === c.id &&
@@ -332,6 +415,162 @@ export function Player() {
     return c;
   });
 
+  const moveDrag = (e: PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const delta = { dx: (e.clientX - d.startX) / d.scale, dy: (e.clientY - d.startY) / d.scale };
+    if (d.kind === 'overlay') {
+      const r = dragOverlay(d.startPos, delta, d.bbox, { w: 1080, h: 1920 });
+      d.last = { position: r.position };
+      setDragOverride({ kind: 'overlay', id: d.id, position: r.position });
+      setGuides(r.guides);
+    } else {
+      const r = dragCaption(d.startPos.y, delta.dy, d.bbox.h, 1920);
+      d.last = { y: r.y };
+      setDragOverride({ kind: 'caption', id: d.id, y: r.y });
+      setGuides(r.guides);
+    }
+  };
+
+  /**
+   * 手勢收尾：正常放手（pointerup）與異常中止（pointercancel／發現按鍵早就放開了）**共用同一條路**。
+   *
+   * 異常中止「送出最後預覽到的位置」而不是「回捲成 doc 舊值」，是刻意的選擇：
+   *  1. 使用者確實把元素移動過，而且畫布上一路顯示著新位置——回捲等於當著他的面吃掉一次編輯，
+   *     而且是在他沒做錯任何事的時候（元素離開時間窗、字卡 hash 換了…都不是他能預期的事件）。
+   *     「一路顯示著」不是自我安慰，是被上面 planOverlays/planCaptions 的時間窗豁免撐住的
+   *     不變量：手勢期間被拖的項目一定在渲染清單裡，dragOverride 一定套得上去。
+   *     （這條不變量若被拿掉，d.last 會在畫面停住之後繼續跑，這裡就變成送出使用者
+   *     從沒看過的位置——別為了省一次 find 而破壞它。）
+   *  2. 這是有 undo 的編輯器：多送一個命令最壞是按一次 Cmd-Z，少送一個命令則是靜默資料遺失
+   *     （使用者以為存了、重新整理才發現沒有——正是本次要修的那個故障的體感）。
+   *  3. 異常路徑與正常路徑收斂到同一個文件狀態，只是抵達方式不同，行為好推理也好測。
+   * 沒移動過（last === null，例如只是點一下選取）就什麼都不送，不污染 undo history。
+   *
+   * 不管走哪條路，dragOverride 一定清掉：本地覆寫是唯一可能「永久」卡住的東西
+   * （pendingRef 有 1.2s 保險絲，dragOverride 沒有），畫面上會變成一個伺服器從不知道
+   * 存在的幻影位置。
+   */
+  const finishDrag = () => {
+    const d = dragRef.current;
+    if (!d) return;
+    d.detach();
+    dragRef.current = null;
+    setGuides([]);
+    setDragOverride(null);
+    // doc 讀當下最新的（不是 render closure 裡那份）：手勢可能跨越好幾次 server echo
+    const cur = useProject.getState().doc;
+    if (!d.last || !cur) {
+      rerender();
+      return;
+    }
+    if (d.kind === 'overlay' && d.last.position) {
+      // 項目在拖曳途中被刪掉了就不送（送出去也只會被 server 拒絕）
+      const ov = cur.tracks.overlays.find((x) => x.id === d.id);
+      if (ov) {
+        // 四位小數（1080 空間下約 0.1px 解析度）：pending 對帳與 sendCommand 送出的必須是
+        // 同一個數字，不然 doc echo 抵達時浮點尾數對不上，pending 永遠對帳不到，只能靠
+        // 1.2s 保險絲清掉（同 Timeline.tsx 對 start/duration 送出前 toFixed(3) 的理由）。
+        const position = {
+          x: Number(d.last.position.x.toFixed(4)),
+          y: Number(d.last.position.y.toFixed(4)),
+        };
+        if (finite(position.x, position.y)) {
+          setPendingDrag({ kind: 'overlay', id: d.id, position });
+          sendCommand({
+            name: 'updateOverlay',
+            id: d.id,
+            patch: { position: { ...position, scale: ov.position.scale } },
+          });
+        }
+      }
+    } else if (d.kind === 'caption' && d.last.y !== undefined) {
+      const cap = cur.tracks.captions.find((c) => c.id === d.id);
+      if (cap) {
+        const y = Number(d.last.y.toFixed(4));
+        if (finite(y)) {
+          setPendingDrag({ kind: 'caption', id: d.id, y });
+          sendCommand({
+            name: 'updateCaption',
+            id: d.id,
+            patch: { style: { ...cap.style, y } },
+          });
+        }
+      }
+    }
+    rerender();
+  };
+
+  /**
+   * 開始一次畫布拖曳。**pointermove/up/cancel 一律掛在 window，不掛在被拖的元素上。**
+   *
+   * 被拖的元素隨時可能在手勢進行中被 React 卸載或重掛，而且全都是正常使用者做得到的事：
+   *  - 播放中拖：plan.captions/plan.overlays 依 playhead 過濾，一句字幕常常只有 2–3 秒，
+   *    拖到一半就出窗被卸載；
+   *  - 字卡 hash 變（CardCaptionForHash 是 key={hash}，換 hash＝重新掛載）；
+   *  - 打字預覽在 ApproxCaption↔CardCaption 之間切換（同 key 不同元件型別＝重新掛載）。
+   * 元素一被移除，pointer capture 會被隱式釋放，掛在它身上的 pointerup **永遠不會到達**
+   * ——命令不送、本地覆寫卻停在放手時的座標，畫面看起來拖成功了但伺服器毫不知情，重新整理
+   * 打回原形。這與 CLAUDE.md「UI 驗證的陷阱」記錄的 `<img draggable>` 是同一種故障，
+   * draggable={false} 只堵住其中一個入口。
+   *
+   * 真 Chromium 實測（capture 中的元素被 remove()，CDP 真實輸入事件）事件序列：
+   *   el:pointerdown → el/win:pointermove → [remove] → win:pointermove（target 已重新命中到
+   *   <html>）→ win:lostpointercapture（target 是 **document**，不是被移除的元素）→
+   *   win:pointermove → win:pointerup。元素上的 pointerup 完全沒有出現。
+   * 兩個結論：(a) window 上的 pointermove/pointerup 在元素卸載後照樣送達，是唯一可靠的
+   * 追蹤點；(b) lostpointercapture 雖然也到得了 window，但**刻意不拿它當收尾訊號**——
+   * 「重新掛載」類的觸發（hash 變、元件型別換）也會發它，但那時使用者其實還在拖一個
+   * 看得見的元素，收在那裡等於把手勢攔腰砍斷；改成一路追到 pointerup，重掛對使用者完全透明
+   * （覆寫是照 id 套的，不綁 DOM 節點）。真正需要當場收尾的只有 pointercancel（瀏覽器宣告
+   * 這根 pointer 不會再有事件了，例如原生 text-drag 搶走手勢）。
+   */
+  const beginDrag = (
+    e: ReactPointerEvent<HTMLElement>,
+    d: {
+      kind: 'overlay' | 'caption';
+      id: string;
+      startPos: { x: number; y: number };
+      bbox: { w: number; h: number };
+    },
+  ) => {
+    // 上一次手勢沒收乾淨（理論上不會，但第二根手指按下去就會走到這）：先照正常規則收掉它，
+    // 不是直接丟棄——丟棄就等於又製造一次「動了但沒送出」的靜默失敗。
+    finishDrag();
+    const el = e.currentTarget;
+    const pointerId = e.pointerId;
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      // buttons === 0：按鍵是在我們看不到的地方放開的（例如游標已經移出瀏覽器視窗，
+      // capture 又因為元素卸載而失效），pointerup 永遠不會來——當場收尾，別留下覆寫。
+      if (ev.buttons === 0) finishDrag();
+      else moveDrag(ev);
+    };
+    const onEnd = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      finishDrag();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    dragRef.current = {
+      ...d,
+      pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      scale,
+      last: null,
+      detach: () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onEnd);
+        window.removeEventListener('pointercancel', onEnd);
+      },
+    };
+    // capture 照設（正常情況下讓事件穩定落在這個元素、游標不亂跳），但手勢的正確性
+    // 不依賴它——它在元素被卸載的那一刻就會被隱式釋放。
+    el.setPointerCapture(pointerId);
+  };
+
   /**
    * 單一穩定 handler（不在 .map() 裡逐項用 inline arrow 包，避免每個 overlay 每次
    * render 都配一個新 closure）：從 data-ov-id 找回是哪個 overlay，讀 overlaysForRender
@@ -342,80 +581,25 @@ export function Player() {
     const o = overlaysForRender.find((x) => x.id === id);
     if (!o) return;
     useSelection.getState().select({ kind: 'overlay', id: o.id });
-    e.currentTarget.setPointerCapture(e.pointerId);
     const rect = e.currentTarget.getBoundingClientRect();
-    dragRef.current = {
+    beginDrag(e, {
       kind: 'overlay',
       id: o.id,
-      startX: e.clientX,
-      startY: e.clientY,
       startPos: { x: o.position.x, y: o.position.y },
       bbox: { w: rect.width / scale, h: rect.height / scale },
-    };
+    });
   };
 
   /** cap 來自 CaptionLayer 用 captionsForRender 渲染出的項目（已套過 pending），理由同上。 */
   const onCaptionPointerDown = (e: ReactPointerEvent<HTMLDivElement>, cap: CaptionItem) => {
     useSelection.getState().select({ kind: 'caption', id: cap.id });
-    e.currentTarget.setPointerCapture(e.pointerId);
     const rect = e.currentTarget.getBoundingClientRect();
-    dragRef.current = {
+    beginDrag(e, {
       kind: 'caption',
       id: cap.id,
-      startX: e.clientX,
-      startY: e.clientY,
       startPos: { x: 0, y: cap.style.y },
       bbox: { w: 1080, h: rect.height / scale },
-    };
-  };
-
-  const onDragPointerMove = (e: ReactPointerEvent) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const delta = { dx: (e.clientX - d.startX) / scale, dy: (e.clientY - d.startY) / scale };
-    if (d.kind === 'overlay') {
-      const r = dragOverlay(d.startPos, delta, d.bbox, { w: 1080, h: 1920 });
-      setDragOverride({ kind: 'overlay', id: d.id, position: r.position });
-      setGuides(r.guides);
-    } else {
-      const r = dragCaption(d.startPos.y, delta.dy, d.bbox.h, 1920);
-      setDragOverride({ kind: 'caption', id: d.id, y: r.y });
-      setGuides(r.guides);
-    }
-  };
-
-  const onDragPointerUp = () => {
-    const d = dragRef.current;
-    const o = dragOverride;
-    dragRef.current = null;
-    setGuides([]);
-    setDragOverride(null);
-    if (!d || !o) return;
-    if (d.kind === 'overlay' && o.position) {
-      const scale0 = doc.tracks.overlays.find((x) => x.id === d.id)?.position.scale ?? 1;
-      // 四位小數（1080 空間下約 0.1px 解析度）：pending 對帳與 sendCommand 送出的必須是
-      // 同一個數字，不然 doc echo 抵達時浮點尾數對不上，pending 永遠對帳不到，只能靠
-      // 1.2s 保險絲清掉（同 Timeline.tsx 對 start/duration 送出前 toFixed(3) 的理由）。
-      const position = { x: Number(o.position.x.toFixed(4)), y: Number(o.position.y.toFixed(4)) };
-      setPendingDrag({ kind: 'overlay', id: d.id, position });
-      sendCommand({
-        name: 'updateOverlay',
-        id: d.id,
-        patch: { position: { ...position, scale: scale0 } },
-      });
-    } else if (d.kind === 'caption' && o.y !== undefined) {
-      const cap = doc.tracks.captions.find((c) => c.id === d.id);
-      if (cap) {
-        const y = Number(o.y.toFixed(4));
-        setPendingDrag({ kind: 'caption', id: d.id, y });
-        sendCommand({
-          name: 'updateCaption',
-          id: d.id,
-          patch: { style: { ...cap.style, y } },
-        });
-      }
-    }
-    rerender();
+    });
   };
 
   return (
@@ -506,9 +690,10 @@ export function Player() {
                 // 不會消失),但伺服器端座標從未更新——使用者以為存了,其實沒有,重新整理
                 // 就會打回原形。draggable={false} 關掉原生手勢,讓 pointer 事件序列完整跑完。
                 draggable={false}
+                // 只掛 pointerdown：move/up/cancel 都掛在 window（見 beginDrag 的長註解），
+                // 因為這個 <img> 隨時可能在手勢中途離開時間窗被卸載，它身上的 pointerup
+                // 到那時就永遠不會來了。
                 onPointerDown={onOverlayPointerDown}
-                onPointerMove={onDragPointerMove}
-                onPointerUp={onDragPointerUp}
                 style={{
                   position: 'absolute',
                   left: 1080 * o.position.x,
@@ -530,8 +715,6 @@ export function Player() {
             added={fxAdded}
             draft={editDraft}
             onCaptionPointerDown={onCaptionPointerDown}
-            onCaptionPointerMove={onDragPointerMove}
-            onCaptionPointerUp={onDragPointerUp}
           />
           {/* 吸附導線：命中時才畫，畫在同一 1080 座標空間內（已被外層 scale 換算成畫面 px） */}
           {guides.map((g, i) =>
