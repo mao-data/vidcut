@@ -131,7 +131,10 @@ const overlaySchema = z
       .object({ x: z.number(), y: z.number(), scale: z.number() })
       .describe(
         '0–1 相對畫布。注意不對稱：x 是圖片「水平中心」、y 是圖片「上緣」。' +
-          '滿版直式圖要用 {x:0.5, y:0, scale:1}（y:0.5 會把圖推到下半場外）。',
+          '滿版直式圖要用 {x:0.5, y:0, scale:1}（y:0.5 會把圖推到下半場外）。' +
+          'scale 是倍率（1＝圖片原生尺寸），繞著「上緣中點」縮放：x/y 錨點不動，' +
+          '成品與預覽都會照這個倍率縮（2026-08-04 起渲染端真的實作了，之前只有預覽吃）。' +
+          'scale <= 0 這一張 overlay 不會被合成進成品（預覽也是看不見）。',
       ),
   })
   .strict()
@@ -536,7 +539,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
             start: z.number().optional(),
             anchor: z.object({ clipId: z.string(), offset: z.number() }).optional(),
             duration: z.number().nullable().optional(),
-            position: z.object({ x: z.number(), y: z.number(), scale: z.number() }).optional(),
+            position: z
+              .object({ x: z.number(), y: z.number(), scale: z.number() })
+              .optional()
+              .describe(
+                '整份換掉（沒有單欄位 patch 語意）。x=水平中心、y=上緣（不對稱）、' +
+                  'scale=倍率繞上緣中點縮放，預覽與成品一致；scale <= 0 該項不會被合成。',
+              ),
             text: overlayTextSchema
               .optional()
               .describe(

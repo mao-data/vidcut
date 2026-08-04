@@ -698,9 +698,15 @@ export function Player() {
                   position: 'absolute',
                   left: 1080 * o.position.x,
                   top: 1920 * o.position.y,
+                  // translate(-50%,0) + transformOrigin 'top center'：x 錨＝水平中心、
+                  // y 錨＝上緣，縮放繞著「上緣中點」做——與 render.ts 的
+                  // `overlay=x=(W*x)-(w/2):y=(H*y)`（w 是縮放後的寬）同一組語意。
                   transform: `translate(-50%, 0) scale(${o.position.scale})`,
                   transformOrigin: 'top center',
-                  maxWidth: 1080 * 0.9,
+                  // ⚠️ 這裡曾經有一行 `maxWidth: 1080 * 0.9`，讓預覽的圖被夾到 972px，
+                  // 而 render.ts 是以原生尺寸合成——文字卡一律是畫布全寬（1080），
+                  // 所以「成品比預覽大 1/0.9 ≈ 11%」每次都中。夾制沒有任何渲染端的對應物，
+                  // 也沒有記載過的用途，原生尺寸才是正確的預覽（2026-08-04 移除）。
                   pointerEvents: 'auto',
                   cursor: 'grab',
                   touchAction: 'none',

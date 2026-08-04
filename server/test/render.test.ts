@@ -57,6 +57,56 @@ describe('buildRenderArgs', () => {
     expect(plan.captionsBurned).toBe(false);
   });
 
+  /**
+   * position.scale 必須真的進 filtergraph。曾經整條 overlay 濾鏡鏈上沒有任何 scale
+   * （預覽端吃 CSS transform、渲染端完全忽略），Inspector 那個使用者改得動的 scale 欄位
+   * 因此是「預覽變、成品不變」——verify:wysiwyg 量到 scale=0.5 時預覽/成品寬比 0.4505、
+   * 最大差 244px。
+   */
+  describe('overlay position.scale', () => {
+    const withScale = (s: number) => {
+      const p = demoLikeProject();
+      p.tracks.overlays[0]!.position = { x: 0.5, y: 0.06, scale: s };
+      const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', { hasDrawtext: false });
+      return plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    };
+
+    it('scales the overlay input before compositing it', () => {
+      const fc = withScale(0.5);
+      // 縮放必須發生在 overlay 之前：overlay 的 w/h 讀的是「當下這一路的尺寸」，
+      // 置中式子 (W*x)-(w/2) 才會用縮放後的寬置中。
+      expect(fc).toContain('[2:v]scale=iw*0.5:ih*0.5[ovs0]');
+      expect(fc).toContain('[ovs0]overlay=x=(W*0.5)-(w/2):y=(H*0.06)');
+      // 縮放後的標籤才是 overlay 的輸入；不得再直接吃原始 input
+      expect(fc).not.toContain('[2:v]overlay=');
+      expect(fc.indexOf('scale=iw*0.5')).toBeLessThan(fc.indexOf('[ovs0]overlay='));
+    });
+
+    it('keeps the anchor semantics (x=centre, y=top) when scaled', () => {
+      // 不對稱錨點是這個專案出過事故的地方：加了 scale 之後 y 仍然是「上緣」，
+      // 不得偷偷變成中心（那會讓 1920*y 的圖整片位移半個高度）。
+      const fc = withScale(0.25);
+      expect(fc).toMatch(/\[ovs0\]overlay=x=\(W\*0\.5\)-\(w\/2\):y=\(H\*0\.06\)/);
+      expect(fc).not.toContain('(h/2)');
+    });
+
+    it('emits no scale filter at scale = 1 (identity stays byte-identical)', () => {
+      const fc = withScale(1);
+      expect(fc).not.toContain('scale=iw*');
+      expect(fc).toContain('[2:v]overlay=x=(W*0.5)-(w/2):y=(H*0.06)');
+    });
+
+    it('drops the overlay entirely at scale <= 0 instead of compositing it full size', () => {
+      // ffmpeg 的 `scale=0` 意思是「沿用原尺寸」，而預覽端 CSS scale(0) 是「看不見」——
+      // 照原樣疊上去就是又一次「預覽沒有、成品有」的靜默落差。
+      for (const s of [0, -1, Number.NaN]) {
+        const fc = withScale(s);
+        expect(fc).not.toContain('overlay=x=(W*0.5)-(w/2)');
+        expect(fc).not.toContain('scale=iw*');
+      }
+    });
+  });
+
   it('burns captions via drawtext when available', () => {
     const p = demoLikeProject();
     p.tracks.captions = [

@@ -173,7 +173,11 @@ describe('Player', () => {
     // 這兩者換算方式不對稱，別套同一條公式：left = 1080*x，top = 1920*y（無 -50% 補償）。
     expect(img.style.left).toBe('540px'); // 1080 * 0.5
     expect(img.style.top).toBe('192px'); // 1920 * 0.1
-    expect(img.style.maxWidth).toBe('972px'); // 1080 * 0.9（原本的 CSS 90%）
+    // 不得有寬度夾制：曾經是 `maxWidth: 1080*0.9`（972px），而 render.ts 以原生尺寸合成
+    // ——文字卡一律畫布全寬，於是成品每次都比預覽大 1/0.9 ≈ 11%（verify:wysiwyg 量到寬比
+    // 0.9011）。預覽必須是原生尺寸，縮放只能由 position.scale 決定。
+    expect(img.style.maxWidth).toBe('');
+    expect(img.style.transform).toContain('scale(1)'); // position.scale 仍然生效
   });
 
   it('anchored overlays follow their clip (c2 starts at 6s, offset .5)', () => {

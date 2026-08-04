@@ -210,13 +210,13 @@ const CASES = [
     key: 'overlay-scale1',
     title: 'overlay（position.scale = 1）',
     frame: 15, // t = 0.5s
-    note: '預覽端 Player.tsx 給 <img> 設 maxWidth: 1080*0.9，render.ts 是原生尺寸合成',
+    note: '若寬比 ≈0.9：Player.tsx 的 overlay <img> 又被加上寬度夾制（曾是 maxWidth: 1080*0.9），render.ts 是原生尺寸合成',
   },
   {
     key: 'overlay-scale05',
     title: 'overlay（position.scale = 0.5）',
     frame: 45, // t = 1.5s
-    note: '預覽端吃 CSS scale(0.5)，render.ts 的 overlay 濾鏡鏈上根本沒有 scale',
+    note: '預覽端吃 CSS scale(0.5)；render.ts 要在 overlay 之前插 scale=iw*s:ih*s（2026-08-04 才補上，別又被拿掉）',
   },
   {
     key: 'caption',

@@ -87,6 +87,9 @@ export interface OverlayItem {
    * 0–1 相對畫布；scale 為倍率。**語意不對稱**：x 是圖片水平中心、y 是圖片上緣
    * （預覽 translate(-50%, 0)、渲染 x=(W*x)-(w/2), y=H*y 一致）。
    * 滿版直式圖用 {x:0.5, y:0}；y:0.5 是「上緣壓在畫面正中」，不是置中。
+   * scale 繞「上緣中點」縮放（x/y 錨點不動）：預覽是 CSS transform，渲染是 overlay 前的
+   * `scale=iw*s:ih*s`（overlay 的 w 因此是縮放後的寬，置中式子不用改）。
+   * 2026-08-04 之前渲染端**沒有實作 scale**，改它只有預覽會變——已修，見 verify:wysiwyg。
    */
   position: { x: number; y: number; scale: number };
   /** 有值 = 文字 overlay（可編輯文字），imagePath 由伺服器維護；無值 = 預烤 PNG（外部腳本產生，文字不可編輯） */

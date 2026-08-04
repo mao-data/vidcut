@@ -333,9 +333,28 @@ export function buildRenderArgs(
     const inputIdx = overlayInputBase + k;
     const next = `[ovl${k}]`;
     const enable = `enable='between(t\\,${win.start}\\,${win.end})'`;
+    // x 錨=圖片水平中心、y 錨=圖片上緣（**刻意不對稱**，見 OverlayItem.position 的說明）。
+    // overlay 濾鏡的 `w`/`h` 指的是「疊上去那一路的當下尺寸」，也就是**經過下面 scale 之後**
+    // 的寬高——所以置中式子不必因為加了 scale 而改寫，w 會自動變成縮放後的寬。
     const x = `(W*${ov.position.x})-(w/2)`;
     const y = `(H*${ov.position.y})`;
-    fc.push(`${vcur}[${inputIdx}:v]overlay=x=${x}:y=${y}:${enable}${next}`);
+    // position.scale：預覽端是 CSS `transform: scale()`，這裡必須有對應的濾鏡，
+    // 否則使用者在 Inspector 改了 scale，預覽變、成品不變（2026-08-04 修掉的 WYSIWYG 落差；
+    // 缺口曾大到 244px，見 npm run verify:wysiwyg）。
+    let ovLabel = `[${inputIdx}:v]`;
+    const s = ov.position.scale;
+    if (Number.isFinite(s) && s > 0 && s !== 1) {
+      // 縮放要在 overlay 之前做完，overlay 才量得到縮放後的 w/h。
+      fc.push(`[${inputIdx}:v]scale=iw*${s}:ih*${s}[ovs${k}]`);
+      ovLabel = `[ovs${k}]`;
+    } else if (!(Number.isFinite(s) && s > 0)) {
+      // scale <= 0／NaN：預覽端 CSS scale(0) 是「看不見」，而 ffmpeg 的 `scale=0` 意思是
+      // **沿用原尺寸**——照原樣疊上去等於又製造一次「預覽沒有、成品有一張全尺寸圖」的
+      // 靜默落差，正是本次要修的那一類 bug。直接不合成這張 overlay。
+      return;
+    }
+    // s === 1 走原路（不插 scale 濾鏡）：省一次重採樣，也讓既有 filtergraph 逐字不變。
+    fc.push(`${vcur}${ovLabel}overlay=x=${x}:y=${y}:${enable}${next}`);
     vcur = next;
   });
 

@@ -20,7 +20,7 @@ npm run lint                                # 目前 exit 1，見下
 npm run format:check                        # 見下
 npm run verify:panels                       # 面板控制項的瀏覽器回歸檢查
 npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線的瀏覽器回歸檢查（4 項檢查、6 條斷言）
-npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，比對「預覽 vs 成品」的墨跡外框（⚠️ 目前故意是紅的，見下）
+npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，比對「預覽 vs 成品」的墨跡外框（目前全綠，見下）
 ```
 
 - **改完 UI 原始碼必須 `npm run build -w @vidcut/ui`**，否則 :3845 上跑的還是舊版。
@@ -67,27 +67,30 @@ npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，
 
 ## 「預覽即成品」的實際範圍（別當全域保證用）
 
-`caption-wysiwyg` 分支的招牌宣稱是「預覽看到的就是成品」。**只有非 karaoke 字幕真的成立**，
-另外兩類是已知的、可重現的不一致：
+`caption-wysiwyg` 分支的招牌宣稱是「預覽看到的就是成品」。**非 karaoke 字幕與 overlay
+（含文字 overlay）都成立**（2026-08-04 起）；karaoke 字幕仍是已知的、可重現的不一致。
 
-**這件事現在有自動化在守了：`npm run verify:wysiwyg`**（`ui/e2e/preview-vs-export.mjs`）
+**這件事有自動化在守了：`npm run verify:wysiwyg`**（`ui/e2e/preview-vs-export.mjs`）
 會真的 render 一支影片、抽幀量墨跡外框，再用 headless Chromium 截同一時刻的預覽畫面、
-換算回 1080×1920 座標量同一個外框，兩邊比。**它現在是紅的，而且應該是紅的**——
-overlay 兩項失敗、字幕那項通過（誤差 ≤1.0px）。字幕那項若也紅代表量測本身壞了；
-overlay 兩項若變綠而缺陷還在，代表斷言鬆掉了。修掉下面兩個缺陷之後它才該全綠。
+換算回 1080×1920 座標量同一個外框，兩邊比。**現在三項全綠（最大差 1.0px，容差 4）**——
+任何一項轉紅都是真的回歸，先看 `measure/` 裡的 PNG，不要動斷言。
 
 - ✅ **字幕（無逐詞高亮）**：預覽與匯出走同一支 `text_card.py`、同一份參數，輸出 PNG
   **逐位元組相同**（sha256 相等）。實測涵蓋超寬文字、內嵌換行、未知字型、非 1080 畫布寬。
-- ❌ **overlay（含文字 overlay）**：預覽端 `ui/src/player/Player.tsx` 給 overlay `<img>`
-  設了 `maxWidth: 1080 * 0.9`，`server/src/render.ts` 卻是以**原生尺寸**合成。文字卡一律
-  是畫布全寬（1080）的圖，所以這條**每次都中**——成品比預覽大 `1 / 0.9 ≈ 11%`。
-  更糟的是 `position.scale`：預覽端吃（CSS transform），**渲染端完全沒有實作**
-  （overlay 濾鏡鏈上沒有任何 scale），而 `ui/src/panels/Inspector.tsx` 有一個
-  使用者改得動的 scale 欄位。改它 → 預覽變、成品不變。
-  `verify:wysiwyg` 的實測（1080 空間、白字 96px、成品墨跡 `x0=318 w=444`）：
-  **scale=1 → 預覽 `x0=340.1 w=400.1`，寬只有成品的 0.901**（＝那個 0.9 夾制）；
-  **scale=0.5 → 預覽 `x0=440.1 w=200.0`，寬只有成品的 0.451**（＝0.9 夾制 × 0.5 CSS
-  縮放，成品那邊兩者都沒發生）。同一支腳本的字幕那項誤差 ≤1.0px，證明差的不是量測。
+- ✅ **overlay（含文字 overlay）**（2026-08-04 修好，之前是本節最大的落差）：曾經有兩個
+  互相疊加的成因——(a) 預覽端 `ui/src/player/Player.tsx` 給 overlay `<img>` 設了
+  `maxWidth: 1080 * 0.9`，`server/src/render.ts` 卻是以原生尺寸合成（文字卡一律畫布全寬
+  → 成品每次都比預覽大 `1/0.9 ≈ 11%`）；(b) `position.scale` 只有預覽端吃（CSS transform），
+  **渲染端整條 overlay 濾鏡鏈上沒有任何 scale**，而 Inspector 有一個使用者改得動的 scale 欄位。
+  修法是**兩邊都往「正確」收斂**：渲染端在 overlay 之前插 `scale=iw*s:ih*s`（`overlay` 的
+  `w` 讀的是縮放後的寬，所以 `x=(W*x)-(w/2)` 的置中式子不用改，錨點不對稱也維持原樣），
+  預覽端拿掉那個沒有渲染端對應物的 0.9 夾制、保留 CSS scale。
+  實測：scale=1 從寬比 0.9011／最大差 43.9px → 1.0002／1.0px；
+  scale=0.5 從 0.4505／244.0px → 1.0002／1.0px。
+  ⚠️ 副作用（預期內）：既有專案（例如 `projects/demo` 的全寬排名卡）的**預覽**會比以前大 11%
+  ——那才是成品一直以來的尺寸，不是回歸。
+  ⚠️ `scale <= 0`／NaN 的 overlay **整張不合成**：ffmpeg 的 `scale=0` 意思是「沿用原尺寸」，
+  照原樣疊上去等於又製造一次「預覽看不見、成品有一張全尺寸圖」的靜默落差。
 - ❌ **karaoke 字幕**：預覽是「base 卡 + 全高亮卡疊 `clip-path`」，匯出是「**一個詞一張卡**」，
   不是同一張圖。兩個成因：(a) 描邊補償 `pad`（`max(2, fontSize/16)`，64px 字＝4px）
   會把**下一個還沒唸到的詞**露出約 4px 的高亮色；(b) 兩層 alpha 疊合讓描邊的反鋸齒邊變厚。
