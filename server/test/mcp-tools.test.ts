@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -244,5 +244,60 @@ describe('MCP tools that had no coverage', () => {
   it('get_feedback requires sinceVersion', async () => {
     const r = await call('get_feedback', {});
     expect(r.isError).toBe(true);
+  });
+});
+
+describe('list_source', () => {
+  it('列出素材夾內的白名單檔案並標記已匯入者', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'vidcut-mcpsrc-'));
+    await writeFile(join(src, 'b.mp4'), 'x');
+    await writeFile(join(src, 'a.mov'), 'x');
+    await writeFile(join(src, 'notes.txt'), 'x'); // 非白名單，不該出現
+
+    const r = await call('list_source', { dir: src });
+    const sc = r.structuredContent as {
+      files: Array<{ name: string; imported: boolean; size: number; mtime: number }>;
+      total: number;
+    };
+    expect(sc.files.map((f) => f.name)).toEqual(['a.mov', 'b.mp4']); // 依 name 排序
+    expect(sc.total).toBe(2);
+    expect(sc.files.every((f) => f.imported === false)).toBe(true);
+    expect(sc.files[0]!.size).toBeGreaterThan(0);
+    expect(typeof sc.files[0]!.mtime).toBe('number');
+  });
+
+  it('已匯入的素材標 imported: true', async () => {
+    // beforeAll 匯入的是專案內的 a.mp4（相對路徑），素材夾就指專案資料夾本身
+    const r = await call('list_source', { dir });
+    const sc = r.structuredContent as { files: Array<{ name: string; imported: boolean }> };
+    expect(sc.files.find((f) => f.name === 'a.mp4')!.imported).toBe(true);
+  });
+
+  it('目錄不存在 → isError', async () => {
+    const r = await call('list_source', { dir: join(tmpdir(), 'vidcut-does-not-exist-12345') });
+    expect(r.isError).toBe(true);
+  });
+
+  // AI 的 context 有限，一個放了幾千支檔的素材夾不能整包塞回去。
+  it('超過 200 筆只內嵌前 200 筆並標 truncated', async () => {
+    const big = await mkdtemp(join(tmpdir(), 'vidcut-mcpbig-'));
+    for (let i = 0; i < 250; i++) {
+      await writeFile(join(big, `f${String(i).padStart(3, '0')}.mp4`), 'x');
+    }
+    const r = await call('list_source', { dir: big });
+    const sc = r.structuredContent as {
+      files: unknown[];
+      total: number;
+      truncated?: boolean;
+    };
+    expect(sc.total).toBe(250);
+    expect(sc.files).toHaveLength(200);
+    expect(sc.truncated).toBe(true);
+  }, 60_000);
+
+  it('標 readOnlyHint: true（唯讀工具）', async () => {
+    const { tools } = await client.listTools();
+    const t = tools.find((x) => x.name === 'list_source');
+    expect(t?.annotations?.readOnlyHint).toBe(true);
   });
 });

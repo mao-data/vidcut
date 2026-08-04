@@ -551,5 +551,13 @@
     "replace": "",
     "tests": "server/test/commands.test.ts",
     "note": "拿掉 setAudio 的逐項驗證 → 不存在的 mediaId／負 in／超界全部會被默默接受並落盤，直到 render 才炸；拒絕的斷言必須抓到"
+  },
+  {
+    "id": "listsource-truncate",
+    "file": "server/src/mcp.ts",
+    "find": "        const files = truncated ? all.files.slice(0, MAX_FILES_INLINE) : all.files;",
+    "replace": "        const files = all.files;",
+    "tests": "server/test/mcp-tools.test.ts",
+    "note": "拿掉 list_source 的 200 筆截斷 → 上千支檔的素材夾會整包塞回 AI 的 context；truncated 測試的 files 長度斷言必須抓到"
   }
 ]

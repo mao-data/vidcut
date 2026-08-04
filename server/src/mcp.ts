@@ -14,6 +14,7 @@ import { aiWrite } from './aiWrite.js';
 import { ingestMedia } from './ingest.js';
 import { extractFrame } from './frame.js';
 import { extractCover, render } from './render.js';
+import { listSource } from './sourceFolder.js';
 
 export interface McpDeps {
   store: ProjectStore;
@@ -159,6 +160,9 @@ const timelineClipSchema = z.object({
 /** transcribe 內嵌回傳的詞數上限：超過只回前段＋wordsTruncated，全量在 jsonPath 檔案裡。 */
 const MAX_WORDS_INLINE = 1000;
 
+/** list_source 內嵌回傳的檔案數上限：素材夾可能有上千支檔，整包回去會灌爆 AI 的 context。 */
+const MAX_FILES_INLINE = 200;
+
 function writeResultText(r: { ok: boolean; version?: number; error?: string }): string {
   return r.ok ? `ok, version=${r.version}` : `error: ${r.error}`;
 }
@@ -289,6 +293,32 @@ export function createMcpServer(deps: McpDeps): McpServer {
   );
 
   // ---- 匯入 / 排片 ----
+  server.registerTool(
+    'list_source',
+    {
+      description:
+        '列出素材夾內可匯入的檔案（不遞迴、排除隱藏檔、只回白名單副檔名）。' +
+        'dir 為絕對路徑。imported 標示該檔是否已在本專案的 doc.media 裡。' +
+        `超過 ${MAX_FILES_INLINE} 筆只內嵌前段並標 truncated。`,
+      inputSchema: { dir: z.string() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ dir }) => {
+      try {
+        const all = await listSource(dir, store.doc.media, projectDir);
+        const truncated = all.files.length > MAX_FILES_INLINE;
+        const files = truncated ? all.files.slice(0, MAX_FILES_INLINE) : all.files;
+        return result(
+          { dir, files, total: all.files.length, ...(truncated ? { truncated: true } : {}) },
+          `${all.files.length} file(s) in ${dir}` +
+            (truncated ? `，僅內嵌前 ${MAX_FILES_INLINE} 筆` : ''),
+        );
+      } catch (e) {
+        return err(`list_source failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
   server.registerTool(
     'import_media',
     {
