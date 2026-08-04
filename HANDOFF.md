@@ -1,22 +1,53 @@
 # HANDOFF — vidcut 開發交接
 
 > 目前做到哪、怎麼驗、已知限制、下一步。
-> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）+ 階段 2（可編輯文字 overlay）+ 階段 3（預覽字卡直出，預覽=成品）+ 階段 4（畫布拖曳+吸附導線）**四階段全部完成**，含真瀏覽器回歸（`npm run verify:canvas`）。
+> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）+ 階段 2（可編輯文字 overlay）+ 階段 3（預覽字卡直出）+ 階段 4（畫布拖曳+吸附導線）**四階段全部完成**，含真瀏覽器回歸（`npm run verify:canvas`）。
+>
+> ⚠️ **「預覽=成品」只對「沒有逐詞高亮的字幕」成立**（已驗到 PNG sha256 逐位元組相同）。
+> overlay 與 karaoke 字幕都有已知、可重現的落差——範圍與實測數字見
+> `CLAUDE.md`「『預覽即成品』的實際範圍」與下面的階段 3 節。寫文件或對外描述這個功能時
+> 請一律帶上限定詞。
 
 ## 現況總覽
 
-| 里程碑         | 狀態         | 內容                                                               |
-| -------------- | ------------ | ------------------------------------------------------------------ |
-| M1 看得到      | ✅ `m1-done` | ProjectStore + WS 同步 + ffmpeg ingest + 唯讀時間軸 + A/B 無縫預覽 |
-| M2 改得動      | ✅ `m2-done` | 命令層 + trim 拖拉 + 排序 + Inspector 編輯 + undo + 活動面板       |
-| M3 AI 接上     | ✅ `m3-done` | MCP server（15 工具）+ request_review 審核閉環 + 編輯脈絡回報      |
-| M4 渲染        | ✅ `m4-done` | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕      |
-| T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                             |
-| T2 #8 自動字幕 | ✅           | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節         |
-| UI 重設計      | ✅           | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節             |
-| 字幕 WYSIWYG 階段 1–4 | ✅（分支 `caption-wysiwyg`，**四階段全完成**） | 階段 1：Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步。階段 2：**可編輯文字 overlay**——UI 時間軸「Text」鈕新增文字 overlay、Inspector 可改文字/字級/顏色，MCP `add_overlay`/`update_overlay`/`set_overlays` 皆支援 `text`。階段 3：**字幕預覽改走與成品同一張字卡**——`fontSize/3` 估算已廢除，1080×1920 座標空間 + `transform: scale(stage寬/1080)`；karaoke 用 base+全高亮兩張幾何相同的卡疊 `clip-path` 逐詞揭色；打字三段式即時預覽；真瀏覽器實測驗證縮放公式（見下節）。階段 4：**畫布直接拖曳 overlay/字幕 + 吸附導線**——`shared/src/snap.ts` 的 `snapBBox` 純函數（水平置中/垂直置中/上下 5% 安全邊距，16px 吸附半徑）+ `ui/src/player/dragLayer.ts` 的錨點↔bbox 換算 + `Player.tsx` 的 pointer 拖曳與「放手後 echo 未到前」的本地覆蓋橋接；真瀏覽器 e2e 回歸（`npm run verify:canvas`，見下節）過程中抓到並修掉一個真 bug（`<img>` 原生瀏覽器拖曳手勢劫持 pointer 事件序列，見下節與 `CLAUDE.md`）。 |
+| 里程碑                | 狀態                                           | 內容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1 看得到             | ✅ `m1-done`                                   | ProjectStore + WS 同步 + ffmpeg ingest + 唯讀時間軸 + A/B 無縫預覽                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| M2 改得動             | ✅ `m2-done`                                   | 命令層 + trim 拖拉 + 排序 + Inspector 編輯 + undo + 活動面板                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| M3 AI 接上            | ✅ `m3-done`                                   | MCP server（15 工具）+ request_review 審核閉環 + 編輯脈絡回報                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| M4 渲染               | ✅ `m4-done`                                   | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| T1 CapCut 快贏        | ✅ `t1-done`                                   | 見下節                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| T2 #8 自動字幕        | ✅                                             | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| UI 重設計             | ✅                                             | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 字幕 WYSIWYG 階段 1–4 | ✅（分支 `caption-wysiwyg`，**四階段全完成**） | 階段 1：Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步。階段 2：**可編輯文字 overlay**——UI 時間軸「Text」鈕新增文字 overlay、Inspector 可改文字/字級/顏色，MCP `add_overlay`/`update_overlay`/`set_overlays` 皆支援 `text`。階段 3：**字幕預覽改走與成品同一張字卡**（**限非 karaoke**）——`fontSize/3` 估算已廢除，1080×1920 座標空間 + `transform: scale(stage寬/1080)`；karaoke 用 base+全高亮兩張幾何相同的卡疊 `clip-path` 逐詞揭色（**但匯出端是一詞一卡，兩者不是同一張圖**，見下節）；打字三段式即時預覽；真瀏覽器實測驗證縮放公式（見下節，注意那份量測不等於「預覽與成品對齊」）。階段 4：**畫布直接拖曳 overlay/字幕 + 吸附導線**——`shared/src/snap.ts` 的 `snapBBox` 純函數（水平置中/垂直置中/上下 5% 安全邊距，16px 吸附半徑）+ `ui/src/player/dragLayer.ts` 的錨點↔bbox 換算 + `Player.tsx` 的 pointer 拖曳與「放手後 echo 未到前」的本地覆蓋橋接；真瀏覽器 e2e 回歸（`npm run verify:canvas`，見下節）過程中抓到並修掉一個真 bug（`<img>` 原生瀏覽器拖曳手勢劫持 pointer 事件序列，見下節與 `CLAUDE.md`）。 |
 
-**自動化狀態**：438 個測試（shared 39 / server 195 / ui 204，數字含字幕 WYSIWYG 階段 1–4 全部新增測試；若 `npm test` 整批平行跑，`server/test/cardSync.test.ts` 的 debounce 測試偶爾會因即時渲染子行程與其他重測試（render/demo）搶 CPU 而假性失敗——單獨跑該檔或 `server` workspace 是穩定綠的，屬既有計時假設脆弱，非本次文檔改動引入）、typecheck 三 workspace 乾淨、ESLint 0 問題（`.claude/worktrees/` 下其他 session 的 34 個既有錯誤不算，已確認與本分支動過的檔案無關；階段 3 引入的 `shared/src/captions.test.ts` 未用 `TokenBox` import 警告本次已順手修掉）、UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過；字幕預覽=成品的縮放公式與畫布拖曳/吸附另有真瀏覽器（非 jsdom）回歸——`npm run verify:panels`（面板）與 `npm run verify:canvas`（縮放/拖曳/導線，Task 16 新增，三項斷言穩定通過）都綠，見下節「階段 4」。
+**自動化狀態**（2026-08-04 於 `87514dd` + 工作區未提交變更實測，每一條都是真的跑過的）：
+
+- `npm test` 全綠。測試數在本次覆核的兩小時內就從 511 變成 **515**（shared 39 / server 252 / ui 224），
+  因為有另一條線在補測試——**這個數字沒有保存價值，別引用它，要就重跑**：
+
+  ```bash
+  npm test 2>&1 | grep -E '^ *Tests '   # 三個 workspace 各印一行，自己加總
+  ```
+
+  耗時：**沒有其他負載時約 70 秒**（實測 67s wall，其中 `server/test/render.test.ts`
+  的真 ffmpeg 整合測試單獨就占 48s）。同機器上有別的重工作在跑時實測會到 2 分鐘以上
+  ——量這個數字要在乾淨的機器上量，不然量到的是別人的 CPU。
+  （舊版本說 `server/test/cardSync.test.ts` 的 debounce 測試會因搶 CPU 假性失敗——
+  那條已經不成立：`e7376be` 之後該測試用 stub 的 `TextCardService`，不再 spawn 真的
+  Pillow 子行程。）
+
+- `npm run typecheck`：三 workspace 乾淨（exit 0）。
+- `npm run lint`：**exit 1**，34 個錯誤全部在 `.claude/worktrees/**`（別的 session 的
+  worktree），本 repo 追蹤的原始碼 0 問題。注意這代表
+  `npm run typecheck && npm run lint && npm run format:check` 這種 `&&` 串跑不完。
+- `npm run format:check`：見 `CLAUDE.md`——它報的都是真的沒格式化的原始碼（產生檔已被
+  `.gitignore`/`.prettierignore` 濾掉），不是雜訊。
+- UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過。
+- 真瀏覽器（非 jsdom）回歸：`npm run verify:panels`（面板）與 `npm run verify:canvas`
+  （縮放/拖曳/導線/不盲拖，**4 項檢查、6 條斷言**）**都綠**，見下節「階段 4」。
+  ⚠️ `verify:canvas` 檢查 1 印的「誤差 0.000%」只驗了 transform 矩陣的 `a`（scaleX），
+  **不足以推論「預覽跟成品對齊」**——理由見 `CLAUDE.md`「UI 驗證的陷阱」。
 
 ## 字幕 WYSIWYG 階段 1：光柵器地基（分支 `caption-wysiwyg`）
 
@@ -25,7 +56,10 @@
 - **`text_card.py` 常駐 worker 模式**：`--worker` 讀 stdin/stdout 一行一 JSON，import PIL 與字型只付一次，之後每張卡約 7ms（相較逐次 spawn 的 50–70ms）。一次請求可同時產出「base 卡」與「全高亮卡」（karaoke 兩張圖疊 clip-path 的作法），並回傳逐詞 bounding box。**既有單卡 CLI 模式沒有變動**——`render.ts` 的匯出路徑目前仍走舊的逐次 spawn CLI，還沒接上 worker。
 - **`server/src/rasterizer.ts`（新）**：`PillowRasterizer`（`id='pillow-1'`）把 worker 包成 TS 介面：`resolveFontPath`（public 可變，因為字型表要靠它自己 probe 後再回填）、`probeFont`、`rasterize`、`dispose`。
 - **`server/src/fonts.ts`（新）**：`loadFontTable(rasterizer)` 啟動時用真 Pillow 逐一實測候選字型檔，**開不了的直接剔除**（本機 `/System/Library/Fonts/PingFang.ttc` 開不了，已剔除，落到 Heiti TC）；`fontResolver(table)` 給 family→路徑（完全比對，否則落到表首位，否則 undefined）。新端點 `GET /api/fonts`（回 `{id, family}[]`）與 `GET /fonts/:id`（真的把字型檔案送出，供之後 UI `@font-face` 用）。
-- **`server/src/textCards.ts`（新）**：`cardKey()` 內容雜湊（含 rasterizer id，換引擎全快取自動失效）；`TextCardService.ensure()` 查快取未命中才產卡，寫 `derived/text/<hash>.{base,hl}.json/.png`。HTTP：靜態 `/text-card/*`（`immutable` 強快取）+ `POST /text-card/preview`（只產卡，不碰 doc/history/廣播，供之後打字即時預覽用）。輸入驗證完整（壞掉的 style 回 400，之前會靜默產出預設樣式的卡）。
+- **`server/src/textCards.ts`（新）**：`cardKey()` 內容雜湊（含 rasterizer id，換引擎全快取自動失效）；`TextCardService.ensure()` 查快取未命中才產卡，寫 `derived/text/` 下的三個檔：
+  **`<hash>.json`（幾何，只有這一份，沒有 `.base.json`）、`<hash>.base.png`、
+  `<hash>.hl.png`（只有帶 tokens 的 karaoke 字幕才會產）**——別再用
+  `<hash>.{base,hl}.json/.png` 這種大括號寫法，它會讓人以為有 `<hash>.base.json`。HTTP：靜態 `/text-card/*`（`immutable` 強快取）+ `POST /text-card/preview`（只產卡，不碰 doc/history/廣播，供之後打字即時預覽用）。輸入驗證完整（壞掉的 style 回 400，之前會靜默產出預設樣式的卡）。
 - **`server/src/cardSync.ts`（新）**：`CaptionCardSync` 在字幕軌變更後 debounce 300ms 重產全部字幕卡，透過新的 WS 訊息 `{type:'textCards', entries:[{id, hash}]}` 廣播 capId→hash 對照；啟動時預熱、新連線送目前的完整對照表。**單句產卡失敗會被隔離**——失敗的那句直接從 entries 缺席（其餘句照常產出），不會讓整批 latest 被舊資料污染。`ui/src/stores/project.ts` 對 `textCards` 訊息當時（階段 1）是 no-op 早退——**必須是早退**，否則會落進 patch 分支當成版本不符觸發無限 resync；**階段 3 這個早退分支改成真的收下** `{id → hash}` 存進 `captionCards`（早退本身沒變，只是分支內容從空動作變成 `set`），`CaptionLayer` 靠這份對照決定每句字幕該不該走字卡。
 - **匯出路徑接上同一張字型表**：`render.ts` 的 `renderCaptionCard`（匯出用）現在會傳 `fontPath`，用 `setCaptionFontResolver` 在啟動時注入、與預覽路徑**同一個** resolver。在此之前匯出用的是另一條寫死的候選字型鏈，`fontFamily` 對成品完全無效；現在 `fontFamily` 真的同時影響預覽與匯出（過去兩邊都不影響）。有測試比對匯出卡與預覽卡的 PNG sha256 相同，並反向驗證「不注入 resolver 時輸出必須不同」（判別性防護，避免測試假陽性）。
 
@@ -52,19 +86,38 @@
 - 沒有字型選單：`/api/fonts` 端點階段 1 就有了，但目前沒有任何 UI 程式碼消費它；新文字 overlay 一律用預設 `Heiti TC`。
 - 沒有畫布拖曳（排在階段 4）。
 
-## 字幕 WYSIWYG 階段 3：預覽字卡直出，預覽=成品（分支 `caption-wysiwyg`）
+## 字幕 WYSIWYG 階段 3：預覽字卡直出，預覽=成品（**限非 karaoke 字幕**，分支 `caption-wysiwyg`）
 
 設計：同上規格 §7（§7 已依實作校對，見設計文件的落地備註）。目標：字幕預覽與匯出成品共用**同一光柵器、同一張 PNG**，消除 `fontSize/3` 這個估算縮放的分歧源。
 
+> **先把宣稱的範圍講清楚（2026-08-04 對抗性覆核）**：「預覽=成品」**只有非 karaoke 字幕
+> 真的成立**，而且成立得很扎實——同一段文字分別走匯出路徑（`render.ts` 的單卡 CLI）與
+> 預覽路徑（`POST /text-card/preview` 的常駐 worker），輸出 PNG 的 **sha256 逐位元組相同**，
+> 覆核涵蓋超寬文字、內嵌換行、未知字型與非 1080 的畫布寬。
+> **overlay 與 karaoke 字幕都不成立**，理由與實測數字見 `CLAUDE.md`
+> 「『預覽即成品』的實際範圍」——寫文件或跟使用者講這件事時請帶上限定詞，不要
+> 講成整個編輯器的性質。
+
 - **座標空間**：字幕層與 overlay 層共用 `ui/src/player/Player.tsx` 裡同一個 1080×1920 絕對定位 `<div>`，`transform: scale(stage寬/1080)`——`stage寬` 是量測「影片實際填滿的那個元素」（`stageEl`，`ResizeObserver` 觀測）的真實寬度，縮放係數只有這一處來源。`fontSize/3` 魔術除數已整個移除，`ui/src/player/CaptionLayer.tsx` 的 DOM 文字路徑（`ApproxCaption`）現在**只當 fallback**：字卡幾何**還沒開始 fetch 之前（該句尚無 hash）**或**已 fetch 但失敗**、或圖檔本身載入失敗（`onError`）時才會退回近似顯示；正常情況一律是 `<img src=/text-card/<hash>.base.png>` 直出，跟渲染成品同一張圖。**易錯點（已修過一次文檔用詞）**：字卡幾何「fetch 進行中」那個瞬間不是 fallback——`CardCaptionForHash` 對 `geo === 'pending'` 直接 `return null`，畫面是**空白一幀**，不是近似文字；近似文字只出現在「這句根本還沒有 hash（`cards[c.id]` 不存在）」或「fetch/圖檔載入確定失敗」這兩種情況。
 - **karaoke（預覽端）**：base 卡 + 全高亮卡（`.hl.png`）兩張**幾何完全相同**的圖疊在一起，上層用 `shared/src/captions.ts` 的純函數 `karaokeClip(bboxes, activeIndex, pad)` 算出的 `clip-path` 逐詞揭色（`pad` 補償描邊外擴）；`tokenSeparator(prev, next)` 判斷詞間該不該插空白（CJK 不加、拉丁加），DOM fallback 與伺服端 `text_card.py` 的斷詞規則因此一致。**匯出端維持階段 1 就有的「一個詞一張卡」機制沒有變**（`server/src/render.ts` 的 `renderCaptionCards`）——兩卡+clip-path 目前只在預覽端，渲染端的「一詞一卡爆量」根治仍是後續工作（spec §2 非目標）。
+  ⚠️ **所以 karaoke 字幕的預覽與成品不是同一張圖，實測也不一樣**：兩張卡疊 `clip-path` 合出來的畫面
+  ≠ 匯出那張「第 k 個詞高亮」的單卡。兩個成因都可重現：(a) `karaokeClip` 的 `pad`
+  （＝ `max(2, fontSize/16)`，64px 字是 4px）把每個 token bbox 四周外擴，於是**下一個還沒唸到的詞**
+  的左緣約 4px 會被塗成高亮色；(b) hl 卡是獨立圖層 alpha 疊在 base 卡上，描邊的反鋸齒邊等於被畫兩次，
+  比單卡厚。實測（單行 6 詞 CJK、64px、有描邊）各高亮狀態差 **793–2764 個像素**，最大單通道差 255。
+  修法要嘛匯出端也改走兩卡+clip-path，要嘛預覽端改成一次只畫一張「第 k 個詞高亮」的卡——兩條都還沒做。
 - **打字三段式即時編輯**：`ui/src/stores/editDraft.ts`（新，`useEditDraft`）存打字中的本地草稿（`{id, text, previewHash}`），不進 history、不碰 project doc、不經 `sendCommand`。每鍵先以 DOM 近似顯示；停手 debounce 後打 `POST /text-card/preview` 換真卡（`previewHash` 到位後 `CaptionLayer` 改走 `CardCaption`）；失焦/Enter 才真的送 `updateCaption` 命令進 history。
 - **真瀏覽器實測（Task 13 驗收）**：headless Chromium 量三個視窗尺寸（1440×820／1280×620／1920×1080），caption/overlay 層 `transform: scale(...)` 與 `stageWidth / 1080` 的誤差全部 **0.000%**（遠低於 ~1% 門檻）——`fontSize/3` 舊估算法在 1280×620 曾量到 3.28× 誤差，新公式在同一視窗尺寸下已消除該誤差。腳本為一次性（未進 repo，正式回歸腳本排 Task 16）。
 - **測試環境補丁**：`ui/src/test/setup.ts` 新增全域 `ResizeObserver` polyfill（jsdom 無實作，Player 量 stage 寬要用）與相對路徑 `fetch` 的預設 404 shim（Node undici `fetch` 對 `/api/...` 這種相對 URL 直接丟 `TypeError`，不像瀏覽器會解成 `document.baseURI`）。
 
-**現在使用者可以做什麼**：預覽看到的字幕字級/斷行/描邊/字型與渲染成品完全一致（同一張 PNG），不再需要「先渲染才知道字幕實際長怎樣」；打字時近似文字先出、~80ms 後換真卡，畫面不空窗。
+**現在使用者可以做什麼**：**沒有逐詞高亮的字幕**，預覽看到的字級/斷行/描邊/字型與渲染成品完全一致（同一張 PNG，sha256 相同），不再需要「先渲染才知道字幕實際長怎樣」；打字時近似文字先出、~80ms 後換真卡，畫面不空窗。
 
-**目前仍然成立、還沒變的事**：畫布拖曳／吸附導線見下節（階段 4，已完成）；渲染端 karaoke 仍是「一詞一卡」，還沒接上階段 1/3 的「兩卡+clip-path」機制（spec §2 非目標，本次未變）。
+**目前仍然成立、還沒變的事**：
+
+- 畫布拖曳／吸附導線見下節（階段 4，已完成）。
+- 渲染端 karaoke 仍是「一詞一卡」，還沒接上階段 1/3 的「兩卡+clip-path」機制（spec §2 非目標，本次未變）——**這代表 karaoke 字幕的「預覽=成品」並不成立**，見上面 karaoke 那條的實測數字。
+- **overlay（含階段 2 的文字 overlay）的「預覽=成品」從來沒有成立過**，而且不是因為排版引擎不同，是兩個更笨的落差：預覽端 `Player.tsx` 給 overlay `<img>` 加了 `maxWidth: 1080 * 0.9`，`render.ts` 卻是原生尺寸合成（文字卡固定 1080 全寬 → 成品比預覽大約 11%）；`position.scale` 預覽吃、渲染端**根本沒實作**（overlay 濾鏡鏈上沒有 scale），而 `Inspector.tsx` 有一個使用者改得動的 scale 欄位。細節見 `CLAUDE.md`「『預覽即成品』的實際範圍」。
+- **`OverlayText.maxWidth` 是死欄位**：`text_card.py` 只在 `layout_tokens()` 裡用它，而 `layout_tokens()` 只有帶 tokens 時才跑，`textOverlays.ts` 從不給文字 overlay 塞 tokens。實測同一段長文字給 0.9 與 0.3 產出的 PNG sha256 相同、`lines` 都是 1。**文字 overlay 不會換行，超出的字直接被畫布邊緣裁掉**。修法（真的實作換行）排在之後的批次，現在只是把文件與型別註解改成講實話。
 
 ## 字幕 WYSIWYG 階段 4：畫布拖曳 + 吸附導線（分支 `caption-wysiwyg`）
 
@@ -74,12 +127,19 @@
 - **錨點↔bbox 換算**：`ui/src/player/dragLayer.ts` 的 `dragOverlay`/`dragCaption`——`OverlayItem.position` 的錨點刻意不對稱（x 是 bbox 水平**中心**、y 是 bbox **上緣**，對應預覽 `translate(-50%, 0)` 與 ffmpeg 端 `x=(W*x)-(w/2), y=H*y`）。曾經因為這個不對稱出過事故：把 `y: 0.5` 誤當成「置中」會把整片畫布高的圖推出畫面下緣約 960px（見 `shared/src/snap.ts` 開頭註解）。`dragLayer.ts` 專職做這個換算，`snapBBox` 本身完全不用知道錨點語意；`y` 的 clamp 上限是 `canvas.h - bbox.h`（不是 `1`）——clamp 到 `1` 代表上緣頂到畫布最底端＝整個元素 100% 掉出畫面，是同一個不對稱事故的另一種踩法，回歸測試已釘住（`dragLayer.test.ts`）。
 - **拖曳手勢**：`Player.tsx` 的 `onOverlayPointerDown`/`onCaptionPointerDown` 在按下時 `setPointerCapture`，`pointermove` 只更新本地覆寫（`dragOverride`）與導線（不逐 move 送命令，一次 mousemove 一筆 command 會灌爆 undo history，同 Timeline 既有拖曳模式），`pointerup` 才 `sendCommand`。
 - **pending-echo 橋接**：放手瞬間到 server echo 抵達之間有個空窗——不橋接的話畫面會「閃回拖曳前的位置」再跳到新位置。`pendingRef`（配 1.2s 保險絲，避免命令被拒/掉包時卡死）在這段空窗內繼續顯示放手時的值，且**渲染與下一次拖曳的起點共用同一份合併結果**（`overlaysForRender`/`captionsForRender`）——不然「放手後立刻再拖一次」會從 doc 的舊值起算，把第一次的位移吃掉（round 1 review 抓到的真實 bug，已修並有回歸測試）。
-- **真瀏覽器 e2e 回歸（Task 16，`npm run verify:canvas`）**：仿 `ui/e2e/panel-affordance.mjs` 的 CDP harness（`ui/e2e/canvas-direct.mjs`），三項斷言：① 字幕/overlay 層 `transform` 的 scale 與 `stage寬/1080` 誤差 ≤1%；② 合成 pointer 事件（CDP `Input.dispatchMouseEvent`）拖曳第一個看得到的 overlay，放手後 `/api/project` 裡的座標真的變了；③ 拖近水平中心時 DOM 裡出現置中導線。**跑這支腳本時真的抓到一個會影響所有使用者的真 bug**：overlay 與字幕卡的 `<img>` 元素沒有關掉瀏覽器原生 HTML5 拖放（預設 `draggable=true`）——按下後只要指標一移動，原生拖曳手勢就搶走事件序列（`dragstart` 觸發→隨即 `pointercancel`），我們的 `pointerup` 永遠到不了，`sendCommand` 永遠不會送出；畫面上覆蓋值（`dragOverride`）會**永久卡在放手時的座標**（沒有 1.2s 保險絲能救，因為根本沒進入 pending 狀態），看起來像是拖曳成功了，但伺服器端座標從未更新，重新整理就打回原形。這不是 CDP 合成事件才有的假象——是標準瀏覽器行為，真人用真滑鼠拖也會踩到。已修：`Player.tsx` 的 overlay `<img>` 與 `CaptionLayer.tsx` 的兩張卡片 `<img>`（base/hl）都加上 `draggable={false}`；修完三項斷言穩定通過（含重跑多次、起點在畫布不同位置的情況）。詳見 `CLAUDE.md`「UI 驗證的陷阱」新增條目。
-- **前置與副作用**：`verify:canvas` 需要 `npm run build -w @vidcut/ui` 是最新的 + 一個吃著真專案的 server 已在跑（`npx tsx server/src/index.ts projects/demo`；**不要**用 `npm run demo`，會重建 demo 專案覆蓋既有內容）。⚠️ 檢查②會真的把 demo 專案裡一個 overlay 的位置透過 WS 寫回 `projects/demo` 的 `doc.json`——這是預期的（demo 專案本來就是拿來被操作的),不是要清乾淨的副作用；腳本本身用「依目前 x 落在畫布左/右哪一側,交替瞄準另一側四分之一處」的絕對目標(不是相對起點的固定位移量),保證重跑很多次也不會把 overlay 逼到畫布邊緣夾住,誤判成「位置沒變」。
+- **真瀏覽器 e2e 回歸（Task 16，`npm run verify:canvas`）**：仿 `ui/e2e/panel-affordance.mjs` 的 CDP harness（`ui/e2e/canvas-direct.mjs`），目前是**4 項檢查、6 條斷言**：① 字幕/overlay 層 `transform` 的 scale 與 `stage寬/1080` 誤差 ≤1%；② 拖近水平中心時 DOM 裡出現置中導線；③ 合成 pointer 事件（CDP `Input.dispatchMouseEvent`）拖曳第一個看得到的 overlay，放手後 `/api/project` 裡的座標真的變了；④「不盲拖」（`87514dd` 新增，3 條斷言）：拖曳中把 playhead 踩出該項目的時間窗後，元素仍留在畫面上、畫面繼續跟著手指、而且**存進 doc 的座標＝畫面最後顯示的座標**。⚠️ ①印出的「誤差 0.000%」只讀了 transform 矩陣的 `a`，不能拿來推論「預覽跟成品對齊」——見 `CLAUDE.md`「UI 驗證的陷阱」。**跑這支腳本時真的抓到一個會影響所有使用者的真 bug**：overlay 與字幕卡的 `<img>` 元素沒有關掉瀏覽器原生 HTML5 拖放（預設 `draggable=true`）——按下後只要指標一移動，原生拖曳手勢就搶走事件序列（`dragstart` 觸發→隨即 `pointercancel`），我們的 `pointerup` 永遠到不了，`sendCommand` 永遠不會送出；畫面上覆蓋值（`dragOverride`）會**永久卡在放手時的座標**（沒有 1.2s 保險絲能救，因為根本沒進入 pending 狀態），看起來像是拖曳成功了，但伺服器端座標從未更新，重新整理就打回原形。這不是 CDP 合成事件才有的假象——是標準瀏覽器行為，真人用真滑鼠拖也會踩到。已修：`Player.tsx` 的 overlay `<img>` 與 `CaptionLayer.tsx` 的兩張卡片 `<img>`（base/hl）都加上 `draggable={false}`；修完全部斷言穩定通過（含重跑多次、起點在畫布不同位置的情況；2026-08-04 於 `87514dd` 重跑仍全綠）。詳見 `CLAUDE.md`「UI 驗證的陷阱」新增條目。
+- **前置與副作用**：`verify:canvas` 需要 `npm run build -w @vidcut/ui` 是最新的 + 一個吃著真專案的 server 已在跑（`npx tsx server/src/index.ts projects/demo`；**不要**用 `npm run demo`，會重建 demo 專案覆蓋既有內容）。⚠️ 檢查③／④會真的把 demo 專案裡一個 overlay 的位置透過 WS 寫回 `projects/demo` 的 `project.json`（專案檔叫 `project.json`，`doc` 是它裡面的鍵）——這是預期的（demo 專案本來就是拿來被操作的),不是要清乾淨的副作用；腳本本身用「依目前 x 落在畫布左/右哪一側,交替瞄準另一側四分之一處」的絕對目標(不是相對起點的固定位移量),保證重跑很多次也不會把 overlay 逼到畫布邊緣夾住,誤判成「位置沒變」。
 
 **現在使用者可以做什麼**：直接在預覽畫布上把 overlay 或字幕拖到想要的位置，接近中心線/安全邊距時會有導線輔助對齊，放開滑鼠就存檔（可 undo）——不必再靠 Inspector 打 0–1 的座標數字。
 
-**階段 4 完成後仍待確認（體感類，需要使用者親眼/親手驗）**：拖曳的手感（吸附靈敏度、導線出現的時機是否符合直覺）、打字三段式（階段 3）與拖曳同時操作時是否順手、匯出成品的字幕/overlay 位置是否真的跟預覽拖曳後看到的一致（e2e 只驗了「伺服器存了新座標」，沒有跑一次真的 render 去比對成品像素）。
+**階段 4 完成後仍待確認**：
+
+- 體感類（需要使用者親眼/親手驗）：拖曳的手感（吸附靈敏度、導線出現的時機是否符合直覺）、打字三段式（階段 3）與拖曳同時操作時是否順手。
+- **從來沒有人做過「render 一次，比對成品像素與預覽畫面」這件事。** e2e 只驗了「伺服器存了新座標」；
+  `verify:canvas` 檢查 1 那個 0.000% 只驗了 transform 矩陣的 `a`（連 scaleY 與平移都沒看，見 `CLAUDE.md`「UI 驗證的陷阱」）。
+  所以「拖曳後成品位置＝預覽位置」目前是**未驗證**的，不是已驗證的。
+  已知的**非位置**落差（overlay 尺寸差 ~11%、`position.scale` 渲染端沒實作、karaoke 高亮邊緣差）
+  見 `CLAUDE.md`「『預覽即成品』的實際範圍」，那些是缺陷不是待驗。
 
 ## T1（參考 CapCut 的快贏功能，tag `t1-done`）
 
@@ -100,7 +160,7 @@
 
 - **新 MCP 工具**：`transcribe`（只讀，回逐詞時間戳）、`auto_caption`（辨識→斷句→寫入字幕軌，一步到位）。
 - **時間座標是時間軸絕對秒數**：ASR 吃的是「時間軸混音」，所以詞時間可直接當字幕時間，不必做來源↔時間軸換算。
-- **逐詞高亮（karaoke）**：`CaptionItem.tokens` 存逐詞時間戳。渲染時**一個詞一張 PNG 字卡**（排版確定性，所以 N 張卡幾何完全對齊，看起來就是同一行字在變色）；預覽端只是 DOM span 換顏色，幾乎免費。
+- **逐詞高亮（karaoke）**：`CaptionItem.tokens` 存逐詞時間戳。渲染時**一個詞一張 PNG 字卡**（排版確定性，所以 N 張卡幾何完全對齊，看起來就是同一行字在變色）。預覽端當初是 DOM span 換顏色（幾乎免費）；**階段 3 之後改成 base 卡 + 全高亮卡疊 `clip-path`**——所以預覽與成品的高亮邊緣不完全一樣，見階段 3 節。
 - **字幕列表面板**（右上）：點時間跳播、雙擊改字、刪除、樣式套全部。改字會自動清掉該句的 tokens——舊詞邊界對新文字沒有意義。
 - **依賴**：`brew install whisper-cpp` + 模型放 `~/.cache/whisper.cpp/`（現用 `ggml-large-v3-turbo-q5_0.bin`，547MB）。或用 `VIDCUT_WHISPER_MODEL` 指定路徑。沒裝時錯誤訊息會直接給安裝指令。
 
@@ -138,20 +198,56 @@ spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/s
 
 ```bash
 cd ai-video-cut
-npm run demo        # 終端機 A：建 demo + 起 server（127.0.0.1:3845，MCP 在 /mcp）
-npm run dev:ui      # 終端機 B：http://localhost:5173
+
+# 終端機 A：起 server（127.0.0.1:3845，MCP 在 /mcp）。二選一：
+npx tsx server/src/index.ts projects/demo   # 保留 projects/demo 目前的內容
+npm run demo                                # ⚠️ 重建 demo：會覆蓋掉現有的 overlay/字幕
+
+# 終端機 B（可選，只有要熱重載改 UI 才需要）
+npm run dev:ui
 ```
+
+**先看清楚這三件事，否則會卡在錯的地方：**
+
+- **步驟 4 與 6 需要專案裡真的有字幕。** `projects/demo` 現在（被 e2e 與手動測試操作過）
+  **字幕軌是空的**；`npm run demo` 重建後會有 2 句種子字幕（無 tokens ＝ 無逐詞高亮）、
+  1 個 title.png overlay，但也會**清掉**現有的 7 個 overlay（含測試用的文字 overlay）。
+  想保留現況又要驗字幕，就先跑步驟 7 的 `auto_caption`（或自己用 Text/字幕面板加一句）。
+- **`npm run dev:ui` 的 port 不一定是 5173**：被占用時 vite 會自動往上找（實測選過 :5175），
+  以它啟動時印的那行為準；而且**只能用 `http://localhost:<port>`，`127.0.0.1` 連不上**
+  （vite dev server 只綁 IPv6）。
+- **不想被 port/proxy 干擾就直接用 `http://127.0.0.1:3845/`**（server 服務的 `ui/dist`）。
+  這條路不需要 dev server，但**改了 UI 原始碼要先 `npm run build -w @vidcut/ui`**。
+  dev 模式的字卡/字型通道曾經是死的（`ui/vite.config.ts` 少了 `/text-card` 與 `/fonts`
+  兩條 proxy），現在已補上並在 dev port 的真頁面裡驗過：幾何 JSON、`POST /text-card/preview`、
+  `/fonts/:id`、字卡 `<img>`、`@font-face` 全部正常。
 
 驗收（重點在體感，e2e 只驗了「機制有沒有跑」，沒驗「順不順手」）：
 
 1. 時間軸 5 clip（縮圖 + 波形；No.3 無音軌 → 平線），按 ▶ **切換有無黑幀/停頓**（M1 最關鍵，這條仍然是回歸底線）。
 2. 拖 clip 左右邊緣 trim、拖 clip 本體換順序、點 clip 在左欄改屬性、Cmd+Z 復原、右欄活動記錄。
 3. **拖曳手感（階段 4，新）**：在預覽畫布上直接拖動一個 overlay（排名徽章）或一句字幕——吸附到中心線/安全邊距時的靈敏度是否符合直覺？導線出現/消失的時機會不會太早/太晚、會不會抖動？拖到畫布邊緣時元素會不會整個消失不見（設計上應該最多露出一半，見 `dragLayer.ts` 的 clamp 說明）？
-4. **打字體感（階段 3）**：在字幕列表或畫布上編輯一句字幕文字，感受「近似文字先出、~80ms 後換真卡」這個切換是否明顯/突兀；改字型級數或加長文字讓它換行，確認換行位置跟渲染成品排版一致。
+4. **打字體感（階段 3）**：在**右上字幕列表雙擊**一句字幕改字（三段式只接在 `CaptionList.tsx`，
+   **畫布上不能直接改字**；左欄 Inspector 的字幕 Text 欄也不走三段式——它是 `onChange` 每一鍵
+   直接送一筆 `updateCaption` 命令，會灌爆 history），
+   感受「近似文字先出、~80ms 後換真卡」這個切換是否明顯/突兀。
+   ⚠️ **不要用「加長文字讓它自動換行」來驗**：字幕與文字 overlay 目前都**不會自動換行**
+   （`maxWidth` 是死欄位，見階段 3 節末），太長的字只會被畫布邊緣裁掉。
+   `text_card.py` 對沒有 tokens 的文字只認**真的斷行字元**，所以要驗多行請在左欄 Inspector 的
+   Text 欄（那是 `<textarea>`，按 Enter 就會換行；右上字幕列表是單行 `<input>`，Enter 是送出）裡打真的換行。
 5. 底部「🎬 渲染成品」→ 進度條 → 完成後「開啟成品」連結播放，確認畫面/音訊/overlay/字幕。
-6. **預覽=成品的最終檢驗（階段 4 收尾，新）**：把上面拖過的 overlay/字幕、改過的文字，用同一次渲染比對——畫面上字幕/overlay 的位置、字級、換行、描邊是否跟你在預覽畫布上看到的**完全一致**（這是整個字幕 WYSIWYG 專案要解決的核心問題；e2e 只驗了「伺服器存了新座標」，沒有跑一次真的 render 去比對成品像素）。
+6. **預覽=成品的最終檢驗（階段 4 收尾）**：把上面拖過的 overlay/字幕、改過的文字，用同一次渲染比對。
+   **請帶著下面這份「已知會不一致」的清單去看**，否則你會把已知落差當成新 bug（或反過來，
+   把落差看成「大致上一樣」而放過）：
+   - ✅ **非 karaoke 字幕應該一模一樣**（同一張 PNG，已驗到 sha256 相同）——位置、字級、描邊、字型有任何差異都是新 bug，請記下來。
+   - ❌ **overlay 的大小一定不一樣**：成品會比預覽大約 11%（預覽端有 `maxWidth: 1080*0.9` 的夾制，渲染端沒有）。
+     另外 Inspector 的 **scale 欄位改了對成品完全沒有效果**（渲染端沒實作 scale）。這兩條是已知缺陷，不用再回報，等修。
+   - ❌ **karaoke 字幕的高亮邊緣一定不一樣**：預覽是兩卡疊 `clip-path`，成品是一詞一卡；
+     下一個還沒唸到的詞左緣會被預覽多染約 4px 高亮色，描邊也比較厚。同樣是已知缺陷。
+   - 位置（x/y）本身**沒有人驗過**：e2e 只驗了「伺服器存了新座標」，從來沒有跑一次真的 render 去比對成品像素。這一項請你特別看。
 7. **自動字幕**：素材要有人聲才有意義。請 AI 跑 `auto_caption`，右上字幕列表會出現句子，
-   播放時預覽的字會逐詞亮起；渲染後成品也應該逐詞亮（我用像素數驗過，但觀感要你看）。
+   播放時預覽的字會逐詞亮起；渲染後成品也應該逐詞亮（我用像素數驗過，但觀感要你看，
+   而且逐詞高亮的預覽/成品本來就有上面說的邊緣差異）。
 
 ### B. 接 Claude Code（M3 的重點價值）
 
@@ -173,7 +269,16 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 - 有 drawtext → 原生 `drawtext` 燒字。
 - 無 drawtext（本機）→ 用 **Pillow 把每條 caption 畫成透明 PNG 字卡**（`server/scripts/text_card.py`，CJK 字型 fallback），再用既有 `overlay` 濾鏡按時間合成。已端到端驗證：純黑底上字幕開啟時有字、關閉時無字、時間正確。`render` 回 `captionsBurned:true`。
 
-需要 `pip3 install pillow`（已裝，12.3.0）。哪天換成含 freetype 的 ffmpeg，會自動改走原生 drawtext，不用改碼。重度文字（排名標題、迷因標籤）仍走 overlay PNG（與 `make_overlays.py` 一致），這條本來就正常。
+需要 `pip3 install pillow`（已裝，12.3.0）。重度文字（排名標題、迷因標籤）仍走 overlay PNG（與 `make_overlays.py` 一致），這條本來就正常。
+
+⚠️ **「哪天換成含 freetype 的 ffmpeg 會自動改走原生 drawtext，不用改碼」現在是一顆未爆彈，不是好消息。**
+`server/src/render.ts` 的判斷是 `if (captions.length > 0 && (!drawtext || karaoke))` 才產字卡——
+也就是「有 drawtext **且**沒有 karaoke」時會走 `drawtext` 分支。那條分支的濾鏡是
+`drawtext=text=…:fontsize=…:fontcolor=…:x=(w-text_w)/2:y=…`：**沒有 `fontfile=`**（字型完全交給
+ffmpeg 自己找，`style.fontFamily` 無效）、**不換行**（單行，連 `\n` 都不處理）。
+換句話說，在一台有 freetype 的機器上，字幕會突然改用**完全不同的光柵器**，
+本分支辛苦建立的「預覽=成品」會**靜默**失效——沒有任何測試或 runtime assertion 擋著。
+換機器前要先決定：拿掉 drawtext 分支（一律走字卡），或至少加一道「兩條路輸出必須一致」的檢查。
 
 **本機 ffmpeg 濾鏡清單（2026-07-30 實測，避免重複調查）**
 
@@ -185,7 +290,9 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 
 ## 已知取捨（非 bug）
 
-- `undo` 為逐步 undo，「撤 undo = redo」是簡化；要正式 redo stack 之後再擴。
+- ~~`undo` 為逐步 undo，「撤 undo = redo」是簡化；要正式 redo stack 之後再擴。~~
+  **已不成立**：`server/src/store.ts` 有真的 `#redoStack`、`redo(source, steps)` 方法、
+  「有新編輯就清空 redo（分叉）」的處理，`Command` 有 `redo` variant，MCP 也有 `redo` 工具。
 - request_review 用「阻塞 + UI 核准 + 保活 + 逾時」；**elicitation URL mode**（Claude Code 直接彈瀏覽器審核頁）列為後續增強——因無法自動驗證故未做，可用 v2 SDK `@modelcontextprotocol/server` + codemod 遷移時一起上。
 - 退回（reject）目前回滾「review 開啟後的全部變更」到 sinceVersion；若人在審核期間也改了東西會一起被回滾（reject = 丟掉這一輪）。
 - Safari 未測（開發用 Chrome）。
@@ -200,12 +307,12 @@ shared/src/types.ts       全部型別（spec §3）+ Command/WS 協議
 shared/src/timeline.ts    純時間軸計算（locate/overlayWindow…）
 shared/src/captions.ts    逐字稿→字幕分頁、逐詞高亮索引、ASR 時間戳修正、karaokeClip（兩卡 clip-path）、tokenSeparator（斷詞規則）（純函數）★
 shared/src/snap.ts        snapBBox：畫布拖曳吸附純函數（水平置中/垂直置中/上下 5% 安全邊距，16px 半徑，只認 bbox 不認錨點）
-server/src/store.ts       ProjectStore：唯一真相來源、immer patch、history、undo、原子存檔
+server/src/store.ts       ProjectStore：唯一真相來源、immer patch、history、undo/redo（真的有 #redoStack）、原子存檔
 server/src/commands.ts    applyCommand：人機共用的驗證過的編輯命令層 ★
 server/src/aiWrite.ts     AI 寫入守衛（審核中擋 + ifVersion 過期偵測）→ commands
 server/src/reviews.ts     ReviewManager：request_review 的核心（阻塞/核准/退回回滾/逾時）
 server/src/editorContext.ts 人的選取/playhead（給 get_editor_context）
-server/src/mcp.ts         23 個 MCP 工具 + /mcp 掛載 ★
+server/src/mcp.ts         29 個 MCP 工具 + /mcp 掛載 ★（數字＝`grep -c 'registerTool' server/src/mcp.ts`）
 server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）
 server/src/render.ts      project.json → ffmpeg filter_complex 成品 + blur/定格/音訊混音/匯出選項/封面 ★
 server/src/asr.ts         whisper.cpp 介接：時間軸混音→wav→逐詞時間戳（含 DTW 取用）★
@@ -225,7 +332,7 @@ ui/src/stores/            project（patch 套用，含 captionCards）/ playback
 ui/src/stores/editDraft.ts 打字中的本地字幕草稿（text + previewHash）：不進 history、不碰 doc、不經 sendCommand
 ui/src/ws.ts              WS client：命令/脈絡/審核/渲染 送出 + 重連
 ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎，量 stage 寬算 1080 座標空間縮放係數 + 畫布拖曳事件處理）+ CaptionLayer（見下）+ dragLayer（見下）
-ui/src/player/CaptionLayer.tsx 字幕預覽：有字卡 hash 就 <img> 直出（與匯出同源），karaoke 疊 hl 卡 + clip-path；無卡/載入失敗才退回 DOM 近似 fallback
+ui/src/player/CaptionLayer.tsx 字幕預覽：有字卡 hash 就 <img> 直出（無 karaoke 時與匯出同一張圖），karaoke 疊 hl 卡 + clip-path（與匯出的一詞一卡**不**同源）；沒有 hash／幾何 fetch 失敗／圖檔 onError 才退回 DOM 近似 fallback，幾何 fetch 進行中是 return null（空白一幀，不是近似文字）
 ui/src/player/dragLayer.ts dragOverlay/dragCaption：畫布拖曳數學（純函數）——overlay 的 position 錨點不對稱（x=中心、y=上緣），這裡負責錨點↔bbox 左上角的雙向換算，呼叫 shared 的 snapBBox 做實際吸附 ★
 ui/src/timeline/          scale + dragMath + waveform（純函數）+ Timeline（trim/排序/選取/縮放/吸附/transport）
 ui/src/panels/            Inspector / Activity / ReviewBar / ExportMenu / CaptionList（字幕列表）
@@ -238,15 +345,19 @@ ui/src/panels/            Inspector / Activity / ReviewBar / ExportMenu / Captio
 ## 開發指令
 
 ```bash
-npm test          # 全部（含真 ffmpeg 與真 whisper，約 25 秒）
-npm run typecheck # 三 workspace tsc
-npm run lint      # ESLint（目前 0 問題）
+npm test          # 全部（含真 ffmpeg 與真 whisper，機器空閒時約 70 秒）
+npm run typecheck # 三 workspace tsc（乾淨）
+npm run lint      # ESLint —— 目前 exit 1：34 個錯誤全在 .claude/worktrees/**（別的 session）
+npm run format:check  # 目前有未格式化的原始碼會被抓出來，那不是雜訊
 npm run format    # Prettier 寫入
-npm run demo      # 建 demo + 起 server
-npm run dev:ui    # Vite dev（proxy 到 :3845）
+npm run demo      # ⚠️ 重建 demo（覆蓋既有內容）+ 起 server
+npm run dev:ui    # Vite dev（proxy 到 :3845；port 未必是 5173，且只綁 IPv6 → 用 localhost）
 npm run verify:panels  # 面板控制項真瀏覽器回歸（前置：server 在跑 + ui/dist 最新）
-npm run verify:canvas  # 畫布縮放/拖曳/吸附導線真瀏覽器回歸（前置同上；見 CLAUDE.md）
+npm run verify:canvas  # 畫布縮放/拖曳/吸附/不盲拖真瀏覽器回歸（前置同上；見 CLAUDE.md）
 ```
+
+> `npm run lint` exit 1 代表 `typecheck && lint && format:check` 這種 `&&` 串會停在 lint，
+> **永遠跑不到 `format:check`**。要嘛分開跑，要嘛把 `format:check` 排前面。
 
 ## 下一步建議（依價值排序）
 

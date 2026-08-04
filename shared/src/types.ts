@@ -60,7 +60,16 @@ export interface OverlayText {
   fontSize: number;
   fill: string;
   stroke?: string;
-  /** 換行寬 0–1 相對畫布，預設 0.9 */
+  /**
+   * 原本的語意是「換行寬 0–1 相對畫布，預設 0.9」，**但目前是死欄位**（2026-08-04 實測）：
+   * `text_card.py` 只在 `layout_tokens()` 裡用這個邊界換行，而 `layout_tokens()` 只有帶
+   * tokens 時才會跑；`server/src/textOverlays.ts` 從來不給文字 overlay 塞 tokens，所以
+   * 文字 overlay 走的是 `text.split('\n')` 那條路——**完全不換行**。
+   * 實測：同一段長文字分別給 0.9 與 0.3，產出的 PNG sha256 相同、`lines` 都是 1。
+   * 實際後果：長文字不折行，超出的部分直接被畫布邊緣裁掉（字卡寬度固定＝畫布寬）。
+   * 這個值目前只會進快取 key（換值會重產一張長得一樣的卡），不影響像素。
+   * 真的要換行是之後的工作；在那之前不要拿它當「排版控制項」對外宣傳。
+   */
   maxWidth?: number;
 }
 
@@ -201,7 +210,9 @@ export type Command =
       name: 'updateOverlay';
       id: string;
       /** start 與 anchor 互斥：給 start 會清 anchor（轉絕對）、給 anchor 會清 start（轉錨定） */
-      patch: Partial<Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor' | 'text' | 'imagePath'>>;
+      patch: Partial<
+        Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor' | 'text' | 'imagePath'>
+      >;
     }
   | {
       name: 'updateCaption';

@@ -61,6 +61,14 @@ Pillow([`text_card.py`](../../../server/scripts/text_card.py))。六個實測分
 ### 目標
 
 1. 預覽字幕與成品**像素級一致**(同一張 PNG)。
+   > **達成範圍(階段 4 後,2026-08-04 對抗性覆核)**:**只有非 karaoke 字幕真的達成**
+   > ——匯出路徑與預覽路徑的輸出 PNG **sha256 逐位元組相同**(覆核涵蓋超寬文字、
+   > 內嵌換行、未知字型、非 1080 畫布寬)。**karaoke 字幕沒有達成**:預覽是
+   > base+hl 兩卡疊 `clip-path`,匯出是一詞一卡,兩者不是同一張圖(§7)。
+   > **overlay 也沒有達成**,而且原因跟光柵器無關,是預覽端 `Player.tsx` 對
+   > overlay `<img>` 加了 `maxWidth: 1080 * 0.9`、`render.ts` 卻用原生尺寸合成
+   > (文字卡固定畫布全寬 → 成品大 ~11%),外加 `position.scale` 預覽吃、渲染端
+   > **完全沒有實作**。細節與實測數字見 `CLAUDE.md`「『預覽即成品』的實際範圍」。
 2. **可編輯文字 overlay**:單色文字塊(改字/字型/字級/顏色/描邊/換行),
    人與 AI 都能建立與修改;渲染管線零改動。
 3. **預覽直接操作**:拖曳移動 overlay(x/y)與字幕(y);畫布中心/安全邊距
@@ -199,17 +207,38 @@ hash 的結果」這一層(見 §5),對應原設計裡 `CardResult` 想表達的
 ```ts
 interface OverlayItem {
   id: string;
-  imagePath: string;          // 文字 overlay 時 = derived 產物,由 server 維護
-  text?: OverlayText;         // 有值 = 可編輯文字 overlay
-  anchor?; start?; duration; position;   // 既有欄位不動
+  imagePath: string; // 文字 overlay 時 = derived 產物,由 server 維護
+  text?: OverlayText; // 有值 = 可編輯文字 overlay
+  anchor?;
+  start?;
+  duration;
+  position; // 既有欄位不動
 }
 interface OverlayText {
   text: string;
-  fontFamily: string; fontSize: number;
-  fill: string; stroke?: string;
-  maxWidth?: number;          // 0–1 相對畫布,預設 0.9
+  fontFamily: string;
+  fontSize: number;
+  fill: string;
+  stroke?: string;
+  maxWidth?: number; // 0–1 相對畫布,預設 0.9 —— ⚠️ 目前是死欄位,見下
 }
 ```
+
+> **`maxWidth` 目前不生效(2026-08-04 實測)**:`text_card.py` 只在 `layout_tokens()`
+> 裡用這個邊界折行,而 `layout_tokens()` 只有請求帶 `tokens` 時才會跑;
+> `server/src/textOverlays.ts` 的 `overlayTextToCardRequest()` **從不設 `tokens`**,
+> 所以文字 overlay 一律走 `text.split('\n')` 那條路——**完全不自動換行**,長文字
+> 直接被畫布邊緣裁掉(字卡寬度固定＝畫布寬)。實測:同一段長文字分別給
+> `maxWidthFrac` 0.9 與 0.3,兩個 hash 不同但輸出 PNG 的 sha256 相同、`lines` 都是 1。
+> 這個值目前唯一的作用是進快取 key。§2「單色文字塊(改字/字型/字級/顏色/描邊/**換行**)」
+> 的「換行」這一項因此尚未兌現;真的實作換行是之後另開的批次,本文件先把現況寫實。
+> 同一件事也記在 `shared/src/types.ts` 的 `OverlayText.maxWidth` 註解與 `HANDOFF.md`。
+> MCP schema(`server/src/mcp.ts` 的 `overlayTextSchema`)仍把 `maxWidth` 開成
+> `z.number().min(0.1).max(1).optional()` 且沒有任何 `.describe()` 說明它不生效——
+> AI 呼叫端只會看到一個「可以調的換行寬」,一併待修(改 schema 屬行為/介面變更,
+> 不在本次文件校對的範圍)。
+> (`server/src/rasterizer.ts` 的 `maxWidthFrac` 註解同樣只寫「換行寬」;
+> `server/src/cardBudget.ts` 則已經寫對——它明講「沒有 tokens 時 python 完全不換行」。)
 
 - 既有排名 PNG 無 `text` 欄位,行為完全不變(向下相容免費)。
 - **不新增命令**:`updateOverlay` patch 型別擴大到含 `text`(以及既有的
@@ -275,18 +304,43 @@ interface OverlayText {
   有 tokens(karaoke)時上面疊一張**幾何相同**的 `<img …hl.png>`,以
   `clip-path` 揭到 `activeTokenIndex`(沿用 shared 現有函數)。capId→hash
   對照存 `useProject` 的 `captionCards`,由 WS `textCards` 訊息維護(見 §5①)。
-  字卡幾何 fetch 中/失敗、或圖檔本身 `onError`,退回 `ApproxCaption`
-  (DOM 文字近似)——**這是唯一的 fallback 路徑**,不是額外功能。
+  退回 `ApproxCaption`(DOM 文字近似)的條件是**三種**:這句根本還沒有 hash
+  (`cards[c.id]` 不存在)、幾何 fetch **確定失敗**(`geo === 'failed'`)、圖檔本身
+  `onError`。**這是唯一的 fallback 路徑**,不是額外功能。
+  > **與實作的形狀差異(2026-08-04 校對)**:原文把「fetch 進行中」也算成 fallback,
+  > 那是錯的——`CardCaptionForHash` 對 `geo === 'pending'` 是 `return null`,
+  > 畫面是**空白一幀**,不是近似文字(「寧可空一幀,不畫錯的」)。
+  > `HANDOFF.md` 的階段 3 節一直是寫對的,是本文件與它相牴觸,現已對齊。
 - **文字 overlay**:沒有走這套機制。`imagePath` 由 §6 的命令前置
   (`resolveTextCommand`)保證與 `text` 同步,預覽端直接
   `<img src=/media/<imagePath>>`(`ui/src/player/plan.ts`)——本來就是
   真實檔案,不需要另一層 hash 對照或 `/text-card` 路由。overlay 沒有
   karaoke(`OverlayText` 無 `tokens` 欄位),所以沒有 hl 卡、沒有
-  `clip-path`。overlay 的「預覽=成品」靠的是「同一份檔案」這個更簡單的
-  保證,不是本節描述的字卡直出機制。
+  `clip-path`。
+  > ⚠️ **原文寫「overlay 的『預覽=成品』靠的是同一份檔案這個更簡單的保證」——
+  > 那是錯的,overlay 的預覽=成品從未成立**(2026-08-04 覆核)。兩邊確實是同一份
+  > PNG,但**畫上去的尺寸不同**:預覽端 `ui/src/player/Player.tsx` 給 overlay
+  > `<img>` 設了 `maxWidth: 1080 * 0.9`(＝ 972,1080 座標空間內),
+  > `server/src/render.ts` 的 overlay 濾鏡鏈卻是 `overlay=x=…:y=…` **原生尺寸**
+  > 合成,沒有任何 scale。文字卡一律是畫布全寬(1080)的圖,所以這條**每次都中**
+  > ——成品比預覽大 `1/0.9 ≈ 11%`(其他自然寬 >972 的 PNG 同理,demo 裡的
+  > `length_cliff.png` 是 2170 寬,落差更大)。
+  > 更嚴重的是 `position.scale`:預覽端吃(CSS `transform: … scale(...)`),
+  > **渲染端完全沒有實作**——overlay 濾鏡鏈上沒有 scale 濾鏡,而
+  > `ui/src/panels/Inspector.tsx` 有一個使用者改得動的 Scale 欄位。
+  > 兩者都是待修缺陷,不是設計取捨。
 - 多行 clip 區域 = 已唸完整行矩形 + 目前行至目前詞右緣矩形——
   **shared 純函數 `karaokeClip(boxes, active, pad?)`**(`pad` 補償描邊外擴),
   可單測;`tokenSeparator(prev, next)` 判斷詞間空白,與 `text_card.py` 同規則。
+  > ⚠️ **karaoke 的「預覽=成品」不成立**(2026-08-04 實測):預覽是 base+hl 兩卡疊
+  > `clip-path`,匯出(`server/src/render.ts` 的 `renderCaptionCards`)是**一個詞一張卡**,
+  > 兩者不是同一張圖。可重現的成因有二:(a) `karaokeClip` 的 `pad`
+  > (`max(2, fontSize/16)`,64px 字＝4px)把每個 token bbox 四周外擴,於是
+  > **下一個還沒唸到的詞**的左緣約 4px 會被塗成高亮色;(b) hl 卡是獨立圖層
+  > alpha 疊在 base 卡上,描邊的反鋸齒邊等於畫了兩次,比單卡厚。
+  > 實測(單行 6 詞 CJK、64px、有描邊)各高亮狀態差 793–2764 個像素、最大單通道差 255。
+  > 收斂方向:匯出端也改走兩卡+`clip-path`(＝§2 非目標裡那條「一詞一卡爆量根治」),
+  > 或預覽端改成一次只貼一張「第 k 詞高亮」的卡。兩條都還沒做。
 - `fx-enter` 動畫與 `style.y` 定位保留。
 
 ### 三段式即時編輯(打字路徑)
@@ -367,14 +421,14 @@ interface OverlayText {
 
 ## 8. 效能預算(實測依據)
 
-| 情境 | 成本 |
-| --- | --- |
-| 播放 | 零額外(靜態 PNG 合成;karaoke 僅 clip-path 變化) |
-| 打字每鍵 | 0(本地近似) |
-| 停手換真卡 | 80ms debounce + 7ms 產卡 + 載圖,體感 <200ms |
-| 專案載入(100 句,冷) | 常駐 worker 批產 200 卡 ≈ 1.5s,背景進行 |
-| 專案載入(熱) | 0(derived 快取) |
-| 記憶體 | 100 句 × 2 張 1080 寬透明 PNG ≈ 10–30MB |
+| 情境                | 成本                                            |
+| ------------------- | ----------------------------------------------- |
+| 播放                | 零額外(靜態 PNG 合成;karaoke 僅 clip-path 變化) |
+| 打字每鍵            | 0(本地近似)                                     |
+| 停手換真卡          | 80ms debounce + 7ms 產卡 + 載圖,體感 <200ms     |
+| 專案載入(100 句,冷) | 常駐 worker 批產 200 卡 ≈ 1.5s,背景進行         |
+| 專案載入(熱)        | 0(derived 快取)                                 |
+| 記憶體              | 100 句 × 2 張 1080 寬透明 PNG ≈ 10–30MB         |
 
 ## 9. 錯誤處理
 
@@ -443,12 +497,12 @@ interface OverlayText {
 
 ## 12. 分階段交付
 
-| 階段 | 內容 | 驗收 | 狀態 |
-| --- | --- | --- | --- |
-| 1 | 光柵器介面 + Pillow worker + 快取 + 端點 + 字型綁定 | API 拿卡;快取命中;字型表正確 | ✅ 完成(分支 `caption-wysiwyg`,commit `c1df31b`..`be7e70d`,8 commits)。落差見 §5/§9 的落地備註。 |
-| 2 | 文字 overlay(模型/命令/Inspector/Text 鈕)+ MCP | 建立/改字/渲染成品正確 | ✅ 完成(分支 `caption-wysiwyg`,commit `2fa4fce`..`9654256`,6 commits)。落差見 §5/§6/§9 的落地備註。 |
-| 3 | 預覽 1080 空間 + 字卡直出 + karaoke 兩卡 + 三段式編輯 | 預覽=成品;打字即時 | ✅ 完成(分支 `caption-wysiwyg`,commit `3d4ba2f`..`e0056dd`,5 個 phase-3 commit,中間穿插 2 個不相關 fix)。真瀏覽器實測(Task 13,headless Chromium,1440×820/1280×620/1920×1080 三視窗):caption 層 `transform: scale(...)` 與 `stageWidth / 1080` 誤差 0.000%,`fontSize/3` 舊估算在 1280×620 曾量到的 3.28× 誤差已消除。落差見下方落地備註。 |
-| 4 | 拖曳 + 吸附導線(overlay 與字幕) | 真瀏覽器回歸通過 | ✅ 完成(分支 `caption-wysiwyg`,commit `c35b39b`..`442e2b0`,4 commits;真瀏覽器 e2e 回歸為 Task 16 新增,`ui/e2e/canvas-direct.mjs` / `npm run verify:canvas`,見 HANDOFF.md「階段 4」節)。落差見 §7 的落地備註。 |
+| 階段 | 內容                                                  | 驗收                                      | 狀態                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---- | ----------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | 光柵器介面 + Pillow worker + 快取 + 端點 + 字型綁定   | API 拿卡;快取命中;字型表正確              | ✅ 完成(分支 `caption-wysiwyg`,commit `c1df31b`..`be7e70d`,8 commits)。落差見 §5/§9 的落地備註。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 2    | 文字 overlay(模型/命令/Inspector/Text 鈕)+ MCP        | 建立/改字/渲染成品正確                    | ✅ 完成(分支 `caption-wysiwyg`,commit `2fa4fce`..`9654256`,6 commits)。落差見 §5/§6/§9 的落地備註。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 3    | 預覽 1080 空間 + 字卡直出 + karaoke 兩卡 + 三段式編輯 | 預覽=成品(**限非 karaoke 字幕**);打字即時 | ✅ 完成(分支 `caption-wysiwyg`,commit `3d4ba2f`..`e0056dd`,**恰好 5 個 commit,全部是 phase 3**——`git log --oneline 3d4ba2f~1..e0056dd` 可覆核;`ecc5e0f..HEAD` 是嚴格線性、無 merge,原文寫的「中間穿插 2 個不相關 fix」不存在)。真瀏覽器實測(Task 13,headless Chromium,1440×820/1280×620/1920×1080 三視窗):caption 層 `transform: scale(...)` 與 `stageWidth / 1080` 誤差 0.000%,`fontSize/3` 舊估算在 1280×620 曾量到的 3.28× 誤差已消除。⚠️ 那份量測只讀 transform 矩陣的 `a`(scaleX),不看 scaleY/平移/`transform-origin`——它證明的是「`ResizeObserver` 的值不是舊的、除數確實是 1080」,**不是**「預覽與成品對齊」(對抗性驗證:刻意把 `transformOrigin` 改成 `center`、把 transform 改成 `scale(a, a*1.5)`,同一段量測照樣回報 0.000%)。落差見下方落地備註。 |
+| 4    | 拖曳 + 吸附導線(overlay 與字幕)                       | 真瀏覽器回歸通過                          | ✅ 完成(分支 `caption-wysiwyg`,commit `c35b39b`..`442e2b0`,4 commits;真瀏覽器 e2e 回歸為 Task 16 新增,`ui/e2e/canvas-direct.mjs` / `npm run verify:canvas`,見 HANDOFF.md「階段 4」節)。落差見 §7 的落地備註。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 每階段獨立可驗收;1→2→3 有依賴,4 只依賴 3 的座標空間。
 

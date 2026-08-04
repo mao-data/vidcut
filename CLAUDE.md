@@ -13,23 +13,78 @@ Server 服務的是 **`ui/dist`（build 產物）**，不是 Vite dev server。
 ```bash
 npx tsx server/src/index.ts projects/demo   # 起 server，載入既有專案
 npm run demo                                # ⚠️ 會「重新產生」projects/demo，覆蓋既有內容
-npm run dev:ui                              # UI 熱重載（:5173，另外開）
-npm test                                    # 全部（真 ffmpeg + 真 whisper，約 25 秒）
-npm run typecheck && npm run lint && npm run format:check
+npm run dev:ui                              # UI 熱重載（vite，另外開；port 見下）
+npm test                                    # 全部（真 ffmpeg + 真 whisper；機器空閒時約 70 秒，render 整合測試就占 48s）
+npm run typecheck                           # 三 workspace tsc（目前乾淨）
+npm run lint                                # 目前 exit 1，見下
+npm run format:check                        # 見下
 npm run verify:panels                       # 面板控制項的瀏覽器回歸檢查
-npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線的瀏覽器回歸檢查
+npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線的瀏覽器回歸檢查（4 項檢查、6 條斷言）
 ```
 
 - **改完 UI 原始碼必須 `npm run build -w @vidcut/ui`**，否則 :3845 上跑的還是舊版。
   只有 `npm run dev:ui` 那條路不用 build。
 - `verify:panels` 與 `verify:canvas` 都需要 server 已在跑 + `ui/dist` 是最新的。
   換視窗尺寸：`VIDCUT_VIEWPORT=1280x620 npm run verify:panels`（`verify:canvas` 同樣吃這個環境變數）；
-  Chrome 路徑可用 `CHROME_BIN` 覆寫（這台機器沒有 Chrome，用 playwright 快取的 Chromium）。
+  Chrome 路徑可用 `CHROME_BIN` 覆寫。`findChrome()` 的順序是 `CHROME_BIN` →
+  playwright 快取的 Chromium（`~/Library/Caches/ms-playwright/chromium-*`）→ `/Applications`，
+  所以實際跑的一直是 playwright 那顆（`/Applications/Google Chrome.app` 現在也存在了，
+  但排在後面，不會被選到——舊文件寫「這台機器沒有 Chrome」已經不正確）。
   **不要**用 `npm run demo` 當 `verify:canvas` 的前置——它會重新產生 `projects/demo`；
   直接 `npx tsx server/src/index.ts projects/demo` 起 server 即可。
   `verify:canvas` 的拖曳檢查會真的透過 WS 把 demo 專案裡一個 overlay 的位置寫回
-  `projects/demo` 的 `doc.json`（位置小幅挪動，非破壞性，是 demo 專案本來就該承受的操作）。
-- `npm run format:check` 會抓到 `ui/coverage/*.json` 這類產生檔，不是你的問題。
+  `projects/demo` 的 **`project.json`**（專案檔就叫這個名字，`doc` 是它裡面的鍵；
+  位置小幅挪動，非破壞性，是 demo 專案本來就該承受的操作）。
+- **`npm run dev:ui` 的 port 不保證是 :5173。** vite 從 5173 開始找，被占用就往上跳
+  （實測 5173/5174 都被別的 session 占著時，它選了 **:5175**）——一律以 vite 啟動訊息
+  印出的那一行為準。而且 vite dev server **只綁 IPv6（`[::1]`）**：
+  `http://localhost:<port>` 通，`http://127.0.0.1:<port>` 連不上（`Couldn't connect`）。
+  要在 dev 模式除錯字卡/字型時，這兩點是最先卡住人的地方。
+- **`ui/vite.config.ts` 的 proxy 要涵蓋伺服器的每一條路由**：目前是 `/ws`、`/media`、
+  `/api`、`/assets`、`/text-card`、`/fonts`。少一條**不會噴錯**——vite 的 SPA fallback 會
+  回 `index.html`，於是字卡幾何 fetch 拿到 HTML（不是 JSON）→ 每句字幕永久退回 DOM 近似、
+  `@font-face` 載到 HTML → 字型失效、`POST /text-card/preview` 404 → 打字三段式的第二段
+  永遠不發生。`/text-card` 與 `/fonts` 曾經漏掉，整個字卡功能在 dev 模式下是死的；已補上
+  並在 dev port 的真頁面裡驗過（幾何 200/JSON、preview 200 回 hash、字型檔 200、卡片
+  `<img>` 載入成功、`@font-face` 有注入）。
+- **`npm run lint` 目前 exit 1**：34 個錯誤全部在 `.claude/worktrees/**`（別的 session 做到
+  一半的 worktree，跟本 repo 追蹤的原始碼無關）。所以
+  `npm run typecheck && npm run lint && npm run format:check` 這種 `&&` 串**永遠跑不到
+  `format:check`**——三個要分開跑，或至少把 `format:check` 排在 `lint` 前面。
+- **`npm run format:check` 該是乾淨的；它報的都是真的沒格式化的原始碼。**
+  產生檔不會混進來——prettier 3 預設同時吃 `.gitignore` 與 `.prettierignore`，
+  `node_modules`/`dist`/`coverage`/`projects` 都已被濾掉。所以看到 `[warn]` 就是
+  真的有檔案沒格式化（曾經同時包含 `server/src/wsHub.ts`、`shared/src/types.ts`、
+  `HANDOFF.md` 這種已提交的原始碼），請 `npm run format` 修掉，**不要當成雜訊放過**。
+
+## 「預覽即成品」的實際範圍（別當全域保證用）
+
+`caption-wysiwyg` 分支的招牌宣稱是「預覽看到的就是成品」。**只有非 karaoke 字幕真的成立**，
+另外兩類是已知的、可重現的不一致：
+
+- ✅ **字幕（無逐詞高亮）**：預覽與匯出走同一支 `text_card.py`、同一份參數，輸出 PNG
+  **逐位元組相同**（sha256 相等）。實測涵蓋超寬文字、內嵌換行、未知字型、非 1080 畫布寬。
+- ❌ **overlay（含文字 overlay）**：預覽端 `ui/src/player/Player.tsx` 給 overlay `<img>`
+  設了 `maxWidth: 1080 * 0.9`，`server/src/render.ts` 卻是以**原生尺寸**合成。文字卡一律
+  是畫布全寬（1080）的圖，所以這條**每次都中**——成品比預覽大 `1 / 0.9 ≈ 11%`。
+  更糟的是 `position.scale`：預覽端吃（CSS transform），**渲染端完全沒有實作**
+  （overlay 濾鏡鏈上沒有任何 scale），而 `ui/src/panels/Inspector.tsx` 有一個
+  使用者改得動的 scale 欄位。改它 → 預覽變、成品不變。
+- ❌ **karaoke 字幕**：預覽是「base 卡 + 全高亮卡疊 `clip-path`」，匯出是「**一個詞一張卡**」，
+  不是同一張圖。兩個成因：(a) 描邊補償 `pad`（`max(2, fontSize/16)`，64px 字＝4px）
+  會把**下一個還沒唸到的詞**露出約 4px 的高亮色；(b) 兩層 alpha 疊合讓描邊的反鋸齒邊變厚。
+  實測單行 6 詞 CJK（64px、有描邊）各高亮狀態差 793–2764 個像素，最大單通道差 255。
+
+順帶一提另一個「文件寫了但不存在」的行為：**`OverlayText.maxWidth` 是死欄位**。
+`server/scripts/text_card.py` 只在 `layout_tokens()` 裡用它折行，而 `layout_tokens()`
+只有請求帶 `tokens` 時才跑，`server/src/textOverlays.ts` 從不給文字 overlay 塞 tokens。
+實測同一段長文字給 0.9 與 0.3，輸出 PNG 的 sha256 相同、`lines` 都是 1。
+**文字 overlay 與字幕都不會自動換行**，只認真的 `\n`；太長的字直接被畫布邊緣裁掉。
+
+還有一顆未爆彈：`server/src/render.ts` 在「ffmpeg 有 drawtext **且**沒有 karaoke」時會走
+**原生 `drawtext` 分支**——那條路沒有 `fontfile=`、不換行，是完全不同的光柵器。本機
+ffmpeg 沒有 freetype 所以踩不到；換一台有 freetype 的機器，「預覽=成品」會**靜默**失效，
+目前沒有任何測試或 assertion 擋著。
 
 ## 鐵則
 
@@ -55,6 +110,14 @@ npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線�
 - **`getComputedStyle(el).transform` 一律回 `matrix(a,b,c,d,e,f)`**，就算行內寫的是
   `transform: scale(0.2057)`。字串比對 `scale(...)` 會直接落空；要 `.match(/matrix\(([^)]+)\)/)`
   拆出 6 個數字，`a` 就是 scaleX。驗證任何 CSS scale/transform 正確性都要走這條路。
+- **`verify:canvas` 檢查 1 的「誤差 0.000%」不等於「預覽跟成品對齊」**。那段量測只讀
+  `matrix(a,b,c,d,e,f)` 的 `a`（scaleX）：不看 `d`（scaleY）、不看 `e`/`f`（平移）、
+  也不看 `transform-origin`。做過對抗性驗證——刻意把整層改成 `transformOrigin: center`
+  （整片位移 391×696px）、把 transform 改成 `scale(a, a*1.5)`（垂直比例錯掉），
+  同一段量測**照樣回報 0.000%**。它是一個貨真價實的獨立量測（新鮮的
+  `getBoundingClientRect` vs 解析出來的 transform 矩陣），但它證明的只有
+  「`ResizeObserver` 拿到的寬不是舊值、除數確實是 1080」，**不是**「畫面跟成品對齊」。
+  要驗對齊只能真的 render 一次去比像素——那件事目前沒有人做過。
 - **`document.querySelector('video')` 可能撞到不是你要的那顆**。Player 同時掛
   A/B 兩顆播放用 `<video>`，開 blur 填充時還有第三顆背景模糊 video（帶
   `transform: scale(1.15)` 的刻意放大，遮住模糊邊緣），三顆 DOM 順序在先。
@@ -89,7 +152,7 @@ npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線�
   真的有送達目標元素（例如監聽 `pointercancel`/`dragstart` 排除這個坑），不然會誤修錯地方。
 
 - **會真的寫回專案狀態的 e2e 腳本，位移量不能是「相對起點的固定偏移」**——`verify:canvas`
-  的拖曳檢查每次跑都會把 demo 專案的 overlay 位置存回 `doc.json`，下一次跑的起點就是
+  的拖曳檢查每次跑都會把 demo 專案的 overlay 位置存回 `project.json`，下一次跑的起點就是
   上一次的終點。固定偏移量（例如「永遠往右下拖 160px」）跑幾次後會把元素逼到畫布邊緣，
   clamp 會讓「拖曳前」與「拖曳後」的值撞在同一個被夾住的數字上，讓斷言穩定假性失敗
   （看起來像「拖曳沒生效」，其實是腳本自己把狀態作到牆角去了）。改成算絕對目標座標
