@@ -805,3 +805,211 @@ FAIL——`server/src/frame.ts` 的新 import／註解未跑過 prettier（`.sup
 上表於 `d30aace` 執行，本節文件（EVIDENCE／HANDOFF／ROADMAP）在其後落筆——沿用
 `EVIDENCE.md` 既有慣例（見「補記三」同樣寫法）：GAUNTLET 執行早於收錄它的 commit，
 且該輪之後只動文件、未動任何程式碼或測試。
+
+---
+
+# 補記：MCP 面補完（2026-08-03）
+
+Spec：`docs/superpowers/specs/2026-08-03-mcp-surface-completion-design.md`。分 8 個
+Task（各有獨立審查與修復迴圈）+ 兩個計劃外的套件穩定性修復（Task 7b／7c，controller
+決定加入，理由見下方「三」）。來源狀態：commit `7e660f3`（Task 1–8 程式碼變更最終
+commit；本節文字於其後、其上落筆，未再改動任何程式碼）。
+
+## 一、行為 → 測試對映（spec 21 條驗收條件）
+
+### `list_source`（AC 1–6）
+
+| AC  | 條件                                                                    | 測試（檔案:行號）                                                                                                                                      |
+| --- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | 素材夾有 3 支白名單檔 → 回 3 筆，含 `name`/`size`/`mtime`，依 name 排序 | `server/test/mcp-tools.test.ts:252`「列出素材夾內的白名單檔案並標記已匯入者」                                                                          |
+| 2   | 其中一支已匯入 → 該筆 `imported: true`，其餘 `false`                    | `server/test/mcp-tools.test.ts:270`「已匯入的素材標 imported: true」                                                                                   |
+| 3   | 已匯入的是相對路徑素材 → `imported` 仍正確（解析後比對）                | 同上（`beforeAll` 匯入的是專案內相對路徑 `a.mp4`，同一條測試覆蓋）                                                                                     |
+| 4   | 目錄不存在 → `isError`，訊息可讀                                        | `server/test/mcp-tools.test.ts:277`「目錄不存在 → isError」（含 Task 4 修復輪補的 `list_source failed:` 前綴斷言，區分「工具不存在」與「目錄不存在」） |
+| 5   | 250 支檔 → 只內嵌前 200 筆，`truncated: true`，`total: 250`             | `server/test/mcp-tools.test.ts:286`「超過 200 筆只內嵌前 200 筆並標 truncated」                                                                        |
+| 6   | 工具 metadata 標 `readOnlyHint: true`                                   | `server/test/mcp-tools.test.ts:302`「標 readOnlyHint: true（唯讀工具）」                                                                               |
+
+### `add_clip`（AC 7–13）
+
+| AC  | 條件                                                                 | 測試（檔案:行號）                                                                                             |
+| --- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 7   | 合法呼叫 → `ok`，`tracks.video` 尾端多一個 clip，回覆含新 clip 的 id | `server/test/mcp-tools.test.ts:310`「接到主軌尾端，回新 clip 的 id」                                          |
+| 8   | 回覆裡的 id === `tracks.video.at(-1).id`                             | 同上（`sc.clipId` 與 `store.doc.tracks.video.at(-1)!.id` 同條斷言）                                           |
+| 9   | `mediaId` 不存在 → `isError`                                         | `server/test/mcp-tools.test.ts:321`「mediaId 不存在 → isError，主軌不變」                                     |
+| 10  | 純音訊素材（`hasVideo: false`）→ `isError`，訊息含 `audio-only`      | `server/test/mcp-tools.test.ts:334`「純音訊素材 → isError，訊息含 audio-only」                                |
+| 11  | `in + duration` 超過素材長度 → `isError`                             | `server/test/mcp-tools.test.ts:328`「in + duration 超過素材長度 → isError」                                   |
+| 12  | 審核進行中 → `isError`（`aiWrite` 守衛生效）                         | `server/test/mcp-tools.test.ts:356`「審核進行中 → isError」——**有測試守護，無 mutant 覆蓋**（理由見下「二」） |
+| 13  | 過期 `ifVersion` → `isError`（`aiWrite` 守衛生效）                   | `server/test/mcp-tools.test.ts:371`「過期的 ifVersion → isError」——由 mutant `addclip-mcp-ifversion` 守       |
+
+### `setAudio` 驗證（AC 14–20）
+
+| AC  | 條件                                                     | 測試（檔案:行號）                                                                                                                                                                                             |
+| --- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | `audio: []` → `ok`，音訊軌清空（既有行為必須不變）       | `server/test/commands.test.ts:431`「audio: [] 清空音訊軌（既有行為，不得因新驗證而破壞）」                                                                                                                    |
+| 15  | 合法 item（真實 `mediaId`、在界內）→ `ok`                | `server/test/commands.test.ts:409`「剛好用滿素材長度是允許的（1e-6 容差，與 addClip 一致）」（邊界情形，見 AC19）                                                                                             |
+| 16  | `mediaId` 不存在 → `ok: false`，音訊軌**維持原樣**       | `server/test/commands.test.ts:368`「mediaId 不存在 → 拒絕，且音訊軌維持原樣（不得半套寫入）」                                                                                                                 |
+| 17  | `duration <= 0` → `ok: false`                            | `server/test/commands.test.ts:382`「duration <= 0 → 拒絕」                                                                                                                                                    |
+| 18  | `in < 0` → `ok: false`                                   | `server/test/commands.test.ts:391`「負的 in → 拒絕」                                                                                                                                                          |
+| 19  | `in + duration` 剛好等於素材長度 → `ok`（1e-6 容差保護） | `server/test/commands.test.ts:409`「剛好用滿素材長度是允許的（1e-6 容差，與 addClip 一致）」——殺傷力由 task-2-report.md 修復輪 1 的一次性容差正負號反轉證明（僅此條轉紅，其餘 28 條含另一條立即通過測試仍綠） |
+| 20  | 多個 item 其中一個壞 → 整批拒，音訊軌維持原樣            | `server/test/commands.test.ts:418`「多個 item 其中一個壞 → 整批拒，音訊軌維持原樣」                                                                                                                           |
+
+mutant `setaudio-validate`（拿掉整段逐項驗證）守住 AC16–20 的拒絕路徑，實跑 1/1 killed（見下「四」）。
+
+### 錯誤訊息（AC 21）
+
+| AC  | 條件                                                                                | 測試（檔案:行號）                                                                             |
+| --- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 21  | `tracks.audio` 有壞 `mediaId` 時 render → 錯誤訊息同時含 audio item id 與 `mediaId` | `server/test/render.test.ts:131`「音訊素材找不到時，錯誤訊息同時含 audio item id 與 mediaId」 |
+
+## 二、誠實記錄兩項無 mutant 覆蓋者
+
+1. **`add_clip` 的「審核進行中被拒」路徑（AC12，`server/test/mcp-tools.test.ts:356`）**：
+   能表達它的 find/replace 是把 `aiWrite(store, cmd, ifVersion)` 換成
+   `applyCommand(store, 'ai', cmd)`，但 `applyCommand` 沒有被 `mcp.ts` import，突變版
+   會在**執行期**丟 `ReferenceError`。後果不是「審核中」那條測試本身變綠——是**快樂路徑**
+   （「接到主軌尾端」）先在一般（未進入 review 分支）的呼叫上就丟出未捕捉的
+   `ReferenceError`，真正殺掉這隻 mutant 的會是它，而不是「審核進行中 → isError」這條
+   測試本身。也就是說，這隻 mutant 若被加進 `mutants.json`，殺掉它的功勞會被錯誤地記
+   在快樂路徑測試頭上，並不代表審核守衛真的被驗證到——是**錯誤歸因**，不是有效 mutant。
+   `server/test/mcp-tools.test.ts:356` 這條測試**有測試守護，但本案刻意不為它加 mutant
+   覆蓋**，如實記錄在此（task-5-report.md「為何不為『審核進行中』那條加 mutant」）。
+2. **render 錯誤訊息字串（AC21，`server/test/render.test.ts:131`）**：這條新測試本身
+   就是唯一守護——它直接斷言錯誤訊息同時含 audio item id 與 `mediaId`（RED 階段的實際
+   訊息是 `'render: media not found for audio bgm1'`，只含 `bgm1` 不含 `GHOST_ID`，見
+   task-3-report.md）。再打一隻 mutant 只是把同一條斷言換句話說重述一次，不會多驗證到
+   任何東西，故本案不加。
+
+## 三、套件穩定性問題的完整因果
+
+專案期間出現兩個症狀，**它們是同一個病**：
+
+- **症狀 A**：`server/test/import-api.test.ts` 的 `POST /api/import` 前 6 條測試
+  （第 50/63/74/85/93/129 行）偶發失敗（審查者與實作者合計約 1/5 重現率），失敗訊息
+  是 `Test timed out in 5000ms.`——**不是斷言失敗**。
+- **症狀 B**：gauntlet 的「隨機順序」關卡失敗——`--sequence.shuffle --sequence.seed=1337`
+  下 `render (integration) > renders the demo project…` 跑了**958 秒**，撞破自己 180
+  秒的 wall-clock timeout；一般循序執行同一份測試只要 32 秒、全過。
+
+**共同根因**：`server/` 原本沒有任何 vitest 設定檔 → 測試檔預設平行執行。25 個測試檔
+中 **9 個會 spawn 真 ffmpeg**，而單支 ffmpeg 的 x264 編碼預設就開滿核心數的執行緒。
+實測正常執行時峰值 **7 支 ffmpeg 併發、load 16.83**（8 核機器）。最重的測試內部要連跑
+約 **22 支 ffmpeg**。vitest 的 timeout 是 wall-clock 時間，所以測試沒有卡住、只是被
+餓死，也照樣算 timeout——這解釋了兩個症狀為何長得不一樣（一個是 5 秒被砍、一個是
+180 秒被砍）卻是同一個根因：CPU 被瓜分到測試進度極慢。
+
+**決定性實驗**（`flaky-investigation.md`／`task-7c-report.md`）：同一 seed 1337，只加
+`--fileParallelism=false` → 238/238 全過、51 秒。
+
+**兩次修復，分工不同**：
+
+- `f109e13`（症狀 A，補 `import-api.test.ts` 前 6 條 `60_000` timeout，回歸同檔其餘
+  真-ffmpeg 測試的既有慣例）是**治標**——只治了一個檔案，讓那 6 條在同樣的 CPU 競爭
+  下有更寬裕的牆可以撐過去，沒有解決 CPU 被瓜分的根因。
+- `7e660f3`（新增 `server/vitest.config.ts` 設 `fileParallelism: false`）才是**治本**
+  ——直接消除檔案層的併發競爭，讓 ffmpeg 子行程不再互搶核心。
+- **`f109e13` 可能反而推了一把**：那 6 條原本 5 秒就被 vitest 判定 timeout 並砍掉、
+  提早釋放 CPU 給其他同時在跑的測試檔用；放寬成 60 秒後，它們會撐著跑完，在高競爭
+  情境下佔用 CPU 的時間反而更長，讓其他測試（包含彼此之間）的競爭更久、更容易被
+  拖過各自的 timeout。這是本節要求「不要只寫治本那一半」的原因：兩次修復不是簡單的
+  「先小修再大修」，第一次修法本身可能加劇了第二次要解決的問題。
+
+**修復後如何驗證**（`task-7c-report.md`）：
+
+- 審查者自驗 3 個額外 seed（1、42、99999）+ gauntlet 用的 1337，共 5 種順序組合
+  （含正常循序）全部 238/238 通過，無 timeout。
+- **負向對照組**：把 `server/vitest.config.ts` 拿掉重跑，同一 seed 1337 下確認會退回
+  併發、原始的 958 秒撞牆症狀重現。
+- **外部加壓對照**：外加 8 支 ffmpeg 對機器加壓的情境下，無修法 142.9 秒（吃掉 180
+  秒預算的 79%）、有修法 115.6 秒（64%）——證明修法有實測效果，不是巧合。
+- typecheck 未受影響：`server/vitest.config.ts` 不在 `server/tsconfig.json` 的
+  `include: ["src", "test"]` 範圍內，新檔案不會觸發任何型別檢查問題。
+
+**這件事對 EVIDENCE 的意義**：old-coder 的整套論述建立在「測試套件是決定性的」這個
+前提上。這個不穩定在專案期間被多位審查者觀察到（`progress.md` 記錄的跨 Task 議題），
+如果默默修掉、不寫進報告，讀者無從判斷 Task 1–7 report 裡那些「238/238」「236/236」
+之類的數字在多大程度上可信。本節把症狀、根因、兩次修復的分工、驗證方式完整攤開，
+就是為了不讓這個風險被隱藏。
+
+## 四、本案新增的 3 隻 mutant 與實跑結果
+
+| id                      | 檔案          | 改了什麼                                             | 被誰殺                                                          | 單獨實跑結果                   |
+| ----------------------- | ------------- | ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ |
+| `setaudio-validate`     | `commands.ts` | 拿掉 `setAudio` 的逐項驗證整段（find/replace 清空）  | `commands.test.ts`「setAudio 驗證」describe 全部 7 條           | 1/1 killed（task-2-report.md） |
+| `listsource-truncate`   | `mcp.ts`      | 拿掉 200 筆截斷（改成 `files = all.files` 不 slice） | `mcp-tools.test.ts`「超過 200 筆只內嵌前 200 筆並標 truncated」 | 1/1 killed（task-4-report.md） |
+| `addclip-mcp-ifversion` | `mcp.ts`      | `aiWrite(store, cmd, ifVersion)` 少傳 `ifVersion`    | `mcp-tools.test.ts`「過期的 ifVersion → isError」               | 1/1 killed（task-5-report.md） |
+
+三隻皆在本節「六、GAUNTLET 表」引用的那次完整執行中，隨其餘 67 隻一起被殺（gauntlet
+log 的 `tail -3` 只印出最後一隻的名稱 `addclip-mcp-ifversion`，逐隻結果彙總為
+`70/70 mutants killed`）。
+
+## 五、行為變更聲明：`setAudio` 從零驗證到逐項驗證
+
+**這是本專案唯一的行為變更**——`8af9bf5`（`fix(commands): setAudio 補逐項驗證，與
+addClip 對稱`）之前，任何不存在的 `mediaId`、負值、超界的音訊項都會被默默接受並落盤，
+直到 render 時才炸；改動後這些壞資料在寫入當下就被拒絕（`ok: false`，音訊軌維持原樣，
+見 AC16–20）。
+
+查證結果（全 repo 掃描產品程式碼，排除測試檔與型別宣告）：
+
+```
+$ grep -rn "'setAudio'" --include="*.ts" --include="*.tsx" . | grep -v node_modules | grep -v '\.test\.'
+server/src/mcp.ts:706:      writeReply(aiWrite(store, { name: 'setAudio', audio: audio as AudioItem[] }, ifVersion)),
+server/src/commands.ts:109:    case 'setAudio': {        # 驗證/執行端，非呼叫端
+shared/src/types.ts:223:  | { name: 'setAudio'; audio: AudioItem[] }   # 型別宣告
+```
+
+- **全 repo 只有一處呼叫**：`server/src/mcp.ts:706`，就是 `set_audio` 這個 MCP 工具
+  本身建構命令物件的地方。
+- **UI 完全不走 `setAudio`**：對 `ui/src/` 內 `'setAudio'` 字面字串的搜尋零命中——UI
+  沒有任何路徑會建構這個 command，音訊相關的 UI 操作走的是 `updateAudio` /
+  `removeAudio` 等細粒度 command，與 `setAudio`（整批覆蓋音訊軌）是不同的 command
+  variant。
+- **兩處呼叫都會過新驗證**：`set_audio` MCP 工具本身沒有繞過驗證的邏輯，驗證寫在
+  `commands.ts` 這一層由 MCP 原樣轉發；`mcp-tools.test.ts` 既有的
+  `set_audio replaces the whole audio track` 測試在本輪全程保持綠燈、斷言未被放寬。
+
+換句話說：這個行為變更不會讓任何現有正常呼叫方變紅，只會讓原本就是壞資料的呼叫從
+「默默接受、之後在 render 才爆炸」變成「當下就被拒絕、給出明確原因」。
+
+## 六、新發現但本輪不修的缺陷：暫存目錄洩漏
+
+系統 temp 累積了 **38,754 個 `vidcut-*` 目錄／42,643 個檔案／16+GB**，磁碟一度只剩
+494Mi 並造成一位審查者撞 `ENOSPC`。
+
+- 23 個 server 測試檔會 `mkdtemp`，**只有 4 個**（`mcp-tools`／`mcp-optim`／
+  `store-durability`／`store-undo`）會在 `afterEach`/`afterAll` 清理。
+- 最大宗是 `vidcut-pcm-`（7,244 個），來自 `server/src/ingest.ts` 算 peaks 時建的
+  PCM 暫存目錄——**那是產品程式碼，不是測試**，代表這不只是「測試沒收拾」的衛生
+  問題，正式環境長跑同樣會累積。
+
+使用者已授權清理（已清，回收 25.5GB），但**根源未修**，因為超出本次 Task 8（跑
+gauntlet + 寫 EVIDENCE）的範圍。本輪 gauntlet 執行本身的磁碟前後對照可作為量級佐證：
+開始前 **26Gi** 可用 → 結束後 **24Gi** 可用，單次完整跑（含全測試套件跑兩次、UI
+覆蓋率、隨機順序兩輪、突變測試兩輪 71×2 次 vitest 呼叫）就用掉約 **2Gi**——這是在
+`git status --porcelain` 跑完後乾淨（`mutate.mjs` 有正確自動還原每隻 mutant）的前提
+下量到的，即殘留的磁碟消耗不是本輪程式碼變更留下的髒狀態，是既有的暫存目錄洩漏在
+持續作用。列為已知限制，建議後續在 `docs/ROADMAP.md` 補一項技術債（`ingest.ts` 的
+PCM 暫存目錄需要用完即刪，測試檔需要統一補 `afterEach`/`afterAll` 清理慣例）。
+
+## 七、GAUNTLET 表
+
+引用自 Task 8 的一次完整乾淨執行（`bash scripts/gauntlet.sh`，source `7e660f3`，最後
+一次程式碼修改之後跑的那次，本節唯一引用的一次執行）：
+
+| 關卡                     | 結果                                                                                                                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 版本                     | node v22.18.0／npm 11.5.2／tsc 5.9.3／vitest 3.2.7／ffmpeg 8.1.2／source `7e660f3`                                                                                                                                                  |
+| 型別檢查（tsc ×3）       | PASS                                                                                                                                                                                                                                |
+| Lint（eslint）           | PASS                                                                                                                                                                                                                                |
+| 格式（prettier --check） | PASS                                                                                                                                                                                                                                |
+| 全測試套件               | **435 passed**（shared 27／server 238／ui 170），0 failed——與 spec 預期完全相符                                                                                                                                                     |
+| UI 覆蓋率                | Statements/Lines 86.38%（2627/3041）、Branches 85.48%（748/875）、Functions 65.28%（126/193）——本 Task 未動 UI，與前一節相同                                                                                                        |
+| 隨機順序                 | ui／server（`--sequence.shuffle --sequence.seed=1337`）皆 PASS——**server 這一關先前是失敗的那關（958s 撞牆），`7e660f3` 修好了**（見上「三」）                                                                                      |
+| 依賴稽核                 | 沿用既有 baseline：`fast-uri`（2 個既有 high）、`hono`（1 個既有 moderate），皆非本輪新增；`gauntlet.sh` 對此關卡不設 pass/fail gate，只如實印出                                                                                    |
+| 秘密掃描                 | PASS                                                                                                                                                                                                                                |
+| 突變測試                 | **70 killed + 1 equivalent control**（`store-corrupt-load`，如實存活，非本案新增）＝`scripts/mutants.json` 全部 **71 隻**；本案新增 3 隻（`setaudio-validate`／`listsource-truncate`／`addclip-mcp-ifversion`）全數在此次執行內被殺 |
+| 總結                     | `GAUNTLET: 全數通過`                                                                                                                                                                                                                |
+
+執行後 `git status --porcelain` 為空（`mutate.mjs` 正確自動還原了所有被暫時套用的
+mutant，兩輪跑完未留下任何殘留變更）。
+
+磁碟：開始前 **26Gi** 可用 → 結束後 **24Gi** 可用（見上「六」的暫存目錄洩漏量級佐證）。
