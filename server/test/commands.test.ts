@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { applyCommand } from '../src/commands.js';
+import type { AudioItem } from '@vidcut/shared';
 
 async function storeWithClips() {
   const dir = await mkdtemp(join(tmpdir(), 'vidcut-cmd-'));
@@ -344,5 +345,96 @@ describe('addClip', () => {
     const duration = 20 + 1e-7;
     const r = applyCommand(store, 'human', { name: 'addClip', mediaId: 'm1', in: 0, duration });
     expect(r.ok).toBe(true);
+  });
+});
+
+// setAudio 原本零驗證（d.tracks.audio = cmd.audio），與 addClip 的五道守衛不對稱。
+// 實測後果：AI 抄錯一個 8 字元 mediaId → 被接受 → 落盤 → 重啟後 undo 堆疊已失效
+// （「nothing to undo」）→ 直到 render 才丟 "media not found for audio"。
+describe('setAudio 驗證', () => {
+  // 型別化的 helper：patch 用 Partial<AudioItem> 而非 Record<string, unknown>，
+  // 這樣每個測試都不需要 as never 轉型——'NOPE' 是合法的 string，型別上過得去，
+  // 執行期才該被新驗證擋下，正好是我們要測的東西。
+  const item = (patch: Partial<AudioItem> = {}): AudioItem => ({
+    id: 'a1',
+    mediaId: 'm1',
+    start: 0,
+    in: 0,
+    duration: 5,
+    volume: 1,
+    ...patch,
+  });
+
+  it('mediaId 不存在 → 拒絕，且音訊軌維持原樣（不得半套寫入）', async () => {
+    const store = await storeWithClips();
+    store.mutate('ai', 'seed audio', (d) => {
+      d.tracks.audio = [item()];
+    });
+    const before = structuredClone(store.doc.tracks.audio);
+    const r = applyCommand(store, 'human', {
+      name: 'setAudio',
+      audio: [item({ id: 'a2', mediaId: 'NOPE' })],
+    });
+    expect(r.ok).toBe(false);
+    expect(store.doc.tracks.audio).toEqual(before);
+  });
+
+  it('duration <= 0 → 拒絕', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'setAudio',
+      audio: [item({ duration: 0 })],
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('負的 in → 拒絕', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'setAudio',
+      audio: [item({ in: -1, duration: 1 })],
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('in + duration 超過素材長度 → 拒絕', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'setAudio',
+      audio: [item({ in: 18, duration: 5 })],
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('剛好用滿素材長度是允許的（1e-6 容差，與 addClip 一致）', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'setAudio',
+      audio: [item({ in: 0, duration: 20 })],
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it('多個 item 其中一個壞 → 整批拒，音訊軌維持原樣', async () => {
+    const store = await storeWithClips();
+    const before = structuredClone(store.doc.tracks.audio);
+    const r = applyCommand(store, 'human', {
+      name: 'setAudio',
+      audio: [item(), item({ id: 'a2', mediaId: 'NOPE' })],
+    });
+    expect(r.ok).toBe(false);
+    expect(store.doc.tracks.audio).toEqual(before);
+  });
+
+  // 迴歸護甲：audio: [] 是清空音訊軌的慣用法（mcp-tools.test.ts:174 正在用）。
+  // 新驗證若寫成「必須非空」就會打破它——這是本 Task 最容易做錯的地方。
+  it('audio: [] 清空音訊軌（既有行為，不得因新驗證而破壞）', async () => {
+    const store = await storeWithClips();
+    store.mutate('ai', 'seed audio', (d) => {
+      d.tracks.audio = [item()];
+    });
+    const r = applyCommand(store, 'human', { name: 'setAudio', audio: [] });
+    expect(r.ok).toBe(true);
+    expect(store.doc.tracks.audio).toEqual([]);
   });
 });

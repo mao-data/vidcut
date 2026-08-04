@@ -106,12 +106,24 @@ export function applyCommand(
         }),
       );
     }
-    case 'setAudio':
+    case 'setAudio': {
+      // 與 addClip 對稱的逐項驗證。空陣列＝清空音訊軌，是合法且被既有測試依賴的用法，
+      // 所以驗證放在迴圈裡（空陣列自然不進迴圈），不要在外面加「必須非空」。
+      for (const a of cmd.audio) {
+        const media = store.doc.media.find((m) => m.id === a.mediaId);
+        if (!media) return { ok: false, error: `audio ${a.id}: media not found: ${a.mediaId}` };
+        if (a.duration <= 0) return { ok: false, error: `audio ${a.id}: duration must be > 0` };
+        if (a.in < 0) return { ok: false, error: `audio ${a.id}: in must be >= 0` };
+        if (a.in + a.duration > media.probe.duration + 1e-6) {
+          return { ok: false, error: `audio ${a.id}: out of bounds for ${a.mediaId}` };
+        }
+      }
       return ok(
         store.mutate(source, 'set audio', (d) => {
           d.tracks.audio = cmd.audio as AudioItem[];
         }),
       );
+    }
     case 'setCanvasFit':
       return ok(
         store.mutate(source, `canvas fit: ${cmd.fit}`, (d) => {

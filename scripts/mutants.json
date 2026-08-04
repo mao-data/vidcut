@@ -543,5 +543,13 @@
     "replace": "        const p = await probe(join(projectDir, m.path));",
     "tests": "server/test/render.test.ts",
     "note": "第 9 個呼叫點（渲染前補測 audioChannels）接法退回 join → 外部絕對路徑素材 probe 失敗、錯誤被 catch 吞掉，mono 靜默不升混（成品小 3dB）；withProbedChannels 的斷言必須抓到"
+  },
+  {
+    "id": "setaudio-validate",
+    "file": "server/src/commands.ts",
+    "find": "      for (const a of cmd.audio) {\n        const media = store.doc.media.find((m) => m.id === a.mediaId);\n        if (!media) return { ok: false, error: `audio ${a.id}: media not found: ${a.mediaId}` };\n        if (a.duration <= 0) return { ok: false, error: `audio ${a.id}: duration must be > 0` };\n        if (a.in < 0) return { ok: false, error: `audio ${a.id}: in must be >= 0` };\n        if (a.in + a.duration > media.probe.duration + 1e-6) {\n          return { ok: false, error: `audio ${a.id}: out of bounds for ${a.mediaId}` };\n        }\n      }\n",
+    "replace": "",
+    "tests": "server/test/commands.test.ts",
+    "note": "拿掉 setAudio 的逐項驗證 → 不存在的 mediaId／負 in／超界全部會被默默接受並落盤，直到 render 才炸；拒絕的斷言必須抓到"
   }
 ]
