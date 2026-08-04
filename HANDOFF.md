@@ -1,7 +1,7 @@
 # HANDOFF — vidcut 開發交接
 
 > 目前做到哪、怎麼驗、已知限制、下一步。
-> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）完成。
+> 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）+ 階段 2（可編輯文字 overlay）完成。
 
 ## 現況總覽
 
@@ -14,9 +14,9 @@
 | T1 CapCut 快贏 | ✅ `t1-done` | 見下節                                                             |
 | T2 #8 自動字幕 | ✅           | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節         |
 | UI 重設計      | ✅           | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節             |
-| 字幕 WYSIWYG 階段 1/4 | ✅（分支 `caption-wysiwyg`） | Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步，見下節。**階段 2–4（可編輯文字 overlay、預覽字卡直出、畫布拖曳）尚未開始**——目前只有後端地基，UI 沒有任何可見變化。 |
+| 字幕 WYSIWYG 階段 2/4 | ✅（分支 `caption-wysiwyg`） | 階段 1：Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步。階段 2：**可編輯文字 overlay**——UI 時間軸「Text」鈕新增文字 overlay、Inspector 可改文字/字級/顏色，MCP `add_overlay`/`update_overlay`/`set_overlays` 皆支援 `text`，見下節。**階段 3–4（字幕預覽走同一張字卡、畫布拖曳）尚未開始**——字幕預覽仍是 DOM 文字 `fontSize/3` 估算，跟渲染成品的字卡不是同一張圖；沒有字型選單、沒有畫布拖曳。 |
 
-**自動化狀態**：182 個測試（shared 27 / server 155 / ui 170，數字含字幕 WYSIWYG 階段 1 新增測試；若 `npm test` 整批平行跑，`server/test/cardSync.test.ts` 的 debounce 測試偶爾會因即時渲染子行程與其他重測試（render/demo）搶 CPU 而假性失敗——單獨跑該檔或 `server` workspace 是穩定綠的，屬既有計時假設脆弱，非本次文檔改動引入）、typecheck 三 workspace 乾淨、ESLint 0 問題（`.claude/worktrees/` 下其他 session 的 34 個既有錯誤不算）、UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過。
+**自動化狀態**：396 個測試（shared 27 / server 195 / ui 174，數字含字幕 WYSIWYG 階段 1+2 新增測試；若 `npm test` 整批平行跑，`server/test/cardSync.test.ts` 的 debounce 測試偶爾會因即時渲染子行程與其他重測試（render/demo）搶 CPU 而假性失敗——單獨跑該檔或 `server` workspace 是穩定綠的，屬既有計時假設脆弱，非本次文檔改動引入）、typecheck 三 workspace 乾淨、ESLint 0 問題（`.claude/worktrees/` 下其他 session 的 34 個既有錯誤不算）、UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過。
 
 ## 字幕 WYSIWYG 階段 1：光柵器地基（分支 `caption-wysiwyg`）
 
@@ -30,6 +30,26 @@
 - **匯出路徑接上同一張字型表**：`render.ts` 的 `renderCaptionCard`（匯出用）現在會傳 `fontPath`，用 `setCaptionFontResolver` 在啟動時注入、與預覽路徑**同一個** resolver。在此之前匯出用的是另一條寫死的候選字型鏈，`fontFamily` 對成品完全無效；現在 `fontFamily` 真的同時影響預覽與匯出（過去兩邊都不影響）。有測試比對匯出卡與預覽卡的 PNG sha256 相同，並反向驗證「不注入 resolver 時輸出必須不同」（判別性防護，避免測試假陽性）。
 
 **目前仍然成立、還沒變的事**：匯出成品的字幕仍然只有 PNG 字卡一條路（這台機器 ffmpeg 沒 drawtext，見下方「環境限制與字幕」節）；逐詞高亮在匯出端仍是「一個詞一張卡」。上面新增的是**預覽端的字卡產生通道**（`/text-card/preview` 與字幕軌 debounce 同步），但 UI 還沒有任何程式碼去顯示這些卡——那是階段 3 的工作。
+
+## 字幕 WYSIWYG 階段 2：可編輯文字 overlay（分支 `caption-wysiwyg`）
+
+設計：同上規格 §6/§7。目標是讓「文字 overlay」（overlay 軌新增的一種，不是字幕）變成人與 AI 都能直接建立、改文字/字級/顏色的物件，渲染管線零改動。
+
+- **資料模型**：`OverlayItem` 新增可選欄位 `text?: OverlayText`（`{text, fontFamily, fontSize, fill, stroke?, maxWidth?}`）；`updateOverlay` 的 patch 型別隨之納入 `text`（以及既有的 `imagePath`）。有 `text` 的才是文字 overlay，既有排名 PNG 沒有這個欄位，行為完全不變。
+- **命令原子性**：產卡是非同步（要跑 Pillow worker），但 `applyCommand` 本身仍是同步、單一 mutate。做法是新增 `server/src/textOverlays.ts` 的 `resolveTextCommand()`，在 `applyCommand` 之前跑一個「前置」：先產卡，把算出的 `imagePath` 併進**一個新的 command 物件**再丟給 `applyCommand`——`text` 與 `imagePath` 保證落在同一次 `store.mutate`，不會出現字改了、圖還沒換的中間態。`server/src/wsHub.ts` 的 command handler 因此改成 async，並用一個 promise chain 把 command 序列化，確保仍照抵達順序套用（不會因為前置產卡是非同步而亂序）。
+- **命令層驗證（backstop）**：`commands.ts` 新增共用的 `validateOverlayTextCard()`——`text` 已給但 `imagePath` 是 `undefined` 或 `''`、`text` 全空白、`fontSize <= 0` 都會被拒絕。這是安全邊界：就算某個呼叫端忘了跑 `resolveTextCommand` 前置，也不會讓一個沒有實際圖檔的 `imagePath` 存進 doc——空字串會被 `join(projectDir, '')` 解析成專案目錄本身，餵給 `ffmpeg -i` 只會在 render 階段悄悄失敗。
+- **`render.ts` 完全沒改**：它只認 `imagePath`，文字 overlay 的 PNG 就是一個真實檔案，跟排名 PNG 沒有差別。
+- **MCP**：`add_overlay`、`update_overlay`、`set_overlays` 三個工具都接受 `text` 並各自跑前置產卡（`set_overlays` 起初共用的 `overlaySchema` 讓它可以帶 `text` 卻沒接前置，code review 抓到——沒接前置就可能把一個空 `imagePath` 的文字 overlay 存進 doc，render 階段才炸；已修，並靠 `validateOverlayTextCard` 這道命令層 backstop 兜底）。`McpDeps.textCards` 從此是必要欄位；三個工具的描述與 server 層 `instructions` 都同步更新（遵守下面 CLAUDE.md 的鐵則）。
+- **UI**：時間軸工具列新增「Text」鈕，點下去在 playhead 插入一個帶預設樣式（`Heiti TC`）的文字 overlay；Inspector 對帶 `text` 的 overlay 顯示文字/字級/顏色三個編輯欄位，每次送出都是**完整的 `OverlayText` 物件**（伺服器用整份 spec 算 hash，沒有單欄位 patch 語意）。輸入框是 uncontrolled、依目前值 keyed，切換 overlay 時會正確刷新；blur handler 會跟 store 裡目前的值比對，no-op blur 不會誤送命令。
+
+**現在使用者可以做什麼**：在瀏覽器 UI 按「Text」鈕直接在畫布上新增一段文字（或請 AI 用 `add_overlay`/`update_overlay`/`set_overlays` 帶 `text` 建立/改字），改完文字/字級/顏色後渲染成品會真的燒出那段文字——這是本功能第一個使用者看得到的行為變化（階段 1 完全無感）。
+
+**目前仍然成立、還沒變的事**：
+
+- **字幕預覽仍是 DOM 文字 `fontSize / 3` 估算**（`ui/src/player/Player.tsx`），跟渲染成品的字卡不是同一張圖，也沒有走階段 1 蓋好的字卡通道。字幕本身的「所見即所得」是階段 3 的工作。
+- 文字 overlay 在預覽裡確實看得到自己的字卡（`<img src=imagePath>`），但那只是因為預覽本來就把所有 overlay 畫成 `<img>`——是既有機制的副作用，不是本階段刻意做的 WYSIWYG 對齊。
+- 沒有字型選單：`/api/fonts` 端點階段 1 就有了，但目前沒有任何 UI 程式碼消費它；新文字 overlay 一律用預設 `Heiti TC`。
+- 沒有 `@font-face` 串接、沒有打字即時預覽通道（`/text-card/preview`）、沒有畫布拖曳。這些都排在階段 3/4。
 
 ## T1（參考 CapCut 的快贏功能，tag `t1-done`）
 
@@ -161,6 +181,7 @@ server/src/rasterizer.ts  PillowRasterizer：包 text_card.py worker 的 TS 介�
 server/src/fonts.ts       啟動時實測字型檔可否用 Pillow 開啟，剔除開不了的（本機 PingFang.ttc）；family→路徑 resolver
 server/src/textCards.ts   TextCardService：內容雜湊快取字卡到 derived/text/；/text-card 靜態端點 + /text-card/preview 只讀產卡通道
 server/src/cardSync.ts    CaptionCardSync：字幕軌變更 debounce 300ms 重產字卡，WS 廣播 capId→hash；單句失敗隔離不拖累整批
+server/src/textOverlays.ts 文字 overlay 命令前置：resolveTextCommand() 產卡後把 imagePath 併入新命令，text 與 imagePath 在同一次 mutate 原子生效
 server/src/ffmpeg.ts      runFfmpeg/probe
 server/src/frame.ts       抽幀給 AI「看」
 server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render

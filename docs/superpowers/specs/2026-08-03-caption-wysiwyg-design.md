@@ -32,8 +32,11 @@ Pillow([`text_card.py`](../../../server/scripts/text_card.py))。六個實測分
    （**階段 1 已解決**:`render.ts` 現在會用啟動時注入的字型 resolver 解析
    `fontFamily` 並傳 `fontPath` 給 text_card.py;`/text-card/preview` 產卡
    通道也走同一個 resolver。`fontFamily` 欄位現在對「產卡」這件事(匯出
-   與預覽產卡通道)都真的生效了——之前兩邊都不生效。UI 上還沒有字型選單
-   讓使用者改這個欄位(階段 2 的 Inspector 工作),但欄位本身不再是死的。）
+   與預覽產卡通道)都真的生效了——之前兩邊都不生效。**階段 2 落地備註**:
+   UI 仍然沒有字型選單——階段 2 的 Inspector 加了文字/字級/顏色三個編輯
+   欄位,但沒有做字型下拉(新文字 overlay 一律預設 `Heiti TC`,字幕的
+   `CaptionStyle.fontFamily` 也還是只能靠外部/AI 改)。字型選單延後到
+   之後才做,欄位本身不再是死的,只是還沒有 UI 去改它。）
 
 另外 overlay 文字(排名清單)是外部腳本烤好的整張 PNG,**文字內容不可編輯**。
 
@@ -148,22 +151,38 @@ hash 的結果」這一層(見 §5),對應原設計裡 `CardResult` 想表達的
   且與預覽路徑保證同源(有判別性測試把關,見 `render-fonts.test.ts`)。
 - UI 字型選單只列 server 回報的可用清單:實作選了**靜態端點**這條路
   (`GET /api/fonts` 回 `{id, family}[]`),不是 WS full 訊息夾帶
-  ——原設計列了兩個選項,這裡記錄實際選了哪個。UI 端要消費這份清單
-  (下拉選單本身)仍是階段 2(Inspector)的工作,階段 1 只有端點。
+  ——原設計列了兩個選項,這裡記錄實際選了哪個。**階段 2 落地備註**:
+  UI 端消費這份清單(下拉選單本身)並未如原計畫排進階段 2——階段 2 的
+  Inspector 只加了文字/字級/顏色編輯,`/api/fonts` 端點目前仍完全沒有
+  UI 消費者,新文字 overlay 一律預設 `Heiti TC`。字型選單延後到更後面
+  才做。
 
 ## 5. 產卡服務(server 新模組 `textCards.ts`)
 
 - 包住光柵器:查快取 → 未命中丟 worker → 寫 `derived/text/` → 回 CardResult。
-- **兩條觸發路徑**(階段 1 只實作了字幕那一半;文字 overlay 要等階段 2 有
-  `OverlayText` 這個資料模型後才有東西可觸發):
-  1. **命令路徑**:`applyCommand` 的 patch 若碰到 `tracks.captions`,
+- **三條觸發路徑**(階段 1 只實作了①的字幕那一半;②是階段 2 加的,**與
+  原設計預期的形狀不同**,見下方階段 2 落地備註):
+  1. **字幕 debounce 路徑**:`applyCommand` 的 patch 若碰到 `tracks.captions`,
      `CaptionCardSync` debounce 300ms 後對**全部**字幕重新 `ensure()`
      (不是只重產受影響的那幾句;字幕數量目前夠少,全量重算比精算差異變更
      簡單且不會有髒快取風險),完成後 WS 廣播
-     `{type:'textCards', entries:[{id, hash}]}`(**無 `kind` 欄位**——
-     目前只有字幕會產卡,`kind` 留給階段 2 文字 overlay 加入時再補)。
-     文字 overlay 的命令觸發路徑待階段 2 實作。
-  2. **預覽路徑(打字用)**:`POST /text-card/preview`——只產卡不動 doc、
+     `{type:'textCards', entries:[{id, hash}]}`(無 `kind` 欄位,只有
+     字幕會走這條路)。
+  2. **文字 overlay 的命令前置路徑(階段 2)**:`server/src/textOverlays.ts`
+     的 `resolveTextCommand()` 在 `applyCommand` 之前直接呼叫
+     `TextCardService.ensure()` 產卡,把算出的 `imagePath` 併進命令再套用
+     ——**不透過** `textCards` WS 訊息,結果是文字 overlay 的 `imagePath`
+     隨那次命令的一般 doc patch 一起送到 client。
+     > **與原設計形狀差異**:原本這裡預期文字 overlay 也會走「① 的
+     > `textCards` 廣播 + `kind` 欄位分流」這套機制(所以才有上面「`kind`
+     > 留給階段 2 文字 overlay 加入時再補」的伏筆)。實作沒有這樣做——
+     > 命令觸發(使用者存了一次 `text`)跟字幕的軌道變更 debounce 是不同
+     > 性質:命令是一次性、需要即時原子生效(§6),不適合套字幕那種
+     > 「debounce 全量重算再廣播」模式。所以 `TextCardService`(以及
+     > `CardGeometry`)本身確實是①②共用的服務,但②走的是全新的
+     > `resolveTextCommand` 命令前置,`textCards` WS 訊息型別**沒有**加
+     > `kind` 欄位,現在也不需要加——它天生只服務字幕這一種消費者。
+  3. **預覽路徑(打字用)**:`POST /text-card/preview`——只產卡不動 doc、
      不進 history、不廣播,回 hash。給 §7 的三段式編輯用(階段 1 已有端點
      與驗證,UI 端的「打字時呼叫它」要到階段 3 才接上)。
 - 專案載入時背景預熱缺卡(已實作:`index.ts` 啟動時 `cardSync.schedule()`)。
@@ -193,12 +212,43 @@ interface OverlayText {
 ```
 
 - 既有排名 PNG 無 `text` 欄位,行為完全不變(向下相容免費)。
-- **不新增命令**:`updateOverlay` patch 允許 `text`;`addOverlay` 帶 `text`
-  即新增文字 overlay。`commands.ts` 驗證;有 `text` 變更時 server 在**同一次
-  mutate 內**同步產卡並更新 `imagePath`(原子,不會出現字改了圖還是舊的)。
+- **不新增命令**:`updateOverlay` patch 型別擴大到含 `text`(以及既有的
+  `imagePath`);`addOverlay` 帶 `text` 即新增文字 overlay。
+
+> **與實作的形狀差異**(階段 2 完成後校對,原設計寫「server 在同一次 mutate
+> 內同步產卡並更新 imagePath」,實際做法是**兩段式**,以下為與程式碼一致的
+> 版本):
+>
+> - 產卡本身是非同步(要跑 Pillow worker),但 `applyCommand` 保持同步、
+>   單一 `store.mutate`。做法是新增 `server/src/textOverlays.ts` 的
+>   `resolveTextCommand()`,在 `applyCommand` **之前**跑一個前置:偵測
+>   command 是否帶 `text`,是的話先產卡,把算出的 `imagePath` 併進**一個
+>   新的 command 物件**再交給 `applyCommand`——`text` 與 `imagePath` 保證
+>   落在同一次 mutate,不會有字改了、圖還沒換的中間態。`resolveTextCommand`
+>   涵蓋 `addOverlay`、`updateOverlay`、`setOverlays` 三種(見下)。
+> - `server/src/wsHub.ts` 的 command handler 因此改成 async,並用一個
+>   promise chain(`commandQueue = commandQueue.then(run, run)`)把 command
+>   序列化,確保多筆 command 仍照抵達順序套用,不會因為前置產卡是非同步
+>   而互相超車。
+> - `commands.ts` 新增共用的 `validateOverlayTextCard()` 作為命令層的
+>   backstop:`text` 已給但 `imagePath` 是 `undefined` 或 `''`、`text`
+>   全空白、`fontSize <= 0` 一律拒絕。這道驗證獨立於 `resolveTextCommand`
+>   前置存在——就算某個呼叫端(例如某支忘了跑前置的 MCP 工具)漏接前置,
+>   也不會讓一個沒有實際圖檔的 `imagePath` 存進 doc。空字串 `imagePath`
+>   在 render 階段會被 `join(projectDir, '')` 解析成專案目錄本身,餵給
+>   `ffmpeg -i` 只會悄悄失敗——這正是 `set_overlays` 一開始漏接前置時
+>   code review 抓到的真實風險(見下)。
+
 - render.ts **一行不改**:它只認 `imagePath`,文字 overlay 的 PNG 是真實檔案。
-- MCP 自動獲得能力(命令層共用);工具描述補「add_overlay 可帶 text 建立
-  可編輯文字」。
+- MCP 自動獲得能力(命令層共用);`add_overlay`、`update_overlay`、
+  `set_overlays` **三個工具都**接受 `text` 並各自跑 `resolveTextCommand`
+  前置,描述同步補上「text 由伺服器自動產卡並維護 imagePath,imagePath
+  傳空字串即可」。實作時 `set_overlays` 起初共用的 `overlaySchema` 讓它
+  可以帶 `text` 卻沒接上前置(整組替換沒有走到 `addOverlay`/`updateOverlay`
+  的路徑),code review 抓到後補上——現在 `resolveTextCommand` 對
+  `setOverlays` 命令會逐一檢查陣列裡每個 overlay,有 `text` 的各自獨立
+  產卡(可平行),沒有 `text` 的原樣放行;連同 `validateOverlayTextCard`
+  這道命令層 backstop,兩層一起把這個洞補上。
 
 ## 7. 預覽端
 
@@ -268,17 +318,27 @@ interface OverlayText {
 > 「顯示字卡」或「退回近似顯示」——那個判斷邏輯要到階段 3 UI 接上 karaoke
 > 字卡渲染時才會存在,屆時「找不到 hash → 退回 DOM 近似渲染」會是自然結果
 > (沒有 hash,`<img>` 就沒有東西可指,元件邏輯上只能走近似分支),不需要額外的
-> stale flag。文字 overlay(`imagePath` 暫留/標記)屬於階段 2 才有的資料模型,
-> 尚未實作,以下維持原設計描述作為階段 2 的計畫基準,實作時再校對。
+> stale flag。
+
+> **階段 2 落地備註**:文字 overlay 的命令路徑產卡失敗,實作**沒有**採用下面
+> 原設計的「命令仍成功 + imagePath 暫留舊圖並標記 stale + 事後補產」——
+> `resolveTextCommand()` 產卡拋出例外時直接往外傳,`server/src/wsHub.ts`
+> 與 `server/src/mcp.ts` 的呼叫端都是整個 catch 起來、回錯誤給呼叫者
+> (`commandError` / `text card generation failed: …`),**doc 完全不變**,
+> 不會有一個文字 overlay 帶著沒更新的舊 `imagePath` 留在 doc 裡。等於是
+> 比原設計更簡單的「失敗即整筆命令失敗(fail-closed)」,跟字幕路徑用「單句
+> 隔離」不同——因為命令是使用者/AI 主動觸發的單一操作,失敗時讓呼叫端知道
+> 並重試,比悄悄留一張舊卡更安全。下面兩點維持原設計描述作為**尚未實作**
+> 的可能方向,標明現況。
 
 - worker 掛/產卡失敗:該項退回 DOM 近似顯示(現行為保留為 fallback),
   toast「文字預覽暫以近似樣式顯示」;不阻塞編輯與其他卡;渲染路徑不受影響。
-  (階段 1 現況:字幕 debounce 同步已做到「失敗句缺席」,UI 端的近似顯示/toast
-  是階段 3 才會實作的消費端行為。)
-- 命令路徑產卡失敗(文字 overlay):命令仍成功(doc 已變),`imagePath`
-  暫留舊圖並標記 stale,worker 恢復後補產。(階段 2 待實作;字幕路徑已用
-  更簡單的「單句隔離」取代這個策略,文字 overlay 屆時是否比照或維持原案
-  待階段 2 開工時再定。)
+  (階段 1/2 現況:字幕 debounce 同步已做到「失敗句缺席」;文字 overlay 命令
+  路徑是 fail-closed,見上方階段 2 備註。UI 端的近似顯示/toast 是階段 3
+  才會實作的消費端行為。)
+- 命令路徑產卡失敗(文字 overlay):~~命令仍成功(doc 已變),`imagePath`
+  暫留舊圖並標記 stale,worker 恢復後補產。~~ **未採用**,實作是命令直接
+  失敗、doc 不變(見上方階段 2 備註)。
 - 批產中專案又變:以最新 doc 重排隊,hash 不符的任務丟棄。
 
 ## 10. 測試
@@ -313,10 +373,12 @@ interface OverlayText {
 | 階段 | 內容 | 驗收 | 狀態 |
 | --- | --- | --- | --- |
 | 1 | 光柵器介面 + Pillow worker + 快取 + 端點 + 字型綁定 | API 拿卡;快取命中;字型表正確 | ✅ 完成(分支 `caption-wysiwyg`,commit `c1df31b`..`be7e70d`,8 commits)。落差見 §5/§9 的落地備註。 |
-| 2 | 文字 overlay(模型/命令/Inspector/Text 鈕)+ MCP | 建立/改字/渲染成品正確 | 未開始 |
+| 2 | 文字 overlay(模型/命令/Inspector/Text 鈕)+ MCP | 建立/改字/渲染成品正確 | ✅ 完成(分支 `caption-wysiwyg`,commit `2fa4fce`..`9654256`,6 commits)。落差見 §5/§6/§9 的落地備註。 |
 | 3 | 預覽 1080 空間 + 字卡直出 + karaoke 兩卡 + 三段式編輯 | 預覽=成品;打字即時 | 未開始 |
 | 4 | 拖曳 + 吸附導線(overlay 與字幕) | 真瀏覽器回歸通過 | 未開始 |
 
 每階段獨立可驗收;1→2→3 有依賴,4 只依賴 3 的座標空間。
 
 **階段 1 完成後仍待確認**:UI 目前對階段 1 新增的一切(字卡端點、`textCards` WS 廣播)完全無感——`ui/src/stores/project.ts` 收到 `textCards` 訊息目前是刻意的 no-op(見 §9 備註),預覽畫面與匯出成品都還是階段 1 之前的行為。階段 1 只是讓「產卡」這件事本身做對、做快、做出可信賴的快取,沒有任何使用者可見的變化。
+
+**階段 2 完成後仍待確認**:文字 overlay 是本設計第一個使用者看得到的行為——UI 有「Text」鈕、Inspector 能改文字/字級/顏色、AI 也能建立與修改,渲染成品會真的燒出字。但這**不是**§1 講的「預覽=成品」問題被解決:字幕(`tracks.captions`)的預覽仍是 `ui/src/player/Player.tsx` 的 `fontSize / 3` DOM 估算,完全沒有走階段 1 蓋好的字卡通道;文字 overlay 之所以在預覽裡看起來正確,純粹是因為 overlay 軌本來就整層畫成 `<img src=imagePath>`,跟階段 1/3 要解決的「同一光柵器」無關。`/api/fonts` 端點仍無 UI 消費者(沒有字型選單,新 overlay 一律 `Heiti TC`);沒有 `@font-face`、沒有打字即時預覽通道、沒有畫布拖曳——這些都在階段 3/4。
