@@ -24,8 +24,15 @@ describe('App', () => {
       sent.push(c);
     });
     vi.spyOn(ws, 'sendContext').mockImplementation(() => {});
+    // App 掛載時注入的 <style id="server-fonts"> 貼在 document.head,不在 RTL 的 render
+    // container 裡——testing-library 的 cleanup() 不會清到它,不同 test 之間會殘留一顆空的,
+    // 讓後面測 fetch 行為的 case 因為「id 已存在」guard 提早 return,根本沒真的打到 fetch。
+    document.getElementById('server-fonts')?.remove();
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals(); // 個別測試若 vi.stubGlobal('fetch', ...) 蓋過 setup.ts 的預設 shim,這裡還原
+  });
 
   /**
    * 冷載入白屏（React #185）的回歸盔甲。
@@ -170,5 +177,24 @@ describe('App', () => {
     // commandError 本身不改 store；toast 由 ws.ts 觸發（見 ws 層），
     // 這裡確認 App 不會因為這類訊息崩掉
     expect(container.textContent).toContain('demo');
+  });
+
+  it('a network-level failure fetching /api/fonts degrades silently (no throw, no @font-face injected)', async () => {
+    // 這裡故意蓋過 setup.ts 的預設 shim(那個只模擬「打不到」的 404,不是 fetch 本身 reject)——
+    // 要驗證的是真正的網路層失敗(離線/DNS/server 還沒起來),fetch() 本身 reject 那種。
+    // 沒有 App.tsx 那顆 .catch() 的話,這個 reject 會變成 unhandled rejection——
+    // Vitest 會把它算進當次測試失敗(見 task-12-report.md 的「刻意移除驗證」)。
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new Error('network down'))),
+    );
+    seedProject();
+    expect(() => render(<App />)).not.toThrow();
+    // 讓掛載時那個 useEffect 的 fetch().catch() 有機會跑完(flush microtask)
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.getElementById('server-fonts')).toBeNull();
   });
 });

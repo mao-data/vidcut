@@ -169,7 +169,10 @@ export function App() {
         el.id = 'server-fonts';
         el.textContent = css;
         document.head.appendChild(el);
-      });
+      })
+      // 網路層真的失敗(不是 non-2xx,是 fetch 本身 reject——離線、DNS、server 還沒起來)
+      // 不能讓它變成 unhandled rejection：近似預覽退回瀏覽器預設字體就好,不是致命錯誤。
+      .catch(() => {});
   }, []);
 
   // 回報編輯脈絡給 AI（get_editor_context）。playhead 用防抖避免洗頻。
