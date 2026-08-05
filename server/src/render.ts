@@ -1,10 +1,10 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CaptionItem, Project, RenderOptions } from '@vidcut/shared';
-import { locate, overlayWindow, totalDuration } from '@vidcut/shared';
+import type { CaptionItem, Project, RenderOptions, SubtitleExportMode } from '@vidcut/shared';
+import { locate, overlayWindow, serializeSrt, totalDuration } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 import { cardRequestError } from './cardBudget.js';
@@ -193,8 +193,11 @@ export function buildRenderArgs(
   const overlays = project.tracks.overlays;
   const audioItems = project.tracks.audio;
   const captionCards = opts.captionCards ?? [];
+  // 只有 burn 模式把字幕燒進畫面；off/sidecar/embed 都要乾淨畫面
+  // （soft track 疊上燒錄＝觀眾開字幕看到兩排字）
+  const burnCaptions = (exp.subtitles ?? 'burn') === 'burn';
   // 有字卡就用字卡（呼叫端已判斷需不需要）；沒有字卡才退回原生 drawtext
-  const useCards = captionCards.length > 0;
+  const useCards = burnCaptions && captionCards.length > 0;
   const total = totalDuration(project);
 
   const args: string[] = [];
@@ -376,7 +379,7 @@ export function buildRenderArgs(
       vcur = next;
     });
     captionsBurned = true;
-  } else if (opts.hasDrawtext && project.tracks.captions.length > 0) {
+  } else if (burnCaptions && opts.hasDrawtext && project.tracks.captions.length > 0) {
     for (const cap of project.tracks.captions) {
       const next = `[cap_${cap.id}]`;
       const yExpr = `(h*${cap.style.y})`;
@@ -429,6 +432,10 @@ export function buildRenderArgs(
 export interface RenderResult {
   outPath: string;
   captionsBurned: boolean;
+  /** `sidecar` 模式產出的字幕檔（相對專案資料夾）；其餘模式為 undefined。 */
+  subtitlePath?: string;
+  /** `embed` 模式是否真的把 soft track 混進成品。 */
+  subtitlesEmbedded: boolean;
 }
 
 /**
@@ -489,11 +496,13 @@ export async function render(
     }
   }
 
-  // 需要字卡的兩種情況：本機沒有 drawtext，或有逐詞高亮（drawtext 做不到逐詞著色）
+  // 需要字卡的兩種情況：本機沒有 drawtext，或有逐詞高亮（drawtext 做不到逐詞著色）。
+  // 非 burn 模式不燒字幕，連字卡都不必產（一支長片省下數百次 Pillow 呼叫）。
   const captions = project.tracks.captions;
+  const subtitleMode: SubtitleExportMode = exportOpts?.subtitles ?? 'burn';
   const karaoke = captions.some((c) => c.tokens && c.tokens.length > 0);
   let captionCards: CaptionCard[] = [];
-  if (captions.length > 0 && (!drawtext || karaoke)) {
+  if (captions.length > 0 && subtitleMode === 'burn' && (!drawtext || karaoke)) {
     // 先估數量再產圖——否則超量時會先寫上千張 PNG 才報錯
     const expected = captions.reduce((n, c) => n + Math.max(1, c.tokens?.length ?? 1), 0);
     if (expected > MAX_CAPTION_CARDS) {
@@ -544,10 +553,47 @@ export async function render(
     });
   });
 
+  // 字幕檔：sidecar 放使用者拿得到的 output/；embed 的 .srt 只是餵 ffmpeg 的中間物，放 derived/。
+  // 兩者都在標記 done 之前完成，避免 UI 看到 done 時成品還缺字幕軌。
+  let subtitlePath: string | undefined;
+  let subtitlesEmbedded = false;
+  const srt = subtitleMode === 'sidecar' || subtitleMode === 'embed' ? serializeSrt(captions) : '';
+  if (srt !== '') {
+    if (subtitleMode === 'sidecar') {
+      subtitlePath = join('output', `${stamp}.srt`);
+      await writeFile(join(projectDir, subtitlePath), srt, 'utf8');
+    } else {
+      const srtPath = join(projectDir, 'derived', 'subtitles', `${stamp}.srt`);
+      await mkdir(dirname(srtPath), { recursive: true });
+      await writeFile(srtPath, srt, 'utf8');
+      // ffmpeg 不能就地改寫自己的輸入，所以混到暫檔再蓋回去
+      const muxed = join(outDir, `${stamp}.subbed.mp4`);
+      await runFfmpeg([
+        '-i',
+        outPath,
+        '-i',
+        srtPath,
+        '-map',
+        '0',
+        '-map',
+        '1:0',
+        '-c',
+        'copy',
+        '-c:s',
+        'mov_text',
+        '-movflags',
+        '+faststart',
+        muxed,
+      ]);
+      await rename(muxed, outPath);
+      subtitlesEmbedded = true;
+    }
+  }
+
   store.mutate('ai', 'render done', (d) => {
     d.render = { status: 'done', progress: 1, lastOutput: outRel };
   });
-  return { outPath: outRel, captionsBurned: plan.captionsBurned };
+  return { outPath: outRel, captionsBurned: plan.captionsBurned, subtitlePath, subtitlesEmbedded };
 }
 
 /**

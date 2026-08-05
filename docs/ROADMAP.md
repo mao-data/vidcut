@@ -1,6 +1,6 @@
 # vidcut 上線計劃與可行方向
 
-最後更新 2026-08-03。現況與已驗證範圍見 `HANDOFF.md`；各項設計定案見 `docs/superpowers/specs/`。
+最後更新 2026-08-04。現況與已驗證範圍見 `HANDOFF.md`；各項設計定案見 `docs/superpowers/specs/`。
 
 ## 進行中
 
@@ -14,6 +14,100 @@
 | 2    | 右側面板新增 `Media` 分頁：素材夾掃描 → 勾選匯入 → 已匯入清單 → 加到時間軸                                                                                  | 待實作 |
 
 階段 1 完成即可透過 MCP 使用，不必等 UI。
+
+### 字幕能力補完（源自 FreeCut 調研，2026-08-04）
+
+調研對象：[walterlow/freecut](https://github.com/walterlow/freecut)（MIT，瀏覽器內 NLE）。
+五項裡「字幕匯出」已完成，其餘四項排期如下。**抄程式碼要保留 MIT 版權聲明。**
+
+| #   | 項目                                     | 狀態    | 估時   | 備註                                                                                                     |
+| --- | ---------------------------------------- | ------- | ------ | -------------------------------------------------------------------------------------------------------- |
+| 1   | **SRT/VTT 匯出（sidecar + soft track）** | ✅ 完成 | 半天   | `render` 新增 `subtitles: 'burn'\|'off'\|'sidecar'\|'embed'`，預設 `burn` 維持現有行為                   |
+| 2   | 字幕樣式 preset（5 組）                  | 待實作  | 1–2 天 | 見下                                                                                                     |
+| 3   | typewriter 逐字揭示                      | 待實作  | 半天   | 見下                                                                                                     |
+| 4   | word 單位的 in/out 文字動畫              | 待實作  | 2–3 天 | 見下                                                                                                     |
+| 5   | SRT/VTT 匯入 + 內嵌軌抽取                | 待實作  | 2–3 天 | ⚠️ 必須與「字幕錨定 clip」綁在一起，見下                                                                 |
+| —   | ~~自寫 MKV EBML parser~~                 | 不做    | —      | FreeCut 手刻 548 行是因為瀏覽器沒有 ffmpeg；我們有，用 `ffprobe -select_streams s` + `ffmpeg -map 0:s:0` |
+| —   | ~~per-character 真動畫~~                 | 暫緩    | —      | Pillow 預烤 PNG 下等於每格重新光柵化；ffmpeg 端一句 12 字＝12 路濾鏡鏈會爆。等渲染路徑換掉再說           |
+
+#### 2. 字幕樣式 preset
+
+FreeCut 的 `layout` 存**比例**（`fontSizeRatio`/`yRatio`）是為了多解析度；vidcut 固定
+1080×1920，直接存絕對值即可。真正值錢的是那 5 組數值本身 —— 換算到 1920 高之後：
+
+| preset      | fontSize | y    | 描邊     | 其他                                   |
+| ----------- | -------- | ---- | -------- | -------------------------------------- |
+| TikTok      | **144**  | 置中 | 2px 黑   | Anton、letterSpacing 1、陰影 blur 8    |
+| Bold Yellow | **96**   | 0.38 | 1.5px 黑 | `#FFD400`、Roboto Slab bold            |
+| YouTube     | **86**   | 0.34 | 無       | 純陰影 blur 14、Roboto medium          |
+| Netflix     | **77**   | 0.36 | 無       | 半透明黑底 `rgba(0,0,0,.55)`、radius 4 |
+| Outlined    | **77**   | 0.34 | 1px 黑   | 無陰影、Manrope                        |
+
+**注意目前的 `DEFAULT_CAPTION_STYLE.fontSize = 64` 比這五組都小** —— 1080 寬、64px 在手機上
+偏秀氣，TikTok 那組的 144px 才是短影音的實際尺度。這個發現本身可能比 preset 功能還有價值。
+
+落地成本不是零：`CaptionStyle` 目前只有 `fontFamily/fontSize/fill/stroke/y/highlight`，
+上表要完整落地得先擴 `text_card.py` 的參數面 —— `strokeWidth`（現在的 `stroke` 只有顏色）、
+`textShadow`、`backgroundColor`+`radius`、`letterSpacing`。**建議分兩步**：先加前三個
+（涵蓋五組裡四組），preset 表放 `shared/src/captionPresets.ts`，MCP 加
+`set_caption_style({ preset })`；`letterSpacing` 留最後。
+順帶抄 `detectActiveCaptionPreset()`（反向比對目前樣式來高亮 UI 上作用中的 chip）。
+
+#### 3. typewriter 逐字揭示
+
+FreeCut 的 typewriter preset 根本不是動畫：`channels: (p) => ({ alpha: p >= 1 ? 1 : 0 })`，
+就是「第 N 個字在第 N×stagger 幀出現」。**這跟既有的 karaoke clip-path 是同一個機制** ——
+預覽端把 `karaokeClip()` 的 active index 從「唸到第幾個詞」換成「時間到第幾個字」即可；
+匯出端已有「一詞一卡」，改逐字同理。幾乎零成本，先做這個。
+
+#### 4. word 單位的 in/out 文字動畫
+
+**抄架構，不抄實作。** FreeCut 的 `text-motion/evaluate.ts` 精華是：motion 是
+clip-relative frame 的**確定性純函數**（無狀態、無烘焙關鍵影格），所以預覽/拖動/匯出
+「由建構保證一致」。這對 vidcut 特別重要 —— `verify:wysiwyg` 剛把「預覽=成品」釘住，
+動畫若引入任何狀態或烘焙，那個性質立刻破功。
+
+要抄的規則：
+
+- preset = 10 行內的純函數 `(easedP, ctx) => Partial<MotionState>`。
+- 位移用 `fontSize` 倍數（`dy: (1-p) * 0.25 * fontSize * intensity`）→ 任何字級看起來一樣。
+- in/out 窗口超過 clip 一半就**整體等比壓縮**，不是截斷（短句上的長 stagger 會擠不會斷尾）。
+- out 永遠贏：落在 out 窗口內的 frame 只算 out，in 視為已定格（clamp，never glitch）。
+- random 順序用 mulberry32 確定性 PRNG + memo（每格每字都算，O(n) shuffle 會變 O(n²)）。
+
+**不能抄的**：FreeCut 把狀態餵進 GPU glyph atlas，per-glyph 每格算。我們是 Pillow 預烤 PNG。
+可行降級：把狀態降成「整張卡的 dx/dy/scale/alpha」，複用既有的一詞一卡機制，用 ffmpeg
+overlay 時間表達式（`x='...'` / `colorchannelmixer=aa='...'`）。`fade-up`/`rise`/`pop`/
+`fade-down`/`sink` 五個 word 單位的 preset 全部可行 —— 80% 體感、20% 工。
+
+#### 5. SRT/VTT 匯入 + 內嵌軌抽取
+
+`shared/utils/subtitles.ts` 的 parser 是 180 行零依賴純函數（BOM、`\r\n`、時數可省略、
+`,`/`.` 兩種毫秒分隔、VTT 的 `NOTE`/`STYLE`/`REGION` 跳過、壞掉的 block 收進 `warnings[]`
+而不是整批失敗），**可以直接抄**。`SubtitleCue{id,startSeconds,endSeconds,text}` 跟
+`CaptionItem` 只差 `duration = end - start`。
+
+內嵌軌用 ffmpeg，不要抄 EBML parser：
+
+```bash
+ffprobe -v error -select_streams s \
+  -show_entries stream=index,codec_name:stream_tags=language,title -of json in.mkv
+ffmpeg -i in.mkv -map 0:s:0 -c:s srt out.srt
+```
+
+快取沿用 FreeCut 的做法：**fileSize + mtime 當指紋**寫 sidecar JSON，避免每次重掃
+（3GB MKV 掃一次 20–30 秒）。
+
+**⚠️ 這項有一筆帳要先付，所以不能單獨排。** 匯入的 SRT 是**素材時間**，
+`CaptionItem.start` 是**時間軸絕對秒**，要算 `timelineStart = clip.start + (cue.start - clip.in)`
+並裁掉落在 trim 範圍外的 cue。vidcut 目前**沒有 source↔timeline 換算層**（`auto_caption`
+吃的是時間軸混音，當初刻意省掉的）。同一筆帳也是「字幕跟隨剪輯」缺口的成因 ——
+現在 `timeline_op split`/`deleteBefore` 之後字幕**不會跟著動**。兩件事綁在一起做：
+給 `CaptionItem` 加 `anchor?: {clipId, offset}`（比照 `OverlayItem.anchor`），
+渲染前把錨定解析成絕對時間。
+
+ASS inline markup（`subtitle-cue-format.ts`）只取一半：剝掉標記 + 認 `{\anN}` 換算成
+`style.y`（`{\an8}` → y≈0.05）。per-run 粗斜體要改 `text_card.py`，等真的需要再說。
 
 ## 可行方向（尚未排程）
 

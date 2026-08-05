@@ -261,6 +261,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'set_overlays / set_captions 上字（講話類影片直接用 auto_caption 自動上字幕＋逐詞高亮）→ ' +
         'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
+        'render 的 subtitles 預設 burn（字幕燒進畫面）；要讓觀眾自己開關就用 embed，' +
+        '要上傳到會自動翻譯字幕的平台就用 sidecar（另存 .srt），burn 以外畫面都乾淨。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
         '疊圖分兩種，text 與 imagePath 恰好給一個：文字類用 add_overlay/update_overlay/set_overlays 帶 ' +
         'text（伺服器自動產字卡並維護 imagePath，不要自己給，之後改字直接送新 text）；' +
@@ -881,10 +883,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '從專案輸出成品 mp4（1080×1920，重新編碼）。回傳輸出路徑與 URL。' +
-        '字幕會燒錄（本機無 drawtext 或有逐詞高亮時自動走 PNG 字卡）。' +
-        '逐詞高亮＝一個詞一張字卡，字幕很多時渲染會變慢。',
+        'subtitles 預設 burn＝字幕燒進畫面（本機無 drawtext 或有逐詞高亮時自動走 PNG 字卡；' +
+        '逐詞高亮＝一個詞一張字卡，字幕很多時渲染會變慢）。' +
+        "想讓觀眾自己開關字幕就用 'embed'（soft track，回傳 subtitlesEmbedded）；" +
+        "要上傳到會自動翻譯字幕的平台就用 'sidecar'（另存 .srt，回傳 subtitlePath）。" +
+        'burn 以外的模式畫面都是乾淨的——soft track 疊上燒錄會讓觀眾看到兩排字。',
       inputSchema: {
         stamp: z.string().optional(),
+        subtitles: z
+          .enum(['burn', 'off', 'sidecar', 'embed'])
+          .optional()
+          .describe(
+            '字幕處理：burn=燒進畫面（預設）／off=不放／sidecar=另存 .srt／embed=內嵌 soft track。' +
+              'burn 以外都不燒。字幕軌是空的時候 sidecar/embed 不會產生任何字幕檔或字幕軌。',
+          ),
         width: z.number().optional().describe('輸出寬（預設用專案畫布 1080）'),
         height: z.number().optional().describe('輸出高（預設 1920）'),
         fps: z.number().optional(),
@@ -899,13 +911,29 @@ export function createMcpServer(deps: McpDeps): McpServer {
       try {
         const s = stamp ?? `render_${store.version}`;
         const res = await render(store, projectDir, s, exportOpts);
+        const mode = exportOpts.subtitles ?? 'burn';
+        // burn 模式下沒燒成功才值得警告（本機沒 drawtext 又沒字卡）；
+        // 其他模式的「沒燒」是使用者要的，別報成問題。
+        const note =
+          mode === 'burn'
+            ? res.captionsBurned
+              ? ''
+              : ' (captions not burned: no drawtext)'
+            : res.subtitlePath
+              ? ` (subtitles → ${res.subtitlePath})`
+              : res.subtitlesEmbedded
+                ? ' (subtitles embedded as a soft track)'
+                : ' (no captions to export)';
         return result(
           {
             output: res.outPath,
             url: `${baseUrl}/media/${res.outPath}`,
             captionsBurned: res.captionsBurned,
+            subtitles: mode,
+            subtitlePath: res.subtitlePath,
+            subtitlesEmbedded: res.subtitlesEmbedded,
           },
-          `rendered → ${baseUrl}/media/${res.outPath}${res.captionsBurned ? '' : ' (captions not burned: no drawtext)'}`,
+          `rendered → ${baseUrl}/media/${res.outPath}${note}`,
         );
       } catch (e) {
         store.mutate('ai', 'render error', (d) => {

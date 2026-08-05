@@ -178,8 +178,21 @@ export interface RenderState {
   coverPath?: string;
 }
 
+/**
+ * 字幕在成品裡的處理方式。
+ * - `burn`（預設）：燒進畫面，關不掉——維持本欄位存在前的行為。
+ * - `off`：完全不放字幕。
+ * - `sidecar`：畫面乾淨，另外產一個同名 `.srt` 放在 `output/`。
+ * - `embed`：畫面乾淨，字幕以 soft track 內嵌進 mp4（`mov_text`），播放器可自行開關。
+ *
+ * `off`/`sidecar`/`embed` 都**不燒**——soft track 若同時燒錄，觀眾開字幕會看到兩排字。
+ */
+export type SubtitleExportMode = 'burn' | 'off' | 'sidecar' | 'embed';
+
 /** 匯出設定。省略時用專案畫布尺寸與預設品質。 */
 export interface RenderOptions {
+  /** 字幕處理方式，預設 `burn`。 */
+  subtitles?: SubtitleExportMode;
   /** 輸出短邊寬（等比縮放整個合成結果），例：720 / 1080 */
   width?: number;
   height?: number;

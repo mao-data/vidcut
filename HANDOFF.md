@@ -271,6 +271,47 @@
 
 **下一步（Tier 2 其餘）**：偵測工具組（`detect_silence`/`detect_scenes`/`detect_beats` → 回傳時間戳給 AI 決策）、**模板化＋批次渲染**、transcript 式長轉短。優先建議：beat 偵測 + 模板化（對 ranking 片管線立刻有感）。
 
+## 字幕匯出四模式（2026-08-04）
+
+背景與後續排期見 `docs/ROADMAP.md`「字幕能力補完」。**在此之前字幕只能燒進畫面、關不掉。**
+
+- **`RenderOptions.subtitles`（`shared/src/types.ts`）**：`'burn' | 'off' | 'sidecar' | 'embed'`，
+  **預設 `burn`**——不帶這個參數時行為與本功能存在前完全相同（有回歸測試釘住）。
+- **`shared/src/subtitles.ts`（新）**：`serializeSrt` / `serializeVtt` 純函數。
+  時間基準是**成品時間軸**（`CaptionItem.start` 本來就是時間軸絕對秒，零換算）。
+  會濾掉空字與零長度、依開始時間排序後重新編號。
+- **`buildRenderArgs`**：`burn` 以外的模式令 `useCards = false` 並跳過 drawtext 分支。
+  ⚠️ 這**不只是不畫**——`useCards` 同時決定字卡的 `-i` input 要不要加，而
+  `audioInputBase` 是從它算出來的。只擋濾鏡不擋 input 會讓音訊 input 索引整批位移，
+  成品會靜默錯軌。回歸測試 `drops the caption card inputs ... so later input indices
+stay correct` 就是釘這件事。
+- **`render()`**：非 `burn` 模式**連字卡都不產**（長片省下數百次 Pillow 呼叫）。
+  ffmpeg 跑完後、標記 `done` 之前處理字幕檔：
+  - `sidecar` → 寫 `output/<stamp>.srt`，回傳 `subtitlePath`。
+  - `embed` → `.srt` 寫進 `derived/subtitles/`（只是餵 ffmpeg 的中間物），
+    再 `-c copy -c:s mov_text` 混到 `output/<stamp>.subbed.mp4` 後 rename 蓋回去
+    （ffmpeg 不能就地改寫自己的輸入）。回傳 `subtitlesEmbedded`。
+  - 字幕軌是空的時候兩者都不產生任何檔案或字幕軌（有測試釘住，因為 MCP 描述寫了這句）。
+- **MCP `render`**：新增 `subtitles` enum 參數，`structuredContent` 多回
+  `subtitles` / `subtitlePath` / `subtitlesEmbedded`。工具描述與 server `instructions` 已同步。
+  回覆文字的 `(captions not burned: no drawtext)` 警告**只在 `burn` 模式下**出現——
+  其他模式的「沒燒」是使用者要的，報成問題會誤導 AI。
+
+**為什麼 `embed` 一定要能關掉燒錄**：soft track 疊上燒錄，觀眾開字幕就看到兩排字。
+所以 `off`/`sidecar`/`embed` 三者畫面都是乾淨的，這不是可選的設計偏好。
+
+**vidcut 在這裡比 FreeCut 有優勢**：FreeCut 因為 mediabunny 不啟動 ISOBMFF 的 subtitle
+`auxWriter`，WebVTT 進 MP4 會拋出無法攔截的 floating rejection，只能在 MP4 上退回燒錄；
+我們走 ffmpeg，MP4 用 `mov_text`、MKV 用 `srt`，沒有這個限制。
+
+**驗證**：`server/test/render-subtitles.test.ts`（15 個測試，約 8 秒）。
+整合測試是真 ffmpeg——`sidecar` 比對 `.srt` 全文、`embed` 用
+`ffmpeg -map 0:s:0 -f srt -` **把字幕解回來**比對中文（只驗 ffprobe 看得到軌，
+證不了 UTF-8 有活著）。另有 `shared/src/subtitles.test.ts` 6 個純函數測試。
+
+**尚未做的**：VTT 只有序列化函數，`render` 的 sidecar 固定輸出 `.srt`（沒有格式參數）；
+UI 的 ExportMenu 沒有這個選項，目前只有 MCP 走得到。
+
 ## UI 重設計（2026-07-30 夜間）
 
 spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md)（brainstorm 含瀏覽器 mockup 比選，使用者逐步定案：C 現代 web 視覺 × 保守版面 × 峰值+RMS 波形）。
