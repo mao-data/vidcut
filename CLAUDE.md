@@ -58,6 +58,16 @@ npm run verify:panels                       # 面板控制項的瀏覽器回歸�
 - **不要 `git add -A`**：這個工作區常有多個 session 同時進行，全加會把別人改到一半的檔案掃進你的 commit。
   只 stage 你自己動過的路徑。
 - 除非使用者要求，不要自行 commit 或 push。
+- **新開 worktree 的第一件事是在裡面 `npm install`。** 沒裝之前跑出來的測試與型別檢查
+  結果**一律不算數**，而且它不會報錯——Node 找不到 worktree 自己的 `node_modules` 會
+  往上一層解析到主 repo 的，而 `node_modules/@vidcut/shared` 是指向 `../../shared` 的
+  symlink，也就是**主 repo 當前檢出的那個分支**的 shared。這個工作區常態是多個 session
+  各開 worktree 各在不同分支，所以你會拿自己的 server 程式碼去對別人分支的 `shared`
+  做型別檢查與測試。`shared/` 不只有型別、還有執行期程式碼，所以測試照跑、照綠——
+  實測踩過一次：`tsc` 噴十幾條 `Type '"addClip"' is not assignable to ...`，同一次執行
+  的「240 passed、71/71 mutants killed」全部作廢。兩邊型別剛好相容時連 tsc 都不會噴，
+  就是一組看似完美、其實量錯對象的數字。
+  自檢：`ls -l <worktree>/node_modules/@vidcut/shared` 必須指向該 worktree 內的 `shared`。
 
 ## 交叉參考
 

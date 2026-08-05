@@ -94,46 +94,53 @@ export async function ingestMedia(
 
     // 3. peaks —— 8kHz mono s16le → 160 樣本/桶 max|amp| 正規化 0–1
     const pcmDir = await mkdtemp(join(tmpdir(), 'vidcut-pcm-'));
-    const pcmFile = join(pcmDir, 'a.pcm');
-    const pcmSrc = info.hasAudio ? abs : join(derivedAbs, 'proxy.mp4'); // 無音軌用 proxy 的靜音軌
-    await runFfmpeg([
-      '-i',
-      pcmSrc,
-      '-ac',
-      '1',
-      '-ar',
-      String(PEAK_SAMPLE_RATE),
-      '-f',
-      's16le',
-      pcmFile,
-    ]);
-    const pcm = await readFile(pcmFile);
-    // 每桶同時取 max（峰值包絡）與 RMS（能量核心）——雙層波形靠這兩個陣列
-    const peaks: number[] = [];
-    const rms: number[] = [];
-    const step = PEAK_SAMPLES_PER_BUCKET * 2; // 2 bytes/sample
-    for (let i = 0; i + 1 < pcm.length; i += step) {
-      let max = 0;
-      let sumSq = 0;
-      let n = 0;
-      for (let j = i; j < Math.min(i + step, pcm.length - 1); j += 2) {
-        const v = pcm.readInt16LE(j);
-        max = Math.max(max, Math.abs(v));
-        sumSq += v * v;
-        n++;
+    // a.pcm 只是算 peaks 的中間產物，peaks.json 寫完就沒用了。用 finally 而不是把 rm
+    // 排在最後一行：中途任何一步丟錯（ffmpeg 失敗、peaks.json 寫不進去）都必須清掉，
+    // 否則每匯入一支素材就在系統 temp 漏一個目錄，且永遠不會自己消失。
+    try {
+      const pcmFile = join(pcmDir, 'a.pcm');
+      const pcmSrc = info.hasAudio ? abs : join(derivedAbs, 'proxy.mp4'); // 無音軌用 proxy 的靜音軌
+      await runFfmpeg([
+        '-i',
+        pcmSrc,
+        '-ac',
+        '1',
+        '-ar',
+        String(PEAK_SAMPLE_RATE),
+        '-f',
+        's16le',
+        pcmFile,
+      ]);
+      const pcm = await readFile(pcmFile);
+      // 每桶同時取 max（峰值包絡）與 RMS（能量核心）——雙層波形靠這兩個陣列
+      const peaks: number[] = [];
+      const rms: number[] = [];
+      const step = PEAK_SAMPLES_PER_BUCKET * 2; // 2 bytes/sample
+      for (let i = 0; i + 1 < pcm.length; i += step) {
+        let max = 0;
+        let sumSq = 0;
+        let n = 0;
+        for (let j = i; j < Math.min(i + step, pcm.length - 1); j += 2) {
+          const v = pcm.readInt16LE(j);
+          max = Math.max(max, Math.abs(v));
+          sumSq += v * v;
+          n++;
+        }
+        peaks.push(Number((max / 32768).toFixed(4)));
+        rms.push(Number((Math.sqrt(sumSq / Math.max(1, n)) / 32768).toFixed(4)));
       }
-      peaks.push(Number((max / 32768).toFixed(4)));
-      rms.push(Number((Math.sqrt(sumSq / Math.max(1, n)) / 32768).toFixed(4)));
+      await writeFile(
+        join(derivedAbs, 'peaks.json'),
+        JSON.stringify({
+          samplesPerBucket: PEAK_SAMPLES_PER_BUCKET,
+          sampleRate: PEAK_SAMPLE_RATE,
+          peaks,
+          rms,
+        }),
+      );
+    } finally {
+      await rm(pcmDir, { recursive: true, force: true });
     }
-    await writeFile(
-      join(derivedAbs, 'peaks.json'),
-      JSON.stringify({
-        samplesPerBucket: PEAK_SAMPLES_PER_BUCKET,
-        sampleRate: PEAK_SAMPLE_RATE,
-        peaks,
-        rms,
-      }),
-    );
 
     // 4. 登記（單一 mutation）
     const asset: MediaAsset = {

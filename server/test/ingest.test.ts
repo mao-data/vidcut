@@ -207,3 +207,57 @@ describe('ingestMedia', () => {
     }
   }, 60_000);
 });
+
+// peaks 那步會在系統 temp 開一個 vidcut-pcm-* 目錄放中間產物 a.pcm。算完 peaks.json
+// 之後那個 .pcm 就沒用了——但它曾經從來沒被刪過，於是**產品程式碼**每匯入一支素材就
+// 漏一個目錄（大小約每分鐘影片 1MB），永遠不會自己消失。實測這台機器一天累積出上千個。
+//
+// 量測方式：server/src 裡只有 ingest.ts 用 tmpdir()，所以把 TMPDIR 指到一個空的沙箱
+// 目錄，ingest 跑完後那個沙箱**必須是空的**——不必去數全域 temp（會被別的程序干擾）。
+describe('ingestMedia 的 PCM 暫存目錄清理', () => {
+  async function withTmpSandbox<T>(fn: () => Promise<T>): Promise<[string[], T | Error]> {
+    const sandbox = await mkdtemp(join(tmpdir(), 'vidcut-tmpsandbox-'));
+    const saved = process.env.TMPDIR;
+    process.env.TMPDIR = sandbox;
+    let out: T | Error;
+    try {
+      out = await fn();
+    } catch (e) {
+      out = e as Error;
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+    }
+    return [await readdir(sandbox), out];
+  }
+
+  it('匯入成功後不留下 vidcut-pcm-* 暫存目錄', async () => {
+    const { dir, store } = await setup();
+    await makeVideo(dir, 'src.mp4', { duration: 1, withAudio: true });
+
+    const [left, out] = await withTmpSandbox(() => ingestMedia(store, dir, 'src.mp4'));
+
+    expect(out).not.toBeInstanceOf(Error); // 先確認走的是成功路徑
+    expect(left).toEqual([]);
+  }, 60_000);
+
+  it('peaks.json 寫入失敗時，先前建立的 PCM 暫存目錄一樣會被清掉', async () => {
+    const { dir, store } = await setup();
+    await makeVideo(dir, 'src.mp4', { duration: 1, withAudio: true });
+
+    nanoidOverride = 'fixedid2';
+    try {
+      // 搶先把 peaks.json 佔成目錄 → writeFile 丟 EISDIR。這個失敗點刻意選在
+      // mkdtemp 之後，才驗得到「中途丟錯時暫存目錄有沒有被清」這條路徑。
+      await mkdir(join(dir, 'derived', 'fixedid2', 'peaks.json'), { recursive: true });
+
+      const [left, out] = await withTmpSandbox(() => ingestMedia(store, dir, 'src.mp4'));
+
+      expect(out).toBeInstanceOf(Error); // 先確認真的走到失敗路徑
+      expect(store.doc.media).toHaveLength(0);
+      expect(left).toEqual([]);
+    } finally {
+      nanoidOverride = null;
+    }
+  }, 60_000);
+});

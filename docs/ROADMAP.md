@@ -125,10 +125,16 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   加了 case 卻忘記在 `mcp.ts` `registerTool`」（`CLAUDE.md` 鐵則第三步）而寫的，但它比對
   的是靜態字串，工具真的沒註冊時它不會紅。要有保護力必須實際 `listTools()` 並與
   instructions 裡列出的工具名取交集比對。
-- **測試會洩漏暫存目錄**——真-ffmpeg 測試建的 `vidcut-*` 暫存目錄沒有在 teardown 清掉，
-  本輪累積到 **38,754 個目錄／16GB+**，直接把機器磁碟壓到剩 740Mi 才被發現（已手動清掉、
-  回收 25.5GB）。修法是在建立暫存目錄的測試 helper 加 `afterAll` 清理；沒修之前，長期跑
-  測試的機器會週期性被塞爆。
+- **測試會洩漏暫存目錄（產品面已修，測試面仍在漏）**——真-ffmpeg 測試建的 `vidcut-*`
+  暫存目錄沒有在 teardown 清掉：`server/test` 裡有 **91 個 `mkdtemp` 呼叫，只有 15 處
+  `rm(recursive)`**，27 個用到 `mkdtemp` 的測試檔中有 16 個連 `afterAll`/`afterEach`
+  都沒有。數量還會被 helper 放大——`commands.test.ts` 只寫了 3 個 `mkdtemp`，卻因為
+  `storeWithClips()` 是每條測試都呼叫一次的 helper 而產出 4,291 個目錄，所以殘留量是
+  「測試條數 × 跑過幾次」。實測**一天累積 13,764 個目錄／5.93GB**（先前更曾累積到
+  38,754 個／16GB+，把磁碟壓到剩 740Mi）。修法是在建立暫存目錄的測試 helper 加
+  `afterAll` 清理；沒修之前，長期跑測試的機器會週期性被塞爆。
+  （產品程式碼那半——`ingest.ts` 的 `vidcut-pcm-*`——已於 `fix-pcm-leak` 修好並有
+  `ingest-pcm-cleanup` mutant 守著，見下。）
 - **`mcp-tools.test.ts:317` 有一條套套邏輯斷言**——
   `expect(sc.clipId).toBe(store.doc.tracks.video.at(-1)!.id)` 兩邊用同一個 `.at(-1)` 讀
   同一份狀態，恆真。審查者把 `push` 改成 `unshift` 實測，真正轉紅的是鄰行的 `label`

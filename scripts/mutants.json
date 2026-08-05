@@ -567,5 +567,13 @@
     "replace": "      const r = aiWrite(store, cmd);",
     "tests": "server/test/mcp-tools.test.ts",
     "note": "add_clip 掉 ifVersion 佈線 → AI 的過期寫入會覆蓋人剛做的修改；stale 測試必須抓到"
+  },
+  {
+    "id": "ingest-pcm-cleanup",
+    "file": "server/src/ingest.ts",
+    "find": "    } finally {\n      await rm(pcmDir, { recursive: true, force: true });\n    }",
+    "replace": "    } finally {\n      /* mutant: 不清 PCM 暫存目錄 */\n    }",
+    "tests": "server/test/ingest.test.ts",
+    "note": "拿掉 PCM 中間產物目錄的清理 → 產品程式碼每匯入一支素材就在系統 temp 漏一個 vidcut-pcm-* 目錄；成功路徑與 peaks.json 失敗路徑兩條測試都必須抓到"
   }
 ]

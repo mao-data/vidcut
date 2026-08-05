@@ -1093,3 +1093,64 @@ PCM 暫存目錄需要用完即刪，測試檔需要統一補 `afterEach`/`after
 mutant，兩輪跑完未留下任何殘留變更）。
 
 磁碟：開始前 **26Gi** 可用 → 結束後 **24Gi** 可用（見上「六」的暫存目錄洩漏量級佐證）。
+
+---
+
+# 補記：修掉產品程式碼的 PCM 暫存目錄洩漏（`fix-pcm-leak`）
+
+分級 **Tier 2**（bug 修復，走完整 RED→GREEN→GAUNTLET）。上一節「六」把暫存目錄洩漏
+列為「新發現但本輪不修的缺陷」，並指出其中一項**不是測試髒，是產品程式碼**。這一節
+就是把那一項修掉。
+
+## 問題
+
+`server/src/ingest.ts` 算音訊波形（`peaks.json`）時，會先開一個 `vidcut-pcm-*` 暫存
+目錄，叫 ffmpeg 把整段聲音轉成 8kHz mono s16le 原始取樣寫進 `a.pcm`，讀回來算出
+`peaks`／`rms` 之後寫成 `peaks.json`。`peaks.json` 才是要保留的產物，`a.pcm` 與它的
+目錄用完即廢——但**沒有任何一行刪它**。
+
+後果不限於開發機：這是上線路徑上的程式碼，**任何使用者每匯入一支素材就漏一個目錄**，
+大小約每分鐘影片 1MB，且永遠不會自己消失（macOS 對 `/var/folders` 的自動清理要同時
+滿足「三天未存取」與磁碟吃緊，不能當保障）。實測這台機器上一天累積出 1,551 個
+`vidcut-pcm-*`。
+
+## RED（先看到紅，才動手）
+
+量測方式刻意不去數全域 temp（會被其他同時在跑的程序干擾）：`server/src` 裡**只有
+`ingest.ts` 用 `tmpdir()`**（`grep -rn tmpdir server/src` 僅兩處命中，皆在該檔），
+所以把 `process.env.TMPDIR` 指向一個空的沙箱目錄，`ingestMedia` 跑完後那個沙箱
+**必須是空的**——這是確定性量測，不受併發影響。
+
+| 測試（`server/test/ingest.test.ts`）                           | 驗什麼                             |
+| -------------------------------------------------------------- | ---------------------------------- |
+| 「匯入成功後不留下 vidcut-pcm-\* 暫存目錄」                    | 成功路徑                           |
+| 「peaks.json 寫入失敗時，先前建立的 PCM 暫存目錄一樣會被清掉」 | 中途丟錯的路徑（`finally` 的理由） |
+
+失敗路徑的觸發用的是既有測試已建立的手法（`nanoidOverride` 固定 id，預先把輸出路徑
+佔成目錄逼真實 ffmpeg／`writeFile` 丟 EISDIR），失敗點刻意選在 `mkdtemp` **之後**的
+`peaks.json` 寫入——排在 `mkdtemp` 之前的失敗點驗不到這條路徑。兩條測試都先各自加了
+「確認真的走到成功／失敗路徑」的前置斷言，避免測到空氣。
+
+實跑 RED：兩條皆紅，訊息是 `expected [ 'vidcut-pcm-7woGio' ] to deeply equal []`
+——**紅的原因正是留下的那個目錄名**，不是別的錯誤；同檔既有 9 條測試維持綠。
+
+## GREEN
+
+把 `mkdtemp` 之後到 `peaks.json` 寫入之間包成 `try`，清理放 `finally`：
+
+```ts
+} finally {
+  await rm(pcmDir, { recursive: true, force: true });
+}
+```
+
+用 `finally` 而不是「把 `rm` 排在最後一行」是關鍵：ffmpeg 失敗或 `peaks.json` 寫不
+進去時，最後一行永遠跑不到，照樣漏。這與同檔 `derived/<id>` 清理踩過的是同一個坑
+（那處由既有 mutant `ingest-cleanup` 守著）。實跑 GREEN：11/11 全過。
+
+## 回歸護甲
+
+新增 mutant `ingest-pcm-cleanup`（`scripts/mutants.json` 由 71 → 72 隻）：把 `finally`
+的內容清空、保留 `finally` 區塊本身（避免變成語法錯誤而被錯誤歸因）。單獨實跑
+`node scripts/mutate.mjs ingest-pcm-cleanup` → **1/1 killed**，執行後 `git status`
+確認原始碼已自動還原。
