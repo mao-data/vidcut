@@ -18,6 +18,8 @@ activeIndex 及其之前的詞用 highlight 色，之後用 fill 色。排版對
 播起來就像同一張圖在變色。
 
 產出：寬 = width、高 = 依字級與行數自動、透明底、水平置中、可選描邊的 PNG。
+worker 模式的回覆另含 `ink: {x, w}`＝墨跡的水平範圍（卡片座標，含描邊）。
+垂直方向不給：卡高本來就是照行數算的，已經貼著文字。
 與 make_overlays.py 同路子（Pillow）。跨機器不依賴 ffmpeg 字型支援。
 
 --worker：改吃常駐模式（stdin 一行 JSON → stdout 一行 JSON，逐行處理直到 EOF）。
@@ -232,6 +234,14 @@ def render_cards(cfg, font_cache):
     height = line_h * len(lines) + stroke_w * 2 + 8
     y_start = stroke_w + 4
 
+    # 墨跡的水平範圍（卡片座標）。卡片一律是畫布全寬、文字水平置中，所以除非文字剛好
+    # 填滿可用寬，PNG 兩側都是一大片透明。預覽端拿這個當**點擊/拖曳的命中框**——
+    # 用整張卡的框的話，一句短字幕會讓整條 1080px 寬的帶狀區域吃掉所有 pointer 事件，
+    # 底下的 overlay 全都選不到、拖不動（2026-08-05 修）。描邊會往外長 stroke_w，算進去。
+    widest = max((line_width(measure, line, font) for line in lines), default=0.0)
+    ink_w = min(width, widest + stroke_w * 2)
+    ink_x = max(0, (width - ink_w) / 2)
+
     boxes = []
     if tokens:
         for li, line in enumerate(lines):
@@ -260,6 +270,7 @@ def render_cards(cfg, font_cache):
     if tokens and cfg.get("outHl"):
         paint(len(tokens) - 1, cfg["outHl"])
     return {"ok": True, "width": width, "height": height, "lines": len(lines),
+            "ink": {"x": round(ink_x, 1), "w": round(ink_w, 1)},
             "tokens": boxes if tokens else None}
 
 

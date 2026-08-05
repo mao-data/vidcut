@@ -135,7 +135,28 @@ describe('Inspector', () => {
     expect(sent).toEqual([]);
 
     fireEvent.blur(ta);
-    expect(sent).toEqual([{ name: 'updateCaption', id: 'cap1', patch: { text: 'fixed line' } }]);
+    expect(sent).toEqual([
+      { name: 'updateCaption', id: 'cap1', patch: { text: 'fixed line', tokens: [] } },
+    ]);
+  });
+
+  // 2026-08-05：這個欄位以前只送 { text }。對**有逐詞時間戳的句子**（cap2）那是一次
+  // 靜默 no-op——字卡是照 tokens 排版的（text_card.py 的 render_cards 在有 tokens 時走
+  // layout_tokens，cfg["text"] 從頭到尾沒被讀過），所以文件裡的 text 換了、產出的 PNG
+  // 卻與改字前逐位元組相同：畫面沒變化、沒有錯誤訊息，使用者只會以為自己打錯地方。
+  // CaptionList.tsx 的打字路徑一直有清 tokens，只有這個入口漏了。
+  it('caption Text: 有 karaoke tokens 的句子改字必須一併清掉 tokens（否則是靜默 no-op）', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'caption', id: 'cap2' });
+    const { container } = render(<Inspector />);
+    const ta = container.querySelector('textarea')!;
+    expect(ta.value).toBe('second line');
+
+    fireEvent.change(ta, { target: { value: '換成別的字' } });
+    fireEvent.blur(ta);
+    expect(sent).toEqual([
+      { name: 'updateCaption', id: 'cap2', patch: { text: '換成別的字', tokens: [] } },
+    ]);
   });
 
   it('caption Text: 沒改就失焦不送命令(silent-overwrite guard)', () => {

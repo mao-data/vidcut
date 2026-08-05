@@ -261,7 +261,14 @@ export function Inspector() {
           onBlur={(e) => {
             const v = e.target.value.trim();
             if (v && v !== cap.text) {
-              send({ name: 'updateCaption', id: cap.id, patch: { text: v } });
+              // `tokens: []`（空陣列＝清除）**不能省**。有逐詞時間戳的那些句子，
+              // 字卡是照 tokens 排版的——`text_card.py` 的 render_cards 在有 tokens 時
+              // 走 layout_tokens，`cfg["text"]` 從頭到尾沒被讀過。只送 text 的話：文件裡
+              // 的 text 換了、tokens 沒動 → 產出的 PNG 與改字前**逐位元組相同**，畫面沒有
+              // 任何變化，也沒有任何錯誤訊息。使用者會以為自己打錯地方了。
+              // 而且舊的詞邊界本來就對不上新文字，留著只會讓 karaoke 照錯的詞界跑。
+              // CaptionList.tsx 的打字路徑一直是這樣送的，這裡以前漏了（2026-08-05 修）。
+              send({ name: 'updateCaption', id: cap.id, patch: { text: v, tokens: [] } });
             }
           }}
         />

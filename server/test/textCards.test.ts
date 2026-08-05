@@ -17,7 +17,7 @@ import {
   MAX_CARD_PIXELS,
 } from '../src/cardBudget.js';
 import { loadFontTable } from '../src/fonts.js';
-import { PillowRasterizer, type CardRequest } from '../src/rasterizer.js';
+import { PillowRasterizer, type CardGeometry, type CardRequest } from '../src/rasterizer.js';
 import { ProjectStore } from '../src/store.js';
 import { createApp } from '../src/app.js';
 import { renderCaptionCard } from '../src/render.js';
@@ -156,6 +156,29 @@ describe('TextCardService', () => {
     await unlink(hlAbs);
     await svc.ensure(REQ);
     expect((await stat(hlAbs)).size).toBeGreaterThan(0);
+  }, 30_000);
+
+  // 幾何 schema 長出新欄位（2026-08-05 的 `ink`）時的自癒。內容定址代表同一份輸入永遠
+  // 算出同一把 key，所以舊 `.json` 若被當成命中，既有專案就**永遠**拿不到新欄位——
+  // 預覽端的命中框只能一直退回整張卡，那正是要修的 bug。走這條而不是把 rasterizerId
+  // 往上加：PNG 的位元組一個都沒變，沒有理由讓全部的卡改名、讓所有 imagePath 要靠遷移追。
+  it('舊 .json 缺 ink（schema 是後來加的）→ 視為 miss 重畫，hash 不變、原地補上', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-tcs-heal-schema-'));
+    const svc = new TextCardService(dir, raster);
+    const a = await svc.ensure(REQ);
+    expect(a.ink).toBeDefined();
+
+    const metaAbs = join(dir, 'derived', 'text', `${a.hash}.json`);
+    const full = JSON.parse(await readFile(metaAbs, 'utf8')) as CardGeometry;
+    const old: Partial<CardGeometry> = { ...full };
+    delete old.ink;
+    await writeFile(metaAbs, JSON.stringify(old)); // 退回成「加 ink 之前」的樣子
+    expect(JSON.parse(await readFile(metaAbs, 'utf8')).ink).toBeUndefined();
+
+    const b = await svc.ensure(REQ);
+    expect(b.hash).toBe(a.hash); // 同輸入→同 key，不該換名字
+    expect(b.ink).toEqual(a.ink); // 回傳補回來了
+    expect((JSON.parse(await readFile(metaAbs, 'utf8')) as CardGeometry).ink).toEqual(a.ink); // 檔案也補回來了
   }, 30_000);
 
   it('圖檔存在但是 0 byte（上次寫到一半被中斷）→ 也要重畫', async () => {
@@ -489,11 +512,18 @@ describe.skipIf(!hasWideFont)('新行數上界的對抗式驗證（真的排版�
     }, 60_000);
   }
 
-  // 上界不能只是「安全」，還要說得出有多鬆。這條把最緊的對抗案例釘在 0.45 以上：
+  // 上界不能只是「安全」，還要說得出有多鬆。這條把最緊的對抗案例釘住：
   // 拿掉式子裡的 2 倍係數會讓它掉到 1 以上（上面那批 ≤ 就會先紅——這也是
   // widestAtoms 用 120 組而不是 60 組的原因：60 組時「拿掉 2 倍」剛好卡在等號上，
   // 測不出來），把 MAX_ADVANCE_EM 放大到 6 則會讓它掉到 0.25 而在這裡被抓到。
-  it('最緊的對抗案例：實際／估算 ≈ 0.5（2 倍係數與 3 em 都不是隨手放大的）', async () => {
+  //
+  // 這個 case 實測穩定在 **0.5063**（80 行 ÷ 158 行），0.45 是留約 11% 餘裕的下限。
+  // （2026-08-05 有一次審查建議把下限收到 0.65，理由是「實測其實是 0.710」——覆核後
+  // 不採納：重跑就是 0.5063，0.65 會讓這條當場紅。那個 0.710 來自另一組取樣掃描的
+  // 最緊值，跟這個構造不是同一件事。至於它想防的「MAX_ADVANCE_EM 被調小到 2」，
+  // 有下面「估算式＝floor(...)」那條把行數硬釘在 40 擋著，K=2 會算出 27，
+  // 是硬失敗、沒有餘裕問題，不需要靠這條的下限去抓。）
+  it('最緊的對抗案例：實際／估算 ≈ 0.51（2 倍係數與 3 em 都不是隨手放大的）', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vidcut-adv-tight-'));
     const r = req(Array.from({ length: 120 }, () => 'ﶩﶩﶩﶩ').join(' '));
     const geo = await wideRaster.rasterize(r, join(dir, 't.base.png'));

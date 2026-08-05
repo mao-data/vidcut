@@ -103,11 +103,60 @@ describe('CaptionLayer', () => {
     );
     expect(container.querySelectorAll('img')).toHaveLength(1);
   });
+  // 2026-08-05：字卡一律畫布全寬、文字水平置中，短字幕的 PNG 兩側是一大片透明。
+  // 命中測試只看盒子不看 alpha，所以外層若用整張卡的框，那條橫貫畫布的帶子會吃掉底下
+  // overlay 的所有 pointer 事件（字幕層畫在 overlay 之上）；自動換行上線後帶子還會變高。
+  describe('命中框收斂到墨跡（不擋住底下的 overlay）', () => {
+    const INK = { ...META, ink: { x: 400, w: 256 } };
+    const withInk = () =>
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => INK })),
+      );
+
+    it('外層縮到 ink 的 left/width，圖用等量負 left 推回卡片原位（畫面零位移）', async () => {
+      withInk();
+      const { container } = render(
+        <CaptionLayer captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
+      );
+      await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
+      const box = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
+      expect(box.style.left).toBe('400px');
+      expect(box.style.width).toBe('256px'); // ← 不是 1080px：這就是不再擋住 overlay 的原因
+      expect(box.style.height).toBe('92px');
+      const imgs = container.querySelectorAll('img');
+      // 圖相對畫布的實際位置 = 外層 left + 圖 left = 400 + (-400) = 0，與修之前完全相同
+      expect(imgs[0]!.style.left).toBe('-400px');
+      expect(imgs[1]!.style.left).toBe('-400px'); // hl 圖也要一起推，兩張不能錯開
+      expect(imgs[1]!.style.clipPath).toBe(`path('${RECT0} ${RECT1}')`); // clip 仍是卡片座標
+    });
+
+    it('舊快取沒有 ink：退回整張卡的框（不壞掉，只是不夠準）', async () => {
+      const { container } = render(
+        <CaptionLayer captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
+      );
+      await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
+      const box = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
+      expect(box.style.left).toBe('0px');
+      expect(box.style.width).toBe('1080px');
+      expect(container.querySelectorAll('img')[0]!.style.left).toBe('0px');
+    });
+
+    it('DOM 近似路徑：定位層不吃事件，命中框是收縮到文字的那一層', () => {
+      const { container } = render(<CaptionLayer captions={[CAP]} cards={{}} time={0.5} />);
+      const box = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
+      expect(box.style.display).toBe('inline-block'); // 盒子收縮到文字本身
+      expect(box.style.pointerEvents).toBe('auto');
+      expect(box.parentElement!.style.pointerEvents).toBe('none'); // 全寬的那層不吃事件
+      expect(box.parentElement!.style.top).toBe(`${1920 * CAP.style.y}px`);
+    });
+  });
+
   it('無卡:DOM 文字 fallback,字級為全尺寸 64px(1080 空間)', () => {
     const { container } = render(<CaptionLayer captions={[CAP]} cards={{}} time={0.5} />);
     expect(container.querySelector('img')).toBeNull();
-    const div = [...container.querySelectorAll('div')].find((d) =>
-      d.textContent?.includes('你好'),
+    const div = [...container.querySelectorAll<HTMLElement>('[data-drag-kind="caption"]')].find(
+      (d) => d.textContent?.includes('你好'),
     )!;
     expect(div.style.fontSize).toBe('64px');
   });
@@ -119,8 +168,8 @@ describe('CaptionLayer', () => {
     // dragstart → pointercancel,自訂的 pointer 拖曳手勢被攔腰砍斷(CLAUDE.md「UI 驗證的
     // 陷阱」記過的同一種靜默失敗)。加了 user-select:none 之後實測 selectstart 不再出現。
     const { container } = render(<CaptionLayer captions={[CAP]} cards={{}} time={0.5} />);
-    const div = [...container.querySelectorAll('div')].find((d) =>
-      d.textContent?.includes('你好'),
+    const div = [...container.querySelectorAll<HTMLElement>('[data-drag-kind="caption"]')].find(
+      (d) => d.textContent?.includes('你好'),
     )!;
     expect(div.style.userSelect).toBe('none');
   });
@@ -136,8 +185,8 @@ describe('CaptionLayer', () => {
     );
     await waitFor(() => {
       expect(container.querySelector('img')).toBeNull();
-      const div = [...container.querySelectorAll('div')].find((d) =>
-        d.textContent?.includes('你好'),
+      const div = [...container.querySelectorAll<HTMLElement>('[data-drag-kind="caption"]')].find(
+        (d) => d.textContent?.includes('你好'),
       )!;
       expect(div.style.fontSize).toBe('64px');
     });
@@ -170,8 +219,8 @@ describe('CaptionLayer', () => {
     fireEvent.error(base);
     await waitFor(() => {
       expect(container.querySelector('img')).toBeNull();
-      const div = [...container.querySelectorAll('div')].find((d) =>
-        d.textContent?.includes('你好'),
+      const div = [...container.querySelectorAll<HTMLElement>('[data-drag-kind="caption"]')].find(
+        (d) => d.textContent?.includes('你好'),
       )!;
       expect(div.style.fontSize).toBe('64px');
     });

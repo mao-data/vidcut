@@ -16,7 +16,29 @@ interface DragHooks {
 interface Geo {
   width: number;
   height: number;
+  /** 墨跡的水平範圍（卡片座標，含描邊）。見下方 inkStyle 與 server/src/rasterizer.ts 的 CardGeometry。 */
+  ink?: { x: number; w: number };
   tokens?: Array<{ x: number; y: number; w: number; h: number }>;
+}
+
+/**
+ * 字幕卡的**命中框**：只蓋住真的有墨跡的地方，不是整張卡。
+ *
+ * 字卡一律是畫布全寬（1080）、文字水平置中，所以短字幕的 PNG 兩側各有一大片透明。
+ * 瀏覽器對 `<img>`/`<div>` 的命中測試只看盒子、不看 alpha，所以外層若用整張卡的框，
+ * 那一整條橫貫畫布的帶狀區域就會吃掉所有 pointer 事件——字幕層畫在 overlay 之上
+ * （DOM 順序在後），playhead 停在一句字幕上時，落在那個帶子裡的 overlay 就再也選不到、
+ * 拖不動了。自動換行上線後這條帶子還會變高（多行卡），影響範圍更大（2026-08-05 修）。
+ *
+ * 做法是把外層縮到 ink，圖再用等量的負 left 推回卡片原位——**畫出來的像素一個都沒動**
+ * （這條路徑餵給 verify:wysiwyg 比對成品，動到就會當場變紅）。
+ * 垂直方向不縮：卡高本來就是照行數算的，已經貼著文字。
+ * `ink` 是後加的欄位，舊快取沒有 → 退回整張卡的框（＝修之前的行為），不會壞掉只是不夠準；
+ * server 那邊會把「缺 ink 的 .json」當快取未命中重畫，所以這個退路只在重畫完成前短暫存在。
+ */
+function inkStyle(geo: Geo): { box: { left: number; width: number }; imgLeft: number } {
+  const x = geo.ink?.x ?? 0;
+  return { box: { left: x, width: geo.ink?.w ?? geo.width }, imgLeft: -x };
 }
 
 /** 進行中/已解析的 fetch 快取:只快取「進行中」與「成功」——失敗絕不長駐,見下。 */
@@ -96,6 +118,7 @@ function CardCaptionForHash({
   const active = activeTokenIndex(cap, time);
   const pad = cap.style.stroke ? strokeWidth(cap.style.fontSize) : 0;
   const clip = geo.tokens ? karaokeClip(geo.tokens, active, pad) : null;
+  const { box, imgLeft } = inkStyle(geo);
   return (
     <div
       className={className}
@@ -103,9 +126,10 @@ function CardCaptionForHash({
       onPointerDown={drag?.onPointerDown}
       style={{
         position: 'absolute',
-        left: 0,
+        left: box.left,
         top: 1920 * cap.style.y,
-        width: 1080,
+        width: box.width,
+        height: geo.height,
         pointerEvents: 'auto',
         cursor: 'grab',
         touchAction: 'none',
@@ -116,6 +140,8 @@ function CardCaptionForHash({
         width={geo.width}
         height={geo.height}
         alt=""
+        // 外層縮到墨跡寬（見 inkStyle），圖用等量負 left 推回卡片原位——畫面零位移。
+        style={{ position: 'absolute', left: imgLeft, top: 0 }}
         // <img> 預設瀏覽器原生可拖曳——外層卡片 div 的 pointerdown/move/up 是畫布拖曳
         // 字幕 y 的手勢(見 Player.tsx onCaptionPointerDown),按下點幾乎必然落在這張
         // 滿版的卡片圖上;不關掉原生拖曳,一移動原生手勢就搶走事件序列(dragstart→
@@ -133,7 +159,9 @@ function CardCaptionForHash({
           height={geo.height}
           alt=""
           draggable={false}
-          style={{ position: 'absolute', left: 0, top: 0, clipPath: clip }}
+          // clip-path 的座標是卡片自己的座標系（karaokeClip 用的是 tokens 的 bbox），
+          // 跟著圖一起被 imgLeft 平移，不受外層縮框影響。
+          style={{ position: 'absolute', left: imgLeft, top: 0, clipPath: clip }}
         />
       )}
     </div>
@@ -163,50 +191,63 @@ function ApproxCaption({
 }) {
   const active = activeTokenIndex(cap, time);
   return (
+    // 外層只負責「全寬置中」的版面，命中框在裡面那層（見 inkStyle 的長註解：全寬的
+    // 透明帶子會吃掉底下 overlay 的 pointer 事件）。這條路徑沒有字卡幾何可用，
+    // 但它是真的文字節點——inline-block 讓盒子自然收縮到文字本身，比幾何更準。
     <div
-      className={className}
-      data-drag-kind="caption"
-      onPointerDown={drag?.onPointerDown}
       style={{
         position: 'absolute',
         left: 0,
         right: 0,
         top: 1920 * cap.style.y,
         textAlign: 'center',
-        // 這條路徑是「真的文字節點」，不像字卡那條是兩張 draggable={false} 的 <img>：
-        // 不關掉選取的話，在字上按下再移動就會選到字（真 Chromium 實測會發 selectstart），
-        // 而在**已選取的文字**上開始的下一次拖曳會被瀏覽器判定成原生 text drag：
-        // dragstart → pointercancel，pointerup 永不到達，就是 CLAUDE.md 記過的那種
-        // 「畫面上動了、命令沒送出」靜默失敗。加 user-select:none 後實測 selectstart 消失，
-        // 這個入口就從源頭沒了（收尾路徑的保險絲另外做在 Player.tsx 的 finishDrag）。
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-        fontFamily: cap.style.fontFamily,
-        fontSize: cap.style.fontSize, // 1080 空間內就是真字級——/3 粗估正式退役
-        color: cap.style.fill,
-        WebkitTextStroke: cap.style.stroke
-          ? `${strokeWidth(cap.style.fontSize)}px ${cap.style.stroke}`
-          : undefined,
-        pointerEvents: 'auto',
-        cursor: 'grab',
-        touchAction: 'none',
+        pointerEvents: 'none',
       }}
     >
-      {cap.tokens?.length
-        ? cap.tokens.map((t, i) => (
-            // Fragment(非 <span>)包分隔白:分隔白不進 DOM 元素,詞的 <span> 才不會多一層
-            // textContent 相同的外殼——上一版用 <span> 包過,首詞(分隔白="")的外層跟內層
-            // textContent 會撞在一起,靠 textContent 找 span 的測試會誤選到外層(沒有 color)。
-            <Fragment key={i}>
-              {i > 0 ? tokenSeparator(cap.tokens![i - 1]!.text, t.text) : ''}
-              <span
-                style={{ color: i <= active ? (cap.style.highlight ?? cap.style.fill) : undefined }}
-              >
-                {t.text}
-              </span>
-            </Fragment>
-          ))
-        : cap.text}
+      <div
+        className={className}
+        data-drag-kind="caption"
+        onPointerDown={drag?.onPointerDown}
+        style={{
+          display: 'inline-block',
+          maxWidth: '100%',
+          // 這條路徑是「真的文字節點」，不像字卡那條是兩張 draggable={false} 的 <img>：
+          // 不關掉選取的話，在字上按下再移動就會選到字（真 Chromium 實測會發 selectstart），
+          // 而在**已選取的文字**上開始的下一次拖曳會被瀏覽器判定成原生 text drag：
+          // dragstart → pointercancel，pointerup 永不到達，就是 CLAUDE.md 記過的那種
+          // 「畫面上動了、命令沒送出」靜默失敗。加 user-select:none 後實測 selectstart 消失，
+          // 這個入口就從源頭沒了（收尾路徑的保險絲另外做在 Player.tsx 的 finishDrag）。
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          fontFamily: cap.style.fontFamily,
+          fontSize: cap.style.fontSize, // 1080 空間內就是真字級——/3 粗估正式退役
+          color: cap.style.fill,
+          WebkitTextStroke: cap.style.stroke
+            ? `${strokeWidth(cap.style.fontSize)}px ${cap.style.stroke}`
+            : undefined,
+          pointerEvents: 'auto',
+          cursor: 'grab',
+          touchAction: 'none',
+        }}
+      >
+        {cap.tokens?.length
+          ? cap.tokens.map((t, i) => (
+              // Fragment(非 <span>)包分隔白:分隔白不進 DOM 元素,詞的 <span> 才不會多一層
+              // textContent 相同的外殼——上一版用 <span> 包過,首詞(分隔白="")的外層跟內層
+              // textContent 會撞在一起,靠 textContent 找 span 的測試會誤選到外層(沒有 color)。
+              <Fragment key={i}>
+                {i > 0 ? tokenSeparator(cap.tokens![i - 1]!.text, t.text) : ''}
+                <span
+                  style={{
+                    color: i <= active ? (cap.style.highlight ?? cap.style.fill) : undefined,
+                  }}
+                >
+                  {t.text}
+                </span>
+              </Fragment>
+            ))
+          : cap.text}
+      </div>
     </div>
   );
 }

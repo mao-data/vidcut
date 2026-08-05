@@ -154,6 +154,49 @@ describe('PillowRasterizer', () => {
     expect(geo.lines).toBe(1);
   }, 30_000);
 
+  // `ink` 是預覽端字幕卡的**命中框**（ui/src/player/CaptionLayer.tsx 的 inkStyle）：
+  // 卡片一律畫布全寬、文字水平置中，短字幕的 PNG 兩側是一大片透明，而瀏覽器的命中測試
+  // 只看盒子不看 alpha——用整張卡當命中框的話，那條橫貫畫布的帶子會吃掉底下 overlay
+  // 的所有 pointer 事件（2026-08-05 修）。所以這裡釘的是**確切的數字**，不是「有這個鍵」。
+  it('ink：墨跡的水平範圍，水平置中且把描邊算進去', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-ras-'));
+    const one = (stroke?: string) =>
+      r.rasterize(
+        {
+          text: '嗨',
+          style: {
+            fontFamily: 'Heiti TC',
+            fontSize: 64,
+            fill: '#fff',
+            ...(stroke ? { stroke } : {}),
+          },
+          width: 1080,
+        },
+        join(dir, `ink${stroke ? '-s' : ''}.base.png`),
+      );
+
+    const plain = await one();
+    expect(plain.ink).toEqual({ x: 508, w: 64 }); // 一個全形字＝一個 em；508+64/2 = 540 ＝畫布中線
+    expect(plain.ink!.w).toBeLessThan(plain.width / 10); // 命中框只有整張卡的 6%
+
+    // 描邊往外長 stroke_w（= max(2, 64//16) = 4）：左右各多 4px
+    const stroked = await one('#000');
+    expect(stroked.ink).toEqual({ x: 504, w: 72 });
+
+    // 折到滿版的長文字：ink 寬 = 可用寬（1080 - cardMargin(1080,0.9)*2 = 1080 - 120）。
+    // 這個方向不該「變窄」——真的有那麼寬的墨跡，命中框就該有那麼寬。
+    const wrapped = await r.rasterize(
+      {
+        text: '這是一段很長的字幕會被自動折行成好幾行所以每一行的寬度都逼近可用寬',
+        style: { fontFamily: 'Heiti TC', fontSize: 64, fill: '#fff' },
+        width: 1080,
+      },
+      join(dir, 'ink-wrap.base.png'),
+    );
+    expect(wrapped.lines).toBeGreaterThan(1);
+    expect(wrapped.ink).toEqual({ x: 60, w: 960 });
+  }, 30_000);
+
   it('probeFont: 開得了的字型 true、開不了的 false', async () => {
     expect(await r.probeFont('/System/Library/Fonts/STHeiti Medium.ttc')).toBe(true);
     expect(await r.probeFont('/nonexistent.ttf')).toBe(false);

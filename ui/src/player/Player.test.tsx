@@ -315,7 +315,13 @@ describe('Player canvas drag (pending baseline, Finding 3)', () => {
     const el = Array.from(container.querySelectorAll('[data-drag-kind="caption"]')).find((d) =>
       d.textContent?.includes(text),
     ) as HTMLElement | undefined;
-    return el ? parseFloat(el.style.top) / 1920 : null;
+    // 命中框（data-drag-kind）與定位層不一定是同一個 div：字卡路徑是同一個，DOM 近似
+    // 路徑分成兩層（外層負責 top + 全寬置中，內層 inline-block 收縮到文字才是命中框——
+    // 全寬的透明帶子會吃掉底下 overlay 的 pointer 事件，見 CaptionLayer 的 inkStyle）。
+    // 往上找第一個有 top 的祖先，兩種結構都對。
+    let n: HTMLElement | null = el ?? null;
+    while (n && !n.style.top) n = n.parentElement;
+    return n ? parseFloat(n.style.top) / 1920 : null;
   }
   /** 吸附導線的 DOM：1080 空間內 2px 粗的線（x 導線 width:2、y 導線 height:2）。 */
   function guideEls(container: HTMLElement): HTMLElement[] {

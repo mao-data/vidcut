@@ -48,10 +48,25 @@ export interface TokenBox {
   w: number;
   h: number;
 }
+/** 墨跡的水平範圍（卡片座標，含描邊）。垂直方向不給：卡高本來就貼著文字。 */
+export interface InkBox {
+  x: number;
+  w: number;
+}
 export interface CardGeometry {
   width: number;
   height: number;
   lines: number;
+  /**
+   * 給預覽端當**點擊/拖曳的命中框**用（`ui/src/player/CaptionLayer.tsx`）。
+   * 卡片一律畫布全寬、文字水平置中，所以短字幕的 PNG 兩側是一大片透明；拿整張卡的框
+   * 當命中框的話，那一整條帶狀區域會吃掉底下 overlay 的所有 pointer 事件。
+   *
+   * 選填是為了**舊快取**：字卡是內容定址的，這個欄位是後加的，既有 `.json` 裡沒有。
+   * TextCardService.ensure 會把「缺這個欄位」當快取未命中重畫（同一個 hash、原地覆寫），
+   * 所以不必為了它去動 rasterizerId——PNG 的位元組完全沒變，沒有理由讓全部的卡改名。
+   */
+  ink?: InkBox;
   tokens?: TokenBox[];
 }
 interface WorkerReply extends Omit<Partial<CardGeometry>, 'tokens'> {
@@ -247,6 +262,7 @@ export class PillowRasterizer {
       width: r.width!,
       height: r.height!,
       lines: r.lines!,
+      ...(r.ink ? { ink: r.ink } : {}),
       ...(r.tokens ? { tokens: r.tokens } : {}),
     };
   }

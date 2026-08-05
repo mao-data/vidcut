@@ -40,29 +40,49 @@ function overBudget(t: OverlayText, canvasWidth: number): boolean {
  * （同輸入→同 key→命中舊卡）。沒有這道重解析，換行這種修正對已存檔的作品等於沒發生。
  *
  * 走 applyCommand（鐵則：任何狀態變更都走命令層），但**只在 hash 真的變了才送命令**，
- * 所以第二次啟動起是完全靜默的 no-op，不會每次開機都灌爆 undo history。
- * 單張失敗不影響其餘（產卡可能因預算或 worker 掛掉而失敗），錯誤只記 warn。
+ * 所以第二次啟動起是完全靜默的 no-op。單張失敗不影響其餘（產卡可能因預算或 worker
+ * 掛掉而失敗），錯誤只記 warn。
+ *
+ * 三件事情是這道遷移的正確性關鍵，改動時請一併讀完：
+ *
+ * 1. **只 patch `imagePath`，不送 `text`。** 送 text 的話它就不只是修一個指標，而是
+ *    「把我開檔那一刻讀到的文字寫回去」——使用者在產卡的空檔改了字，這裡就把他的編輯
+ *    覆蓋掉了。要修的是衍生資料，那就只寫衍生資料那一格。
+ *
+ * 2. **`await` 之後重讀 doc，而且用 `keyOf` 判斷「這張卡現在還是它要的嗎」。** 產卡要
+ *    spawn Pillow，overlay 多的話累積好幾秒，正好落在使用者剛開檔開始動手的那段時間；
+ *    迴圈開頭抓的那份快照到這裡已經可能過期。判斷與 `applyCommand` 之間沒有 `await`
+ *    ——Node 單執行緒，同一個同步 tick 內插不進別的命令，所以「檢查」與「寫入」之間
+ *    沒有縫。文字被改掉的那些，改字那條路徑（resolveTextCommand）本來就會產自己的新卡，
+ *    這裡跳過才是對的。`keyOf` 一併涵蓋了樣式與畫布寬度變動，比只比對 text 精確。
+ *
+ * 3. **`runWithoutUndo`**：這是系統維護，不是使用者的編輯。理由見 store.ts 該方法的註解。
  */
 export async function refreshTextOverlayCards(
   svc: TextCardService,
   store: ProjectStore,
 ): Promise<number> {
-  const targets = store.doc.tracks.overlays.filter((o) => o.text);
+  const ids = store.doc.tracks.overlays.filter((o) => o.text).map((o) => o.id);
   let changed = 0;
-  for (const o of targets) {
+  for (const id of ids) {
+    const before = store.doc.tracks.overlays.find((o) => o.id === id);
+    if (!before?.text) continue; // 開檔後隨即被刪掉／被改成純圖 overlay
     try {
-      const r = await svc.ensure(overlayTextToCardRequest(o.text!, store.doc.canvas.width));
+      const r = await svc.ensure(overlayTextToCardRequest(before.text, store.doc.canvas.width));
+      // ↓ 以下到 applyCommand 為止不得再有 await（見上方第 2 點）。
+      const cur = store.doc.tracks.overlays.find((o) => o.id === id);
+      if (!cur?.text) continue;
+      if (svc.keyOf(overlayTextToCardRequest(cur.text, store.doc.canvas.width)) !== r.hash)
+        continue;
       const next = svc.relBasePath(r.hash);
-      if (next === o.imagePath) continue;
-      const res = applyCommand(store, 'human', {
-        name: 'updateOverlay',
-        id: o.id,
-        patch: { text: o.text!, imagePath: next },
-      });
+      if (next === cur.imagePath) continue;
+      const res = store.runWithoutUndo(() =>
+        applyCommand(store, 'human', { name: 'updateOverlay', id, patch: { imagePath: next } }),
+      );
       if (res.ok) changed++;
-      else console.warn(`⚠ 文字 overlay ${o.id} 的字卡重新解析被拒：${res.error}`);
+      else console.warn(`⚠ 文字 overlay ${id} 的字卡重新解析被拒：${res.error}`);
     } catch (e: unknown) {
-      console.warn(`⚠ 文字 overlay ${o.id} 的字卡重新解析失敗：${(e as Error).message}`);
+      console.warn(`⚠ 文字 overlay ${id} 的字卡重新解析失敗：${(e as Error).message}`);
     }
   }
   return changed;

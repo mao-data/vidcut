@@ -44,6 +44,15 @@ export class TextCardService {
     return join('derived', 'text', `${hash}.base.png`);
   }
 
+  /**
+   * 這個請求「會」對應到哪個 hash——純同步、不產卡、不碰檔案系統。
+   * 用途是在 `await ensure()` 回來之後，同步判斷「我剛產的這張卡，現在還是它要的嗎」
+   * （見 refreshTextOverlayCards）。不要拿它當快取查詢用：它不保證檔案存在。
+   */
+  keyOf(req: CardRequest): string {
+    return cardKey(req, this.rasterizer.id);
+  }
+
   /** 圖檔存在且非空才算數(0 byte = 上次寫到一半被中斷,一樣要重畫)。 */
   private static async isUsable(abs: string): Promise<boolean> {
     try {
@@ -66,6 +75,11 @@ export class TextCardService {
     const hlAbs = req.tokens?.length ? join(this.dirAbs(), `${hash}.hl.png`) : undefined;
     try {
       const geo = JSON.parse(await readFile(metaAbs, 'utf8')) as CardGeometry;
+      // 幾何 schema 長出新欄位時的自癒：舊 `.json` 缺 `ink` 就當未命中重畫（同一個
+      // hash、原地覆寫，PNG 位元組不變）。用這條而不是把 rasterizerId 往上加——
+      // 加號碼會讓每張卡改名、既有 imagePath 全部要靠遷移追，代價遠大於重跑一次排版。
+      // 加欄位時記得一起加到這個檢查，否則既有專案永遠拿不到它（內容定址：同輸入→同 key）。
+      if (!geo.ink) throw new Error('geometry schema outdated');
       // 命中條件不能只看 .json ——真正被消費的是 PNG。少了 PNG 卻回報命中的話,
       // 因為是內容定址(同輸入永遠算出同一把 key),這張卡就永遠補不回來:
       // 字幕預覽永久退回 DOM 近似;文字 overlay 的 imagePath 指向不存在的檔,

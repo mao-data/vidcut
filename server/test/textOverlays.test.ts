@@ -6,7 +6,11 @@ import { ProjectStore } from '../src/store.js';
 import { applyCommand } from '../src/commands.js';
 import { PillowRasterizer } from '../src/rasterizer.js';
 import { TextCardService } from '../src/textCards.js';
-import { resolveTextCommand, refreshTextOverlayCards } from '../src/textOverlays.js';
+import {
+  resolveTextCommand,
+  refreshTextOverlayCards,
+  overlayTextToCardRequest,
+} from '../src/textOverlays.js';
 import type { Command, OverlayItem } from '@vidcut/shared';
 
 const raster = new PillowRasterizer(() => undefined);
@@ -333,6 +337,69 @@ describe('refreshTextOverlayCards：光柵器換版本後既有專案的字卡�
     const after = store.version;
     expect(await refreshTextOverlayCards(svc, store)).toBe(0);
     expect(store.version).toBe(after);
+  }, 60_000);
+
+  // 2026-08-05：這道遷移原本送的是 `patch: { text, imagePath }`，而 text 是**迴圈開頭抓的
+  // 快照**。產卡要 spawn Pillow（overlay 多的話累積好幾秒），正好落在使用者剛開檔開始
+  // 動手的那段時間——快照送回去就是把他這段時間的編輯覆蓋掉。而且每個既有專案的第一次
+  // 開啟都會走到這條路。
+  it('產卡途中使用者改了字：不得把快照裡的舊文字寫回去', async () => {
+    const { store, svc } = await setup();
+    expect(applyCommand(store, 'human', await resolveTextCommand(svc, store, ADD)).ok).toBe(true);
+    store.mutate('human', 'simulate stale card', (d) => {
+      d.tracks.overlays[0]!.imagePath = 'derived/text/0000000000000000.base.png';
+    });
+
+    // 在 ensure() 回來之後、遷移送命令之前，插入一次真實的使用者編輯（走正規命令層）。
+    // 這是最接近實際競態的注入點：遷移手上那張卡已經產好，但它描述的文字已經過期了。
+    let injected = false;
+    const racing = Object.create(svc) as TextCardService;
+    racing.ensure = async (req) => {
+      const r = await svc.ensure(req);
+      if (!injected) {
+        injected = true;
+        const edit: Command = {
+          name: 'updateOverlay',
+          id: 'ov1',
+          patch: { text: { ...TEXT, text: '使用者剛打的字' } },
+        };
+        expect(applyCommand(store, 'human', await resolveTextCommand(svc, store, edit)).ok).toBe(
+          true,
+        );
+      }
+      return r;
+    };
+
+    expect(await refreshTextOverlayCards(racing, store)).toBe(0); // 這張卡已經不是它要的了
+    const ov = store.doc.tracks.overlays[0]!;
+    expect(ov.text?.text).toBe('使用者剛打的字'); // 使用者的編輯毫髮無傷
+    // 改字那條路徑（resolveTextCommand）自己會產對應的新卡，不需要遷移代勞
+    expect(ov.imagePath).not.toBe('derived/text/0000000000000000.base.png');
+    expect(ov.imagePath).toBe(svc.relBasePath(svc.keyOf(overlayTextToCardRequest(ov.text!, 1080))));
+  }, 60_000);
+
+  // 這是一次系統維護，不是使用者做過的編輯。走一般 mutate 的話它會是開檔後 undo 堆疊裡
+  // 唯一的一筆——使用者反射性按一次 Cmd+Z 撤掉的就是它，imagePath 被還原回舊 hash；
+  // derived/ 若已被清過，那個檔案根本不存在，匯出時 `ffmpeg -i` 讀不到就整支失敗。
+  it('遷移不進 undo 堆疊：開檔後第一次 Cmd+Z 不得撤掉它（但仍記歷史、仍落盤）', async () => {
+    const { dir, store, svc } = await setup();
+    expect(applyCommand(store, 'human', await resolveTextCommand(svc, store, ADD)).ok).toBe(true);
+    const good = store.doc.tracks.overlays[0]!.imagePath;
+    store.mutate('human', 'simulate stale card', (d) => {
+      d.tracks.overlays[0]!.imagePath = 'derived/text/0000000000000000.base.png';
+    });
+    await store.flush();
+
+    // 重新開檔——真實情境：undo 堆疊是空的，遷移是這次 session 的第一筆 mutation
+    const fresh = await ProjectStore.load(join(dir, 'project.json'));
+    const v0 = fresh.version;
+    expect(await refreshTextOverlayCards(new TextCardService(dir, raster), fresh)).toBe(1);
+    expect(fresh.doc.tracks.overlays[0]!.imagePath).toBe(good);
+    expect(fresh.version).toBeGreaterThan(v0); // 其餘照常：版本推進、廣播、落盤
+    expect(fresh.history().at(-1)?.label).toBe('edit overlay'); // 歷史查得到，只是不可撤銷
+
+    expect(fresh.undo('human')).toBeNull(); // 沒有任何「使用者做過的編輯」可以撤
+    expect(fresh.doc.tracks.overlays[0]!.imagePath).toBe(good); // 修好的指標留在原地
   }, 60_000);
 
   it('純圖 overlay 不受影響（沒有 text 就沒有卡可以重解析）', async () => {
