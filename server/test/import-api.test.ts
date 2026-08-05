@@ -1,6 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
@@ -9,11 +7,12 @@ import { createApp } from '../src/app.js';
 import { runFfmpeg } from '../src/ffmpeg.js';
 import { existsSync } from 'node:fs';
 import { makeAudio } from './fixtures.js';
+import { tmpDir } from './tmp.js';
 
 async function startTestServer() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-imp-proj-'));
+  const dir = await tmpDir('vidcut-imp-proj-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
-  const src = await mkdtemp(join(tmpdir(), 'vidcut-imp-src-'));
+  const src = await tmpDir('vidcut-imp-src-');
   await runFfmpeg([
     '-f',
     'lavfi',
@@ -92,7 +91,7 @@ describe('POST /api/import', () => {
   // 敵意輸入：names 是使用者可控字串，不能讓它逃出素材夾。
   it('names 帶路徑成分時只取 basename，不會逃出素材夾', async () => {
     const { src, store, server, base } = await startTestServer();
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-secret-'));
+    const outside = await tmpDir('vidcut-secret-');
     await runFfmpeg([
       '-f',
       'lavfi',
@@ -181,7 +180,7 @@ describe('POST /api/import', () => {
     const { createApp: mockedCreateApp } = await import('../src/app.js');
     const { ProjectStore: MockedProjectStore } = await import('../src/store.js');
 
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-imp-mockproj-'));
+    const dir = await tmpDir('vidcut-imp-mockproj-');
     const store = await MockedProjectStore.load(join(dir, 'project.json'));
     const server: Server = createServer(mockedCreateApp(store, dir));
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));

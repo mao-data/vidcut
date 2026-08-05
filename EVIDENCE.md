@@ -1154,3 +1154,141 @@ mutant，兩輪跑完未留下任何殘留變更）。
 的內容清空、保留 `finally` 區塊本身（避免變成語法錯誤而被錯誤歸因）。單獨實跑
 `node scripts/mutate.mjs ingest-pcm-cleanup` → **1/1 killed**，執行後 `git status`
 確認原始碼已自動還原。
+
+---
+
+# 補記：測試自己的暫存目錄洩漏（同分支，接續上一節）
+
+上一節修的是**產品程式碼**那一半（`ingest.ts` 的 `vidcut-pcm-*`）。這一節修另一半：
+測試自己建的暫存目錄從來沒被清過。分級 **Tier 2**。
+
+## 問題與它為何不是「補個 afterAll」就好
+
+`server/test` 有 **91 個 `mkdtemp` 呼叫，只有 15 處 `rm(recursive)`**。那 15 處全是同一種
+模式——目錄在模組頂層建、一個檔案就一個、`afterAll` 刪它。
+
+多數檔案不是這樣：`mkdtemp` 藏在**每條測試都會呼叫一次的 helper** 裡（典型如 `setup()`），
+建完就只存在於那條測試的區域變數。到 `afterAll` 時根本沒有一個 `dir` 可以刪——有 N 個，
+早就沒人記得。所以殘留量是「測試條數 × 跑過幾次」而不是「`mkdtemp` 行數」：
+`commands.test.ts` 只寫了 3 個 `mkdtemp`，實測產出 **4,291 個目錄**。
+
+## 修法
+
+`tmpDir(prefix)` 取代 `mkdtemp(join(tmpdir(), prefix))`，但**不是**建在系統 temp，而是建在
+「這一輪測試的暫存根目錄」底下；整輪跑完把那一個根目錄刪掉。三個檔案：
+
+- `server/test/global-setup.ts`——建立本輪根目錄，經 `VIDCUT_TEST_TMP_ROOT` 傳給 worker；
+  teardown 刪掉它。
+- `server/test/tmp.ts`——`tmpDir()`，建在該根目錄底下（沒有這個環境變數時退回系統 temp，
+  例如有人繞過 `globalSetup` 直接跑單一檔案）。
+- `server/test/setup.ts`——只做一件事：本檔有測試失敗時寫下「別清」的標記。
+
+`server/vitest.config.ts` 兩行接線（`globalSetup` + `setupFiles`）。
+
+行為上兩個刻意的例外：**有測試失敗就整輪保留**（留下的是出事現場——`render` 整合測試
+留下的就是真的 mp4），以及 **`VIDCUT_KEEP_TMP=1` 無條件保留**。
+
+61 個呼叫點分布在 23 個測試檔，以腳本機械轉換後由 `tsc`／`eslint`／`prettier` 把關
+（真的抓到兩個轉換遺留：`ffmpeg.test.ts` 與 `ws-command.test.ts` 的 `join` 變成未使用的
+import，已清掉）。
+
+## 第一版設計是錯的，被隨機順序關卡抓到
+
+**最初的實作是「每個測試檔的 `afterAll` 刪掉本檔建的目錄」**，配一個模組層登記器。
+單元測試全綠、全套 243/243、殘留 0，看起來完全成功。**gauntlet 的隨機順序關卡擋下來了**：
+
+```
+Unhandled Errors
+Error: ENOENT: no such file or directory, rename
+  '…/vidcut-gone-frozen-proj-AnaoJH/.project.json.tmp' -> '…/project.json'
+```
+
+243 條測試全過，卻多一個未處理錯誤讓整輪 `exit 1`；而且時有時無（重跑第二次就沒事），
+單獨跑 seed 1337 也過——只有在 gauntlet 那個時機才穩定重現。
+
+**根因**：`ProjectStore` 的落盤是 debounce 500ms 的射後不理
+（`store.ts` 的 `#scheduleSave` → `void this.#save()`），而 **17 個測試檔建了 store、
+只有 3 個呼叫 `flush()`**。測試檔跑完的當下往往還有一次存檔排在路上；`afterAll` 立刻
+`rm -rf` 就會撞上它——`writeFile` 已寫出 `.project.json.tmp`、`rename` 之前目錄被刪掉。
+
+這是**新設計引入的競態**，不是既有 bug：以前沒有人刪那些目錄，所以這個race 永遠不會
+發生。改成 `globalSetup` 的 teardown 後，清理跑在**所有 worker 行程都結束之後**，沒有
+任何還活著的行程可能正在寫，競態從根本上不存在。改完連跑三次 `--sequence.shuffle
+--sequence.seed=1337`：**3/3 皆 243/243、零 unhandled error**。
+
+附帶好處：所有測試暫存集中在單一根目錄底下。萬一整輪被強制中斷、teardown 沒跑到，
+留下的是一個目錄而不是上百個散落的。
+
+## RED
+
+先用丟棄式探針專案確認兩件 vitest 的事實，不憑印象：`setupFiles` 註冊的 `afterAll`
+**拿得到**本檔每條測試的結果（實測印出 `["通過的:pass","失敗的:fail"]`）；`globalSetup`
+裡設的 `process.env` **傳得到** worker，且 teardown 在所有測試之後才跑。
+
+主測試（`server/test/tmp-cleanup.test.ts`）用**子行程真的跑一次 vitest**，`TMPDIR` 指向
+乾淨沙箱，跑完檢查沙箱。之所以開子行程：要驗的正是「整輪測試結束之後」這個時機，同一個
+行程裡驗不到。子行程刻意跑**真的 `server/vitest.config.ts`**（用 `VIDCUT_TMP_FIXTURE=1`
+切換 include），而不是另外拼一份設定——否則就驗不到接線有沒有真的接上。
+
+RED（第一版設計、清理尚未接上時）紅在斷言而非 import 失敗：
+
+```
+expected [] to deeply equal [ "vidcut-leakprobe-P5lz7Q", "vidcut-leakprobe-x7tNW9" ]
+```
+
+（更早一次嘗試紅在「子行程自己就掛了」——`--include` 不是 vitest 的 CLI 選項。是測試裡
+那條「假測試檔本身必須是綠的」前置斷言擋下來的，否則會把子行程崩潰誤判成洩漏已修好。）
+
+**另兩條測試（失敗保留、`VIDCUT_KEEP_TMP`）是實作寫在前面、測試補在後面的，一寫就綠**
+——如實記錄，並照規矩用一次性突變證明它們不是在測空氣，兩次都單獨施打、跑完還原：
+
+| 一次性突變               | 結果                            |
+| ------------------------ | ------------------------------- |
+| 拿掉「失敗就保留」的守衛 | 只有「失敗時保留」那條轉紅      |
+| 拿掉 `VIDCUT_KEEP_TMP`   | 只有「KEEP_TMP 時保留」那條轉紅 |
+
+（中途踩過一次：`git checkout --` 對**未追蹤**的新檔無效，導致第二次施打時第一隻還在，
+兩隻疊在一起。發現後改用檔案備份還原，重做了乾淨的單獨施打，上表是重做後的結果。）
+
+## 實測效果（同一套測試，`TMPDIR` 指向乾淨沙箱）
+
+| 版本                | 測試結果   | 跑完後殘留的 `vidcut-*` | 佔用      |
+| ------------------- | ---------- | ----------------------- | --------- |
+| 修法前（`58782b2`） | 240 passed | **147 個**              | **97 MB** |
+| 修法後              | 243 passed | **0 個**                | 0         |
+
+（243 = 240 + 本節新增的 3 條。修法前那個數字是 `git stash` 退回 `58782b2` 實跑量到的，
+不是推估。沙箱裡剩下的唯一項目是 Node 自己的 `node-compile-cache`，不是 vidcut 產生的。）
+
+## 回歸護甲
+
+新增 4 隻 mutant（`scripts/mutants.json` 由 72 → 76 隻），各自單獨實跑 1/1 killed。
+接線拆成兩隻分別守，因為它們壞掉的方式不同：
+
+| id                        | 改了什麼                    | 為什麼要守                                    |
+| ------------------------- | --------------------------- | --------------------------------------------- |
+| `tmp-cleanup-off`         | 拿掉 teardown 的清理本身    | 洩漏復發                                      |
+| `tmp-cleanup-globalsetup` | 拆掉 `globalSetup` 那行接線 | 根目錄不存在、`tmpDir` 退回系統 temp 且無人清 |
+| `tmp-cleanup-setupfiles`  | 拆掉 `setupFiles` 那行接線  | 失敗標記永不寫入，出事現場照樣被清掉          |
+| `tmp-cleanup-keep-failed` | 失敗時不寫標記              | 同上，但壞在邏輯而非接線                      |
+
+後兩隻守的正是本 repo 鐵則說的「第三步不會自動發生」：邏輯寫對了、沒接上，一樣等於沒做。
+
+## GAUNTLET（最終，`58782b2` + 本節變更）
+
+| 關卡                     | 結果                                                                                                                         |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| 版本                     | node v22.18.0／npm 11.5.2／tsc 5.9.3／vitest 3.2.7／ffmpeg 8.1.2／source `58782b2`                                           |
+| 型別檢查（tsc ×3）       | PASS                                                                                                                         |
+| Lint（eslint）           | PASS                                                                                                                         |
+| 格式（prettier --check） | PASS                                                                                                                         |
+| 全測試套件               | **440 passed**（shared 27／server 243／ui 170），0 failed——server 較上一節多 3，即本節新增的三條                             |
+| UI 覆蓋率                | Statements/Lines 86.38%（2627/3041）、Branches 85.5%（749/876）、Functions 65.28%（126/193）——本節未動 UI                    |
+| 隨機順序                 | ui／server（seed 1337）皆 PASS——**server 這一關先前是失敗的那關**（第一版設計的 ENOENT 競態），改設計後轉綠                  |
+| 依賴稽核                 | 沿用既有 baseline，本節未新增依賴                                                                                            |
+| 秘密掃描                 | PASS                                                                                                                         |
+| 突變測試                 | **75 killed + 1 equivalent control**（`store-corrupt-load`，如實存活）＝`scripts/mutants.json` 全部 **76 隻**；本節新增 4 隻 |
+| 總結                     | `GAUNTLET: 全數通過`                                                                                                         |
+
+此表引用的是最後一次**程式碼**修改之後的單一次執行；該次之後只再動過本檔與
+`docs/ROADMAP.md`，唯一會被文件影響的關卡 `prettier --check` 已於文件定稿後單獨重跑通過。

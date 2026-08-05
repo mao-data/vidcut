@@ -1,6 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -9,6 +7,7 @@ import { EditorContext } from '../src/editorContext.js';
 import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import { makeVideo } from './fixtures.js';
+import { tmpDir } from './tmp.js';
 
 interface Structured {
   structuredContent?: Record<string, unknown>;
@@ -16,7 +15,7 @@ interface Structured {
 }
 
 async function connect(timeoutMs = 900_000) {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-mcp-'));
+  const dir = await tmpDir('vidcut-mcp-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
   const editorContext = new EditorContext();
   const reviews = new ReviewManager(store, timeoutMs);

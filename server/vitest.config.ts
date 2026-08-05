@@ -13,5 +13,18 @@ export default defineConfig({
     // 平行版的尾巴會被互搶核心拖長），換到的是決定性。這裡刻意不寫死秒數：
     // 它高度依賴機器與當下負載，寫進註解只會過期並誤導。
     fileParallelism: false,
+
+    // 測試暫存目錄的清理，分成兩半：
+    // globalSetup 建立這一輪的暫存根目錄，並在所有 worker 結束後整個刪掉；
+    // setupFiles 只負責在某個測試檔有失敗時寫下「別清」的標記（保留出事現場）。
+    // 少了任何一行，那些目錄就會永遠留在系統 temp——實測一次全套跑留下 147 個。
+    globalSetup: ['./test/global-setup.ts'],
+    setupFiles: ['./test/setup.ts'],
+
+    // VIDCUT_TMP_FIXTURE=1 時改成只跑 test/_leak/ 底下的假測試檔。
+    // tmp-cleanup.test.ts 用子行程帶著這個變數呼叫自己，為的是讓那條檢查跑在
+    // **這一份真的設定**上——如果改用另外拼一份 config，就驗不到「setupFiles
+    // 有沒有真的接上」，而那正是最容易漏掉的一步。
+    ...(process.env.VIDCUT_TMP_FIXTURE ? { include: ['test/_leak/*.fixture.ts'] } : {}),
   },
 });

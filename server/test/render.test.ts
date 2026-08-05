@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildRenderArgs, render, renderProgressBus, withProbedChannels } from '../src/render.js';
 import { buildDemoProject } from '../src/demo.js';
@@ -9,6 +8,7 @@ import { ProjectStore } from '../src/store.js';
 import { probe, runFfmpeg } from '../src/ffmpeg.js';
 import { ingestMedia } from '../src/ingest.js';
 import { createEmptyProject, type Project } from '@vidcut/shared';
+import { tmpDir } from './tmp.js';
 
 function demoLikeProject(): Project {
   const p = createEmptyProject('p', 't');
@@ -139,7 +139,7 @@ describe('buildRenderArgs', () => {
 
 describe('render (integration)', () => {
   it('renders the demo project to a valid 1080x1920 mp4 with audio', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-render-'));
+    const dir = await tmpDir('vidcut-render-');
     await buildDemoProject(dir);
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const vBefore = store.version;
@@ -168,7 +168,7 @@ describe('render (integration)', () => {
   }, 180_000);
 
   it('輸出吃專案外絕對路徑的素材', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-ext-render-'));
+    const outside = await tmpDir('vidcut-ext-render-');
     const src = join(outside, 'ext.mp4');
     await runFfmpeg([
       '-f',
@@ -183,7 +183,7 @@ describe('render (integration)', () => {
       'yuv420p',
       src,
     ]);
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-ext-proj-'));
+    const dir = await tmpDir('vidcut-ext-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const mediaId = await ingestMedia(store, dir, src);
     store.mutate('ai', 'seed', (d) => {
@@ -199,7 +199,7 @@ describe('render (integration)', () => {
   // 拼成 <projectDir>/<外部路徑> 這種不存在的檔案，ffmpeg 擷取單幀會直接失敗
   // （ffmpeg render exited 254）。整合測試，真 ffmpeg。
   it('frozen clip 用專案外絕對路徑素材時仍能定格擷取成功（render.ts:431）', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-ext-frozen-'));
+    const outside = await tmpDir('vidcut-ext-frozen-');
     const src = join(outside, 'ext-frozen.mp4');
     await runFfmpeg([
       '-f',
@@ -214,7 +214,7 @@ describe('render (integration)', () => {
       'yuv420p',
       src,
     ]);
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-ext-frozen-proj-'));
+    const dir = await tmpDir('vidcut-ext-frozen-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const mediaId = await ingestMedia(store, dir, src);
     store.mutate('ai', 'seed', (d) => {
@@ -226,7 +226,7 @@ describe('render (integration)', () => {
   }, 60_000);
 
   it('素材原檔不見時，輸出丟出含路徑的明確錯誤', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-gone-'));
+    const outside = await tmpDir('vidcut-gone-');
     const src = join(outside, 'gone.mp4');
     await runFfmpeg([
       '-f',
@@ -241,7 +241,7 @@ describe('render (integration)', () => {
       'yuv420p',
       src,
     ]);
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-gone-proj-'));
+    const dir = await tmpDir('vidcut-gone-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const mediaId = await ingestMedia(store, dir, src);
     store.mutate('ai', 'seed', (d) => {
@@ -270,7 +270,7 @@ describe('render (integration)', () => {
   // 擷取」這個順序不變式（Task 7 審查發現：搬到定格幀擷取之後，6/6 全綠，render.test.ts
   // 全文沒有 frozen 字樣，沒人守）。
   it('frozen clip 的素材原檔不見時，預檢仍趕在定格幀擷取（任何 ffmpeg）之前擋下', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-gone-frozen-'));
+    const outside = await tmpDir('vidcut-gone-frozen-');
     const src = join(outside, 'gone-frozen.mp4');
     await runFfmpeg([
       '-f',
@@ -285,7 +285,7 @@ describe('render (integration)', () => {
       'yuv420p',
       src,
     ]);
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-gone-frozen-proj-'));
+    const dir = await tmpDir('vidcut-gone-frozen-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const mediaId = await ingestMedia(store, dir, src);
     store.mutate('ai', 'seed', (d) => {
@@ -306,10 +306,10 @@ describe('render (integration)', () => {
 // 小 3dB，沒有任何錯誤訊息。把它抽成具名函式才守得住。
 describe('withProbedChannels（render 前補測 audioChannels）', () => {
   it('外部絕對路徑的 mono 素材也補得到 audioChannels', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-ext-mono-'));
+    const outside = await tmpDir('vidcut-ext-mono-');
     const mp3 = join(outside, 'vo.mp3');
     await runFfmpeg(['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-ac', '1', mp3]);
-    const projectDir = await mkdtemp(join(tmpdir(), 'vidcut-ext-mono-proj-'));
+    const projectDir = await tmpDir('vidcut-ext-mono-proj-');
 
     const p = demoLikeProject();
     p.media.push({

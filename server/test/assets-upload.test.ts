@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 import { ProjectStore } from '../src/store.js';
 import { createApp } from '../src/app.js';
+import { tmpDir } from './tmp.js';
 
 async function startTestServer() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-assets-'));
+  const dir = await tmpDir('vidcut-assets-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
   const server: Server = createServer(createApp(store, dir));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));

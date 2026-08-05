@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createEmptyProject, type Project } from '@vidcut/shared';
 import { buildRenderArgs, extractCover, frozenFramePath, render } from '../src/render.js';
 import { ProjectStore } from '../src/store.js';
 import { probe } from '../src/ffmpeg.js';
 import { makeVideo } from './fixtures.js';
+import { tmpDir } from './tmp.js';
 
 function base(): Project {
   const p = createEmptyProject('p', 't');
@@ -173,7 +172,7 @@ describe('mono upmix (amix 隱式 mono→stereo 用 0.707 center level，會讓 
 
 describe('render integration: blur + frozen + audio', () => {
   it('renders a project with all three features to a valid mp4', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-rt1-'));
+    const dir = await tmpDir('vidcut-rt1-');
     // 橫向素材（測 blur 填充）+ 一支當 BGM 的有聲素材
     await makeVideo(dir, 'wide.mp4', { duration: 6, withAudio: true });
     await makeVideo(dir, 'bgm.mp4', { duration: 6, withAudio: true, freq: 220 });
@@ -248,7 +247,7 @@ describe('export options', () => {
   });
 
   it('renders at a smaller resolution end-to-end', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-exp-'));
+    const dir = await tmpDir('vidcut-exp-');
     await makeVideo(dir, 'a.mp4', { duration: 3, withAudio: true });
     const store = await ProjectStore.load(join(dir, 'project.json'));
     store.mutate('ai', 'seed', (d) => {
@@ -271,7 +270,7 @@ describe('export options', () => {
     // RenderOptions.width 的契約是「等比縮放整個合成結果」。只給一邊卻沿用畫布的
     // 另一邊，會默默產出變形的成品——UI 的預設檔都成對給值，但 MCP 的 render
     // 工具把兩個參數獨立開放給 AI，所以這條路徑是真的會被走到的。
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-aspect-'));
+    const dir = await tmpDir('vidcut-aspect-');
     await makeVideo(dir, 'a.mp4', { duration: 2, withAudio: true });
     const store = await ProjectStore.load(join(dir, 'project.json'));
     store.mutate('ai', 'seed', (d) => {
@@ -298,7 +297,7 @@ describe('export options', () => {
 
 describe('cover', () => {
   it('extracts a cover from the rendered output', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-cov-'));
+    const dir = await tmpDir('vidcut-cov-');
     await makeVideo(dir, 'a.mp4', { duration: 3, withAudio: true });
     const store = await ProjectStore.load(join(dir, 'project.json'));
     store.mutate('ai', 'seed', (d) => {

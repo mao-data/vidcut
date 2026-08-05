@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import type { VideoClip } from '@vidcut/shared';
+import { tmpDir } from './tmp.js';
 
 /**
  * spec 2026-08-03-version-undo-redo B3/B4：
@@ -21,7 +21,7 @@ const pushClip = (id: string) =>
 const ids = () => store.doc.tracks.video.map((c) => c.id);
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'vidcut-undo-'));
+  dir = await tmpDir('vidcut-undo-');
   store = await ProjectStore.load(join(dir, 'project.json'));
 });
 afterEach(async () => {

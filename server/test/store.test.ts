@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
+import { tmpDir } from './tmp.js';
 
 async function tmpStore() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-'));
+  const dir = await tmpDir('vidcut-');
   const file = join(dir, 'project.json');
   return { store: await ProjectStore.load(file), file };
 }

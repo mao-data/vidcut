@@ -1,10 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import type { WsServerMsg } from '@vidcut/shared';
 import { startServer } from '../src/index.js';
+import { tmpDir } from './tmp.js';
 
 let close: (() => Promise<void>) | null = null;
 afterEach(async () => {
@@ -21,7 +21,7 @@ function nextMsg(ws: WebSocket): Promise<WsServerMsg> {
 
 describe('ws sync', () => {
   it('sends full on connect, then patches on mutate; media served with Range', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-ws-'));
+    const dir = await tmpDir('vidcut-ws-');
     await writeFile(join(dir, 'blob.bin'), Buffer.alloc(100, 7));
     const { server, store } = await startServer(dir, 0); // port 0 = 隨機
     const addr = server.address();

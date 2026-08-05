@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildRenderArgs, renderCaptionCards } from '../src/render.js';
 import {
@@ -9,6 +8,7 @@ import {
   type CaptionItem,
   type Project,
 } from '@vidcut/shared';
+import { tmpDir } from './tmp.js';
 
 function karaokeCaption(): CaptionItem {
   return buildCaptionPages([
@@ -34,7 +34,7 @@ function projectWithCaption(cap: CaptionItem): Project {
 
 describe('renderCaptionCards', () => {
   it('makes one card per token, windowed by the next token start', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-kara-'));
+    const dir = await tmpDir('vidcut-kara-');
     await mkdir(join(dir, 'derived', 'captions'), { recursive: true });
     const cap = karaokeCaption();
     const cards = await renderCaptionCards(dir, cap, 1080);
@@ -51,7 +51,7 @@ describe('renderCaptionCards', () => {
   }, 60_000);
 
   it('makes a single card covering the whole caption when there are no tokens', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-kara-'));
+    const dir = await tmpDir('vidcut-kara-');
     await mkdir(join(dir, 'derived', 'captions'), { recursive: true });
     const cap: CaptionItem = {
       id: 'cap1',
@@ -69,7 +69,7 @@ describe('renderCaptionCards', () => {
 
 describe('buildRenderArgs with karaoke cards', () => {
   it('overlays each card in its own window and never uses drawtext', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-kara-'));
+    const dir = await tmpDir('vidcut-kara-');
     await mkdir(join(dir, 'derived', 'captions'), { recursive: true });
     const cap = karaokeCaption();
     const p = projectWithCaption(cap);

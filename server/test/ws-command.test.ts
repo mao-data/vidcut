@@ -1,10 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import WebSocket from 'ws';
 import type { WsServerMsg } from '@vidcut/shared';
 import { startServer } from '../src/index.js';
+import { tmpDir } from './tmp.js';
 
 let close: (() => Promise<void>) | null = null;
 afterEach(async () => {
@@ -21,7 +19,7 @@ function nextMsg(ws: WebSocket): Promise<WsServerMsg> {
 
 describe('ws command channel', () => {
   it('applies a command from the client and broadcasts a human patch; bad command errors', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-wscmd-'));
+    const dir = await tmpDir('vidcut-wscmd-');
     const { server, store } = await startServer(dir, 0);
     store.mutate('ai', 'seed', (d) => {
       d.media = [

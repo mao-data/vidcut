@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, writeFile, mkdir, symlink } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile, mkdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MediaAsset } from '@vidcut/shared';
 import { scanSourceFolder, listSource } from '../src/sourceFolder.js';
+import { tmpDir } from './tmp.js';
 
 async function folderWith(names: string[]): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-src-'));
+  const dir = await tmpDir('vidcut-src-');
   for (const n of names) await writeFile(join(dir, n), 'x');
   return dir;
 }
@@ -48,9 +48,9 @@ describe('scanSourceFolder', () => {
   // Dirent.isFile() 對 symlink 回 false（已實測確認），用 isFile() 過濾會靜默漏檔。
   // 使用者用 symlink 組素材夾是常見做法，漏檔又沒有錯誤訊息＝最糟的失敗模式。
   it('收錄指向檔案的 symlink', async () => {
-    const real = await mkdtemp(join(tmpdir(), 'vidcut-real-'));
+    const real = await tmpDir('vidcut-real-');
     await writeFile(join(real, 'movie.mp4'), 'x');
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-link-'));
+    const dir = await tmpDir('vidcut-link-');
     await symlink(join(real, 'movie.mp4'), join(dir, 'linked.mp4'));
 
     const files = await scanSourceFolder(dir);
@@ -59,7 +59,7 @@ describe('scanSourceFolder', () => {
   });
 
   it('斷掉的 symlink 被略過而不是丟錯', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-broken-'));
+    const dir = await tmpDir('vidcut-broken-');
     await symlink(join(dir, 'nowhere.mp4'), join(dir, 'dangling.mp4'));
     await writeFile(join(dir, 'ok.mp4'), 'x');
 
@@ -103,7 +103,7 @@ describe('scanSourceFolder', () => {
 
 describe('listSource', () => {
   it('標記素材夾內哪些檔案已匯入本專案（絕對路徑素材）', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-ls-'));
+    const dir = await tmpDir('vidcut-ls-');
     await writeFile(join(dir, 'a.mp4'), 'x');
     await writeFile(join(dir, 'b.mp4'), 'x');
     const media: MediaAsset[] = [
@@ -122,7 +122,7 @@ describe('listSource', () => {
   });
 
   it('專案內的相對路徑素材也比對得出來（解析後才比）', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'vidcut-ls-proj-'));
+    const projectDir = await tmpDir('vidcut-ls-proj-');
     await writeFile(join(projectDir, 'c.mp4'), 'x');
     const media: MediaAsset[] = [
       {

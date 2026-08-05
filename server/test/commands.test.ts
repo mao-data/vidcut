@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { applyCommand } from '../src/commands.js';
 import type { AudioItem } from '@vidcut/shared';
+import { tmpDir } from './tmp.js';
 
 async function storeWithClips() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-cmd-'));
+  const dir = await tmpDir('vidcut-cmd-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
   store.mutate('ai', 'seed', (d) => {
     d.media = [
@@ -108,7 +107,7 @@ describe('applyCommand', () => {
   });
 
   it('undo on empty history fails gracefully', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-cmd-'));
+    const dir = await tmpDir('vidcut-cmd-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     expect(applyCommand(store, 'human', { name: 'undo' })).toMatchObject({ ok: false });
   });

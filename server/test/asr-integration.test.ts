@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildCaptionPages, createEmptyProject, type Project } from '@vidcut/shared';
 import { runFfmpeg } from '../src/ffmpeg.js';
 import { probe } from '../src/ffmpeg.js';
 import { findWhisperBinary, findWhisperModel, transcribe } from '../src/asr.js';
+import { tmpDir } from './tmp.js';
 
 const hasSay = spawnSync('which', ['say']).status === 0;
 const hasWhisper = findWhisperBinary() !== null && findWhisperModel() !== null;
@@ -17,7 +16,7 @@ const hasWhisper = findWhisperBinary() !== null && findWhisperModel() !== null;
  */
 describe.skipIf(!hasSay || !hasWhisper)('transcribe (integration, needs whisper.cpp)', () => {
   it('gives monotonic word timestamps inside the timeline duration', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-asr-'));
+    const dir = await tmpDir('vidcut-asr-');
     // 太短的音訊 whisper 的時間戳會退化（見 normalizeWords 註解），所以講久一點
     spawnSync('say', [
       '-r',

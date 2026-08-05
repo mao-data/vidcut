@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { aiWrite } from '../src/aiWrite.js';
 import { EditorContext } from '../src/editorContext.js';
+import { tmpDir } from './tmp.js';
 
 async function seeded() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-aiw-'));
+  const dir = await tmpDir('vidcut-aiw-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
   store.mutate('ai', 'seed', (d) => {
     d.media = [

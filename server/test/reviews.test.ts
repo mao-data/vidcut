@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { ReviewManager } from '../src/reviews.js';
 import { applyCommand } from '../src/commands.js';
+import { tmpDir } from './tmp.js';
 
 async function seeded() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-rev-'));
+  const dir = await tmpDir('vidcut-rev-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
   store.mutate('ai', 'seed', (d) => {
     d.media = [

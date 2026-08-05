@@ -575,5 +575,37 @@
     "replace": "    } finally {\n      /* mutant: 不清 PCM 暫存目錄 */\n    }",
     "tests": "server/test/ingest.test.ts",
     "note": "拿掉 PCM 中間產物目錄的清理 → 產品程式碼每匯入一支素材就在系統 temp 漏一個 vidcut-pcm-* 目錄；成功路徑與 peaks.json 失敗路徑兩條測試都必須抓到"
+  },
+  {
+    "id": "tmp-cleanup-off",
+    "file": "server/test/global-setup.ts",
+    "find": "    await rm(root, { recursive: true, force: true });",
+    "replace": "    /* mutant: 不清這一輪的暫存根目錄 */",
+    "tests": "server/test/tmp-cleanup.test.ts",
+    "note": "拿掉整輪暫存目錄的清理 → 每跑一次全套就在系統 temp 留下上百個目錄；tmp-cleanup 第一條必須抓到"
+  },
+  {
+    "id": "tmp-cleanup-globalsetup",
+    "file": "server/vitest.config.ts",
+    "find": "    globalSetup: ['./test/global-setup.ts'],",
+    "replace": "",
+    "tests": "server/test/tmp-cleanup.test.ts",
+    "note": "清理邏輯寫好了卻沒接上 globalSetup（本 repo 鐵則的『第三步不會自動發生』）→ 暫存根目錄不存在、tmpDir 退回系統 temp 且無人清；tmp-cleanup 第一條必須抓到"
+  },
+  {
+    "id": "tmp-cleanup-setupfiles",
+    "file": "server/vitest.config.ts",
+    "find": "    setupFiles: ['./test/setup.ts'],",
+    "replace": "",
+    "tests": "server/test/tmp-cleanup.test.ts",
+    "note": "沒接上 setupFiles → 失敗標記永遠不會寫，測試失敗時出事現場照樣被清掉；tmp-cleanup「失敗保留」那條必須抓到"
+  },
+  {
+    "id": "tmp-cleanup-keep-failed",
+    "file": "server/test/setup.ts",
+    "find": "  if (hasFailure((suite as { tasks?: unknown[] }).tasks ?? [])) await markFailed(root);",
+    "replace": "  if (false) await markFailed(root);",
+    "tests": "server/test/tmp-cleanup.test.ts",
+    "note": "測試失敗時不寫標記 → 出事現場被清掉、無從查起；tmp-cleanup「失敗保留」那條必須抓到"
   }
 ]

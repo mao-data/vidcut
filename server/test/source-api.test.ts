@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 import { ProjectStore } from '../src/store.js';
 import { createApp } from '../src/app.js';
+import { tmpDir } from './tmp.js';
 
 async function startTestServer() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-source-api-'));
+  const dir = await tmpDir('vidcut-source-api-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
   const server: Server = createServer(createApp(store, dir));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -25,7 +25,7 @@ interface SourceRes {
 describe('GET /api/source', () => {
   it('列出素材夾內的可匯入檔案', async () => {
     const { server, base } = await startTestServer();
-    const src = await mkdtemp(join(tmpdir(), 'vidcut-api-src-'));
+    const src = await tmpDir('vidcut-api-src-');
     await writeFile(join(src, 'a.mp4'), 'x');
     await writeFile(join(src, 'readme.txt'), 'x');
 
@@ -39,7 +39,7 @@ describe('GET /api/source', () => {
 
   it('已匯入的檔案標記 imported', async () => {
     const { store, server, base } = await startTestServer();
-    const src = await mkdtemp(join(tmpdir(), 'vidcut-api-src2-'));
+    const src = await tmpDir('vidcut-api-src2-');
     await writeFile(join(src, 'a.mp4'), 'x');
     store.mutate('ai', 'seed', (d) => {
       d.media = [

@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { ingestMedia } from '../src/ingest.js';
 import { probe, runFfmpeg } from '../src/ffmpeg.js';
 import { makeAudio, makeVideo } from './fixtures.js';
+import { tmpDir } from './tmp.js';
 
 // 只給下面「proxy 編碼後失敗」那條測試用：讓 id 可預測，好在 mkdir 之後、
 // ffmpeg 寫 proxy.mp4 之前，預先把該路徑佔成一個目錄，逼真正的 ffmpeg 寫檔失敗
@@ -21,7 +21,7 @@ vi.mock('nanoid', async (importOriginal) => {
 });
 
 async function setup() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-ingest-'));
+  const dir = await tmpDir('vidcut-ingest-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
   return { dir, store };
 }
@@ -117,7 +117,7 @@ describe('ingestMedia', () => {
   }, 60_000);
 
   it('可以 ingest 專案資料夾外的絕對路徑，原檔不被複製', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-outside-'));
+    const outside = await tmpDir('vidcut-outside-');
     const src = join(outside, 'external.mp4');
     await runFfmpeg([
       '-f',
@@ -133,7 +133,7 @@ describe('ingestMedia', () => {
       src,
     ]);
 
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-proj-'));
+    const dir = await tmpDir('vidcut-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const id = await ingestMedia(store, dir, src);
 
@@ -145,7 +145,7 @@ describe('ingestMedia', () => {
   }, 60_000);
 
   it('同一個絕對路徑重複 ingest 回同一個 id', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-outside2-'));
+    const outside = await tmpDir('vidcut-outside2-');
     const src = join(outside, 'dup.mp4');
     await runFfmpeg([
       '-f',
@@ -160,7 +160,7 @@ describe('ingestMedia', () => {
       'yuv420p',
       src,
     ]);
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-proj2-'));
+    const dir = await tmpDir('vidcut-proj2-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const a = await ingestMedia(store, dir, src);
     const b = await ingestMedia(store, dir, src);
@@ -169,11 +169,11 @@ describe('ingestMedia', () => {
   }, 60_000);
 
   it('ingest 失敗不留下半成品 derived 目錄', async () => {
-    const outside = await mkdtemp(join(tmpdir(), 'vidcut-bad-'));
+    const outside = await tmpDir('vidcut-bad-');
     const bad = join(outside, 'not-a-video.mp4');
     await writeFile(bad, 'this is not a video');
 
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-bad-proj-'));
+    const dir = await tmpDir('vidcut-bad-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
 
     await expect(ingestMedia(store, dir, bad)).rejects.toThrow();
@@ -216,7 +216,7 @@ describe('ingestMedia', () => {
 // 目錄，ingest 跑完後那個沙箱**必須是空的**——不必去數全域 temp（會被別的程序干擾）。
 describe('ingestMedia 的 PCM 暫存目錄清理', () => {
   async function withTmpSandbox<T>(fn: () => Promise<T>): Promise<[string[], T | Error]> {
-    const sandbox = await mkdtemp(join(tmpdir(), 'vidcut-tmpsandbox-'));
+    const sandbox = await tmpDir('vidcut-tmpsandbox-');
     const saved = process.env.TMPDIR;
     process.env.TMPDIR = sandbox;
     let out: T | Error;

@@ -1,14 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { totalDuration } from '@vidcut/shared';
 import { ProjectStore } from '../src/store.js';
 import { applyCommand } from '../src/commands.js';
+import { tmpDir } from './tmp.js';
 
 /** 三段各 4 秒（來源各 20 秒）→ 時間軸 0-4 / 4-8 / 8-12。 */
 async function seeded() {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-t1-'));
+  const dir = await tmpDir('vidcut-t1-');
   const store = await ProjectStore.load(join(dir, 'project.json'));
   store.mutate('ai', 'seed', (d) => {
     d.media = [

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp, readFile, writeFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as fs from 'node:fs/promises';
 import { createEmptyProject, type Project } from '@vidcut/shared';
 import { ProjectStore } from '../src/store.js';
+import { tmpDir } from './tmp.js';
 
 /**
  * fs 是**邊界**，包起來只為了觀察呼叫（一律呼叫原實作，行為不變）——
@@ -28,7 +28,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
  */
 
 async function tempStore(): Promise<{ dir: string; file: string; store: ProjectStore }> {
-  const dir = await mkdtemp(join(tmpdir(), 'vidcut-durability-'));
+  const dir = await tmpDir('vidcut-durability-');
   const file = join(dir, 'project.json');
   const store = await ProjectStore.load(file);
   return { dir, file, store };
@@ -150,7 +150,7 @@ describe('ProjectStore durability (Tier 3)', () => {
   });
 
   it('loads a fresh project when the file is missing', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-durability-'));
+    const dir = await tmpDir('vidcut-durability-');
     const store = await ProjectStore.load(join(dir, 'nope', 'project.json'));
     expect(store.doc.tracks.video).toEqual([]);
     expect(store.version).toBe(0);
@@ -158,7 +158,7 @@ describe('ProjectStore durability (Tier 3)', () => {
   });
 
   it('falls back to an empty project instead of crashing on a corrupt file', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'vidcut-durability-'));
+    const dir = await tmpDir('vidcut-durability-');
     const file = join(dir, 'project.json');
     await writeFile(file, '{ this is not json', 'utf8');
     const store = await ProjectStore.load(file); // 不得丟例外——否則 server 起不來

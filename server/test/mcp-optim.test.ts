@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -11,6 +10,7 @@ import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import type { ProjectTracks } from '@vidcut/shared';
 import { makeAudio, makeVideo } from './fixtures.js';
 import { transcribe as transcribeMock } from '../src/asr.js';
+import { tmpDir } from './tmp.js';
 
 // whisper 是外部程序（mock 邊界）；B6 截斷邏輯在 mcp.ts，不在被 mock 的模組裡
 vi.mock('../src/asr.js', () => ({ transcribe: vi.fn() }));
@@ -38,7 +38,7 @@ const call = (name: string, args: Record<string, unknown> = {}) =>
 const text = (r: Structured) => r.content.map((c) => c.text ?? '').join('');
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'vidcut-mcpoptim-'));
+  dir = await tmpDir('vidcut-mcpoptim-');
   await makeVideo(dir, 'a.mp4', { duration: 6 });
   store = await ProjectStore.load(join(dir, 'project.json'));
   reviews = new ReviewManager(store, 900_000);

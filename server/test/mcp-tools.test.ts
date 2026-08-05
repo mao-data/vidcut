@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -10,6 +10,7 @@ import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import type { ProjectTracks } from '@vidcut/shared';
 import { makeVideo } from './fixtures.js';
+import { tmpDir } from './tmp.js';
 
 /**
  * MCP 工具面的覆蓋補齊：既有 mcp.test.ts 只驗了 5 條路徑（列表、import+set_timeline+
@@ -35,7 +36,7 @@ const call = (name: string, args: Record<string, unknown> = {}) =>
 const text = (r: Structured) => r.content.map((c) => c.text ?? '').join('');
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'vidcut-mcptools-'));
+  dir = await tmpDir('vidcut-mcptools-');
   await makeVideo(dir, 'a.mp4', { duration: 6 });
   store = await ProjectStore.load(join(dir, 'project.json'));
   const deps: McpDeps = {
@@ -250,7 +251,7 @@ describe('MCP tools that had no coverage', () => {
 
 describe('list_source', () => {
   it('列出素材夾內的白名單檔案並標記已匯入者', async () => {
-    const src = await mkdtemp(join(tmpdir(), 'vidcut-mcpsrc-'));
+    const src = await tmpDir('vidcut-mcpsrc-');
     await writeFile(join(src, 'b.mp4'), 'x');
     await writeFile(join(src, 'a.mov'), 'x');
     await writeFile(join(src, 'notes.txt'), 'x'); // 非白名單，不該出現
@@ -284,7 +285,7 @@ describe('list_source', () => {
 
   // AI 的 context 有限，一個放了幾千支檔的素材夾不能整包塞回去。
   it('超過 200 筆只內嵌前 200 筆並標 truncated', async () => {
-    const big = await mkdtemp(join(tmpdir(), 'vidcut-mcpbig-'));
+    const big = await tmpDir('vidcut-mcpbig-');
     for (let i = 0; i < 250; i++) {
       await writeFile(join(big, `f${String(i).padStart(3, '0')}.mp4`), 'x');
     }
