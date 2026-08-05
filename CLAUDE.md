@@ -146,11 +146,18 @@ case 另外釘住**成品側**的墨跡形狀（`exportInk`）——換行那項
   像素的假結果，正好把成因 (b) 整個抹掉，看起來像「幾乎沒有差異」。正確做法：
   把 hl 的 alpha 乘上 clip 遮罩後 `Image.alpha_composite(base, clipped)`。
 
-還有一顆未爆彈：`server/src/render.ts` 在「ffmpeg 有 drawtext **且**沒有 karaoke」時會走
-**原生 `drawtext` 分支**——那條路沒有 `fontfile=`、不換行（連 `\n` 都不處理），是完全不同的
-光柵器。本機 ffmpeg 沒有 freetype 所以踩不到；換一台有 freetype 的機器，「預覽=成品」會
-**靜默**失效，目前沒有任何測試或 assertion 擋著。**自動換行上線後這顆彈更大了**：字卡路徑
-現在會折行，drawtext 分支還是單行——兩條路的差別從「字型不同」變成「排版整個不同」。
+~~還有一顆未爆彈：原生 `drawtext` 分支~~ —— **2026-08-05 整條刪掉了**。那條路（ffmpeg 有
+drawtext 且沒有 karaoke 時走）沒有 `fontfile=`、不換行（連 `\n` 都不處理）、描邊寬度寫死
+3px，是跟字卡完全不同的光柵器。本機 ffmpeg 沒編入 freetype 所以永遠踩不到，但換一台有的
+機器（多數 Linux 發行版的套件都有）「預覽=成品」會**靜默**失效。現在 burn 模式只有一條路
+（Pillow 字卡），沒有字卡就是不燒字；`render.test.ts` 有一條測試釘死它不准回來。
+
+字型的降級也一起收緊了：`fonts.ts` 的候選與 `text_card.py` 的 `FONT_CANDIDATES` 以前
+**只有 macOS 路徑**，Linux/CI 上必然全滅 → 掉進 Pillow 內建的點陣字型（沒有 CJK 字符、
+舊版連字級都套不上）。因為預覽與匯出吃同一張壞卡，畫面上看不出異常、`verify:wysiwyg` 也
+是綠的，一路靜默到成品燒進一排小豆腐字為止。現在：兩份清單都補了 Linux/Windows 路徑；
+python 會回報 `fontFallback`；**匯出直接失敗**（字幕燒進去就拿不掉了），啟動時則印一則
+講清楚後果與解法的警告。
 
 ## 自動換行（2026-08-04；`OverlayText.maxWidth` 從死欄位變成真的生效）
 

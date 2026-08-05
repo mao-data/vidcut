@@ -42,6 +42,17 @@ export function dragOverlay(
  * clamp 會不會蓋掉已吸附的結果？只要 bbox 不比畫布大，snapBBox 的候選（中心、上/下
  * 安全邊距）算出來的 bbox 中心必然落在畫布內，所以對任何已吸附的候選都是 no-op，
  * snap 永遠贏；clamp 只在完全沒吸附、使用者硬拖到連中心都要出畫布時才生效。
+ *
+ * ⚠️ **元素比畫布大兩倍以上時，「中心留在畫布內」會比原意更嚴格**（2026-08-05 補的
+ * 第二條）。原意是「每邊最多露出自身的一半」＝別讓元素整個跑掉；但元素長度 b > 2C 時，
+ * 光是「中心在畫布內」就強迫它**永遠完整覆蓋畫布還有剩**，合法區間反而縮成
+ * `[-b/2, C-b/2]`，比「完整覆蓋畫布」的區間 `[C-b, 0]` 還窄——使用者於是拖不到
+ * `y=0`／`x=0`（上緣/左緣對齊），而那正是 MCP 文件教人給滿版圖的值。症狀是**單向卡死**：
+ * 起點在區間外時 `clampAxis` 只讓他往畫布內拉，再也回不去。
+ * 這不是假想的：`projects/demo` 的 `length_cliff.png` 原生就是 2170 寬 > 2×1080，
+ * 而 `position.scale` 最大可以到 10。
+ * 所以合法區間取兩者的**聯集**：`[min(-b/2, C-b), max(C-b/2, 0)]`。
+ * b ≤ 2C 時 `min`/`max` 都會選到前者，與舊規則**逐字相同**（下面的測試釘住了）。
  */
 function clampCentre(
   s: { x: number; y: number },
@@ -49,12 +60,19 @@ function clampCentre(
   canvas: { w: number; h: number },
   startPos: { x: number; y: number },
 ): { x: number; y: number } {
-  const halfH = bbox.h / (2 * canvas.h); // 上緣錨點 → 中心的正規化位移
-  const cy = clampAxis((s.y + bbox.h / 2) / canvas.h, 0, 1, startPos.y + halfH);
+  const halfW = bbox.w / (2 * canvas.w); // x 錨是中心，先換算成上/左緣才能跟 y 用同一條規則
   return {
-    x: clampAxis((s.x + bbox.w / 2) / canvas.w, 0, 1, startPos.x), // x 錨本來就是中心
-    y: cy - halfH, // 中心 → 上緣，換算回 position 的語意
+    x: clampEdge(s.x / canvas.w, startPos.x - halfW, bbox.w / canvas.w) + halfW,
+    y: clampEdge(s.y / canvas.h, startPos.y, bbox.h / canvas.h),
   };
+}
+
+/**
+ * 夾限「元素的上緣／左緣」（全部正規化成畫布長度＝1）。`b` 是元素在該軸的長度。
+ * 兩軸共用同一條規則——錨點不對稱只活在上面的換算裡（見 clampCentre 的長註解）。
+ */
+function clampEdge(v: number, start: number, b: number): number {
+  return clampAxis(v, Math.min(-b / 2, 1 - b), Math.max(1 - b / 2, 0), start);
 }
 
 /**

@@ -899,7 +899,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '從專案輸出成品 mp4（1080×1920，重新編碼）。回傳輸出路徑與 URL。' +
-        'subtitles 預設 burn＝字幕燒進畫面（本機無 drawtext 或有逐詞高亮時自動走 PNG 字卡；' +
+        'subtitles 預設 burn＝字幕燒進畫面（一律走 Pillow 產的 PNG 字卡，跟預覽同一張圖；' +
         '逐詞高亮＝一個詞一張字卡，字幕很多時渲染會變慢）。' +
         "想讓觀眾自己開關字幕就用 'embed'（soft track，回傳 subtitlesEmbedded）；" +
         "要上傳到會自動翻譯字幕的平台就用 'sidecar'（另存 .srt，回傳 subtitlePath）。" +
@@ -928,13 +928,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const s = stamp ?? `render_${store.version}`;
         const res = await render(store, projectDir, s, exportOpts);
         const mode = exportOpts.subtitles ?? 'burn';
-        // burn 模式下沒燒成功才值得警告（本機沒 drawtext 又沒字卡）；
-        // 其他模式的「沒燒」是使用者要的，別報成問題。
+        // burn 模式下沒燒成功才值得警告（字卡一張都沒產出來——python3/Pillow 不在、
+        // 或字型表是空的）；其他模式的「沒燒」是使用者要的，別報成問題。
         const note =
           mode === 'burn'
             ? res.captionsBurned
               ? ''
-              : ' (captions not burned: no drawtext)'
+              : ' (captions not burned: no text cards were produced — is python3/Pillow available?)'
             : res.subtitlePath
               ? ` (subtitles → ${res.subtitlePath})`
               : res.subtitlesEmbedded

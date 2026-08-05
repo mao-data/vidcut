@@ -41,7 +41,7 @@ function demoLikeProject(): Project {
 describe('buildRenderArgs', () => {
   it('builds inputs per clip + overlay, concat + overlay filtergraph, 1080x1920', () => {
     const p = demoLikeProject();
-    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', { hasDrawtext: false });
+    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', {});
     const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
     // 2 clip inputs (-ss/-t/-i ×2) + 1 overlay input
     expect(plan.args.filter((a) => a === '-i')).toHaveLength(3);
@@ -67,7 +67,7 @@ describe('buildRenderArgs', () => {
     const withScale = (s: number) => {
       const p = demoLikeProject();
       p.tracks.overlays[0]!.position = { x: 0.5, y: 0.06, scale: s };
-      const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', { hasDrawtext: false });
+      const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', {});
       return plan.args[plan.args.indexOf('-filter_complex') + 1]!;
     };
 
@@ -107,7 +107,11 @@ describe('buildRenderArgs', () => {
     });
   });
 
-  it('burns captions via drawtext when available', () => {
+  // 2026-08-05：原生 `drawtext` 分支整條刪掉了（見 buildRenderArgs 的註解）。這條測試
+  // 從「有 drawtext 就走它」翻轉成**釘死它不准回來**：那條路沒有 fontfile=、不換行、
+  // 描邊寫死 3px，是跟字卡完全不同的光柵器；本機 ffmpeg 沒 freetype 所以踩不到，
+  // 換一台有的機器「預覽＝成品」會靜默失效。沒有字卡就是不燒字，不要有第二條路。
+  it('沒有字卡就不燒字——不得退回原生 drawtext（那是另一個光柵器）', () => {
     const p = demoLikeProject();
     p.tracks.captions = [
       {
@@ -118,13 +122,13 @@ describe('buildRenderArgs', () => {
         style: { fontFamily: 's', fontSize: 48, fill: '#fff', y: 0.8 },
       },
     ];
-    const withText = buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: true });
-    expect(withText.captionsBurned).toBe(true);
-    const fc = withText.args[withText.args.indexOf('-filter_complex') + 1]!;
-    expect(fc).toContain('drawtext=text=');
+    const noCards = buildRenderArgs(p, '/x', '/x/o.mp4', {});
+    expect(noCards.captionsBurned).toBe(false);
+    const fc = noCards.args[noCards.args.indexOf('-filter_complex') + 1]!;
+    expect(fc).not.toContain('drawtext');
   });
 
-  it('composites PNG caption cards via overlay when drawtext unavailable', () => {
+  it('composites PNG caption cards via overlay', () => {
     const p = demoLikeProject();
     p.tracks.captions = [
       {
@@ -136,10 +140,9 @@ describe('buildRenderArgs', () => {
       },
     ];
     // 無字卡 → 不燒
-    expect(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }).captionsBurned).toBe(false);
+    expect(buildRenderArgs(p, '/x', '/x/o.mp4', {}).captionsBurned).toBe(false);
     // 有字卡 → 以 overlay 合成
     const withCards = buildRenderArgs(p, '/x', '/x/o.mp4', {
-      hasDrawtext: false,
       captionCards: [
         {
           cap: p.tracks.captions[0]!,
@@ -185,7 +188,7 @@ describe('render (integration)', () => {
     expect(info.duration).toBeLessThan(16);
     expect(store.doc.render.status).toBe('done');
     expect(store.doc.render.lastOutput).toBe(res.outPath);
-    // demo 有 2 條字幕；本機無 drawtext → 應走 PNG 字卡並回報已燒
+    // demo 有 2 條字幕；burn 模式一律走 PNG 字卡（唯一的燒字路徑）→ 回報已燒
     expect(res.captionsBurned).toBe(true);
   }, 180_000);
 });

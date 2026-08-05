@@ -67,6 +67,14 @@ export interface CardGeometry {
    * 所以不必為了它去動 rasterizerId——PNG 的位元組完全沒變，沒有理由讓全部的卡改名。
    */
   ink?: InkBox;
+  /**
+   * 這張卡是用 Pillow 的**內建點陣字型**畫的——候選鏈裡一個字型都開不了。
+   * 沒有 CJK 字符、字重與描邊都不對；舊版 Pillow 連字級都套不上（一張 64px 的卡會畫成
+   * 一行 8px 小字）。留這個旗標是為了不讓它靜默過關：匯出那條路直接讓 render 失敗
+   * （見 render.ts 的 renderCaptionCard），預覽那條路在啟動時就會有一則明確的警告
+   * （見 fonts.ts 的 loadFontTable）。
+   */
+  fontFallback?: boolean;
   tokens?: TokenBox[];
 }
 interface WorkerReply extends Omit<Partial<CardGeometry>, 'tokens'> {
@@ -263,6 +271,7 @@ export class PillowRasterizer {
       height: r.height!,
       lines: r.lines!,
       ...(r.ink ? { ink: r.ink } : {}),
+      ...(r.fontFallback ? { fontFallback: true } : {}),
       ...(r.tokens ? { tokens: r.tokens } : {}),
     };
   }

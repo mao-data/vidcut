@@ -30,13 +30,28 @@ import json
 import sys
 from PIL import Image, ImageDraw, ImageFont
 
-# CJK + 拉丁字型候選（macOS 內建），依序嘗試
+# 呼叫端沒給 fontPath 時的 CJK + 拉丁字型候選鏈，依序嘗試。macOS 在前（開發機），後面補 Linux 發行版與 CI 常見的
+# 位置——2026-08-05 之前這串**只有 macOS 路徑**，在 Linux 上全部開不了就掉進
+# `ImageFont.load_default()`，那是一個點陣字型：不管你要求幾號字都畫成同一個小尺寸，
+# 而且沒有 CJK 字符。成品會燒進一排看不懂的小豆腐字，**而且不會有任何錯誤**
+# ——預覽與匯出吃同一張壞掉的卡，連 verify:wysiwyg 都是綠的。
 FONT_CANDIDATES = [
     "/System/Library/Fonts/PingFang.ttc",
     "/System/Library/Fonts/STHeiti Medium.ttc",
     "/System/Library/Fonts/Hiragino Sans GB.ttc",
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     "/System/Library/Fonts/Supplemental/Arial.ttf",
+    # Linux（Debian/Ubuntu 的 fonts-noto-cjk、fonts-dejavu；Fedora/Arch 同名不同層）
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    # Windows
+    "C:/Windows/Fonts/msjh.ttc",
+    "C:/Windows/Fonts/arial.ttf",
 ]
 
 # 與 shared/src/captions.ts 的 CJK 判定一致：決定詞之間要不要空白
@@ -55,13 +70,23 @@ def is_cjk(ch: str) -> bool:
     return any(lo <= cp <= hi for lo, hi in CJK_RANGES)
 
 
-def load_font(size: int) -> ImageFont.FreeTypeFont:
+def load_font(size: int):
+    """回 (font, fallback)。fallback=True 代表候選鏈全滅、只剩內建點陣字型。
+
+    內建字型畫出來的東西**不能當成品**：沒有 CJK 字符、字重與描邊都不一樣。
+    Pillow >= 10.1 的 load_default(size) 至少能把尺寸縮放到對的大小（舊版只有
+    固定的小尺寸，一張 64px 的字卡會畫成 8px 的一行小字）；即使如此仍然回報
+    fallback=True，讓呼叫端決定要警告還是直接讓匯出失敗——**不要靜默交出去**。
+    """
     for path in FONT_CANDIDATES:
         try:
-            return ImageFont.truetype(path, size)
+            return ImageFont.truetype(path, size), False
         except OSError:
             continue
-    return ImageFont.load_default()
+    try:
+        return ImageFont.load_default(size=size), True
+    except TypeError:  # Pillow < 10.1：load_default 不吃 size
+        return ImageFont.load_default(), True
 
 
 def separator(prev: str, nxt: str) -> str:
@@ -197,9 +222,18 @@ def line_width(draw, line, font) -> float:
 
 
 def load_font_by(path, size, cache):
+    """回 (font, fallback)。fallback 的意義見 load_font。"""
     key = (path, size)
     if key not in cache:
-        cache[key] = ImageFont.truetype(path, size) if path else load_font(size)
+        if path:
+            try:
+                cache[key] = (ImageFont.truetype(path, size), False)
+            except OSError:
+                # 呼叫端給的路徑開不了（字型被移走／權限）——退回候選鏈，
+                # 但一樣要把 fallback 的事實往上報。
+                cache[key] = load_font(size)
+        else:
+            cache[key] = load_font(size)
     return cache[key]
 
 
@@ -214,7 +248,7 @@ def render_cards(cfg, font_cache):
     stroke_w = max(2, size // 16) if stroke else 0
     margin = int(cfg.get("margin", max(32, width // 20)))
 
-    font = load_font_by(cfg.get("fontPath"), size, font_cache)
+    font, font_fallback = load_font_by(cfg.get("fontPath"), size, font_cache)
     tmp = Image.new("RGBA", (1, 1))
     measure = ImageDraw.Draw(tmp)
     line_h = size + max(6, size // 5)
@@ -269,9 +303,13 @@ def render_cards(cfg, font_cache):
     paint(int(cfg.get("activeIndex", -1)), cfg["out"] if "out" in cfg else cfg["outBase"])
     if tokens and cfg.get("outHl"):
         paint(len(tokens) - 1, cfg["outHl"])
-    return {"ok": True, "width": width, "height": height, "lines": len(lines),
-            "ink": {"x": round(ink_x, 1), "w": round(ink_w, 1)},
-            "tokens": boxes if tokens else None}
+    out = {"ok": True, "width": width, "height": height, "lines": len(lines),
+           "ink": {"x": round(ink_x, 1), "w": round(ink_w, 1)},
+           "tokens": boxes if tokens else None}
+    if font_fallback:
+        # 這張卡是用內建點陣字型畫的，不是真的字型（見 load_font）。
+        out["fontFallback"] = True
+    return out
 
 
 def worker_loop():
@@ -297,7 +335,11 @@ def main() -> None:
         return
     cfg = json.load(sys.stdin)
     out = render_cards(cfg, {})
-    print(json.dumps({"width": out["width"], "height": out["height"], "lines": out["lines"]}))
+    # `fontFallback` 一定要帶出去：匯出那條路（server/src/render.ts 的 renderCaptionCard）
+    # 靠它判斷「這張卡是不是用內建點陣字型畫的」，是的話寧可讓匯出失敗，也不要把一排
+    # 看不懂的小豆腐字燒進成品。
+    print(json.dumps({"width": out["width"], "height": out["height"], "lines": out["lines"],
+                      **({"fontFallback": True} if out.get("fontFallback") else {})}))
 
 
 if __name__ == "__main__":

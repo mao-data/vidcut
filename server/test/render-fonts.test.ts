@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { renderCaptionCard, setCaptionFontResolver } from '../src/render.js';
+import { fontFallbackError, renderCaptionCard, setCaptionFontResolver } from '../src/render.js';
 import { PillowRasterizer } from '../src/rasterizer.js';
 import { loadFontTable, fontResolver } from '../src/fonts.js';
 import { DEFAULT_CAPTION_STYLE } from '@vidcut/shared';
@@ -118,4 +119,68 @@ describe('匯出字卡的字型解析', () => {
     const rel = await renderCaptionCard(dir, cap, 1080);
     expect(rel).toContain('derived/captions');
   }, 30_000);
+});
+
+/**
+ * 「一個字型都開不了」的降級路徑（2026-08-05）。在此之前 `fonts.ts` 的 CANDIDATES 與
+ * `text_card.py` 的 FONT_CANDIDATES **都只有 macOS 路徑**，所以在 Linux/CI 上字型表必然是空的
+ * → resolver 回 undefined → python 候選鏈全滅 → 掉進 Pillow 內建的點陣字型：沒有中日韓
+ * 字符、字重與描邊都不對。而預覽與匯出吃的是同一張壞卡，所以畫面上看不出異常，
+ * `verify:wysiwyg` 也照樣全綠——一路靜默到成品燒進一排小豆腐字為止。
+ */
+describe('字型全滅時不得靜默交出成品', () => {
+  it('text_card.py：候選鏈全滅時回報 fontFallback（CLI 模式也要帶出來）', async () => {
+    // 把腳本複製一份、清空候選鏈，模擬「這台機器沒有任何字型」
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-nofont-'));
+    const src = join(import.meta.dirname, '../scripts/text_card.py');
+    const patched = join(dir, 'text_card.py');
+    const body = await readFile(src, 'utf8');
+    expect(body).toContain('FONT_CANDIDATES = [');
+    await writeFile(patched, body.replace(/FONT_CANDIDATES = \[[^\]]*\]/, 'FONT_CANDIDATES = []'));
+
+    const run = (cfg: Record<string, unknown>): Promise<string> =>
+      new Promise((res, rej) => {
+        const c = spawn('python3', [patched], { stdio: ['pipe', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+        c.stdout.on('data', (d) => (out += d));
+        c.stderr.on('data', (d) => (err += d));
+        c.on('close', (code) => (code === 0 ? res(out) : rej(new Error(err))));
+        c.stdin.end(JSON.stringify(cfg));
+      });
+
+    const base = {
+      text: '嗨 hello',
+      fontSize: 64,
+      fill: '#ffffff',
+      width: 1080,
+      margin: 54,
+    };
+    const fell = JSON.parse(await run({ ...base, out: join(dir, 'a.png') })) as {
+      fontFallback?: boolean;
+    };
+    expect(fell.fontFallback).toBe(true);
+
+    // 對照組：同一份腳本、原封不動的候選鏈 → 不該回報 fallback（否則這條測試恆真）
+    const ok = JSON.parse(
+      await new Promise<string>((res, rej) => {
+        const c = spawn('python3', [src], { stdio: ['pipe', 'pipe', 'ignore'] });
+        let out = '';
+        c.stdout.on('data', (d) => (out += d));
+        c.on('close', (code) => (code === 0 ? res(out) : rej(new Error('exit ' + code))));
+        c.stdin.end(JSON.stringify({ ...base, out: join(dir, 'b.png') }));
+      }),
+    ) as { fontFallback?: boolean };
+    expect(ok.fontFallback).toBeUndefined();
+  }, 60_000);
+
+  it('render 端把 fontFallback 當成中止條件，不是警告', () => {
+    expect(
+      fontFallbackError(JSON.stringify({ width: 1080, fontFallback: true }), 'cap1'),
+    ).toContain('cap1');
+    expect(fontFallbackError(JSON.stringify({ width: 1080 }), 'cap1')).toBeNull();
+    // 輸出不是 JSON 時不擋（圖已經寫出來了，唯一的退場條件是那個旗標）
+    expect(fontFallbackError('some python warning\n', 'cap1')).toBeNull();
+    expect(fontFallbackError('', 'cap1')).toBeNull();
+  });
 });

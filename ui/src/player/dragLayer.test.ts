@@ -138,6 +138,55 @@ describe('四邊都可以超出畫布（中心留在畫布內）', () => {
     expect(r.position.y).toBeCloseTo(start.y, 4);
   });
 
+  // 2026-08-05：元素長度 > 2×畫布時，「中心留在畫布內」比原意更嚴格——它強迫元素
+  // 永遠完整覆蓋畫布**還有剩**，合法區間 [-b/2, C-b/2] 反而比「完整覆蓋」的 [C-b, 0] 還窄，
+  // 於是拖不到 y=0／x=0（上緣/左緣對齊），而那正是 MCP 文件教人給滿版圖的值。
+  // 症狀是單向卡死：起點在區間外時 clampAxis 只讓他往畫布內拉，再也回不去。
+  // 可達性不是假想的：`length_cliff.png` 原生 2170 寬 > 2×1080，scale 最大可到 10。
+  it('超大元素（b > 2×畫布）可以拖到上緣對齊 y=0——舊規則的上限是負的，永遠到不了', () => {
+    const H = CANVAS.h;
+    for (const h of [5000, 8000]) {
+      const oldHi = 1 - h / (2 * H); // 舊上限：h=5000 → -0.302、h=8000 → -1.083
+      expect(oldHi).toBeLessThan(0); // 前提：舊規則真的把 y=0 排除在外
+      // 從舊區間的下界（一定合法）往下硬拖到底
+      const r = dragOverlay(
+        { x: 0.5, y: -h / (2 * H) },
+        { dx: 0, dy: 99999 },
+        { w: 400, h },
+        CANVAS,
+      );
+      expect(r.position.y).toBeCloseTo(0, 6); // 上緣貼齊畫布上緣，不多不少
+    }
+  });
+
+  it('超寬元素可以拖到蓋住左緣（右緣對齊畫布右緣）', () => {
+    // w=2170 是 projects/demo 的 length_cliff.png 原生寬度，> 2×1080。
+    // 舊規則下左緣最多只能到 -5px，右緣永遠差 1085px 蓋不到畫布右邊。
+    const w = 2170;
+    const r = dragOverlay({ x: 0.5, y: 0.2 }, { dx: -99999, dy: 0 }, { w, h: 400 }, CANVAS);
+    const leftEdge = r.position.x * CANVAS.w - w / 2;
+    expect(leftEdge).toBeCloseTo(CANVAS.w - w, 4); // 右緣正好貼齊畫布右緣
+    expect(leftEdge).toBeLessThanOrEqual(0); // 左邊沒有露出空白
+  });
+
+  it('b ≤ 2×畫布時規則完全沒變（新的聯集在這個區間會退化回舊式子）', () => {
+    // 這條守的是「放寬只影響超大元素」。b ≤ 2C 時 min(-b/2, 1-b) 恆等於 -b/2、
+    // max(1-b/2, 0) 恆等於 1-b/2，所以區間逐字相同。
+    const cl = (v: number, lo: number, hi: number, st: number) =>
+      Math.min(Math.max(hi, st), Math.max(Math.min(lo, st), v));
+    for (const h of [50, 300, 900, 1920, 2400, 3840]) {
+      for (const y0 of [-0.6, -0.3, 0, 0.4, 1.1]) {
+        for (const dy of [-9999, -400, 0, 400, 9999]) {
+          const r = dragOverlay({ x: 0.5, y: y0 }, { dx: 0, dy }, { w: 400, h }, CANVAS);
+          if (r.guides.some((g) => g.axis === 'y')) continue; // 吸附了就不是 clamp 說了算
+          const half = h / (2 * CANVAS.h);
+          const old = cl(y0 + dy / CANVAS.h + half, 0, 1, y0 + half) - half;
+          expect(r.position.y, `h=${h} y0=${y0} dy=${dy}`).toBeCloseTo(old, 12);
+        }
+      }
+    }
+  });
+
   it('字幕同一條規則：可以拖到掛在畫布下緣外', () => {
     const cardH = 300;
     const oldLimit = 1 - cardH / 1920;

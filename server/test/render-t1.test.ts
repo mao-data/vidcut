@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createEmptyProject, type Project } from '@vidcut/shared';
-import { buildRenderArgs, extractCover, frozenFramePath, render } from '../src/render.js';
+import { buildRenderArgs, extractCover, frozenFramePath, render, mapLimit } from '../src/render.js';
 import { ProjectStore } from '../src/store.js';
 import { probe } from '../src/ffmpeg.js';
 import { makeVideo } from './fixtures.js';
@@ -27,7 +27,7 @@ function fcOf(plan: { args: string[] }): string {
 
 describe('canvas fit: blur', () => {
   it('contain (default) pads with black bars', () => {
-    const fc = fcOf(buildRenderArgs(base(), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    const fc = fcOf(buildRenderArgs(base(), '/x', '/x/o.mp4', {}));
     expect(fc).toContain('pad=1080:1920');
     expect(fc).not.toContain('boxblur');
   });
@@ -35,7 +35,7 @@ describe('canvas fit: blur', () => {
   it('blur fills with a scaled-up blurred copy behind the contained frame', () => {
     const p = base();
     p.canvas.fit = 'blur';
-    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }));
+    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', {}));
     expect(fc).toContain('split=2[bg0][fg0]');
     // 背景放大裁滿 + 模糊
     expect(fc).toMatch(
@@ -59,7 +59,7 @@ describe('frozen clips', () => {
       volume: 0,
       frozen: true,
     });
-    const plan = buildRenderArgs(p, '/proj', '/proj/o.mp4', { hasDrawtext: false });
+    const plan = buildRenderArgs(p, '/proj', '/proj/o.mp4', {});
     // 定格片段吃 -loop 1 -t D -i <frozen path>
     expect(plan.args).toContain('-loop');
     expect(plan.args).toContain(join('/proj', frozenFramePath('fz')));
@@ -89,7 +89,7 @@ describe('audio track mixing', () => {
         fadeOut: 0.4,
       },
     ];
-    const plan = buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false });
+    const plan = buildRenderArgs(p, '/x', '/x/o.mp4', {});
     const fc = fcOf(plan);
     // 1 clip input + 1 audio input
     expect(plan.args.filter((a) => a === '-i')).toHaveLength(2);
@@ -113,14 +113,14 @@ describe('audio track mixing', () => {
     p.tracks.audio = [
       { id: 'a1', mediaId: 'vo', start: 1, in: 0, duration: 1.5, volume: 1, ducking: true },
     ];
-    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }));
+    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', {}));
     expect(fc).toMatch(
       /\[aclips\]volume=volume='if\(between\(t\\,1\\,2\.5\)\\,0\.25\\,1\)':eval=frame\[aduck0\]/,
     );
   });
 
   it('omits the amix stage when there are no audio items', () => {
-    const fc = fcOf(buildRenderArgs(base(), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    const fc = fcOf(buildRenderArgs(base(), '/x', '/x/o.mp4', {}));
     expect(fc).not.toContain('amix');
     expect(fc).toContain('[aclips]anull[aout]');
   });
@@ -149,24 +149,24 @@ describe('mono upmix (amix 隱式 mono→stereo 用 0.707 center level，會讓 
   }
 
   it('explicitly upmixes mono audio items before volume', () => {
-    const fc = fcOf(buildRenderArgs(withAudioItem(1), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    const fc = fcOf(buildRenderArgs(withAudioItem(1), '/x', '/x/o.mp4', {}));
     expect(fc).toMatch(/\[1:a\][^;]*aresample=44100,pan=stereo\|c0=c0\|c1=c0,volume=1/);
   });
 
   it('leaves stereo audio items untouched', () => {
-    const fc = fcOf(buildRenderArgs(withAudioItem(2), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    const fc = fcOf(buildRenderArgs(withAudioItem(2), '/x', '/x/o.mp4', {}));
     expect(fc).not.toContain(MONO_PAN);
   });
 
   it('leaves unknown channel counts untouched (old project.json without audioChannels)', () => {
-    const fc = fcOf(buildRenderArgs(withAudioItem(), '/x', '/x/o.mp4', { hasDrawtext: false }));
+    const fc = fcOf(buildRenderArgs(withAudioItem(), '/x', '/x/o.mp4', {}));
     expect(fc).not.toContain(MONO_PAN);
   });
 
   it('upmixes mono clip original audio too', () => {
     const p = withAudioItem(2);
     p.media[0]!.probe.audioChannels = 1;
-    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }));
+    const fc = fcOf(buildRenderArgs(p, '/x', '/x/o.mp4', {}));
     expect(fc).toMatch(/\[0:a\]pan=stereo\|c0=c0\|c1=c0,volume=1/);
   });
 });
@@ -223,7 +223,6 @@ describe('render integration: blur + frozen + audio', () => {
 describe('export options', () => {
   it('scales to the export resolution after compositing at canvas size', () => {
     const plan = buildRenderArgs(base(), '/x', '/x/o.mp4', {
-      hasDrawtext: false,
       export: { width: 720, height: 1280, fps: 60, crf: 18 },
     });
     const fc = fcOf(plan);
@@ -237,7 +236,6 @@ describe('export options', () => {
 
   it('uses bitrate mode and hevc when asked', () => {
     const plan = buildRenderArgs(base(), '/x', '/x/o.mp4', {
-      hasDrawtext: false,
       export: { videoBitrate: '10M', codec: 'hevc' },
     });
     expect(plan.args).toContain('-b:v');
@@ -325,4 +323,52 @@ describe('cover', () => {
     expect(img2.width).toBe(1080);
     expect(img2.height).toBe(1920);
   }, 180_000);
+});
+
+/**
+ * 字卡產生的並發上限（2026-08-05）。在此之前是巢狀的 `Promise.all`（外層每句字幕、
+ * 內層每個詞），兩層都不節流——唯一的閘門是 `MAX_CAPTION_CARDS = 600`，所以一支逐詞
+ * 高亮的長片可以在同一瞬間 spawn 到 600 個 python3。單卡有像素預算擋著，**總量沒有**。
+ */
+describe('mapLimit：字卡產生的並發閘門', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+
+  it('同時進行的任務數不超過 limit（而且真的有並發，不是退化成序列）', async () => {
+    let live = 0;
+    let peak = 0;
+    const items = Array.from({ length: 40 }, (_, i) => i);
+    await mapLimit(items, 4, async (x) => {
+      live++;
+      peak = Math.max(peak, live);
+      await tick();
+      live--;
+      return x;
+    });
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(peak).toBe(4); // 也不能保守到變成序列——那會讓匯出慢好幾倍
+  });
+
+  it('回傳順序與輸入一致（完成順序是亂的）', async () => {
+    const items = [0, 1, 2, 3, 4, 5, 6, 7];
+    const out = await mapLimit(items, 3, async (x) => {
+      await new Promise((r) => setTimeout(r, (7 - x) * 3)); // 故意讓後面的先完成
+      return x * 10;
+    });
+    expect(out).toEqual([0, 10, 20, 30, 40, 50, 60, 70]);
+  });
+
+  it('任一任務失敗就整體 reject（與 Promise.all 同語意）', async () => {
+    await expect(
+      mapLimit([1, 2, 3, 4, 5], 2, async (x) => {
+        if (x === 3) throw new Error('boom');
+        await tick();
+        return x;
+      }),
+    ).rejects.toThrow('boom');
+  });
+
+  it('空清單／limit 大於項目數都不會卡住', async () => {
+    expect(await mapLimit([], 4, async () => 1)).toEqual([]);
+    expect(await mapLimit([1, 2], 99, async (x) => x)).toEqual([1, 2]);
+  });
 });

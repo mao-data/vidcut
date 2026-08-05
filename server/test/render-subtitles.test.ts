@@ -88,7 +88,6 @@ describe('buildRenderArgs — subtitles mode', () => {
   it('burns captions by default, exactly as before the mode existed', () => {
     const p = projectWithCaption();
     const plan = buildRenderArgs(p, '/x', '/x/o.mp4', {
-      hasDrawtext: false,
       captionCards: cards(p),
     });
     expect(plan.captionsBurned).toBe(true);
@@ -99,7 +98,6 @@ describe('buildRenderArgs — subtitles mode', () => {
     it(`does not composite caption cards in '${mode}' mode`, () => {
       const p = projectWithCaption();
       const plan = buildRenderArgs(p, '/x', '/x/o.mp4', {
-        hasDrawtext: false,
         captionCards: cards(p),
         export: { subtitles: mode },
       });
@@ -110,7 +108,6 @@ describe('buildRenderArgs — subtitles mode', () => {
     it(`does not burn captions via drawtext in '${mode}' mode`, () => {
       const p = projectWithCaption();
       const plan = buildRenderArgs(p, '/x', '/x/o.mp4', {
-        hasDrawtext: true,
         export: { subtitles: mode },
       });
       expect(plan.captionsBurned).toBe(false);
@@ -123,7 +120,6 @@ describe('buildRenderArgs — subtitles mode', () => {
         { id: 'a1', mediaId: 'm1', start: 0, in: 0, duration: 2, volume: 1, ducking: false },
       ];
       const plan = buildRenderArgs(p, '/x', '/x/o.mp4', {
-        hasDrawtext: false,
         captionCards: cards(p),
         export: { subtitles: mode },
       });

@@ -1,6 +1,7 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CaptionItem, Project, RenderOptions, SubtitleExportMode } from '@vidcut/shared';
@@ -13,8 +14,6 @@ import { capToCardRequest } from './cardSync.js';
 
 /** 渲染進度旁路：'progress' 事件 (0–1)。暫態資料不進版本化 store，由 wsHub 廣播給 UI。 */
 export const renderProgressBus = new EventEmitter();
-
-let drawtextAvailable: boolean | null = null;
 
 const TEXT_CARD_PY = join(dirname(fileURLToPath(import.meta.url)), '../scripts/text_card.py');
 
@@ -33,6 +32,45 @@ export interface CaptionCard {
  */
 const MAX_CAPTION_CARDS = 600;
 
+/**
+ * 同時間最多幾個 `text_card.py` 子行程。
+ *
+ * 為什麼需要：字卡的產生以前是巢狀的 `Promise.all`（外層每句字幕、內層每個詞），
+ * **完全沒有節流**——唯一的閘門是 `MAX_CAPTION_CARDS`，所以一支逐詞高亮的長片可以
+ * 在同一瞬間 spawn 到 600 個 python3。每個都要載 Pillow、開字型、配一張畫布，
+ * 單卡雖然有像素預算擋著（`cardRequestError`），**總量卻沒有任何上限**：600 張各
+ * 70 MB 的合法卡片同時存在就是幾十 GB，機器會先換頁到卡死，OOM killer 收掉幾個
+ * python 之後匯出以一句看不懂的錯誤結束。
+ *
+ * 取 CPU 核心數（上下限 2–8）：產卡是 CPU-bound（純繪圖），開超過核心數只是多花
+ * 記憶體換 context switch。實測 4 核心上 600 張卡的總時間與無節流版本相當。
+ */
+const CARD_CONCURRENCY = Math.max(2, Math.min(8, cpus().length || 4));
+
+/**
+ * 有節流的 `Promise.all`：最多 `limit` 個任務同時進行，回傳順序與輸入一致。
+ * 刻意不引入相依套件（p-limit 之類）——這是 20 行的東西，而這個 repo 的相依愈少愈好。
+ * 任何一個任務 reject 就整體 reject（與 `Promise.all` 同語意）；已經在跑的不會被中斷，
+ * 但因為呼叫端隨即讓整次 render 失敗，那些卡只是留在 derived/ 裡等下次被覆寫。
+ */
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (x: T, i: number) => Promise<R>,
+) {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]!, i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 let captionFontResolver: (family: string) => string | undefined = () => undefined;
 /** 注入字型解析器（啟動時由 index.ts 呼叫）。未注入 → fontPath null → text_card.py 退回候選鏈。 */
 export function setCaptionFontResolver(fn: (family: string) => string | undefined): void {
@@ -40,7 +78,33 @@ export function setCaptionFontResolver(fn: (family: string) => string | undefine
 }
 
 /**
- * 用 Pillow 把一條 caption 畫成透明 PNG 字卡（繞過 ffmpeg 無 drawtext）。
+ * text_card.py 的 stdout → 「這張卡不能當成品」的錯誤訊息（沒問題時回 null）。
+ *
+ * `fontFallback` 代表候選鏈裡一個字型都開不了，只能用 Pillow 內建的點陣字型：
+ * 沒有中日韓字符、字重與描邊都不對，舊版 Pillow 連字級都套不上（64px 的卡畫成
+ * 一行 8px 小字）。字幕燒進畫面之後是拿不掉的，而且預覽與匯出吃同一張壞卡、
+ * 畫面上看不出哪裡不對——**寧可讓匯出失敗**。
+ * 輸出不是 JSON 時回 null（維持舊行為）：圖已經寫出來了，唯一的退場條件是這個旗標，
+ * 不該因為多了一行 python warning 就擋掉別人的匯出。
+ */
+export function fontFallbackError(stdout: string, capId: string): string | null {
+  let geo: { fontFallback?: boolean };
+  try {
+    geo = JSON.parse(stdout) as { fontFallback?: boolean };
+  } catch {
+    return null;
+  }
+  if (!geo?.fontFallback) return null;
+  return (
+    `caption ${capId}: 找不到任何可用的字型，字卡只能用 Pillow 內建的點陣字型畫` +
+    `（沒有中日韓字符、字級與描邊都不對）。與其把看不懂的字燒進成品，這裡直接中止。` +
+    `請安裝一套字型（Debian/Ubuntu：apt install fonts-noto-cjk），或在 ` +
+    `server/scripts/text_card.py 的 FONT_CANDIDATES 補上你機器上的路徑。`
+  );
+}
+
+/**
+ * 用 Pillow 把一條 caption 畫成透明 PNG 字卡（**唯一**的燒字路徑，見 buildRenderArgs）。
  * 給 tokenIndex 時畫成逐詞高亮的第 N 個狀態。回傳相對專案資料夾的路徑。
  */
 export function renderCaptionCard(
@@ -83,15 +147,32 @@ export function renderCaptionCard(
       : null),
   });
   return new Promise<string>((resolve, reject) => {
-    const child = spawn('python3', [TEXT_CARD_PY], { stdio: ['pipe', 'ignore', 'pipe'] });
+    // stdout 以前是 'ignore'。現在要讀它，因為 text_card.py 會在「一個字型都開不了、
+    // 只能用 Pillow 內建點陣字型」時回報 fontFallback——那種卡沒有 CJK 字符、字重描邊
+    // 全不對，舊版 Pillow 甚至連字級都套不上（一張 64px 的卡畫成一行 8px 小字）。
+    // **寧可讓匯出失敗，也不要把一排看不懂的小豆腐字燒進成品**：字幕燒進畫面之後
+    // 是拿不掉的，而且預覽與匯出吃同一張壞卡，畫面上也看不出哪裡不對。
+    const child = spawn('python3', [TEXT_CARD_PY], { stdio: ['pipe', 'pipe', 'pipe'] });
     let stderr = '';
+    let stdout = '';
+    child.stdout.on('data', (d) => {
+      stdout += d;
+    });
     child.stderr.on('data', (d) => {
       stderr += d;
     });
     child.on('error', reject);
     child.on('close', (code) => {
-      if (code === 0) resolve(relPath);
-      else reject(new Error(`text_card.py exited ${code}: ${stderr.slice(-1000)}`));
+      if (code !== 0) {
+        reject(new Error(`text_card.py exited ${code}: ${stderr.slice(-1000)}`));
+        return;
+      }
+      const fontErr = fontFallbackError(stdout, cap.id);
+      if (fontErr) {
+        reject(new Error(fontErr));
+        return;
+      }
+      resolve(relPath);
     });
     child.stdin.write(payload);
     child.stdin.end();
@@ -121,6 +202,8 @@ export async function renderCaptionCards(
       },
     ];
   }
+  // 節流在**這一層**沒有用（一句字幕的詞數有限，而外層還會同時跑好幾句）——
+  // 真正的閘門在 render() 那邊，它把「所有句子 × 所有詞」攤平成一份工作清單再限流。
   return Promise.all(
     tokens.map(async (tok, k) => ({
       cap,
@@ -130,28 +213,6 @@ export async function renderCaptionCards(
       end: tokens[k + 1] ? Math.max(tok.start, tokens[k + 1]!.start) : end,
     })),
   );
-}
-
-/** 偵測本機 ffmpeg 是否有 drawtext（libfreetype）。快取結果。 */
-export async function hasDrawtext(): Promise<boolean> {
-  if (drawtextAvailable !== null) return drawtextAvailable;
-  drawtextAvailable = await new Promise<boolean>((resolve) => {
-    const child = spawn('ffmpeg', ['-hide_banner', '-filters'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    let out = '';
-    child.stdout.on('data', (d) => {
-      out += d;
-    });
-    child.on('close', () => resolve(/\bdrawtext\b/.test(out)));
-    child.on('error', () => resolve(false));
-  });
-  return drawtextAvailable;
-}
-
-function esc(s: string): string {
-  // drawtext text 轉義
-  return s.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
 }
 
 export interface RenderPlan {
@@ -178,13 +239,21 @@ const MONO_UPMIX = 'pan=stereo|c0=c0|c1=c0';
  * 影片：每片段 input-level -ss/-t 精確剪（一律重新編碼，不用 -c copy）→ scale/pad 1080×1920 → concat。
  * overlay PNG：overlay 濾鏡（time enable、位置由 0–1 換算）。
  * 音訊：有聲用片段聲音、無聲補 anullsrc → concat。
- * captions：有字卡就疊字卡（逐詞高亮只能走這條），否則用原生 drawtext。
+ * captions：一律疊 Pillow 產的字卡（burn 模式）。
+ *
+ * ⚠️ 這裡曾經有第二條路：ffmpeg 有 drawtext（libfreetype）且沒有 karaoke 時走原生
+ * `drawtext` 濾鏡。**2026-08-05 整條刪掉**，因為它是一個會靜默改變輸出的分岔：
+ * 那條路沒有 `fontfile=`（字型完全由 ffmpeg 自己挑）、不換行（連 `\n` 都不處理）、
+ * 描邊寬度寫死 3px，跟字卡路徑是完全不同的光柵器。本機 Homebrew 的 ffmpeg 沒編入
+ * freetype 所以永遠踩不到，但換一台有的機器（多數 Linux 發行版的套件都有）「預覽＝成品」
+ * 會**靜默**失效，而且沒有任何測試或斷言擋著。自動換行上線後落差從「字型不同」升級成
+ * 「排版整個不同」。留著它唯一的好處是省下產卡的時間，代價是一個沒人會發現的正確性洞。
  */
 export function buildRenderArgs(
   project: Project,
   projectDir: string,
   outPath: string,
-  opts: { hasDrawtext: boolean; captionCards?: CaptionCard[]; export?: RenderOptions },
+  opts: { captionCards?: CaptionCard[]; export?: RenderOptions } = {},
 ): RenderPlan {
   const exp = opts.export ?? {};
   const { width, height, fps } = project.canvas;
@@ -196,7 +265,6 @@ export function buildRenderArgs(
   // 只有 burn 模式把字幕燒進畫面；off/sidecar/embed 都要乾淨畫面
   // （soft track 疊上燒錄＝觀眾開字幕看到兩排字）
   const burnCaptions = (exp.subtitles ?? 'burn') === 'burn';
-  // 有字卡就用字卡（呼叫端已判斷需不需要）；沒有字卡才退回原生 drawtext
   const useCards = burnCaptions && captionCards.length > 0;
   const total = totalDuration(project);
 
@@ -366,7 +434,7 @@ export function buildRenderArgs(
     vcur = next;
   });
 
-  // captions：有字卡就疊字卡（逐詞高亮只能走這條）；否則用原生 drawtext
+  // captions：疊字卡（唯一的路徑，見 buildRenderArgs 的註解）
   let captionsBurned = false;
   if (useCards) {
     // 字卡 PNG 全寬、水平已置中；overlay 於 x=0、y=H*style.y，依各自時間窗 enable
@@ -378,19 +446,6 @@ export function buildRenderArgs(
       fc.push(`${vcur}[${inputIdx}:v]overlay=x=0:y=${y}:${enable}${next}`);
       vcur = next;
     });
-    captionsBurned = true;
-  } else if (burnCaptions && opts.hasDrawtext && project.tracks.captions.length > 0) {
-    for (const cap of project.tracks.captions) {
-      const next = `[cap_${cap.id}]`;
-      const yExpr = `(h*${cap.style.y})`;
-      const enable = `enable='between(t\\,${cap.start}\\,${cap.start + cap.duration})'`;
-      const stroke = cap.style.stroke ? `:borderw=3:bordercolor=${cap.style.stroke}` : '';
-      fc.push(
-        `${vcur}drawtext=text='${esc(cap.text)}':fontsize=${cap.style.fontSize}:` +
-          `fontcolor=${cap.style.fill}${stroke}:x=(w-text_w)/2:y=${yExpr}:${enable}${next}`,
-      );
-      vcur = next;
-    }
     captionsBurned = true;
   }
 
@@ -473,8 +528,6 @@ export async function render(
   const outRel = join('output', `${stamp}.mp4`);
   const outPath = join(projectDir, outRel);
 
-  const drawtext = await hasDrawtext();
-
   // 定格幀：先從來源抽出該時刻的靜圖
   const frozen = project.tracks.video.filter((c) => c.frozen);
   if (frozen.length > 0) {
@@ -496,13 +549,12 @@ export async function render(
     }
   }
 
-  // 需要字卡的兩種情況：本機沒有 drawtext，或有逐詞高亮（drawtext 做不到逐詞著色）。
+  // burn 模式一律產字卡（唯一的燒字路徑，見 buildRenderArgs 的註解）。
   // 非 burn 模式不燒字幕，連字卡都不必產（一支長片省下數百次 Pillow 呼叫）。
   const captions = project.tracks.captions;
   const subtitleMode: SubtitleExportMode = exportOpts?.subtitles ?? 'burn';
-  const karaoke = captions.some((c) => c.tokens && c.tokens.length > 0);
   let captionCards: CaptionCard[] = [];
-  if (captions.length > 0 && subtitleMode === 'burn' && (!drawtext || karaoke)) {
+  if (captions.length > 0 && subtitleMode === 'burn') {
     // 先估數量再產圖——否則超量時會先寫上千張 PNG 才報錯
     const expected = captions.reduce((n, c) => n + Math.max(1, c.tokens?.length ?? 1), 0);
     if (expected > MAX_CAPTION_CARDS) {
@@ -512,14 +564,17 @@ export async function render(
       );
     }
     await mkdir(join(projectDir, 'derived', 'captions'), { recursive: true });
-    const perCaption = await Promise.all(
-      captions.map((cap) => renderCaptionCards(projectDir, cap, project.canvas.width)),
+    // ⚠️ 這裡以前是 `Promise.all(captions.map(...))`，而 renderCaptionCards 內層又是一個
+    // `Promise.all(tokens.map(...))`——兩層都不節流，等於同時 spawn 到 MAX_CAPTION_CARDS
+    // 個 python3。改成限流（見 CARD_CONCURRENCY）。以句為單位排隊就夠了：真正的爆量來自
+    // 「幾百句同時開工」，而單句的詞數受限於一句話有多長。
+    const perCaption = await mapLimit(captions, CARD_CONCURRENCY, (cap) =>
+      renderCaptionCards(projectDir, cap, project.canvas.width),
     );
     captionCards = perCaption.flat();
   }
   const plan = buildRenderArgs(project, projectDir, outPath, {
     export: exportOpts,
-    hasDrawtext: drawtext,
     captionCards,
   });
 

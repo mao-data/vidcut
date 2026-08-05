@@ -198,9 +198,30 @@
   `.describe()`**，AI 呼叫端只看得到一個「可以調的換行寬」）與 server `instructions`、
   設計文件 §4/§6、`CLAUDE.md`、本檔——全部改成講實話。
 - **仍未動的東西**：`layout_tokens()`（karaoke 的逐詞排版）維持原樣，只是改成跟一般文字
-  共用同一個 `max_width` 變數；karaoke 的 token bbox 語意沒變。`render.ts` 的
-  **原生 `drawtext` 分支仍然單行不換行**——換到有 freetype 的機器時落差比以前更大
-  （見 `CLAUDE.md`）。
+  共用同一個 `max_width` 變數；karaoke 的 token bbox 語意沒變。
+  （原本這裡還記著「`render.ts` 的原生 `drawtext` 分支仍然單行不換行」——**那條分支
+  2026-08-05 整條刪掉了**，見下節。）
+
+## burn 模式只剩一條路（2026-08-05）
+
+- **刪掉原生 `drawtext` 分支**（`buildRenderArgs` 的 `else if`、`hasDrawtext()`、`esc()`）。
+  它在「ffmpeg 有 drawtext 且沒有 karaoke」時接手，而那條路沒有 `fontfile=`、不換行
+  （連 `\n` 都不處理）、描邊寬度寫死 3px——是跟 Pillow 字卡完全不同的光柵器。本機 ffmpeg
+  沒編入 freetype 所以永遠踩不到，換一台有的機器「預覽＝成品」會**靜默**失效。
+  現在 burn 模式一律產字卡，沒有字卡就是不燒字；`render.test.ts` 有一條測試釘死它不准回來。
+  `buildRenderArgs` 的 `opts.hasDrawtext` 一併移除（所有呼叫端與測試都更新了）。
+- **字型全滅不再靜默**：`fonts.ts` 的 CANDIDATES 與 `text_card.py` 的 FONT_CANDIDATES
+  以前**只有 macOS 路徑**，Linux/CI 上必然是空表 → Pillow 內建點陣字型（沒有 CJK 字符，
+  Pillow < 10.1 連字級都套不上，64px 的卡畫成一行 8px 小字）。兩邊吃同一張壞卡，
+  所以畫面看不出異常、`verify:wysiwyg` 也全綠。現在：兩份清單都補上 Linux/Windows 路徑；
+  python 回報 `fontFallback`；**匯出直接中止**（`fontFallbackError()`，字幕燒進去拿不掉）；
+  啟動時字型表為空會印一則講清楚後果與解法的警告。逐個候選的 warn 改成只在
+  「檔案存在但開不了」時才印（否則跨三個 OS 的清單會在每次啟動洗出一片雜訊）。
+- **字卡產生有並發上限了**（`CARD_CONCURRENCY` = CPU 核心數，夾在 2–8）。以前是巢狀的
+  `Promise.all`（外層每句、內層每個詞），兩層都不節流——唯一的閘門是
+  `MAX_CAPTION_CARDS = 600`，所以一支逐詞高亮的長片可以同時 spawn 到 600 個 python3。
+  單卡有像素預算擋著，**總量沒有**。新增 20 行的 `mapLimit()`（不引入相依套件），
+  有並發上限、順序保持、失敗語意與 `Promise.all` 相同的單元測試。
 
 ## 啟動時的字卡遷移（`refreshTextOverlayCards`，2026-08-04 加、2026-08-05 修）
 
