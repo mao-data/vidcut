@@ -3,6 +3,7 @@ import type {
   AudioItem,
   Command,
   CommandResult,
+  JsonPatch,
   MutationSource,
   OverlayItem,
   OverlayText,
@@ -232,6 +233,55 @@ function numericError(cmd: Command): string | null {
   }
 }
 
+// ---- 項目級規則（set* 與 update* 共用）----------------------------------------
+//
+// 為什麼要抽出來：這些規則以前在「整組替換」與「改單項」兩處各寫了一次，然後分岔——
+// 不是誰忘了驗，是同一條規則有兩份實作，只補一邊就會再分岔一次。實際的落差：
+//   set_captions   收 duration <= 0；update_caption 拒（實測 {start:-99, duration:0} 進了文件）
+//   set_audio      收 start < 0 與 fadeIn > duration；update_audio 兩個都拒
+// start < 0 的音訊項不會報錯也不會不見：render 的 `if (delayMs > 0)` 讓 adelay 整個被
+// 跳過，那段聲音靜靜地從 t=0 開始播——症狀離成因很遠，而且成品才聽得出來。
+//
+// 這裡收的是「這個項目本身合不合法」。跨項目的規則（id 重複、media 存在）留在各自的
+// case，因為 set* 與 update* 對它們的要求本來就不同（前者在建立、後者在修改既有項目）。
+
+/** 只覆寫「有給值」的鍵。`{start: undefined}` 不該把既有的 start 洗成 undefined。 */
+function merge<T extends object>(base: T, patch: Partial<T>): T {
+  const out = { ...base };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+  }
+  return out;
+}
+
+/** 一條字幕本身該滿足的規則（不含字卡像素預算，那是 validateCaptionCard）。 */
+function captionRuleError(c: CaptionItem): string | null {
+  if (c.duration <= 0) return 'duration must be > 0';
+  return null;
+}
+
+/**
+ * 一個音訊項本身該滿足的規則。`media` 給了才驗來源邊界——update 的目標素材有可能
+ * 已經被移除，那不該連調音量都做不到（維持 updateAudio 原本的寬容）。
+ */
+function audioRuleError(
+  a: AudioItem,
+  media: { probe: { duration: number } } | undefined,
+): string | null {
+  if (a.start < 0) return 'start must be >= 0';
+  if (a.in < 0) return 'in must be >= 0';
+  if (a.duration <= 0) return 'duration must be > 0';
+  if (a.volume < 0 || a.volume > 2) return 'volume must be within 0..2';
+  for (const k of ['fadeIn', 'fadeOut'] as const) {
+    const v = a[k];
+    if (v !== undefined && (v < 0 || v > a.duration)) return `${k} must be within 0..duration`;
+  }
+  if (media && a.in + a.duration > media.probe.duration + 1e-6) {
+    return `in+duration exceeds source ${media.probe.duration}`;
+  }
+  return null;
+}
+
 /** 主軌是磁性的：片段起點 = 前面所有片段長度累加。 */
 function startsOf(clips: VideoClip[]): number[] {
   const out: number[] = [];
@@ -297,9 +347,11 @@ export function applyCommand(
     case 'setOverlays':
       return setOverlays(store, source, cmd);
     case 'setCaptions': {
-      // 整批中任一句的字卡超出像素預算就整批拒絕、文件完全不動：cardSync 之後會拿
-      // 文件裡的每一句去產卡，讓它落盤等於把一顆定時炸彈存進專案（每次載入都會再試一次）。
+      // 整批中任一句不合格就整批拒絕、文件完全不動：cardSync 之後會拿文件裡的每一句
+      // 去產卡，讓它落盤等於把一顆定時炸彈存進專案（每次載入都會再試一次）。
       for (const cap of cmd.captions) {
+        const ruleErr = captionRuleError(cap as CaptionItem);
+        if (ruleErr) return { ok: false, error: `caption ${cap.id}: ${ruleErr}` };
         const err = validateCaptionCard(cap as CaptionItem, store.doc.canvas.width);
         if (err) return { ok: false, error: err };
       }
@@ -334,14 +386,12 @@ export function applyCommand(
     case 'setAudio': {
       // 與 addClip 對稱的逐項驗證。空陣列＝清空音訊軌，是合法且被既有測試依賴的用法，
       // 所以驗證放在迴圈裡（空陣列自然不進迴圈），不要在外面加「必須非空」。
+      // 項目本身的規則走 audioRuleError——跟 updateAudio 同一份，見該函式的註解。
       for (const a of cmd.audio) {
         const media = store.doc.media.find((m) => m.id === a.mediaId);
         if (!media) return { ok: false, error: `audio ${a.id}: media not found: ${a.mediaId}` };
-        if (a.duration <= 0) return { ok: false, error: `audio ${a.id}: duration must be > 0` };
-        if (a.in < 0) return { ok: false, error: `audio ${a.id}: in must be >= 0` };
-        if (a.in + a.duration > media.probe.duration + 1e-6) {
-          return { ok: false, error: `audio ${a.id}: out of bounds for ${a.mediaId}` };
-        }
+        const ruleErr = audioRuleError(a, media);
+        if (ruleErr) return { ok: false, error: `audio ${a.id}: ${ruleErr}` };
       }
       return ok(
         store.mutate(source, 'set audio', (d) => {
@@ -355,6 +405,29 @@ export function applyCommand(
           d.canvas.fit = cmd.fit;
         }),
       );
+    case 'registerMedia': {
+      const a = cmd.asset;
+      if (!a || typeof a !== 'object') return { ok: false, error: 'asset is required' };
+      if (!a.id || !a.path) return { ok: false, error: 'asset needs a non-empty id and path' };
+      // id 是 nanoid，撞號幾乎不可能——但這是唯一寫 doc.media 的地方，重複的 id 會讓
+      // 後面每一個 `media.find(m => m.id === ...)` 靜靜地拿到錯的那一筆。
+      if (store.doc.media.some((m) => m.id === a.id)) {
+        return { ok: false, error: `media id already exists: ${a.id}` };
+      }
+      return ok(
+        store.mutate(source, `import ${a.path}`, (d) => {
+          d.media.push(a);
+        }),
+      );
+    }
+    case 'setCover': {
+      if (!cmd.path) return { ok: false, error: 'cover path must not be empty' };
+      return ok(
+        store.mutate(source, 'set cover', (d) => {
+          d.render.coverPath = cmd.path;
+        }),
+      );
+    }
     case 'undo': {
       const r = store.undo(source, cmd.steps ?? 1);
       return r ? { ok: true, version: r.version } : { ok: false, error: 'nothing to undo' };
@@ -370,8 +443,13 @@ export function applyCommand(
   }
 }
 
-function ok(r: { version: number }): CommandResult {
-  return { ok: true, version: r.version };
+/**
+ * 把 `store.mutate` 的結果收成 CommandResult。`changed` 來自 immer 實際產生的 patch 數：
+ * 零個 ＝ 這個命令什麼都沒改（`patch: {}`、送了跟現值相同的座標、schema 把打錯的鍵
+ * strip 掉之後剩下空 patch…）。見 CommandResult 的註解。
+ */
+function ok(r: { version: number; patches: JsonPatch[] }): CommandResult {
+  return { ok: true, version: r.version, changed: r.patches.length > 0 };
 }
 
 function updateClip(
@@ -627,9 +705,9 @@ function updateCaption(
   if (!cur) {
     return { ok: false, error: `caption not found: ${cmd.id}` };
   }
-  if (cmd.patch.duration !== undefined && cmd.patch.duration <= 0) {
-    return { ok: false, error: 'caption duration must be > 0' };
-  }
+  // 改完之後的樣子要滿足跟 setCaptions 同一份規則（見 captionRuleError）。
+  const ruleErr = captionRuleError(merge<CaptionItem>(cur, cmd.patch));
+  if (ruleErr) return { ok: false, error: `caption ${cmd.id}: ${ruleErr}` };
   // 會影響字卡外觀的三個欄位任一有動，就用「改完後的樣子」跑一次像素預算
   // （cardSync 之後就是拿文件裡的這一句去產卡）。start/duration 不影響排版，不必驗。
   if (cmd.patch.text !== undefined || cmd.patch.style !== undefined || cmd.patch.tokens) {
@@ -858,25 +936,11 @@ function updateAudio(
   const item = store.doc.tracks.audio.find((a) => a.id === cmd.id);
   if (!item) return { ok: false, error: `audio not found: ${cmd.id}` };
   const media = store.doc.media.find((m) => m.id === item.mediaId);
-  const nextIn = cmd.patch.in ?? item.in;
-  const nextDur = cmd.patch.duration ?? item.duration;
-  if (nextIn < 0) return { ok: false, error: 'in must be >= 0' };
-  if (nextDur <= 0) return { ok: false, error: 'duration must be > 0' };
-  if (media && nextIn + nextDur > media.probe.duration + 1e-6) {
-    return { ok: false, error: `in+duration exceeds source ${media.probe.duration}` };
-  }
-  if (cmd.patch.start !== undefined && cmd.patch.start < 0) {
-    return { ok: false, error: 'start must be >= 0' };
-  }
-  if (cmd.patch.volume !== undefined && (cmd.patch.volume < 0 || cmd.patch.volume > 2)) {
-    return { ok: false, error: 'volume must be within 0..2' };
-  }
-  for (const k of ['fadeIn', 'fadeOut'] as const) {
-    const v = cmd.patch[k];
-    if (v !== undefined && (v < 0 || v > nextDur)) {
-      return { ok: false, error: `${k} must be within 0..duration` };
-    }
-  }
+  // 用「改完之後的樣子」跑規則，跟 setAudio 是同一份（見 audioRuleError）。
+  // 這樣既有欄位與 patch 欄位的交互（例如只縮短 duration 卻讓既有的 fadeOut 超出）
+  // 也會被涵蓋——分開寫的版本只驗 patch 帶到的那幾個欄位。
+  const ruleErr = audioRuleError(merge<AudioItem>(item, cmd.patch), media);
+  if (ruleErr) return { ok: false, error: ruleErr };
   return ok(
     store.mutate(source, `edit audio ${item.label ?? item.id}`, (d) => {
       Object.assign(

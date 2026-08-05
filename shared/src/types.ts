@@ -278,10 +278,34 @@ export type Command =
   | { name: 'removeAudio'; id: string }
   | { name: 'setAudio'; audio: AudioItem[] }
   | { name: 'setCanvasFit'; fit: CanvasFit }
+  /**
+   * 登記一支已經處理完（proxy/filmstrip/peaks 都產好）的素材。跑 ffmpeg 的 async 前置
+   * 留在 `server/src/ingest.ts` 的 `prepareMedia`，命令層只做同步的登記——與文字 overlay
+   * 的 `resolveTextCommand` 同一個模式（見 textOverlays.ts）。
+   *
+   * 走命令層是為了讓 AI 那條路吃得到 `aiWrite` 的審核鎖：以前 import_media 直接
+   * `store.mutate`，**審核進行中照樣能把素材塞進專案**（實測素材 11 → 12 筆）。
+   * 人的路徑（HTTP 上傳）走 applyCommand，不受審核鎖——那是使用者自己的審核。
+   *
+   * patch path 是 `media` 不是 `tracks`／`canvas`，所以不進 undo 堆疊（見 store 的 isUndoable）。
+   */
+  | { name: 'registerMedia'; asset: MediaAsset }
+  /** 設定封面圖。抽幀的 async 前置留在 `render.ts` 的 `renderCoverImage`；理由同 registerMedia。 */
+  | { name: 'setCover'; path: string }
   | { name: 'undo'; steps?: number }
   | { name: 'redo'; steps?: number };
 
-export type CommandResult = { ok: true; version: number } | { ok: false; error: string };
+/**
+ * `changed: false` ＝ 命令合法、也真的套用了，但**沒有任何欄位改變**（immer 產生零個
+ * patch），所以 version 停在原地。這不是錯誤——送一個跟現值相同的 position 本來就合法
+ * ——但呼叫端一定要分得出來：以前這種情形回的是跟真正成功一字不差的 `ok, version=N`，
+ * 而 N 沒動；AI 沒有任何辦法知道自己的編輯其實沒生效。
+ *
+ * 可選欄位（不是必填）：undo/redo 這種不經過 `mutate` 回傳值的路徑就不帶，
+ * 現有的呼叫端也不必全部改。只有明確的 `false` 才代表「什麼都沒變」。
+ */
+export type CommandResult =
+  { ok: true; version: number; changed?: boolean } | { ok: false; error: string };
 
 // ---- 審核與編輯脈絡 ----
 export type ReviewOutcome = 'approved' | 'rejected' | 'approved_with_notes' | 'timeout';

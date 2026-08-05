@@ -12,9 +12,9 @@ import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import type { TextCardService } from './textCards.js';
 import { aiWrite } from './aiWrite.js';
-import { ingestMedia } from './ingest.js';
+import { prepareMedia } from './ingest.js';
 import { extractFrame } from './frame.js';
-import { extractCover, render } from './render.js';
+import { renderCoverImage, render } from './render.js';
 import { listSource } from './sourceFolder.js';
 import { resolveTextCommand } from './textOverlays.js';
 import { CARD_LIMITS } from './cardBudget.js';
@@ -266,8 +266,21 @@ const MAX_WORDS_INLINE = 1000;
 /** list_source 內嵌回傳的檔案數上限：素材夾可能有上千支檔，整包回去會灌爆 AI 的 context。 */
 const MAX_FILES_INLINE = 200;
 
-function writeResultText(r: { ok: boolean; version?: number; error?: string }): string {
-  return r.ok ? `ok, version=${r.version}` : `error: ${r.error}`;
+/**
+ * `changed === false` 要講出來。命令合法、也套用了，但一個欄位都沒動（version 因此
+ * 停在原地）——以前這種情形回的字串跟真正改到東西時**一字不差**，模型沒有任何辦法
+ * 察覺自己的編輯沒生效。不當成錯誤：送一個跟現值相同的 position 本來就是合法呼叫。
+ */
+function writeResultText(r: {
+  ok: boolean;
+  version?: number;
+  error?: string;
+  changed?: boolean;
+}): string {
+  if (!r.ok) return `error: ${r.error}`;
+  return r.changed === false
+    ? `ok (no-op: 命令合法但沒有任何欄位改變), version=${r.version}`
+    : `ok, version=${r.version}`;
 }
 
 /** 寫入類工具的統一回覆：成功回文字、失敗回 isError。 */
@@ -453,15 +466,31 @@ export function createMcpServer(deps: McpDeps): McpServer {
         relPath: z.string(),
         label: z.string().optional(),
         meta: z.record(z.unknown()).optional(),
+        ifVersion: z.number().optional(),
       },
     },
-    async ({ relPath, label, meta }) => {
+    async ({ relPath, label, meta, ifVersion }) => {
+      // 早期守衛：proxy/filmstrip 是分鐘級的 ffmpeg 工作，別為了一個註定寫不進去的
+      // 登記先跑完。真正的守衛在下面的 aiWrite——這個工具以前直接 store.mutate，
+      // 兩層都沒走，所以**審核進行中照樣能把素材塞進專案**（實測 11 → 12 筆）。
+      if (store.doc.review !== null) return err('error: a review is in progress');
+      if (ifVersion !== undefined && ifVersion !== store.version)
+        return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
       try {
-        const id = await ingestMedia(store, projectDir, relPath, { label, meta });
-        const m = store.doc.media.find((x) => x.id === id)!;
+        const prepared = await prepareMedia(store, projectDir, relPath, { label, meta });
+        if ('existingId' in prepared) {
+          const m = store.doc.media.find((x) => x.id === prepared.existingId)!;
+          return result(
+            { mediaId: m.id, probe: m.probe, alreadyImported: true },
+            `${relPath} 已經匯入過了，沿用 ${m.id}（${m.probe.duration.toFixed(1)}s）`,
+          );
+        }
+        const w = aiWrite(store, { name: 'registerMedia', asset: prepared.asset }, ifVersion);
+        if (!w.ok) return err(writeResultText(w));
+        const m = prepared.asset;
         return result(
-          { mediaId: id, probe: m.probe },
-          `imported ${relPath} as ${id} (${m.probe.duration.toFixed(1)}s)`,
+          { mediaId: m.id, probe: m.probe, version: w.version },
+          `imported ${relPath} as ${m.id} (${m.probe.duration.toFixed(1)}s)`,
         );
       } catch (e) {
         return err(`import failed: ${(e as Error).message}`);
@@ -931,15 +960,19 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'set_cover',
     {
-      description: '設定封面圖（從已渲染成品或來源素材抽該時間點的畫面）。回傳圖片 URL。',
-      inputSchema: { time: z.number() },
+      description: '設定封面圖（有成品時從成品抽該時間點的畫面，否則從來源素材抽）。回傳圖片 URL。',
+      inputSchema: { time: z.number(), ifVersion: z.number().optional() },
     },
-    async ({ time }) => {
+    async ({ time, ifVersion }) => {
+      // 這個工具以前直接 store.mutate，繞過 aiWrite——審核進行中照樣改得動 coverPath。
+      if (store.doc.review !== null) return err('error: a review is in progress');
       try {
-        const rel = await extractCover(store, projectDir, time);
+        const rel = await renderCoverImage(store.doc, projectDir, time);
+        const w = aiWrite(store, { name: 'setCover', path: rel }, ifVersion);
+        if (!w.ok) return err(writeResultText(w));
         return imageReply(
           join(projectDir, rel),
-          { coverPath: rel, url: `${baseUrl}/media/${rel}` },
+          { coverPath: rel, url: `${baseUrl}/media/${rel}`, version: w.version },
           `${baseUrl}/media/${rel}`,
         );
       } catch (e) {

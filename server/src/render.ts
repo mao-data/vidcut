@@ -9,6 +9,7 @@ import type { CaptionItem, Project, RenderOptions, SubtitleExportMode } from '@v
 import { locate, overlayWindow, serializeSrt, totalDuration } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
+import { applyCommand } from './commands.js';
 import { resolveMediaPath } from './paths.js';
 import { cardRequestError } from './cardBudget.js';
 import { cardMargin } from './rasterizer.js';
@@ -716,23 +717,31 @@ export async function render(
 }
 
 /**
- * 產生封面圖。已有成品時直接從成片抽幀（所見即所得，含 overlay/字幕）；
- * 否則退而從來源素材抽。寫到 output/cover.jpg 並記進 project.render.coverPath。
+ * 抽出封面畫面並寫成 output/cover.jpg，回傳相對專案資料夾的路徑。**不碰文件**——
+ * 登記走 `setCover` 命令（見 shared 的 Command 註解），這樣 AI 那條路才吃得到 aiWrite
+ * 的審核鎖：以前 extractCover 自己 store.mutate，審核進行中照樣改得動 coverPath。
+ *
+ * 已有成品時直接從成片抽幀（所見即所得，含 overlay/字幕）；否則退而從來源素材抽。
+ *
+ * ⚠️ `lastOutput` 要**先確認檔案還在**。它只是文件裡的一個字串，而成品可能被刪掉、
+ * 被搬走，或者（在 stamp 沒驗證的年代）根本就寫到了專案目錄外——那時這裡會把一個
+ * 不存在的路徑餵給 ffmpeg，使用者拿到的是一句 `Error opening input`，看不出跟封面
+ * 有什麼關係。檔案不在就當作沒渲染過，退回從素材抽。
  */
-export async function extractCover(
-  store: ProjectStore,
+export async function renderCoverImage(
+  project: Project,
   projectDir: string,
   time: number,
 ): Promise<string> {
-  const project = store.doc;
   await mkdir(join(projectDir, 'output'), { recursive: true });
   const relPath = join('output', 'cover.jpg');
 
   const last = project.render.lastOutput;
-  let src: string | null = null;
+  const lastAbs = last ? join(projectDir, last) : null;
+  let src: string;
   let seek = time;
-  if (last) {
-    src = join(projectDir, last);
+  if (lastAbs && existsSync(lastAbs)) {
+    src = lastAbs;
   } else {
     const loc = locate(project, Math.min(Math.max(time, 0), totalDuration(project)));
     if (!loc) throw new Error('cover: no clip at that time');
@@ -751,8 +760,20 @@ export async function extractCover(
     '2',
     join(projectDir, relPath),
   ]);
-  store.mutate('ai', 'set cover', (d) => {
-    d.render.coverPath = relPath;
-  });
+  return relPath;
+}
+
+/**
+ * 人的路徑（WS 的 `{type:'setCover'}`）：抽圖 + 登記。
+ * AI 走 MCP 的 set_cover，那邊是 renderCoverImage + aiWrite（才會被審核鎖擋下）。
+ */
+export async function extractCover(
+  store: ProjectStore,
+  projectDir: string,
+  time: number,
+): Promise<string> {
+  const relPath = await renderCoverImage(store.doc, projectDir, time);
+  const r = applyCommand(store, 'human', { name: 'setCover', path: relPath });
+  if (!r.ok) throw new Error(`cover: ${r.error}`);
   return relPath;
 }

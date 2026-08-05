@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -12,6 +12,7 @@ import type { ProjectTracks } from '@vidcut/shared';
 import { makeVideo } from './fixtures.js';
 import { TextCardService } from '../src/textCards.js';
 import { PillowRasterizer } from '../src/rasterizer.js';
+import { extractCover } from '../src/render.js';
 
 /**
  * MCP 工具面的覆蓋補齊：既有 mcp.test.ts 只驗了 5 條路徑（列表、import+set_timeline+
@@ -560,5 +561,122 @@ describe('批 D：輸入邊界', () => {
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/stale/);
     expect(Date.now() - t0).toBeLessThan(2000);
+  });
+});
+
+/**
+ * 批 E：寫入守衛與驗證去重。
+ *
+ * 兩件事：(1) import_media 與 set_cover 以前直接 store.mutate，兩層守衛都沒走，
+ * 所以審核進行中照樣寫得進去（實測素材 11 → 12 筆）；現在它們跟其他寫入工具一樣
+ * 走 aiWrite。(2) 同一條規則以前在「整組替換」與「改單項」兩處各寫一次然後分岔，
+ * 現在只有一份（見 commands.ts 的 audioRuleError / captionRuleError）。
+ */
+describe('批 E：寫入守衛與驗證去重', () => {
+  const CAP_STYLE = { fontFamily: 'sans-serif', fontSize: 48, fill: '#fff', y: 0.8 };
+
+  const startReview = () =>
+    store.mutate('ai', 'request review', (d) => {
+      d.review = { id: 'rv', summary: 's', sinceVersion: 0, requestedAt: '' };
+    });
+
+  // 「已經匯入過」那條路會在守衛之前就短路，所以審核鎖要用一支**新**檔案才驗得準
+  beforeAll(async () => {
+    await makeVideo(dir, 'b.mp4', { duration: 3 });
+  }, 120_000);
+
+  /**
+   * 兩件事一起釘：
+   * - **素材沒有進來**——這條由 aiWrite 擋（真正的安全邊界）。
+   * - **沒有先跑完 ffmpeg**——這條由工具開頭的早期守衛擋。少了它，proxy/filmstrip/peaks
+   *   會整套跑完（分鐘級），最後才被 aiWrite 拒絕，而 `derived/<id>/` 已經留在磁碟上
+   *   變成沒有任何人參照的孤兒目錄（prepareMedia 只在**自己失敗**時清理）。
+   *   用 derived/ 的目錄數判斷，比計時穩。
+   */
+  it('import_media 在審核進行中被擋下，也不會先跑完 ffmpeg 留下孤兒目錄', async () => {
+    startReview();
+    const beforeMedia = store.doc.media.length;
+    const beforeDerived = (await readdir(join(dir, 'derived'))).length;
+    const r = await call('import_media', { relPath: 'b.mp4' });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/review/);
+    expect(store.doc.media).toHaveLength(beforeMedia);
+    expect(await readdir(join(dir, 'derived'))).toHaveLength(beforeDerived);
+  });
+
+  it('set_cover 在審核進行中被擋下，coverPath 沒有被改', async () => {
+    startReview();
+    const r = await call('set_cover', { time: 0 });
+    expect(r.isError).toBe(true);
+    expect(store.doc.render.coverPath).toBeUndefined();
+  });
+
+  /**
+   * 反向保險：審核鎖是**給 AI 的**。人在自己的審核期間當然還能動手——擋錯邊的話
+   * 使用者會發現 UI 的「設為封面」在審核條出現時整個失效。
+   */
+  it('人的路徑（extractCover）不受審核鎖影響', async () => {
+    startReview();
+    const rel = await extractCover(store, dir, 0);
+    expect(store.doc.render.coverPath).toBe(rel);
+  });
+
+  it('import_media 認得同一支檔的絕對路徑寫法（以前字串比對會多建一筆）', async () => {
+    const before = store.doc.media.length;
+    const r = await call('import_media', { relPath: join(dir, 'a.mp4') });
+    expect(r.isError).toBeFalsy();
+    expect((r.structuredContent as { mediaId: string }).mediaId).toBe(mediaId);
+    expect(store.doc.media).toHaveLength(before);
+  });
+
+  it('set_captions 與 update_caption 對 duration<=0 一致（以前 set 收、update 拒）', async () => {
+    const bad = await call('set_captions', {
+      captions: [{ id: 'z', text: 'x', start: 0, duration: 0, style: CAP_STYLE }],
+    });
+    expect(bad.isError).toBe(true);
+    expect(store.doc.tracks.captions.some((c) => c.id === 'z')).toBe(false);
+
+    await call('set_captions', {
+      captions: [{ id: 'z', text: 'x', start: 0, duration: 1, style: CAP_STYLE }],
+    });
+    expect((await call('update_caption', { id: 'z', patch: { duration: 0 } })).isError).toBe(true);
+  });
+
+  it('set_audio 與 update_audio 對 start<0 與 fade>duration 一致（以前 set 兩個都不驗）', async () => {
+    await call('extract_audio', { clipId: store.doc.tracks.video[0]!.id });
+    const a = store.doc.tracks.audio[0]!;
+    const base = { id: 'x', mediaId: a.mediaId, start: 0, in: 0, duration: 1, volume: 1 };
+
+    expect((await call('set_audio', { audio: [{ ...base, start: -5 }] })).isError).toBe(true);
+    expect((await call('set_audio', { audio: [{ ...base, fadeIn: 99 }] })).isError).toBe(true);
+    expect((await call('update_audio', { id: a.id, patch: { start: -5 } })).isError).toBe(true);
+    // 合法的照樣過（新規則沒有把正常用法一起擋掉）
+    expect((await call('set_audio', { audio: [base] })).isError).toBeFalsy();
+  });
+
+  /**
+   * 「用改完之後的樣子跑規則」才抓得到的交互：只送 duration，但既有的 fadeOut 因此
+   * 超出新長度。分開寫的版本只驗 patch 帶到的欄位，這種組合會整個漏掉。
+   */
+  it('update_audio 縮短 duration 時，連既有的 fadeOut 一起檢查', async () => {
+    await call('extract_audio', { clipId: store.doc.tracks.video[0]!.id });
+    const a = store.doc.tracks.audio[0]!;
+    expect((await call('update_audio', { id: a.id, patch: { fadeOut: 1.5 } })).isError).toBeFalsy();
+    const r = await call('update_audio', { id: a.id, patch: { duration: 0.5 } });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/fadeOut/);
+  });
+
+  it('什麼都沒改變時回報 no-op（以前跟真的改到東西一字不差）', async () => {
+    const clip = store.doc.tracks.video[0]!;
+    const before = store.version;
+    const noop = await call('update_clip', { clipId: clip.id, patch: { volume: clip.volume } });
+    expect(noop.isError).toBeFalsy();
+    expect(text(noop)).toMatch(/no-op/);
+    expect(store.version).toBe(before);
+
+    const real = await call('update_clip', { clipId: clip.id, patch: { volume: 0.25 } });
+    expect(text(real)).not.toMatch(/no-op/);
+    expect(store.version).toBe(before + 1);
   });
 });
