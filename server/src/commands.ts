@@ -189,6 +189,14 @@ function numericError(cmd: Command): string | null {
         optNum('patch.duration', cmd.patch.duration),
         optNum('patch.volume', cmd.patch.volume),
       );
+    case 'setTimeline':
+      return firstIssue(
+        ...cmd.clips.flatMap((c, i) => [
+          num(`clips[${i}].in`, c.in),
+          num(`clips[${i}].duration`, c.duration),
+          optNum(`clips[${i}].volume`, c.volume),
+        ]),
+      );
     case 'addOverlay':
       return overlayIssue('overlay', cmd.overlay);
     case 'setOverlays':
@@ -254,9 +262,23 @@ function merge<T extends object>(base: T, patch: Partial<T>): T {
   return out;
 }
 
-/** 一條字幕本身該滿足的規則（不含字卡像素預算，那是 validateCaptionCard）。 */
+/**
+ * 一條字幕本身該滿足的規則（不含字卡像素預算，那是 validateCaptionCard）。
+ *
+ * `start` **刻意不夾 >= 0**：`start = -0.5, duration = 2` 是合法的「出血」——成品的
+ * `enable=between(t\,-0.5\,1.5)` 天然從 t=0 開始顯示、SRT 的 `stamp()` 也有
+ * `Math.max(0, …)`，兩邊都正確裁切。這跟 `OverlayItem.position` 明文允許元素掛在畫布外
+ * 是同一個立場（見 positionIssue 的註解：把範圍檢查搬進來會讓合法的出血排版變成錯誤）。
+ *
+ * 擋的是**整段落在 t=0 之前**——那句字幕在成品裡永遠不會出現，不可能是意圖，而且以前
+ * 工具會回一句 ok。（音訊沒有這個彈性，`start < 0` 一律擋：render 的
+ * `if (delayMs > 0)` 會讓 adelay 整條被跳過，那段聲音**不是被裁掉，是整段從 t=0 播**。）
+ */
 function captionRuleError(c: CaptionItem): string | null {
   if (c.duration <= 0) return 'duration must be > 0';
+  if (c.start + c.duration <= 0) {
+    return `ends at t=${c.start + c.duration} (start=${c.start}), entirely before the timeline starts — it would never appear`;
+  }
   return null;
 }
 
@@ -328,6 +350,8 @@ export function applyCommand(
       return removeClip(store, source, cmd);
     case 'addClip':
       return addClip(store, source, cmd);
+    case 'setTimeline':
+      return setTimeline(store, source, cmd);
     case 'updateOverlay':
       return updateOverlay(store, source, cmd);
     case 'addOverlay':
@@ -546,6 +570,54 @@ function addClip(
         volume: 1,
         ...(cmd.label ? { label: cmd.label } : {}),
       });
+    }),
+  );
+}
+
+/**
+ * 整組替換影片主軌。逐項驗證後整批套用——任一項不合格就整批拒絕、文件完全不動
+ * （與 setOverlays／setCaptions／setAudio 同一個立場）。
+ *
+ * id：帶了就沿用（錨定的 overlay 因此活得下來），沒帶就給一個 nanoid。
+ * **不再用 `clip_${索引}_${mediaId}` 推導**——理由見 TimelineClipSpec 的註解，簡言之
+ * 那個決定性的名字在重排之後會指到另一個片段，比變成孤兒更難發現。
+ */
+function setTimeline(
+  store: ProjectStore,
+  source: MutationSource,
+  cmd: Extract<Command, { name: 'setTimeline' }>,
+): CommandResult {
+  const seen = new Set<string>();
+  for (const c of cmd.clips) {
+    const media = store.doc.media.find((m) => m.id === c.mediaId);
+    if (!media) return { ok: false, error: `unknown mediaId ${c.mediaId}` };
+    if (media.probe.hasVideo === false) {
+      return { ok: false, error: `${c.mediaId} is audio-only — put it on the audio track` };
+    }
+    if (c.in < 0 || c.duration <= 0 || c.in + c.duration > media.probe.duration + 1e-6) {
+      return { ok: false, error: `clip out of bounds for ${c.mediaId}` };
+    }
+    if (c.volume !== undefined && (c.volume < 0 || c.volume > 2)) {
+      return { ok: false, error: 'volume must be within 0..2' };
+    }
+    if (c.id !== undefined) {
+      // 重複的 id 會讓後面每一個 `video.find(c => c.id === ...)` 靜靜地拿到錯的那一筆，
+      // 錨定的 overlay 也會跟錯片段。
+      if (seen.has(c.id)) return { ok: false, error: `duplicate clip id: ${c.id}` };
+      seen.add(c.id);
+    }
+  }
+  return ok(
+    store.mutate(source, 'set timeline', (d) => {
+      d.tracks.video = cmd.clips.map((c) => ({
+        id: c.id ?? nanoid(6),
+        mediaId: c.mediaId,
+        in: c.in,
+        duration: c.duration,
+        volume: c.volume ?? 1,
+        ...(c.label ? { label: c.label } : {}),
+        ...(c.meta ? { meta: c.meta } : {}),
+      }));
     }),
   );
 }

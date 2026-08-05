@@ -421,10 +421,27 @@ describe('B5 readOnlyHint annotations', () => {
       'get_feedback',
       'get_editor_context',
       'get_frame',
-      'transcribe',
+      'list_source',
     ]) {
       expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
     }
+  });
+
+  /**
+   * transcribe 曾經在上面那份清單裡，2026-08-05 移出來。
+   *
+   * 它確實「不改專案狀態」——但 readOnlyHint 不是拿來描述這件事的：host 會用它來
+   * **免權限提示**，語意是「便宜、可重複、沒有副作用」。而 transcribe 會跑一次全時間軸
+   * 混音（ffmpeg）再跑 whisper（分鐘級），並寫 derived/asr.wav 與 derived/asr.json
+   * ——後者的路徑還當成 jsonPath 回傳，等於自己承認寫了檔。
+   *
+   * 反向釘住：這是一個決定，不是漏標。哪天有人「順手補齊」把它加回去，這條會擋下來。
+   */
+  it('transcribe 刻意不標 readOnlyHint（它是分鐘級的、而且寫檔）', async () => {
+    const { tools } = await client.listTools();
+    const t = tools.find((x) => x.name === 'transcribe');
+    expect(t, 'transcribe 應該存在').toBeDefined();
+    expect(t?.annotations?.readOnlyHint ?? false).toBe(false);
   });
 
   it('write tools do not claim to be read-only', async () => {

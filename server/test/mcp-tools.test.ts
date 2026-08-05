@@ -667,6 +667,27 @@ describe('批 E：寫入守衛與驗證去重', () => {
     expect(text(r)).toMatch(/fadeOut/);
   });
 
+  it('字幕整段落在 t=0 之前會被拒（start<0 但看得到的仍然合法）', async () => {
+    // 合法的「出血」：從 t<0 開始，但延伸進時間軸 → 成品的 between(t,-0.5,1.5) 從 0 顯示
+    const bleed = await call('set_captions', {
+      captions: [{ id: 'bleed', text: 'x', start: -0.5, duration: 2, style: CAP_STYLE }],
+    });
+    expect(bleed.isError, 'start<0 但看得到的不該被擋——跟 overlay 的出血立場一致').toBeFalsy();
+
+    // 必然是算錯的形狀：end <= 0，成品裡永遠不會出現
+    const never = await call('set_captions', {
+      captions: [{ id: 'never', text: 'x', start: -99, duration: 1, style: CAP_STYLE }],
+    });
+    expect(never.isError).toBe(true);
+    expect(text(never)).toMatch(/never appear/);
+    expect(store.doc.tracks.captions.some((c) => c.id === 'never')).toBe(false);
+
+    // update_caption 走同一份規則
+    expect((await call('update_caption', { id: 'bleed', patch: { start: -99 } })).isError).toBe(
+      true,
+    );
+  });
+
   it('什麼都沒改變時回報 no-op（以前跟真的改到東西一字不差）', async () => {
     const clip = store.doc.tracks.video[0]!;
     const before = store.version;
@@ -678,5 +699,100 @@ describe('批 E：寫入守衛與驗證去重', () => {
     const real = await call('update_clip', { clipId: clip.id, patch: { volume: 0.25 } });
     expect(text(real)).not.toMatch(/no-op/);
     expect(store.version).toBe(before + 1);
+  });
+});
+
+/**
+ * 批 F：set_timeline 不再是唯一繞過命令層的編輯工具，而且它弄斷錨點時會說出來。
+ *
+ * 舊行為的 clipId 是 `clip_${索引}_${mediaId}`——決定性，於是重排之後**同一個名字
+ * 仍然存在、卻已經是另一個片段**。錨在它上面的 overlay 不是變孤兒（那還看得出來），
+ * 而是靜靜地跑到別的時間點。實測同素材同順序重送一次：4 個 overlay 斷了 2 個、
+ * 第 3 個的 anchor 名字還在但指到了後面一格。
+ */
+describe('批 F：set_timeline 的錨點與 clipId', () => {
+  const anchoredOverlay = (clipId: string) => ({
+    id: 'ov1',
+    imagePath: 'x.png',
+    anchor: { clipId, offset: 0 },
+    duration: 1,
+    position: { x: 0.5, y: 0.1, scale: 1 },
+  });
+
+  it('省略 id 時給的是不可預測的新 id，不會跟舊片段撞名', async () => {
+    const spec = store.doc.tracks.video.map((c) => ({
+      mediaId: c.mediaId,
+      in: c.in,
+      duration: c.duration,
+    }));
+    const oldIds = store.doc.tracks.video.map((c) => c.id);
+    await call('set_timeline', { clips: spec });
+    const newIds = store.doc.tracks.video.map((c) => c.id);
+    expect(newIds).toHaveLength(oldIds.length);
+    for (const id of newIds) expect(oldIds).not.toContain(id);
+  });
+
+  it('弄斷錨點時回覆會列出是哪幾個 overlay（不擋，但一定要說）', async () => {
+    const clipId = store.doc.tracks.video[0]!.id;
+    await call('set_overlays', { overlays: [anchoredOverlay(clipId)] });
+    const r = await call('set_timeline', {
+      clips: store.doc.tracks.video.map((c) => ({
+        mediaId: c.mediaId,
+        in: c.in,
+        duration: c.duration,
+      })),
+    });
+    expect(r.isError, '回報而不是拒絕——整組重排本來就是正當操作').toBeFalsy();
+    expect(text(r)).toMatch(/ov1/);
+    expect((r.structuredContent as { orphanedOverlays: string[] }).orphanedOverlays).toEqual([
+      'ov1',
+    ]);
+  });
+
+  it('把原本的 id 帶回來就保得住錨點，回覆也不再警告', async () => {
+    const clipId = store.doc.tracks.video[0]!.id;
+    await call('set_overlays', { overlays: [anchoredOverlay(clipId)] });
+    const r = await call('set_timeline', {
+      clips: store.doc.tracks.video.map((c) => ({
+        id: c.id,
+        mediaId: c.mediaId,
+        in: c.in,
+        duration: c.duration,
+      })),
+    });
+    expect(r.isError).toBeFalsy();
+    expect(text(r)).not.toMatch(/anchor|ov1/);
+    expect(store.doc.tracks.overlays[0]!.anchor!.clipId).toBe(clipId);
+  });
+
+  it('remove_clip 弄斷錨點時同樣會回報', async () => {
+    const clipId = store.doc.tracks.video[0]!.id;
+    await call('set_overlays', { overlays: [anchoredOverlay(clipId)] });
+    const r = await call('remove_clip', { clipId });
+    expect(r.isError).toBeFalsy();
+    expect(text(r)).toMatch(/ov1/);
+  });
+
+  // 搬進命令層之後邊界檢查仍然有效（這條擋的是 out-of-bounds，不是數值健檢——
+  // NaN 才只有 numericError 擋得住，而 zod 讓它到不了這裡，所以那條在 commands.test.ts）。
+  it('set_timeline 仍然拒絕超出來源長度的片段', async () => {
+    const before = store.doc.tracks.video.length;
+    const r = await call('set_timeline', {
+      clips: [{ mediaId, in: 0, duration: 9999 }],
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/out of bounds/);
+    expect(store.doc.tracks.video).toHaveLength(before);
+  });
+
+  it('set_timeline 拒絕重複的 clip id', async () => {
+    const r = await call('set_timeline', {
+      clips: [
+        { id: 'dup', mediaId, in: 0, duration: 1 },
+        { id: 'dup', mediaId, in: 1, duration: 1 },
+      ],
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/duplicate/);
   });
 });

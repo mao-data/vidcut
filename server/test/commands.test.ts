@@ -696,6 +696,33 @@ describe('applyCommand 的數值健檢', () => {
     });
   }
 
+  /**
+   * setTimeline 2026-08-05 才從「MCP 工具自己 store.mutate」搬進命令層，數值健檢因此
+   * 第一次涵蓋得到它。這條**必須打 applyCommand 而不是 MCP 工具**：
+   *
+   * - MCP 那條路的 zod `z.number()` 本來就擋掉 NaN/null，所以從那裡永遠測不到這道檢查。
+   * - 而 `setTimeline` 自己的邊界檢查擋不住 NaN——`NaN <= 0`、`NaN > 素材長度` **全是
+   *   false**，整個檢查等於不存在，壞值會直接落盤（`JSON.stringify(NaN)` 是 `null`，
+   *   之後每次載入都壞，症狀要到 render 時才以看不懂的 ffmpeg 濾鏡式子冒出來）。
+   * - Infinity 反而會被邊界檢查擋下（`Infinity > 20` 為真），所以拿它測不出差別。
+   *
+   * setTimeline 現在也在 `Command` 裡，wsHub 是 `JSON.parse(data) as WsClientMsg` 直接餵
+   * 進 applyCommand——這條保護的就是那一段。
+   */
+  for (const [label, v] of BAD_VALUES) {
+    it(`setTimeline clips[0].duration = ${label} → 拒絕、指名欄位、主軌不動`, async () => {
+      const store = await storeWithEverything();
+      const before = store.doc.tracks.video.map((c) => c.id);
+      const r = applyCommand(store, 'human', {
+        name: 'setTimeline',
+        clips: [{ mediaId: 'm1', in: 0, duration: bad(v) }],
+      });
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toMatch(/clips\[0\]\.duration must be a finite number/);
+      expect(store.doc.tracks.video.map((c) => c.id)).toEqual(before);
+    });
+  }
+
   // ⚠️ 這條是**反向**保護：position 早就不限定 0–1（元素可以掛在畫布外，
   // 見 OverlayItem.position 的註解），把範圍檢查誤加進來會是回歸。
   it('畫布外的合法位置照樣放行（不是把 0–1 夾制偷渡進來）', async () => {

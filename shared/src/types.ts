@@ -228,6 +228,27 @@ export interface Project {
   render: RenderState;
 }
 
+/**
+ * `setTimeline` 的輸入單元。`id` 省略時由命令層生成（nanoid）。
+ *
+ * **為什麼 id 是可選的、而且省略時不再用「索引＋mediaId」推導**：舊的
+ * `clip_${索引}_${mediaId}` 是決定性的，重排之後同一個名字仍然存在、卻已經是**另一個
+ * 片段**了——錨在它上面的 overlay 不會變孤兒（那還看得出來），而是靜靜地跑到別的時間點。
+ * 實測同素材同順序重送一次 set_timeline：4 個 overlay 有 2 個的 anchor 指向不存在的
+ * clip，第 3 個的 anchor 名字還在但指到了後面一格。
+ * 要讓錨點活下來，就**明確帶上原本的 id**——這才是有意義的「同一個片段」。
+ */
+export interface TimelineClipSpec {
+  /** 省略＝這是一個新片段，命令層給新 id；帶上既有 id ＝沿用，錨定的 overlay 因此不斷。 */
+  id?: string;
+  mediaId: string;
+  in: number;
+  duration: number;
+  label?: string;
+  volume?: number;
+  meta?: Record<string, unknown>;
+}
+
 // ---- 命令層（人類 UI 與 MCP 工具共用的唯一寫入語意來源）----
 export type Command =
   | {
@@ -239,6 +260,11 @@ export type Command =
   | { name: 'removeClip'; clipId: string }
   /** 新增一段畫面到主軌尾端（人從素材庫加入；AI 通常用 set_timeline 整組排） */
   | { name: 'addClip'; mediaId: string; in: number; duration: number; label?: string }
+  /**
+   * 整組替換影片主軌（初次排片）。以前這是 MCP 工具**自己 store.mutate** 的，是唯一
+   * 繞過命令層的編輯——因此也繞過了 numericError，而 WS 那條路根本用不到它。
+   */
+  | { name: 'setTimeline'; clips: TimelineClipSpec[] }
   | {
       name: 'updateOverlay';
       id: string;

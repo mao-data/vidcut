@@ -5,7 +5,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import type { AudioItem, HistoryBrief, OverlayItem, CaptionItem } from '@vidcut/shared';
-import { totalDuration, buildCaptionPages, DEFAULT_CAPTION_STYLE } from '@vidcut/shared';
+import {
+  totalDuration,
+  overlayWindow,
+  buildCaptionPages,
+  DEFAULT_CAPTION_STYLE,
+} from '@vidcut/shared';
 import { transcribe } from './asr.js';
 import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
@@ -252,6 +257,13 @@ const audioSchema = z
   .strict();
 
 const timelineClipSchema = z.object({
+  id: z
+    .string()
+    .optional()
+    .describe(
+      '帶上既有的 clipId ＝「這還是同一個片段」，錨定在它上面的 overlay 因此不會斷；' +
+        '省略＝新片段，伺服器給新 id。整組重排時想保住錨點就把原本的 id 帶回來。',
+    ),
   mediaId: z.string(),
   in: z.number(),
   duration: z.number(),
@@ -265,6 +277,20 @@ const MAX_WORDS_INLINE = 1000;
 
 /** list_source 內嵌回傳的檔案數上限：素材夾可能有上千支檔，整包回去會灌爆 AI 的 context。 */
 const MAX_FILES_INLINE = 200;
+
+/**
+ * transcribe 內嵌回傳的整份逐字稿字元上限。`MAX_WORDS_INLINE` 以前只截 `words`，
+ * 而 `text`（把所有詞接起來的那一整串）原封不動——一支長片的逐字稿可以是幾萬字，
+ * 那道詞數上限等於被繞過去了。全量一樣在 jsonPath 的檔案裡。
+ */
+const MAX_TEXT_INLINE = 6000;
+
+/**
+ * auto_caption 內嵌回傳的字幕數上限。以前完全沒有上限：一支長片可以回幾百句，
+ * 每句還帶著逐詞 tokens。寫入成功時文件裡就有全量（get_project 讀得到），
+ * 寫入失敗時重跑一次就好——沒有理由把整包塞進回覆。
+ */
+const MAX_CAPTIONS_INLINE = 100;
 
 /**
  * `changed === false` 要講出來。命令合法、也套用了，但一個欄位都沒動（version 因此
@@ -284,8 +310,44 @@ function writeResultText(r: {
 }
 
 /** 寫入類工具的統一回覆：成功回文字、失敗回 isError。 */
-function writeReply(r: { ok: boolean; version?: number; error?: string }) {
+function writeReply(r: { ok: boolean; version?: number; error?: string; changed?: boolean }) {
   return r.ok ? text(writeResultText(r)) : err(writeResultText(r));
+}
+
+/**
+ * 錨點指向不存在 clip 的 overlay。`overlayWindow` 對這些回 null ＝**渲染整個跳過、
+ * 預覽也不顯示**，而做這件事的工具本身是成功的，所以不講就沒有人會知道。
+ *
+ * 會弄斷錨點的操作：set_timeline（整組換掉，clip id 全新）、remove_clip、
+ * timeline_op 的 deleteBefore/deleteAfter（磁性軌閉合時整段片段會消失）。
+ * 實測同素材、同順序重送一次 set_timeline，4 個 overlay 就斷了 2 個。
+ */
+function orphanedAnchors(store: ProjectStore): string[] {
+  return store.doc.tracks.overlays
+    .filter((o) => o.anchor && !overlayWindow(store.doc, o))
+    .map((o) => o.id);
+}
+
+/**
+ * 會動到主軌片段的寫入工具的回覆：成功時附上「這次弄斷了哪些錨點」。
+ *
+ * **回報而不是拒絕**：整組重排在有錨點的專案上本來就是正當操作，擋掉等於讓
+ * set_timeline 在任何上過圖的專案裡都不能用。但一定要說出來，否則使用者只會發現
+ * 「有幾張圖不見了」而完全找不到原因。
+ */
+function clipTrackReply(
+  store: ProjectStore,
+  r: { ok: boolean; version?: number; error?: string; changed?: boolean },
+) {
+  if (!r.ok) return err(writeResultText(r));
+  const orphaned = orphanedAnchors(store);
+  if (orphaned.length === 0) return text(writeResultText(r));
+  return result(
+    { version: r.version, orphanedOverlays: orphaned },
+    `${writeResultText(r)}\n⚠️ ${orphaned.length} 個 overlay 的 anchor 指向已不存在的 clip：` +
+      `${orphaned.join(', ')}——它們在預覽與成品裡都不會顯示。` +
+      '請用 update_overlay 換成新的 anchor，或改用絕對 start。',
+  );
 }
 
 /** 建立註冊好全部工具的 McpServer（每個 HTTP 請求建一個，closure 共享 deps）。 */
@@ -312,6 +374,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '純圖 overlay 自己給 imagePath、不給 text（外部腳本產的 PNG，文字不可編輯）——' +
         '對純圖 overlay 送 update_overlay + text 會被拒絕（不會偷偷把它換成文字卡），' +
         '真要轉型請 remove_overlay + add_overlay。' +
+        'set_timeline 會給每個片段**新的 clipId**，錨定在舊片段上的 overlay 因此會斷' +
+        '（回覆會列出是哪幾個；斷掉的在預覽與成品都不顯示）——要保住錨點就把原本的 id' +
+        '一起帶進 clips，只是想加片段到尾端請用 add_clip。timeline_op 的' +
+        ' deleteBefore/deleteAfter 同理，而且它**只動主軌**：字幕與音訊用的是絕對時間，' +
+        '畫面左移後它們會失步，要自己補 update_caption / update_audio。' +
         'update_caption 整句平移（duration 不變只改 start）時，該句的 tokens' +
         '（逐詞時間戳＝時間軸絕對秒數）會自動一起平移；修邊（改 duration）則不動詞時間。' +
         '文字 overlay 與字幕都會**自動換行**：預設折在畫布寬的 90%（文字 overlay 可用 maxWidth 調），' +
@@ -321,7 +388,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
         '小修單一項目用細粒度工具（update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
-        '不要整組重送 set_*。寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；審核進行中寫入會被拒。',
+        '不要整組重送 set_*。寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；' +
+        '審核進行中寫入會被拒（import_media 與 set_cover 也一樣，它們同樣是寫入）。' +
+        '寫入回「no-op」代表命令合法但沒有任何欄位真的改變——通常是值跟現況相同，或欄位名填錯。',
     },
   );
 
@@ -330,7 +399,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'get_project',
     {
       description:
-        '取得專案裁剪總覽（clips/captions/media/version/review）；full:true 回完整 JSON。',
+        '取得專案裁剪總覽（clips/captions/media/version/review）；full:true 回完整 JSON。' +
+        '⚠️ 精簡模式的 overlays 與 audio 是**數量**（數字）不是陣列——要 overlay/音訊項的' +
+        'id、位置、錨點請用 full:true。',
       inputSchema: { full: z.boolean().optional() },
       annotations: { readOnlyHint: true },
     },
@@ -413,7 +484,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '抽出指定時間點的畫面 JPEG（AI 的「眼睛」）。只有片段畫面——不合成 overlay/字幕/blur 背景；' +
-        '要驗證這些請 render 或請使用者看 UI 預覽。',
+        '要驗證這些請 render 或請使用者看 UI 預覽。' +
+        '不改專案狀態（會在 derived/frames/ 留一張快取圖）。time 會被夾在 [0, 全片長] 內。',
       inputSchema: { time: z.number() },
       annotations: { readOnlyHint: true },
     },
@@ -501,41 +573,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'set_timeline',
     {
-      description: '整組設定影片主軌（初次排片）。clips 依序為播放順序。',
+      description:
+        '整組設定影片主軌（初次排片）。clips 依序為播放順序。' +
+        '⚠️ 每個項目都會拿到**新的 clipId**，所以錨定在舊片段上的 overlay（anchor.clipId）' +
+        '會斷掉——斷掉的 overlay 在預覽與成品裡都不會顯示，回覆會列出是哪幾個。' +
+        '要保住錨點就在項目裡帶上原本的 id（可用 get_project 取得）；' +
+        '只是想加片段到尾端請用 add_clip，它不動既有片段。',
       inputSchema: { clips: z.array(timelineClipSchema), ifVersion: z.number().optional() },
     },
-    async ({ clips, ifVersion }) => {
-      // 用 aiWrite 的守衛，但 set_timeline 不是既有 command；先檢查守衛條件再直接 mutate
-      if (store.doc.review !== null) return err('error: a review is in progress');
-      if (ifVersion !== undefined && ifVersion !== store.version)
-        return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
-      // 驗證 mediaId 存在
-      for (const c of clips) {
-        const media = store.doc.media.find((m) => m.id === c.mediaId);
-        if (!media) return err(`error: unknown mediaId ${c.mediaId}`);
-        if (media.probe.hasVideo === false) {
-          return err(`error: ${c.mediaId} is audio-only — put it on the audio track (set_audio)`);
-        }
-        if (c.in < 0 || c.duration <= 0 || c.in + c.duration > media.probe.duration + 1e-6) {
-          return err(`error: clip out of bounds for ${c.mediaId}`);
-        }
-      }
-      const r = store.mutate('ai', 'set timeline', (d) => {
-        d.tracks.video = clips.map((c, i) => ({
-          id: `clip_${i}_${c.mediaId}`,
-          mediaId: c.mediaId,
-          in: c.in,
-          duration: c.duration,
-          volume: c.volume ?? 1,
-          ...(c.label ? { label: c.label } : {}),
-          ...(c.meta ? { meta: c.meta } : {}),
-        }));
-      });
-      return result(
-        { version: r.version, clips: clips.length },
-        `set ${clips.length} clips, v${r.version}`,
-      );
-    },
+    async ({ clips, ifVersion }) =>
+      clipTrackReply(store, aiWrite(store, { name: 'setTimeline', clips }, ifVersion)),
   );
 
   server.registerTool(
@@ -594,7 +641,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
     async ({ clipId, ifVersion }) =>
-      writeReply(aiWrite(store, { name: 'removeClip', clipId }, ifVersion)),
+      clipTrackReply(store, aiWrite(store, { name: 'removeClip', clipId }, ifVersion)),
   );
 
   server.registerTool(
@@ -765,19 +812,30 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'undo',
     {
-      description: '撤回最近 N 筆編輯（游標式：連續呼叫一路往回退）。渲染/審核等狀態變更不在範圍。',
-      inputSchema: { steps: z.number().optional() },
+      description:
+        '撤回最近 N 筆編輯（游標式：連續呼叫一路往回退）。渲染/審核等狀態變更不在範圍。' +
+        '⚠️ undo 堆疊是**人與 AI 共用的一份**——你撤掉的可能是使用者剛剛做的調整。' +
+        '不確定就先 get_history 看最近幾筆的 source。',
+      inputSchema: {
+        steps: z.number().int().min(1).optional().describe('撤回幾筆，預設 1'),
+        ifVersion: z.number().optional(),
+      },
     },
-    async ({ steps }) => writeReply(aiWrite(store, { name: 'undo', steps })),
+    async ({ steps, ifVersion }) => writeReply(aiWrite(store, { name: 'undo', steps }, ifVersion)),
   );
 
   server.registerTool(
     'redo',
     {
-      description: '重做最近 N 筆被撤回的編輯（undo 的反向）。新的編輯會清空可重做的內容。',
-      inputSchema: { steps: z.number().optional() },
+      description:
+        '重做最近 N 筆被撤回的編輯（undo 的反向）。新的編輯會清空可重做的內容。' +
+        '堆疊與人共用，注意事項同 undo。',
+      inputSchema: {
+        steps: z.number().int().min(1).optional().describe('重做幾筆，預設 1'),
+        ifVersion: z.number().optional(),
+      },
     },
-    async ({ steps }) => writeReply(aiWrite(store, { name: 'redo', steps })),
+    async ({ steps, ifVersion }) => writeReply(aiWrite(store, { name: 'redo', steps }, ifVersion)),
   );
 
   // ---- 逐字稿與自動字幕 ----
@@ -788,29 +846,35 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '對「時間軸目前的混音」跑語音辨識（whisper.cpp），回傳逐詞時間戳。' +
         '時間是時間軸絕對秒數，可直接當字幕時間用，不必換算來源時間。' +
-        '只讀不寫。要直接上字幕請用 auto_caption。',
+        '**不改專案狀態**，但會跑一次全時間軸混音（ffmpeg）再跑 whisper——分鐘級的操作，' +
+        '而且會寫 derived/asr.wav 與 derived/asr.json（後者的路徑就是回傳的 jsonPath）。' +
+        `要直接上字幕請用 auto_caption。逐詞結果超過 ${MAX_WORDS_INLINE} 詞、` +
+        `或整份逐字稿超過 ${MAX_TEXT_INLINE} 字時只內嵌前段並標 truncated，全量在 jsonPath。`,
       inputSchema: {
         language: z
           .string()
           .optional()
           .describe("'auto'（預設）或語言碼，如 zh / en / ja。指定語言通常比自動偵測準"),
       },
-      annotations: { readOnlyHint: true },
+      // 刻意**不標** readOnlyHint：host 會拿它來免權限提示，而這支要跑分鐘級的 ffmpeg
+      // ＋ whisper 並寫檔。「不改專案狀態」不等於「便宜且無副作用」。
     },
     async ({ language }) => {
       const r = await transcribe(store.doc, projectDir, { language });
       const truncated = r.words.length > MAX_WORDS_INLINE;
+      const textTruncated = r.text.length > MAX_TEXT_INLINE;
       return result(
         {
           language: r.language,
           wordCount: r.words.length,
           words: truncated ? r.words.slice(0, MAX_WORDS_INLINE) : r.words,
           ...(truncated ? { wordsTruncated: true } : {}),
-          text: r.text,
+          text: textTruncated ? r.text.slice(0, MAX_TEXT_INLINE) : r.text,
+          ...(textTruncated ? { textTruncated: true } : {}),
           jsonPath: r.jsonPath,
         },
         `逐字稿：${r.words.length} 個詞（語言 ${r.language}）` +
-          (truncated ? `，僅內嵌前 ${MAX_WORDS_INLINE} 詞，全量見 ${r.jsonPath}` : '') +
+          (truncated || textTruncated ? `，內嵌已截斷，全量見 ${r.jsonPath}` : '') +
           `\n${r.text.slice(0, 400)}`,
       );
     },
@@ -822,7 +886,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '一鍵自動字幕：辨識 → 分頁 → 寫入字幕軌（整組替換）。' +
         'karaoke 預設開啟（逐詞高亮，渲染時一個詞一張字卡）。' +
-        '想自己控制斷句就改用 transcribe + set_captions。',
+        '想自己控制斷句就改用 transcribe + set_captions。' +
+        `超過 ${MAX_CAPTIONS_INLINE} 句時回覆只內嵌前段並標 captionsTruncated` +
+        '（寫入成功的話全量在文件裡，get_project 讀得到）。',
       inputSchema: {
         language: z.string().optional(),
         karaoke: z.boolean().optional().describe('逐詞高亮，預設 true'),
@@ -857,11 +923,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
         { ...DEFAULT_CAPTION_STYLE, ...style },
       );
       const write = aiWrite(store, { name: 'setCaptions', captions }, ifVersion);
+      const capTruncated = captions.length > MAX_CAPTIONS_INLINE;
       const payload = {
         language: r.language,
         wordCount: r.words.length,
         captionCount: captions.length,
-        captions,
+        captions: capTruncated ? captions.slice(0, MAX_CAPTIONS_INLINE) : captions,
+        ...(capTruncated ? { captionsTruncated: true } : {}),
         write: write.ok ? { version: write.version } : { error: write.error },
       };
       const summary = `${writeResultText(write)}｜自動字幕 ${captions.length} 句 / ${r.words.length} 詞（${r.language}）`;
@@ -877,7 +945,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '在時間軸某個時間點做粗剪動作：split（切開）、deleteBefore（刪除該時間之前的畫面）、' +
-        'deleteAfter（刪除之後）、freeze（插入定格幀）。只影響影片主軌，磁性軌自動閉合縫隙。',
+        'deleteAfter（刪除之後）、freeze（插入定格幀）。只影響影片主軌，磁性軌自動閉合縫隙。' +
+        '⚠️ **只動主軌**的代價：字幕與音訊用的是時間軸絕對秒數，deleteBefore 之後畫面整個' +
+        '往左移，字幕/音訊卻留在原地——會失步，要自己補 update_caption / update_audio。' +
+        '（與 CapCut 同語意，不是 bug。）另外整段片段消失時，錨定在它上面的 overlay 會斷，' +
+        '回覆會列出是哪幾個。',
       inputSchema: {
         op: z.enum(['split', 'deleteBefore', 'deleteAfter', 'freeze']),
         time: z.number().describe('時間軸絕對秒數'),
@@ -894,7 +966,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
             : op === 'deleteAfter'
               ? ({ name: 'deleteAfter', time } as const)
               : ({ name: 'freezeFrame', time, duration } as const);
-      return writeReply(aiWrite(store, cmd, ifVersion));
+      // deleteBefore/deleteAfter 會讓整段片段消失 → 錨點可能斷掉，跟 set_timeline 同一件事
+      return clipTrackReply(store, aiWrite(store, cmd, ifVersion));
     },
   );
 
