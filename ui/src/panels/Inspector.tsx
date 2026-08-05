@@ -344,7 +344,6 @@ export function Inspector() {
           <input
             type="number"
             step="0.1"
-            min="0"
             value={ov.anchor.offset}
             onChange={(e) =>
               send({

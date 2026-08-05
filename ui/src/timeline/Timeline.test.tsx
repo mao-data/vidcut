@@ -140,6 +140,22 @@ describe('Timeline drags', () => {
     ]);
   });
 
+  it('anchored overlay can be dragged before its clip start (negative offset)', () => {
+    const { container } = render(<Timeline />);
+    // ovAnchor 錨在 c2（起點 6s），offset .5 → 絕對 6.5s；往左 80px = -2s → offset -1.5
+    drag(chipByText(container, '📎'), 100, 20);
+    expect(sent).toEqual([
+      { name: 'updateOverlay', id: 'ovAnchor', patch: { anchor: { clipId: 'c2', offset: -1.5 } } },
+    ]);
+  });
+
+  it('keeps a backward-dragged anchored overlay at its released position until the server echoes', () => {
+    // 放手時的 pending 必須跟拖曳中的 preview 同值，否則 chip 會先跟手、放手瞬間彈走
+    const { container } = render(<Timeline />);
+    drag(chipByText(container, '📎'), 100, 20); // 絕對 6.5s → 4.5s
+    expect(chipByText(container, '📎').style.left).toBe(`${4.5 * PPS}px`);
+  });
+
   it('clip trim-out sends updateClip with the new duration', () => {
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');

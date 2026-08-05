@@ -210,6 +210,19 @@ describe('Inspector', () => {
     ]);
   });
 
+  it('the anchor offset field accepts negative values (overlay may lead its clip)', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'overlay', id: 'ovAnchor' });
+    const { container } = render(<Inspector />);
+
+    const input = fieldAfter(container, 'Anchored to clip');
+    expect(input.min).toBe(''); // min="0" 會讓瀏覽器步進/驗證擋掉負值，與拖曳語意衝突
+    type(input, '-1.5');
+    expect(sent).toEqual([
+      { name: 'updateOverlay', id: 'ovAnchor', patch: { anchor: { clipId: 'c2', offset: -1.5 } } },
+    ]);
+  });
+
   it('"show until end" switches duration between null and a fixed length', () => {
     seedProject();
     useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
