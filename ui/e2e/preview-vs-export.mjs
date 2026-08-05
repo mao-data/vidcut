@@ -16,9 +16,9 @@
  * 「上一次的終點變成下一次的起點」的坑在這裡不存在）。
  * Chrome 路徑可用 CHROME_BIN 覆寫；視窗尺寸可用 VIDCUT_VIEWPORT（如 1400x1000）。
  *
- * ⚠️ 這支腳本**現在應該是全綠的**（五個 case）。任何一項轉紅都是真的回歸：
+ * ⚠️ 這支腳本**現在應該是全綠的**（六個 case）。任何一項轉紅都是真的回歸：
  * 字幕那項紅＝量測本身壞了（兩邊同一張 PNG、同一個位置），先修腳本不要動斷言；
- * overlay 三項紅＝幾何落差回來了，先看 `measure/` 裡的 PNG。
+ * overlay 四項紅＝幾何落差回來了，先看 `measure/` 裡的 PNG。
  *
  * CDP 那段（findChrome/connect/send/evalJs 與 failures/exit code 慣例）是照抄
  * ui/e2e/canvas-direct.mjs 的——刻意不抽共用模組：抽了就得改 canvas-direct.mjs，
@@ -27,7 +27,7 @@
  */
 import { spawn } from 'node:child_process';
 import { Buffer } from 'node:buffer';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +61,21 @@ const INK_LUMA = 128;
  * 已知的兩個落差都是幾十到上百 px 級，不可能躲在這裡面。
  */
 const TOL_PX = 4;
+
+/**
+ * `TOL_PX` 這個常數只有在 stage 夠大時才成立。截圖是用 `clip.scale = 1080/stage寬`
+ * 重新光柵化的，stage 越小、版面被 CSS `scale()` 壓得越扁，換算回 1080 空間時每一點
+ * 佈局捨入都被放大得越多——實測 stage 寬 89px 時本底雜訊 5.1px，**程式碼沒動也全紅**。
+ * 那種紅完全沒有診斷價值，只會訓練人忽略這支腳本。
+ *
+ * 所以不放寬容差（放寬等於削弱 gate），改成擋在門口：stage 小於這個寬度就直接說
+ * 「你的視窗太小」。預設視窗 1200×1400 下 stage 寬約 630px，餘裕很大；只有刻意用
+ * `VIDCUT_VIEWPORT` 設一個很小的值才碰得到。
+ */
+const MIN_STAGE_W = 400;
+
+/** 單發 CDP 的逾時（見 send 的註解：沒有它，卡住的瀏覽器會讓整支腳本永遠 pending）。 */
+const CDP_TIMEOUT_MS = Number(process.env.VIDCUT_CDP_TIMEOUT_MS ?? 30_000);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -200,12 +215,12 @@ async function mcp(name, args) {
 // ---------------------------------------------------------------- fixture
 
 /** 素材長度＝case 數（每個 case 各佔 1 秒、互不重疊）。加 case 記得一起加。 */
-const FIXTURE_SECONDS = 5;
+const FIXTURE_SECONDS = 6;
 
 /**
  * 專門為了「量得準」而設計的素材：純深灰滿版直式影片（沒有 testsrc2 的花紋，
  * 亮度門檻才切得乾淨）、白字深描邊（墨跡＝白色字身，跟背景差 200+ luma）、
- * 五個項目各佔一段互不重疊的時間窗（同一幀只有一個東西，墨跡外框＝那個項目的外框，
+ * 六個項目各佔一段互不重疊的時間窗（同一幀只有一個東西，墨跡外框＝那個項目的外框，
  * 不必做連通區域分割這種會自己引入誤差的事）。多行那一項的墨跡外框是**整塊文字**
  * 的外框（不是單行），折行位置一分岔外框就會變——正是我們要抓的東西。
  */
@@ -286,6 +301,33 @@ const CASES = [
       '掛在上緣外的 overlay（2026-08-04，夾制改成「中心留在畫布內」之後 y 才可能為負）：' +
       '預覽靠 stage 的 overflow:hidden 裁、成品靠 ffmpeg overlay 的負座標裁。' +
       '這一項紅代表兩邊的裁切位置對不上——先看 measure/ 裡兩張圖各露出多少字身',
+  },
+  {
+    key: 'overlay-offcentre',
+    title: 'overlay 水平不置中（position.x = 0.25）',
+    frame: 165, // t = 5.5s
+    /**
+     * **水平軸的唯一覆蓋**（2026-08-05 補）。在這之前每一個 case 的 x 都是 0.5，而墨跡
+     * 對中線是左右對稱的——實測把渲染端的 x 映射整個鏡射（`x → 1-x`）之後五項照樣全綠。
+     * 也就是說這支腳本當時證明的是「垂直幾何對得上」，水平方向一個字都沒有驗到，
+     * 而 `x=(W*x)-(w/2)` 那條式子（含 scale 之後 `w` 讀的是縮放後的寬）正是最容易寫錯的地方。
+     *
+     * x=0.25 是刻意挑的：鏡射會把它送到 0.75，兩者在畫布上差 540px，遠大於容差；
+     * 而墨跡（≈444px 寬）以 270 為中心 → 橫跨 48–492，離左邊那顆 borderRadius 10
+     * （換算回畫布座標約 17px）夠遠，不會踩到 ov_offtop 註解裡記過的圓角假警報。
+     *
+     * exportInk：釘住成品側真的偏左。未指定 min.x0 的話，「x 被忽略、永遠置中」這種
+     * 退化實作會讓兩邊一致地錯（預覽端也讀同一個值就更巧合了），比對抓不到。
+     */
+    exportInk: {
+      max: { x0: 120 },
+      why:
+        '成品的墨跡應該明顯偏左（x=0.25 → 左緣約 48px）。落在畫布中央代表渲染端把 ' +
+        'position.x 忽略了，而「預覽 vs 成品」的比對對「兩邊一致地錯」是盲的。',
+    },
+    note:
+      '水平定位（2026-08-05 補的唯一 x≠0.5 case）：render.ts 的 x=(W*x)-(w/2) 與預覽端的 ' +
+      'left + translate(-50%,0) 必須落在同一點。這一項單獨紅＝水平換算分岔了',
   },
 ];
 
@@ -380,6 +422,17 @@ async function populateProject() {
       position: { x: 0.5, y: -0.03, scale: 1 },
     },
   });
+  // 水平不置中：本檔唯一 x ≠ 0.5 的項目。文字/字級與 ov_scale1 相同（未裁時 444×74），
+  // 所以左緣的期望值算得出來：270 - 444/2 ≈ 48。見 CASES 裡 overlay-offcentre 的長註解。
+  await mcp('add_overlay', {
+    overlay: {
+      id: 'ov_offcentre',
+      text,
+      start: 5,
+      duration: 1,
+      position: { x: 0.25, y: 0.2, scale: 1 },
+    },
+  });
   await mcp('set_captions', {
     captions: [
       {
@@ -440,6 +493,40 @@ async function cdpTarget() {
 
 // ---------------------------------------------------------------- main
 
+/**
+ * 「`ui/dist` 是不是比原始碼舊」——回傳第一個比 dist 新的檔案，全部都舊就回 null。
+ *
+ * 這道檢查不是潔癖。伺服器服務的是 build 產物，所以忘記 build 的時候這支腳本量的是
+ * **上一版的 UI**：實測把預覽端的字幕 y 整個打歪（690px 的落差）之後不 build 再跑，
+ * 五項全綠、exit 0——一個能讓已知缺陷通過的 gate，比沒有 gate 更危險，因為它會被當成
+ * 「我驗過了」。CI 上不會踩到（每次都乾淨 build），本機開發正是最常忘記的場合。
+ *
+ * `shared/` 也要看：它被 bundle 進 UI 的 build 產物（吸附、karaoke clip 都在那裡）。
+ * 用 mtime 而不是內容雜湊：夠準、零成本，代價只是「碰過但沒改內容」會誤報一次，
+ * 而那個誤報的解法（重 build）本來就無害。
+ */
+function stalestSource() {
+  const distAt = Math.max(...walkFiles(join(ROOT, 'ui/dist')).map((p) => statSync(p).mtimeMs), 0);
+  const sources = [
+    ...walkFiles(join(ROOT, 'ui/src')),
+    ...walkFiles(join(ROOT, 'shared/src')),
+    join(ROOT, 'ui/index.html'),
+    join(ROOT, 'ui/vite.config.ts'),
+    join(ROOT, 'ui/package.json'),
+  ].filter((p) => existsSync(p) && !p.endsWith('.test.ts') && !p.endsWith('.test.tsx'));
+  for (const p of sources) {
+    if (statSync(p).mtimeMs > distAt) return { path: p.slice(ROOT.length + 1), at: distAt };
+  }
+  return null;
+}
+
+function walkFiles(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walkFiles(join(dir, e.name)) : [join(dir, e.name)],
+  );
+}
+
 async function main() {
   const failures = [];
   const notes = [];
@@ -456,6 +543,13 @@ async function main() {
   }
   if (!existsSync(join(ROOT, 'ui/dist/index.html'))) {
     console.error('✗ 找不到 ui/dist —— 先跑 `npm run build -w @vidcut/ui`');
+    process.exit(2);
+  }
+  const stale = stalestSource();
+  if (stale) {
+    console.error(`✗ ui/dist 比原始碼舊：${stale.path} 改過了但沒重 build。`);
+    console.error(`  伺服器服務的是 ui/dist，這樣跑等於在驗證**上一版**的 UI——`);
+    console.error(`  六項會全綠，但那個綠什麼都不代表。先跑 \`npm run build -w @vidcut/ui\`。`);
     process.exit(2);
   }
 
@@ -566,10 +660,25 @@ async function main() {
       pending.delete(m.id);
       m.error ? p.rej(new Error(JSON.stringify(m.error))) : p.res(m.result);
     });
+    /**
+     * 每一發 CDP 都帶 timeout。沒有 timeout 的話，任何一個沒回覆的呼叫（headless Chrome
+     * 偶爾會在 Page.navigate / captureScreenshot 上卡住）會讓整支腳本**永遠 pending**
+     * ——不是紅、不是綠，是掛著。當 gate 用的時候那是最糟的失敗模式：CI 上就是一格
+     * 轉圈到逾時被砍，本機則是你以為還在跑。實際觀察過一次 `verify:panels` 掛了九分鐘。
+     * 逾時就 reject，錯誤訊息帶方法名，一眼看得出卡在哪一步。
+     */
     const send = (method, params = {}) =>
       new Promise((res, rej) => {
         const i = ++id;
-        pending.set(i, { res, rej });
+        const timer = setTimeout(() => {
+          pending.delete(i);
+          rej(new Error(`CDP ${method} 超過 ${CDP_TIMEOUT_MS}ms 沒有回覆（瀏覽器卡住了）`));
+        }, CDP_TIMEOUT_MS);
+        const done = (fn) => (v) => {
+          clearTimeout(timer);
+          fn(v);
+        };
+        pending.set(i, { res: done(res), rej: done(rej) });
         ws.send(JSON.stringify({ id: i, method, params }));
       });
     const evalJs = async (expression) => {
@@ -730,6 +839,22 @@ async function main() {
           }),
         };
       })()`);
+
+    // 容差是常數，量測精度卻隨 stage 大小變——太小就先擋下來（見 MIN_STAGE_W）。
+    {
+      const st0 = await stageRect();
+      if (!st0) throw new Error('找不到 1080×1920 座標空間 wrapper');
+      if (st0.w < MIN_STAGE_W) {
+        throw new Error(
+          `stage 只有 ${st0.w.toFixed(1)}px 寬（下限 ${MIN_STAGE_W}）——視窗 ` +
+            `${VIEWPORT.w}×${VIEWPORT.h} 太小。這個尺寸下量測本底雜訊會超過容差 ` +
+            `${TOL_PX}px，跑出來的紅是量測誤差不是回歸。把 VIDCUT_VIEWPORT 調大再跑。`,
+        );
+      }
+      console.log(
+        `stage 寬 ${st0.w.toFixed(1)}px（1 影像 px ≈ ${(CANVAS.w / st0.w).toFixed(2)} 畫布 px）`,
+      );
+    }
 
     const previewInkByCase = {};
     let atFrame = 0;

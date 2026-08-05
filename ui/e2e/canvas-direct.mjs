@@ -31,6 +31,8 @@ const APP_URL = process.env.VIDCUT_URL ?? 'http://127.0.0.1:3845/';
 const CDP_PORT = Number(process.env.VIDCUT_CDP_PORT ?? 9334);
 const [vw, vh] = (process.env.VIDCUT_VIEWPORT ?? '1440x820').split('x').map(Number);
 const VIEWPORT = { w: vw, h: vh };
+/** 單發 CDP 的逾時（見 send 的註解：沒有它，卡住的瀏覽器會讓整支腳本永遠 pending）。 */
+const CDP_TIMEOUT_MS = Number(process.env.VIDCUT_CDP_TIMEOUT_MS ?? 30_000);
 
 function findChrome() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
@@ -124,10 +126,21 @@ async function main() {
       pending.delete(m.id);
       m.error ? p.rej(new Error(JSON.stringify(m.error))) : p.res(m.result);
     });
+    // 每一發都帶 timeout：沒有它，任何一個沒回覆的 CDP 呼叫會讓整支腳本永遠 pending
+    // ——不是紅也不是綠，是掛著。當 gate 用的時候那是最糟的失敗模式（實際觀察過
+    // `verify:panels` 掛了九分鐘）。逾時就 reject，訊息帶方法名，一眼看得出卡在哪。
     const send = (method, params = {}) =>
       new Promise((res, rej) => {
         const i = ++id;
-        pending.set(i, { res, rej });
+        const timer = setTimeout(() => {
+          pending.delete(i);
+          rej(new Error(`CDP ${method} 超過 ${CDP_TIMEOUT_MS}ms 沒有回覆（瀏覽器卡住了）`));
+        }, CDP_TIMEOUT_MS);
+        const done = (fn) => (v) => {
+          clearTimeout(timer);
+          fn(v);
+        };
+        pending.set(i, { res: done(res), rej: done(rej) });
         ws.send(JSON.stringify({ id: i, method, params }));
       });
     const evalJs = async (expression) => {
@@ -140,24 +153,55 @@ async function main() {
     await send('Runtime.enable');
     await send('Page.navigate', { url: APP_URL });
 
-    // 等專案真的載完（video + 至少一個畫得出來的 overlay），不是載入中的骨架版面。
-    // 預設 playhead 在 0——demo 專案在 t=0 有 overlay 可見（rank1），不用另外操作
-    // playhead。若哪天 demo 內容換了導致 t=0 沒有 overlay，這裡會逾時，訊息會指出來。
-    let ready = false;
+    // 等專案真的載完（不是載入中的骨架版面）。
+    let loaded = false;
     for (let i = 0; i < 60; i++) {
-      ready = await evalJs(
-        `!!document.querySelector('video') && !!document.querySelector('[data-ov-id]')`,
-      );
-      if (ready) break;
+      loaded = await evalJs(`!!document.querySelector('video')`);
+      if (loaded) break;
       await sleep(250);
     }
-    if (!ready) {
+    if (!loaded) {
       failures.push('專案載入');
-      console.log(
-        '✗ 專案沒有在 15 秒內載入完成（找不到 <video> 或任何 [data-ov-id] overlay，見上方注解：demo 在 t=0 應該要有 overlay 可見）',
-      );
+      console.log('✗ 專案沒有在 15 秒內載入完成（找不到 <video>）');
       throw new Error('load-timeout');
     }
+
+    // 這支腳本要拖一個 overlay，所以得先讓 playhead 停在**有 overlay 可見**的時刻。
+    //
+    // ⚠️ 不要假設 t=0 就有（原本是這樣寫的，理由是「demo 在 t=0 有 rank1」）：
+    // `projects/demo` 是共用的可變狀態，別的 session 一改內容這個前提就沒了——實測
+    // 2026-08-05 那份 demo 只剩 4 個 overlay、rank 卡全部改成 anchored、最早的一個
+    // start=0.317，於是這支腳本每次都在「專案載入」這一步逾時，看起來像 UI 壞了。
+    // 改成往前掃：用 Shift+→（一次 10 幀）找第一個看得到 overlay 的時刻，找不到才報錯。
+    const shiftRight = async () => {
+      for (const type of ['rawKeyDown', 'keyUp']) {
+        await send('Input.dispatchKeyEvent', {
+          type,
+          key: 'ArrowRight',
+          code: 'ArrowRight',
+          windowsVirtualKeyCode: 39,
+          nativeVirtualKeyCode: 39,
+          modifiers: 8, // shift＝一次 10 幀
+        });
+      }
+    };
+    let ready = false;
+    let steps = 0;
+    for (; steps < 60; steps++) {
+      ready = await evalJs(`!!document.querySelector('[data-ov-id]')`);
+      if (ready) break;
+      await shiftRight();
+      await sleep(80);
+    }
+    if (!ready) {
+      failures.push('找不到可拖曳的 overlay');
+      console.log(
+        `✗ 從 t=0 掃到第 ${60 * 10} 幀（20 秒）都沒有任何 [data-ov-id] overlay 出現。` +
+          '這支腳本要拖一個 overlay 才能驗證——請確認 projects/demo 裡還有 overlay。',
+      );
+      throw new Error('no-overlay');
+    }
+    if (steps > 0) console.log(`  （playhead 前進到第 ${steps * 10} 幀才有 overlay 可見）`);
 
     // 關掉所有過渡/動畫再量/再拖——headless 節流下 CSS transition 可能整整幾秒不推進，
     // 拖曳中的導線淡入淡出也是 transition，會讓「導線出現了沒」量到過渡中的狀態。
@@ -300,14 +344,32 @@ async function main() {
         const targetXFrac = beforePos.x < 0.5 ? 0.75 : 0.25;
         // y 的目標不能隨便挑一個「看起來在中間」的數字（原本寫死 0.3 就是）:
         // position.y 的錨點是圖的**上緣**（x 才是水平中心,見 dragLayer.ts 開頭註解),
-        // 所以上緣的合法上限是 1 - bboxH/1920——demo 這張近乎滿版高的圖只有 ~0.1。
         // 目標若落在合法區間外,clampAxis 會把它拉回來,而我們就會斷言在一個不可能達到
-        // 的落點上（等於斷言一個 bug）。改成從實際量到的 bbox 高度算出合法區間,取區間的
-        // 20% / 80% 兩個位置交替瞄準:兩者都離三個垂直吸附候選（中心/上安全邊/下安全邊,
-        // threshold 16 畫布 px）夠遠,且每跑一次都會換一邊,重跑不會收斂到同一點。
+        // 的落點上（等於斷言一個 bug）。所以從實際量到的 bbox 高度算出合法區間再取點。
+        //
+        // ⚠️ 2026-08-05 修：這裡原本用 `yHi = max(0, 1 - bboxH/1920)`，那是**舊的**夾制
+        // 語意（整個元素留在畫布內）。2026-08-04 起規則是「元素中心留在畫布內」，四邊
+        // 各可露出一半。舊式子除了測不到新開的那段範圍，還會在 bbox ≥ 畫布高時整個退化成
+        // yHi=0 → 兩個「交替」目標都是 0 → 起點本來就是 0 → 斷言「拖到指定落點」變成
+        // **恆真**。而 `projects/demo` 的排名卡正好是 1080×1920，也就是說這支腳本平常
+        // 跑的就是那個退化分支。
+        //
+        // 新語意下合法區間是 [-h/2H, 1-h/2H]，寬度**恆為 1**（跟 bbox 多高無關），
+        // 所以取 25% / 75% 兩點交替瞄準：距離起點至少 0.25（480 畫布 px），
+        // 離三個垂直吸附候選（中心 / 上安全邊 / 下安全邊，threshold 16 畫布 px）也都
+        // 遠在 300px 以上；每跑一次換一邊，重跑不會收斂到同一點。
         const bboxHCanvas = ov.h / scale;
-        const yHi = Math.max(0, 1 - bboxHCanvas / 1920);
-        const targetYFrac = beforePos.y < yHi / 2 ? yHi * 0.8 : yHi * 0.2;
+        const half = bboxHCanvas / (2 * 1920);
+        const [yLo, yHi] = [-half, 1 - half];
+        const targetYFrac = beforePos.y < (yLo + yHi) / 2 ? yLo + 0.75 : yLo + 0.25;
+        // 保險絲：目標一旦離起點太近，下面「落在指定目標上」的斷言就沒有鑑別力了。
+        // 上面的算式保證 ≥480px，這行是防止有人改了取點規則卻沒發現它退化。
+        if (Math.abs(targetYFrac - beforePos.y) * 1920 < 100) {
+          failures.push(
+            `y 目標 ${targetYFrac.toFixed(4)} 離起點 ${beforePos.y.toFixed(4)} 太近，` +
+              '拖曳斷言會退化成恆真',
+          );
+        }
         const bigDx = (targetXFrac * 1080 - beforePos.x * 1080) * scale;
         const bigDy = (targetYFrac * 1920 - beforePos.y * 1920) * scale;
         await send('Input.dispatchMouseEvent', {

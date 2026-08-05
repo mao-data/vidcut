@@ -65,10 +65,13 @@ Pillow([`text_card.py`](../../../server/scripts/text_card.py))。六個實測分
    > ——匯出路徑與預覽路徑的輸出 PNG **sha256 逐位元組相同**(覆核涵蓋超寬文字、
    > 內嵌換行、未知字型、非 1080 畫布寬)。**karaoke 字幕沒有達成**:預覽是
    > base+hl 兩卡疊 `clip-path`,匯出是一詞一卡,兩者不是同一張圖(§7)。
-   > **overlay 也沒有達成**,而且原因跟光柵器無關,是預覽端 `Player.tsx` 對
-   > overlay `<img>` 加了 `maxWidth: 1080 * 0.9`、`render.ts` 卻用原生尺寸合成
-   > (文字卡固定畫布全寬 → 成品大 ~11%),外加 `position.scale` 預覽吃、渲染端
-   > **完全沒有實作**。細節與實測數字見 `CLAUDE.md`「『預覽即成品』的實際範圍」。
+   > **overlay 一度也沒有達成,2026-08-04 已修好**:當時的兩個成因是預覽端
+   > `Player.tsx` 給 overlay `<img>` 加了 `maxWidth: 1080 * 0.9`、`render.ts` 卻用
+   > 原生尺寸合成(文字卡固定畫布全寬 → 成品大 ~11%),外加 `position.scale`
+   > 預覽吃、渲染端沒有實作。修法是兩邊都往「正確」收斂:渲染端在 overlay 之前插
+   > `scale=iw*s:ih*s`,預覽端拿掉那個沒有渲染端對應物的 0.9 夾制。
+   > 現在由 `npm run verify:wysiwyg` 守著(真 render + 真瀏覽器截圖比墨跡外框)。
+   > 細節與實測數字見 `CLAUDE.md`「『預覽即成品』的實際範圍」。
 2. **可編輯文字 overlay**:單色文字塊(改字/字型/字級/顏色/描邊/換行),
    人與 AI 都能建立與修改;渲染管線零改動。
 3. **預覽直接操作**:拖曳移動 overlay(x/y)與字幕(y);畫布中心/安全邊距
@@ -340,7 +343,7 @@ interface OverlayText {
   karaoke(`OverlayText` 無 `tokens` 欄位),所以沒有 hl 卡、沒有
   `clip-path`。
   > ⚠️ **原文寫「overlay 的『預覽=成品』靠的是同一份檔案這個更簡單的保證」——
-  > 那是錯的,overlay 的預覽=成品從未成立**(2026-08-04 覆核)。兩邊確實是同一份
+  > 那個保證當時是假的**(2026-08-04 覆核發現,同日修好,見本段末)。兩邊確實是同一份
   > PNG,但**畫上去的尺寸不同**:預覽端 `ui/src/player/Player.tsx` 給 overlay
   > `<img>` 設了 `maxWidth: 1080 * 0.9`(＝ 972,1080 座標空間內),
   > `server/src/render.ts` 的 overlay 濾鏡鏈卻是 `overlay=x=…:y=…` **原生尺寸**
@@ -350,7 +353,12 @@ interface OverlayText {
   > 更嚴重的是 `position.scale`:預覽端吃(CSS `transform: … scale(...)`),
   > **渲染端完全沒有實作**——overlay 濾鏡鏈上沒有 scale 濾鏡,而
   > `ui/src/panels/Inspector.tsx` 有一個使用者改得動的 Scale 欄位。
-  > 兩者都是待修缺陷,不是設計取捨。
+  >
+  > **兩者都已於 2026-08-04 修好**(commit `20029f2` 之前的那一批):渲染端在 overlay
+  > 之前插 `scale=iw*s:ih*s`(`overlay` 的 `w` 讀的是縮放後的寬,所以置中式子與錨點
+  > 不對稱都不用改),預覽端移除 0.9 夾制、保留 CSS scale。實測 scale=1 從寬比 0.9011
+  > /最大差 43.9px → 1.0002/1.0px;scale=0.5 從 0.4505/244.0px → 1.0002/1.0px。
+  > 回歸守門:`npm run verify:wysiwyg`(`ui/e2e/preview-vs-export.mjs`)。
 - 多行 clip 區域 = 已唸完整行矩形 + 目前行至目前詞右緣矩形——
   **shared 純函數 `karaokeClip(boxes, active, pad?)`**(`pad` 補償描邊外擴),
   可單測;`tokenSeparator(prev, next)` 判斷詞間空白,與 `text_card.py` 同規則。

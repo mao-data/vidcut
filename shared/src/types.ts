@@ -99,7 +99,9 @@ export interface OverlayItem {
    * 掛在上緣外，超出的部分被裁掉——預覽靠 stage 的 `overflow: hidden`、渲染靠 ffmpeg
    * `overlay` 對負座標的裁切，兩者行為一致（實測 200px 高的圖 y=-0.05 只露下面 104px）。
    * UI 拖曳的夾制規則是「**元素中心必須留在畫布內**」（見 ui/src/player/dragLayer.ts 的
-   * clampCentre），也就是每邊最多露出一半；命令層不做數值驗證，MCP 可以設更極端的值。
+   * clampCentre），也就是每邊最多露出一半；MCP／命令層不夾制範圍，可以設更極端的值
+   * （只驗**有限性**——NaN/Infinity/null 會被 commands.ts 的 numericError 擋下，
+   * 那是為了不讓一次壞掉的寫入永久留在專案檔裡；scale 另外限 0–10，見該處註解）。
    * scale 繞「上緣中點」縮放（x/y 錨點不動）：預覽是 CSS transform，渲染是 overlay 前的
    * `scale=iw*s:ih*s`（overlay 的 w 因此是縮放後的寬，置中式子不用改）。
    * 2026-08-04 之前渲染端**沒有實作 scale**，改它只有預覽會變——已修，見 verify:wysiwyg。

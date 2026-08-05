@@ -29,10 +29,12 @@ const DUCK_LEVEL = 0.25;
  *
  * 怎麼會有 NaN：stageW 還沒量到時 `scale = 0/1080 = 0`，pointerdown 存下的 `d.scale` 就是 0，
  * `dx / 0` → Infinity，一路算下來 `Number(NaN.toFixed(4))` → NaN。NaN 進 `JSON.stringify`
- * 會變成 **null**，而 server 的 `updateOverlay` 不做數值驗證，`{"x":null}` 會直接寫進專案檔
+ * 會變成 **null**，而當時 server 的 `updateOverlay` 不驗數值，`{"x":null}` 會直接寫進專案檔
  * ——之後每次載入都是壞的 position。真瀏覽器要踩到很難（stage 有 aspect-ratio + 版面已定），
  * 但保險絲一行、壞掉的成本是整個專案檔，比例懸殊。擋下來的後果只是「這次拖曳不生效」，
  * 而拖曳本來就是隨手可以再做一次的操作。
+ * （命令層後來也補了 `numericError`，所以現在是兩道；這一道仍然留著——在這裡擋下來
+ * 是「安靜地不送」，讓它跑到 server 才被拒是使用者眼前彈一句錯誤，體感差很多。）
  */
 function finite(...ns: number[]): boolean {
   return ns.every((n) => Number.isFinite(n));

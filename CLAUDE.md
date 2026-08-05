@@ -16,11 +16,11 @@ npm run demo                                # ⚠️ 會「重新產生」projec
 npm run dev:ui                              # UI 熱重載（vite，另外開；port 見下）
 npm test                                    # 全部（真 ffmpeg + 真 whisper；機器空閒時約 70 秒，render 整合測試就占 48s）
 npm run typecheck                           # 三 workspace tsc（目前乾淨）
-npm run lint                                # 目前 exit 1，見下
-npm run format:check                        # 見下
+npm run lint                                # 目前 exit 0
+npm run format:check                        # 目前 exit 0，見下
 npm run verify:panels                       # 面板控制項的瀏覽器回歸檢查
 npm run verify:canvas                       # 畫布縮放/拖曳/吸附導線的瀏覽器回歸檢查（4 項檢查、6 條斷言）
-npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，比對「預覽 vs 成品」的墨跡外框（目前全綠，見下）
+npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，比對「預覽 vs 成品」的墨跡外框（6 個 case，目前全綠，見下）
 ```
 
 - **改完 UI 原始碼必須 `npm run build -w @vidcut/ui`**，否則 :3845 上跑的還是舊版。
@@ -33,6 +33,10 @@ npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，
   但排在後面，不會被選到——舊文件寫「這台機器沒有 Chrome」已經不正確）。
   **不要**用 `npm run demo` 當 `verify:canvas` 的前置——它會重新產生 `projects/demo`；
   直接 `npx tsx server/src/index.ts projects/demo` 起 server 即可。
+  `verify:canvas` **不再假設 t=0 就有 overlay**（`projects/demo` 是共用的可變狀態，
+  別的 session 一改內容那個前提就沒了——2026-08-05 實測 demo 只剩 4 個 overlay、rank 卡
+  全改成 anchored、最早的 start=0.317，於是它每次都在「專案載入」逾時，看起來像 UI 壞了）。
+  現在改成用 Shift+→ 往前掃，找第一個看得到 overlay 的時刻。
   `verify:canvas` 的拖曳檢查會真的透過 WS 把 demo 專案裡一個 overlay 的位置寫回
   `projects/demo` 的 **`project.json`**（專案檔就叫這個名字，`doc` 是它裡面的鍵；
   位置小幅挪動，非破壞性，是 demo 專案本來就該承受的操作）。
@@ -51,14 +55,19 @@ npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，
 - **`npm run verify:wysiwyg` 不需要你先起 server**，它自己在 :3999 起一台吃
   `os.tmpdir()/vidcut-wysiwyg-fixture` 的臨時專案（每次跑先整個刪掉重建），**不碰
   `projects/demo`、也不碰 :3845 上那台**。要換 port 用 `VIDCUT_WYSIWYG_PORT`。
-  仍需要 `ui/dist` 是最新的（`npm run build -w @vidcut/ui`）與 python3/Pillow。
+  仍需要 python3/Pillow。**`ui/dist` 過期它會自己擋下來**（比對 `ui/src`、`shared/src`
+  的 mtime，比 dist 新就 exit 2 並指出是哪個檔）——伺服器服務的是 build 產物，忘記 build
+  的話這支腳本量的是**上一版的 UI**：實測把預覽端的字幕 y 打歪 690px 之後不 build 再跑，
+  六項全綠、exit 0。**視窗太小也會擋**：stage 寬 < 400px 時量測本底雜訊會超過 4px 容差
+  （stage 89px 時實測 5.1px），那種紅是量測誤差不是回歸，所以直接拒跑而不是放寬容差。
   兩邊量到的畫面會存成 PNG 放在臨時專案的 `measure/`，數字對不上時直接開圖看。
   `VIDCUT_PORT` 環境變數（`server/src/index.ts`）就是為了這支腳本才加的，
   要自己再開一台 server 吃別的專案時也用得上。
-- **`npm run lint` 目前 exit 1**：34 個錯誤全部在 `.claude/worktrees/**`（別的 session 做到
-  一半的 worktree，跟本 repo 追蹤的原始碼無關）。所以
-  `npm run typecheck && npm run lint && npm run format:check` 這種 `&&` 串**永遠跑不到
-  `format:check`**——三個要分開跑，或至少把 `format:check` 排在 `lint` 前面。
+- **`npm run lint` 現在是乾淨的（exit 0）。** 曾經 exit 1，34 個錯誤全部在
+  `.claude/worktrees/**`——那是別的 session 開的 worktree，＝整個 repo 的另一份拷貝，
+  跟本 repo 追蹤的原始碼無關。實測那個紅會自己來來去去（20 分鐘內 34 個錯 → 0 → 又 34 個），
+  完全取決於此刻剛好有沒有人開著 worktree。已把 `.claude/**` 加進 `eslint.config.js`
+  的 ignores，這個雜訊源沒了；`typecheck && lint && format:check` 現在也能一路跑到底。
 - **`npm run format:check` 該是乾淨的；它報的都是真的沒格式化的原始碼。**
   產生檔不會混進來——prettier 3 預設同時吃 `.gitignore` 與 `.prettierignore`，
   `node_modules`/`dist`/`coverage`/`projects` 都已被濾掉。所以看到 `[warn]` 就是
@@ -73,8 +82,13 @@ npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，
 
 **這件事有自動化在守了：`npm run verify:wysiwyg`**（`ui/e2e/preview-vs-export.mjs`）
 會真的 render 一支影片、抽幀量墨跡外框，再用 headless Chromium 截同一時刻的預覽畫面、
-換算回 1080×1920 座標量同一個外框，兩邊比。**現在五項全綠（最大差 1.1px，容差 4）**——
+換算回 1080×1920 座標量同一個外框，兩邊比。**現在六項全綠（最大差 1.1px，容差 4）**——
 任何一項轉紅都是真的回歸，先看 `measure/` 裡的 PNG，不要動斷言。
+⚠️ **它證明的是「兩邊一致」，不是「兩邊都對」**：有些回歸兩邊會一起壞（文字 overlay 的
+預覽與成品吃同一張 PNG；渲染端夾了負座標而預覽端也夾了），那時比對照樣全綠。所以有幾個
+case 另外釘住**成品側**的墨跡形狀（`exportInk`）——換行那項釘「高 ≥ 2 行、寬 ≤ 可用寬」、
+掛畫布外那項釘「上緣貼齊 y0=0 且被裁短」、水平不置中那項釘「左緣 ≤ 120」。加新 case 時
+想一下你的缺陷會不會兩邊一起壞，會的話就要補 `exportInk`。
 
 - ✅ **字幕（無逐詞高亮）**：預覽與匯出走同一支 `text_card.py`、同一份參數，輸出 PNG
   **逐位元組相同**（sha256 相等）。實測涵蓋超寬文字、內嵌換行、未知字型、非 1080 畫布寬。
@@ -100,6 +114,11 @@ npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，
   ⚠️ **不要把這個 case 改成擺在角落**：stage 有 `borderRadius: 10`，預覽的四個角是圓角、
   成品是方角，圓角半徑換算回畫布座標約 17px（大於容差 4）——角落的墨跡會因為這個純視覺
   差異被判紅，那是假警報。所以那一項水平置中，只驗上緣。
+- ✅ **水平定位**（`ov_offcentre`，x=0.25，2026-08-05 補）：在這之前**每個 case 的 x 都是
+  0.5**，而墨跡對中線左右對稱——實測把渲染端的 x 映射整個鏡射（`x → 1-x`）之後五項照樣
+  全綠。也就是說這支腳本當時證明的只有垂直幾何，水平方向一個字都沒驗到，而
+  `x=(W*x)-(w/2)`（scale 之後 `w` 是縮放後的寬）正是最容易寫錯的地方。補上之後同一個
+  鏡射突變會當場失敗（成品 x0=588，釘住的上限是 120）。
 - ⚠️ **karaoke 字幕**：預覽是「base 卡 + 全高亮卡疊 `clip-path`」，匯出是「**一個詞一張卡**」，
   不是同一張圖。兩個成因：(a) 描邊補償 `pad`（`max(2, fontSize/16)`，64px 字＝4px）
   會把**下一個還沒唸到的詞**露出約 4px 的高亮色；(b) 兩層 alpha 疊合讓描邊的反鋸齒邊變厚。
@@ -244,6 +263,21 @@ npm run verify:wysiwyg                      # 真 render + 真瀏覽器截圖，
   的 overlay、`ui/src/player/CaptionLayer.tsx` 的字卡 `<img>` 已修）。用真瀏覽器驗證拖曳
   時，「放手後位置沒變」不能只看一次就結論「拖曳邏輯有 bug」——先確認 `pointerup`
   真的有送達目標元素（例如監聽 `pointercancel`/`dragstart` 排除這個坑），不然會誤修錯地方。
+
+- **透明的滿版容器會吃掉底下元素的 pointer 事件**——命中測試只看盒子，不看 alpha。
+  字幕卡是「畫布全寬 + 文字水平置中」的 PNG，短字幕兩側各有一大片透明；字幕層又畫在
+  overlay 之上（DOM 順序在後）。所以外層容器若用整張卡的框，playhead 停在一句字幕上時，
+  那條橫貫畫布的帶子裡的 overlay 全部選不到、拖不動（自動換行上線後帶子還會變高）。
+  修法是讓命中框收斂到墨跡：`text_card.py` 的幾何多回一個 `ink: {x, w}`（墨跡水平範圍，
+  含描邊），`CaptionLayer.tsx` 的 `inkStyle()` 把外層縮到 ink、圖用等量負 left 推回卡片
+  原位（畫出來的像素一個都沒動，`verify:wysiwyg` 的字幕那項可以證明）。
+  DOM 近似那條路徑沒有幾何可用，改成「外層 `pointerEvents:none` 負責置中、內層
+  `inline-block` 收縮到文字才吃事件」。
+  ⚠️ `ink` 是**後加的欄位**，而字卡是內容定址的（同輸入→同 key→命中舊 `.json`）。
+  `TextCardService.ensure` 因此把「缺 `ink` 的 .json」當快取未命中重畫（同 hash 原地覆寫，
+  PNG 位元組不變）——**幾何 schema 之後再長新欄位，記得一起加進那個檢查**，否則既有專案
+  永遠拿不到它。用這條而不是把 `rasterizerId` 往上加：加號碼會讓每張卡改名、既有
+  `imagePath` 全部要靠遷移追，代價遠大於重跑一次排版。
 
 - **會真的寫回專案狀態的 e2e 腳本，位移量不能是「相對起點的固定偏移」**——`verify:canvas`
   的拖曳檢查每次跑都會把 demo 專案的 overlay 位置存回 `project.json`，下一次跑的起點就是

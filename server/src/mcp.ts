@@ -116,8 +116,9 @@ const overlayTextSchema = z
           '文字超過這個寬度會**自動折行**：中文逐字折、英數在空白處折（不會切進單字中間）、' +
           '字串裡真的 \\n 一律強制換行；單一超長不可斷字串（如網址）會逐字硬切。' +
           '調小＝更窄更多行，卡片會變高（卡片一律畫布全寬，高度隨行數長）。' +
-          '⚠️ 行數會吃字卡的像素預算，而伺服器這側量不到字寬，只能用「每個字元各佔一行」' +
-          '的最壞情況估算——所以很長的文字可能被拒絕（錯誤訊息會告訴你），縮短文字或縮小 fontSize 即可。',
+          '⚠️ 行數會吃字卡的像素預算，而伺服器這側量不到字寬，只能取上界估算' +
+          '（「每個字元各佔一行」與「每個字元最寬 3 em」兩者取較緊的那個）——' +
+          '所以很長的文字可能被拒絕（錯誤訊息會告訴你估到的尺寸），縮短文字或縮小 fontSize 即可。',
       ),
   })
   .strict();
@@ -274,7 +275,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '文字 overlay 與字幕都會**自動換行**：預設折在畫布寬的 90%（文字 overlay 可用 maxWidth 調），' +
         '中文逐字折、英數在空白處折、字串裡的 \\n 強制換行——不必自己算要斷在哪。' +
         '文字太長或字級太大導致字卡超過像素預算時，寫入會被拒絕（錯誤訊息會寫出估到的尺寸；' +
-        '行數是「每個字元各佔一行」的最壞情況上界，實際折出來通常少很多）。' +
+        '行數取的是上界估算，實際折出來通常少很多）。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
         '小修單一項目用細粒度工具（update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
@@ -523,6 +524,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '只改一句字幕（text/start/duration/style/tokens）。小修用這個，別用 set_captions 整組重送。' +
         'style 提供時整組替換；tokens 給 [] 代表清除逐詞時間戳。' +
+        '⚠️ 有 tokens 的句子改 text 要**同時**送 tokens（清成 [] 或給對得上新文字的一組），' +
+        '只送 text 是靜默 no-op（字卡照 tokens 排版，根本不看 text）——見 patch.text 的說明。' +
         'tokens（逐詞時間戳）存的是時間軸絕對秒數，伺服器只在「整句平移」時自動幫你一起移：' +
         '只給 start（或給了 start 且 duration 不變）＝整句搬到別的時間點，每個詞的 start/end ' +
         '平移同樣的差值，不必自己重算。修邊則完全不動詞時間：只給 duration（縮尾巴）、' +
@@ -533,7 +536,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
         id: z.string(),
         patch: z
           .object({
-            text: z.string().optional(),
+            text: z
+              .string()
+              .optional()
+              .describe(
+                '⚠️ 這句**有 tokens 時，只改 text 是靜默 no-op**：字卡是照 tokens 排版的' +
+                  '（有 tokens 就完全不看 text），畫面不會有任何變化也不會報錯。' +
+                  '改字請一併送 `tokens: []` 清掉舊的詞邊界——它們本來就對不上新文字了；' +
+                  '要保留逐詞高亮就自己給一組對得上新文字的 tokens。',
+              ),
             start: z.number().optional(),
             duration: z.number().optional(),
             style: captionStyleSchema.optional(),
@@ -564,8 +575,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
               .object({ x: z.number(), y: z.number(), scale: z.number() })
               .optional()
               .describe(
-                '整份換掉（沒有單欄位 patch 語意）。x=水平中心、y=上緣（不對稱）、' +
-                  'scale=倍率繞上緣中點縮放，預覽與成品一致；scale <= 0 該項不會被合成。',
+                // 這段必須跟上面 overlaySchema 的 position describe 講同一件事——
+                // 它是 update_overlay 自己內嵌的一份，改了那邊沒改這邊，AI 讀到的就是舊語意。
+                '整份換掉（沒有單欄位 patch 語意）。x=水平中心、y=上緣（不對稱）。' +
+                  'x/y 不限定 0–1：可以部分掛在畫布外（y 為負＝掛在上緣外），超出的部分' +
+                  '成品與預覽都會被裁掉、行為一致。' +
+                  'scale=倍率繞上緣中點縮放，成品與預覽一致；限 0–10，負值會被拒' +
+                  '（預覽是鏡像、成品整張不合成），scale=0 兩邊都是看不見。',
               ),
             text: overlayTextSchema
               .optional()

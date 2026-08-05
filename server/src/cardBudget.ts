@@ -82,11 +82,16 @@ export interface CardEstimate {
  * - **全形 CJK**＝1 em；組合附加符號（U+0300…）advance 0 或很小 → 都遠在 3 em 內。
  * - **星號平面（emoji、CJK ext-B）**：JS 的 `string.length` 算 2 個 UTF-16 單位、
  *   python 算 1 個字元，所以每個星號平面字元會被記成 6 em——**高估安全**，刻意不正規化。
- * - **合字（ligature）**：Pillow 這邊 raqm 沒編進去（`PIL.features.check('raqm')` = False），
- *   走 BASIC layout ＝不做 shaping、不套 kerning，`textlength(a+b)` 實測**恰好**等於
- *   `textlength(a)+textlength(b)`（下面的可加性論證因此是等式而不只是不等式）。
- *   就算哪天換成 raqm，shaping/kerning 幾乎只會讓字串變窄（連字、負 kerning），
- *   仍在上界這一側。
+ * - **合字（ligature）／字距（kerning）**：Pillow 這邊 raqm 沒編進去
+ *   （`PIL.features.check('raqm')` = False），走 BASIC layout ＝不做 complex shaping。
+ *   ⚠️ 但**不做 shaping ≠ 完全可加**：FreeType 的 legacy `kern` 表仍然會套用，
+ *   所以 `textlength(a+b)` 不保證恰好等於 `textlength(a)+textlength(b)`
+ *   （本機 Arial 掃過 ASCII 字母數字＋常見標點的所有配對：88 組不可加，
+ *   最大偏差 0.0020 em，而且實測**全部是負的**（`f`+`f`、`v`+`.` 這類 kerning pair
+ *   把字拉近＝字串變窄）。變窄仍在上界這一側；就算某天出現正偏差，量級也比
+ *   `MAX_ADVANCE_EM`(3) 與實測最寬字元(2.27 em) 之間的餘裕小三個數量級。
+ *   換成 raqm 也一樣：shaping/kerning
+ *   幾乎只會讓字串變窄（連字、負 kerning），仍在上界這一側。
  */
 export const MAX_ADVANCE_EM = 3;
 
@@ -107,8 +112,11 @@ export const MAX_ADVANCE_EM = 3;
  * 那個 **2 倍不是保險係數，是這條式子的等號代價**：貪婪填行可以排出「窄一行、滿一行、
  * 窄一行…」的鋸齒（一個接近滿寬的不可斷長單字後面跟一個單字元），每兩行只用掉大約
  * 一個可用寬。本機字型實測最緊的對抗案例已經到 0.51（U+FDA9 ×4 為一個原子、
- * 實際 80 行 vs 估算 158 行）；理論上的等號要有 3 em 寬的字元才打得到，而本機字型表
- * 最寬只有 2.27 em。
+ * 實際 80 行 vs 估算 158 行，`textCards.test.ts` 有釘住）；理論上的等號要有 3 em 寬的
+ * 字元才打得到，而本機字型表最寬只有 2.27 em。
+ * （2026-08-05 有一次審查說這個數字「應該是 0.710」——覆核後**維持 0.51**：80/158
+ * ＝0.5063，重跑那條測試也是 0.5063。0.710 是另一組取樣掃出來的最緊值，那組沒有
+ * 涵蓋 U+FDA9 這個構造；「別處掃到 0.710」不會讓「這裡量到 0.51」變成錯的。）
  */
 function greedyLineBound(advanceUpperBound: number, usable: number): number {
   return Math.floor((2 * advanceUpperBound) / usable) + 1;

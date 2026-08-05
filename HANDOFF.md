@@ -4,7 +4,7 @@
 > 最後更新：M1–M4 + T1 + T2#8（自動字幕）+ UI 重設計 + 字幕 WYSIWYG 階段 1（光柵器地基）+ 階段 2（可編輯文字 overlay）+ 階段 3（預覽字卡直出）+ 階段 4（畫布拖曳+吸附導線）**四階段全部完成**，含真瀏覽器回歸（`npm run verify:canvas`）。
 >
 > ⚠️ **「預覽=成品」對「沒有逐詞高亮的字幕」與 overlay 成立**（字幕已驗到 PNG sha256 逐位元組
-> 相同；overlay 於 2026-08-04 修好兩個幾何落差，`npm run verify:wysiwyg` 五項全綠、最大差 1.1px）。
+> 相同；overlay 於 2026-08-04 修好兩個幾何落差，`npm run verify:wysiwyg` 六項全綠、最大差 1.1px）。
 > **karaoke 字幕仍有已知、可重現的落差**——但**落差在預覽端，匯出成品是正確的**
 > （一詞一卡＝單層直畫；預覽的兩層疊合讓描邊看起來略厚，2 詞時差 1101 個像素／1.1%，
 > 最大單通道差 165，肉眼看不出來）。範圍與完整實測表見 `CLAUDE.md`「『預覽即成品』的
@@ -40,16 +40,20 @@
   Pillow 子行程。）
 
 - `npm run typecheck`：三 workspace 乾淨（exit 0）。
-- `npm run lint`：**exit 1**，34 個錯誤全部在 `.claude/worktrees/**`（別的 session 的
-  worktree），本 repo 追蹤的原始碼 0 問題。注意這代表
-  `npm run typecheck && npm run lint && npm run format:check` 這種 `&&` 串跑不完。
+- `npm run lint`：**exit 0**（2026-08-05 起）。曾經 exit 1、34 個錯誤全部在
+  `.claude/worktrees/**`（別的 session 的 worktree ＝整個 repo 的另一份拷貝），
+  而且會隨著「此刻有沒有人開著 worktree」自己來來去去；已把 `.claude/**` 加進
+  `eslint.config.js` 的 ignores，`typecheck && lint && format:check` 現在跑得完。
 - `npm run format:check`：見 `CLAUDE.md`——它報的都是真的沒格式化的原始碼（產生檔已被
   `.gitignore`/`.prettierignore` 濾掉），不是雜訊。
 - UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過。
 - 真瀏覽器（非 jsdom）回歸：`npm run verify:panels`（面板）與 `npm run verify:canvas`
   （縮放/拖曳/導線/不盲拖，**4 項檢查、6 條斷言**）**都綠**，見下節「階段 4」。
-  `npm run verify:wysiwyg`（真 render vs 預覽截圖的墨跡外框）**現在全綠**（2026-08-04 修掉
-  overlay 那兩個缺陷之後），見「預覽 vs 成品的幾何回歸」節。
+  `npm run verify:wysiwyg`（真 render vs 預覽截圖的墨跡外框）**現在六項全綠**（2026-08-04
+  修掉 overlay 那兩個缺陷、2026-08-05 補上水平軸 case 之後），見「預覽 vs 成品的幾何回歸」節。
+  ⚠️ `verify:canvas` 依賴 `projects/demo` 的內容，而那是共用的可變狀態——2026-08-05 它就
+  因為 demo 被改到「t=0 沒有 overlay」而每次都在載入逾時；已改成往前掃找第一個有 overlay
+  的時刻，但這類耦合還在（它也會把拖曳結果寫回 demo 的 `project.json`）。
   ⚠️ `verify:canvas` 檢查 1 印的「誤差 0.000%」只驗了 transform 矩陣的 `a`（scaleX），
   **不足以推論「預覽跟成品對齊」**——理由見 `CLAUDE.md`「UI 驗證的陷阱」。
 
@@ -58,7 +62,11 @@
 設計：[`docs/superpowers/specs/2026-08-03-caption-wysiwyg-design.md`](docs/superpowers/specs/2026-08-03-caption-wysiwyg-design.md)。目標是讓預覽字幕與匯出成品最終共用同一張 PNG；階段 1 只把「光柵器」這塊地基蓋好，**還沒有任何使用者看得到的行為變化**。
 
 - **`text_card.py` 常駐 worker 模式**：`--worker` 讀 stdin/stdout 一行一 JSON，import PIL 與字型只付一次，之後每張卡約 7ms（相較逐次 spawn 的 50–70ms）。一次請求可同時產出「base 卡」與「全高亮卡」（karaoke 兩張圖疊 clip-path 的作法），並回傳逐詞 bounding box。**既有單卡 CLI 模式沒有變動**——`render.ts` 的匯出路徑目前仍走舊的逐次 spawn CLI，還沒接上 worker。
-- **`server/src/rasterizer.ts`（新）**：`PillowRasterizer`（`id='pillow-1'`）把 worker 包成 TS 介面：`resolveFontPath`（public 可變，因為字型表要靠它自己 probe 後再回填）、`probeFont`、`rasterize`、`dispose`。
+- **`server/src/rasterizer.ts`（新）**：`PillowRasterizer`（`id='pillow-2'`——`pillow-1` → `pillow-2`
+  是因為無 tokens 路徑加了自動換行。**這個號碼進 `cardKey`，任何改變輸出像素的行為都要往上加**，
+  否則既有專案永遠停在舊排版，使用者重打一模一樣的字也救不回來。加號碼之後既有 doc 裡的
+  `imagePath` 會指著舊 hash，靠 `refreshTextOverlayCards()`（`server/src/index.ts` 啟動時跑）
+  重新解析）把 worker 包成 TS 介面：`resolveFontPath`（public 可變，因為字型表要靠它自己 probe 後再回填）、`probeFont`、`rasterize`、`dispose`。
 - **`server/src/fonts.ts`（新）**：`loadFontTable(rasterizer)` 啟動時用真 Pillow 逐一實測候選字型檔，**開不了的直接剔除**（本機 `/System/Library/Fonts/PingFang.ttc` 開不了，已剔除，落到 Heiti TC）；`fontResolver(table)` 給 family→路徑（完全比對，否則落到表首位，否則 undefined）。新端點 `GET /api/fonts`（回 `{id, family}[]`）與 `GET /fonts/:id`（真的把字型檔案送出，供之後 UI `@font-face` 用）。
 - **`server/src/textCards.ts`（新）**：`cardKey()` 內容雜湊（含 rasterizer id，換引擎全快取自動失效）；`TextCardService.ensure()` 查快取未命中才產卡，寫 `derived/text/` 下的三個檔：
   **`<hash>.json`（幾何，只有這一份，沒有 `.base.json`）、`<hash>.base.png`、
@@ -170,12 +178,15 @@
   ——兩式只在畫布寬 ≥ 640 時同值（1080→54、720→36、640→32），所以「不換行」的年代
   看不出差別；一折行，畫布寬 < 640 的專案就會「預覽折三行、成品折兩行」。已補傳，
   並有回歸測試（width 500、fontSize 45，兩式會折出 2 行 vs 3 行）。
-- ⚠️ **像素預算的行數估算改成「每個字元各佔一行」的上界**（`server/src/cardBudget.ts`
-  的 `maxWrappedLines`）。舊的 `split('\n').length` 在折行之後會**低估**（一行長文字可以
-  變成幾百行），預算就不再是保證。Node 這側沒有字型量測，只能取上界；
-  **代價是很長的文字會被誤拒**（1080 寬、fontSize 64 時上限約 146 字、fontSize 40 約 232 字，
-  即使實際只折成十來行）。這個上界**可以被打到**（可用寬只放得下一個字時實際行數＝字元數，
-  `textCards.test.ts` 有測試釘住等號），所以它不是隨手放大的保險係數。
+- ⚠️ **像素預算的行數估算改成取上界**（`server/src/cardBudget.ts` 的 `maxWrappedLines`）。
+  舊的 `split('\n').length` 在折行之後會**低估**（一行長文字可以變成幾百行），預算就不再是
+  保證。Node 這側沒有字型量測，只能取上界：「每個字元各佔一行」與「貪婪填行的行數界
+  `floor(2 × 3em × 字元數 ÷ 可用寬) + 1`」兩者取較緊者。
+  **代價是很長的文字會被誤拒**（1080 寬、fontSize 64 時上限 **369 字**、fontSize 40 約 935 字，
+  即使實際只折成二十幾行）。⚠️ 早期版本只有前一條，那時上限只有 **146 字**——一段 163 字的
+  中文散文就會被擋下；貪婪界補上之後才回到堪用。兩條上界都**可以被打到**
+  （`textCards.test.ts` 釘住等號，並有約 120 組對抗性構造驗「實際 ≤ 估算」，最緊的比值 0.51），
+  所以它不是隨手放大的保險係數。
   想拿回精確度只有一條路：把判斷搬到有字型量測的 python 那側（排完版、`Image.new` 之前
   再擋一次），那會讓 `cardRequestError` 變成非同步——**沒做，留給之後的批次**。
 - **副作用（預期內，不是回歸）**：既有專案裡「以前被裁掉」的長文字現在會折行 → 字卡變高、
@@ -191,6 +202,28 @@
   **原生 `drawtext` 分支仍然單行不換行**——換到有 freetype 的機器時落差比以前更大
   （見 `CLAUDE.md`）。
 
+## 啟動時的字卡遷移（`refreshTextOverlayCards`，2026-08-04 加、2026-08-05 修）
+
+`server/src/textOverlays.ts`，由 `server/src/index.ts` 在 `listen()` 之後 fire-and-forget。
+**在此之前完全沒有文件記載，但它每次開檔都會跑。**
+
+- **為什麼需要**：字卡是內容定址的，`imagePath` 在命令套用當下就烤進 `project.json`。
+  `PillowRasterizer.id` 一往上加（`pillow-1` → `pillow-2`），新的 key 就變了，但既有專案的
+  `imagePath` 仍指著舊 hash 的檔案，而且使用者在 UI 上重打一模一樣的字**也救不回來**
+  （同輸入→同 key→命中舊卡）。沒有這道重解析，「加了自動換行」對已存檔的作品等於沒發生。
+- **只在 hash 真的變了才送命令**，所以升級後的第一次以外都是靜默 no-op。
+- ⚠️ **2026-08-05 修掉它自己帶進來的兩個資料遺失風險**（審查抓到、已可重現）：
+  1. 它原本送 `patch: { text, imagePath }`，而 `text` 是**迴圈開頭的快照**。產卡要 spawn
+     Pillow（overlay 多的話累積好幾秒），正好落在使用者剛開檔開始動手的時段——快照送回去
+     就把他這段時間的編輯覆蓋掉了。現在只 patch `imagePath`，而且 `await` 之後重讀 doc、
+     用 `svc.keyOf()` 確認「這張卡現在還是它要的嗎」，不是就跳過（改字那條路徑自己會產新卡）。
+     判斷與 `applyCommand` 之間沒有 `await`，Node 單執行緒，中間插不進別的命令。
+  2. 它原本走一般 `applyCommand` ＝**進 undo 堆疊**，而且通常是開檔後唯一的一筆——
+     使用者反射性按一次 Cmd+Z 撤掉的就是它，`imagePath` 被還原回舊 hash；`derived/` 若已
+     清過，那個檔案根本不存在，`ffmpeg -i` 讀不到就是整支匯出失敗。現在包在
+     `store.runWithoutUndo()` 裡（新增的 API）：其餘照常（記歷史、廣播、落盤），只是不可撤銷。
+- 兩條都有測試釘住（`server/test/textOverlays.test.ts`），把修法退回去會當場紅。
+
 ## 預覽 vs 成品的幾何回歸（`npm run verify:wysiwyg`，分支 `caption-wysiwyg`）
 
 `ui/e2e/preview-vs-export.mjs`。補的正是上面那條「從來沒有人 render 一次去比像素」的缺口。
@@ -203,7 +236,7 @@
   Chromium 開真 UI、用 ArrowRight 走到同一幀（拿工具列 timecode 複驗）、`Page.captureScreenshot`
   只截 stage、換算回 1080×1920 座標量同一個外框。**不碰 `projects/demo`、不碰 :3845**，
   每次跑先把臨時專案刪掉重建（重跑任意次起點都一樣）。
-- **五個 case、目前的實測結果（五項全綠）**：
+- **六個 case、目前的實測結果（六項全綠）**：
   - ✅ overlay `scale=1`（成品 `x0=318 y0=399 w=444 h=74`）→ 預覽 `x0=318.1 y0=400.0 w=444.1 h=73.0`，
     **最大差 1.0px**（修之前：預覽 `x0=340.1 w=400.1`、最大差 **43.9px**、寬比 0.9011）
   - ✅ overlay `scale=0.5`（成品 `x0=429 y0=392 w=222 h=36`——**成品也跟著變了**，因為渲染端
@@ -219,6 +252,12 @@
     同一個 `imagePath`、同一張 PNG，不折行也會兩邊一樣地不折行。所以它另外釘住了
     **成品側的墨跡形狀**（高 ≥ 2 個 line_h、寬 ≤ 可用寬 756）——把 `wrap_text()` 換回
     `split("\n")` 實測會當場失敗（墨跡變成 `w=1080 h=60`＝單行被畫布邊緣裁掉）。
+  - ✅ **水平不置中的 overlay**（2026-08-05 新增，`ov_offcentre`，t=5.5s，`position.x = 0.25`）：
+    成品 `x0=48 y0=399 w=444 h=74` → 預覽 `x0=48.0 y0=400.0 w=444.1 h=73.0`，**最大差 1.0px**。
+    補的是**水平軸的零覆蓋**：在這之前每個 case 的 x 都是 0.5，而墨跡對中線左右對稱——
+    實測把渲染端的 x 映射整個鏡射（`x → 1-x`）之後五項照樣全綠，也就是說這支腳本當時
+    證明的只有垂直幾何。⚠️ 另外釘住成品側 `x0 ≤ 120`（同一個鏡射突變會讓它變成 588 而
+    當場失敗）——「x 被忽略、永遠置中」那種退化是兩邊一起錯的，比對本身抓不到。
   - ✅ **掛在畫布上緣外的 overlay**（2026-08-04 新增，`ov_offtop`，t=4.5s，`position.y = -0.03`）：
     成品 `x0=329 y0=0 w=432 h=31`（＝真的被上緣裁掉；同字同字級沒被裁時是 `x0=318 w=444 h=74`）
     → 預覽 `x0=329.1 y0=0.0 w=433.1 h=31.0`，**最大差 1.1px**。補的是 `5537a43`（夾制改成
@@ -393,13 +432,13 @@ npm run dev:ui
    那是修好了不是回歸。要驗顯式換行仍可在左欄 Inspector 的 Text 欄（那是 `<textarea>`，
    按 Enter 就會換行；右上字幕列表是單行 `<input>`，Enter 是送出）裡打真的換行。
    ⚠️ 文字太長時寫入可能被「字卡超過像素預算」拒絕——那是**最壞情況上界**在保守拒絕
-   （1080 寬、fontSize 64 大約 146 字），不是 bug，見「文字自動換行」節。
+   （1080 寬、fontSize 64 是 369 字），不是 bug，見「文字自動換行」節。
 5. 底部「🎬 渲染成品」→ 進度條 → 完成後「開啟成品」連結播放，確認畫面/音訊/overlay/字幕。
 6. **預覽=成品的最終檢驗（階段 4 收尾）**：把上面拖過的 overlay/字幕、改過的文字，用同一次渲染比對。
    **請帶著下面這份「已知會不一致」的清單去看**，否則你會把已知落差當成新 bug（或反過來，
    把落差看成「大致上一樣」而放過）：
    - ✅ **非 karaoke 字幕應該一模一樣**（同一張 PNG，已驗到 sha256 相同）——位置、字級、描邊、字型有任何差異都是新 bug，請記下來。
-   - ✅ **overlay 的大小/位置現在也應該一樣**（2026-08-04 修好，`verify:wysiwyg` 五項全綠、最大差 1.1px）：
+   - ✅ **overlay 的大小/位置現在也應該一樣**（2026-08-04 修好，`verify:wysiwyg` 六項全綠、最大差 1.1px）：
      以前「成品比預覽大約 11%」與「Inspector 的 scale 欄位對成品完全沒效果」兩條**都已消除**——
      現在改 scale 預覽與成品會一起變。若還看得到差異，那是新 bug，請記下來。
      注意既有專案的 overlay **預覽會比你印象中大 11%**：那是它在成品裡一直以來的尺寸，不是變大了。
@@ -508,18 +547,24 @@ ui/src/panels/            Inspector / Activity / ReviewBar / ExportMenu / Captio
 ```bash
 npm test          # 全部（含真 ffmpeg 與真 whisper，機器空閒時約 70 秒）
 npm run typecheck # 三 workspace tsc（乾淨）
-npm run lint      # ESLint —— 目前 exit 1：34 個錯誤全在 .claude/worktrees/**（別的 session）
-npm run format:check  # 目前有未格式化的原始碼會被抓出來，那不是雜訊
+npm run lint      # ESLint —— 目前 exit 0（.claude/** 已排除，見下）
+npm run format:check  # 目前 exit 0；它報的都是真的沒格式化的原始碼，不是雜訊
 npm run format    # Prettier 寫入
 npm run demo      # ⚠️ 重建 demo（覆蓋既有內容）+ 起 server
 npm run dev:ui    # Vite dev（proxy 到 :3845；port 未必是 5173，且只綁 IPv6 → 用 localhost）
 npm run verify:panels  # 面板控制項真瀏覽器回歸（前置：server 在跑 + ui/dist 最新）
 npm run verify:canvas  # 畫布縮放/拖曳/吸附/不盲拖真瀏覽器回歸（前置同上；見 CLAUDE.md）
-npm run verify:wysiwyg # 真 render vs 預覽截圖的墨跡外框（自己起 :3999 + 臨時專案；目前全綠）
+npm run verify:wysiwyg # 真 render vs 預覽截圖的墨跡外框（自己起 :3999 + 臨時專案；六項全綠）
 ```
 
-> `npm run lint` exit 1 代表 `typecheck && lint && format:check` 這種 `&&` 串會停在 lint，
-> **永遠跑不到 `format:check`**。要嘛分開跑，要嘛把 `format:check` 排前面。
+> `npm run lint` 曾經 exit 1（34 個錯誤全在 `.claude/worktrees/**`，別的 session 開的
+> worktree ＝整個 repo 的另一份拷貝），而且會隨著「此刻有沒有人開著 worktree」自己來去。
+> `.claude/**` 已加進 `eslint.config.js` 的 ignores，`typecheck && lint && format:check`
+> 這種 `&&` 串現在跑得完。
+> `verify:wysiwyg` 會**自己擋下過期的 `ui/dist`**（比 `ui/src`、`shared/src` 的 mtime）——
+> 忘記 build 的話它量的是上一版的 UI，六項會全綠但那個綠什麼都不代表（實測把預覽端的
+> 字幕 y 打歪 690px 之後不 build 再跑就是全綠）。stage 寬 < 400px 也會擋（量測本底雜訊
+> 會超過容差）。
 
 ## 下一步建議（依價值排序）
 
