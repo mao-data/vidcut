@@ -148,6 +148,21 @@ select:hover,
 textarea:hover {
   border-color: var(--line-strong);
 }
+/* 停用的欄位要一眼看得出不能打字。沒有這條的話「to end of video」那格跟旁邊
+ * 可編輯的數字欄長得一模一樣，看起來像使用者自己打進去的字。 */
+input:disabled,
+select:disabled,
+textarea:disabled {
+  color: var(--text-3);
+  background: rgba(0, 0, 0, 0.12);
+  border-style: dashed;
+  cursor: default;
+}
+input:disabled:hover,
+select:disabled:hover,
+textarea:disabled:hover {
+  border-color: var(--line);
+}
 input[type='color'] {
   padding: 2px;
   height: 28px;
@@ -218,6 +233,38 @@ a {
   width: auto;
   flex: none;
   margin: 0;
+}
+/* 欄位＋修飾子（Duration 與「until end」）：修飾子放在標籤列右端，輸入框佔滿下一列。
+ * DOM 仍維持 label → input 相鄰（整個面板到處都靠這個順序找欄位），位置交給 grid 排。 */
+.form .field-group {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+}
+.form .field-group > .field {
+  grid-column: 1;
+  grid-row: 1;
+}
+.form .field-group > .check {
+  grid-column: 2;
+  grid-row: 1;
+}
+.form .field-group > input,
+.form .field-group > textarea {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+/* 欄位下的狀態說明（例：這個 overlay 錨在哪一段），不是可編輯的東西。 */
+.form .hint {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+/* 破壞性操作與一般編輯隔開。窄面板下 flex 換行會讓刪除鈕落到不可預期的位置。 */
+.form .danger-zone {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 /* 勾選列：方塊固定貼左、文字接在後面，窄面板換行時方塊仍對齊第一行。 */
 .form .field.check {

@@ -152,6 +152,8 @@ export function Inspector() {
           >
             <AudioWaveform size={13} /> Extract audio
           </button>
+        </div>
+        <div className="danger-zone">
           <button
             className="btn-danger icon-btn"
             onClick={() => {
@@ -173,7 +175,7 @@ export function Inspector() {
     return (
       <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Audio {a.label ?? a.mediaId}</h3>
-        <label className="field">Timeline start (s)</label>
+        <label className="field">Start (s)</label>
         <input type="number" step="0.1" value={a.start} onChange={(e) => upd({ start: num(e) })} />
         <label className="field">Source in (s)</label>
         <input type="number" step="0.1" value={a.in} onChange={(e) => upd({ in: num(e) })} />
@@ -217,16 +219,17 @@ export function Inspector() {
           />
           Duck the video track while this plays
         </label>
-        <button
-          className="btn-danger icon-btn"
-          style={{ marginTop: 12 }}
-          onClick={() => {
-            send({ name: 'removeAudio', id: a.id });
-            useSelection.getState().select(null);
-          }}
-        >
-          <Trash2 size={13} /> Delete audio
-        </button>
+        <div className="danger-zone">
+          <button
+            className="btn-danger icon-btn"
+            onClick={() => {
+              send({ name: 'removeAudio', id: a.id });
+              useSelection.getState().select(null);
+            }}
+          >
+            <Trash2 size={13} /> Delete audio
+          </button>
+        </div>
       </div>
     );
   }
@@ -337,10 +340,7 @@ export function Inspector() {
       <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Overlay {ov.imagePath.split('/').pop()}</h3>
       {ov.anchor ? (
         <>
-          <label className="field">
-            Anchored to clip (offset in s; follows the clip):
-            {doc.tracks.video.find((c) => c.id === ov.anchor!.clipId)?.label ?? ov.anchor.clipId}
-          </label>
+          <label className="field">Offset from clip (s)</label>
           <input
             type="number"
             step="0.1"
@@ -353,10 +353,14 @@ export function Inspector() {
               })
             }
           />
+          <p className="hint">
+            📎 follows{' '}
+            {doc.tracks.video.find((c) => c.id === ov.anchor!.clipId)?.label ?? ov.anchor.clipId}
+          </p>
         </>
       ) : (
         <>
-          <label className="field">Start time (s)</label>
+          <label className="field">Start (s)</label>
           <input
             type="number"
             step="0.1"
@@ -366,23 +370,17 @@ export function Inspector() {
           />
         </>
       )}
-      <label className="field check">
-        <input
-          type="checkbox"
-          checked={ov.duration === null}
-          onChange={(e) =>
-            send({
-              name: 'updateOverlay',
-              id: ov.id,
-              patch: { duration: e.target.checked ? null : 3 },
-            })
-          }
-        />
-        Show until end
-      </label>
-      {ov.duration !== null && (
-        <>
-          <label className="field">Duration (s)</label>
+      {/*
+       * 勾選框排在 Duration **之後**，而且勾起來時輸入框留在原地變灰、不整組消失。
+       * 舊版是「勾選框在前 + `{ov.duration !== null && …}`」：勾下去 Duration 整組不見、
+       * 版面往上跳，勾選框頓時緊貼上一個欄位（offset），看起來像在修飾那一個。
+       * DOM 順序仍是 label → input → 勾選列，視覺位置由 .field-group 的 grid 排。
+       */}
+      <div className="field-group">
+        <label className="field">Duration (s)</label>
+        {ov.duration === null ? (
+          <input type="text" value="to end of video" disabled readOnly />
+        ) : (
           <input
             type="number"
             step="0.1"
@@ -392,9 +390,23 @@ export function Inspector() {
               send({ name: 'updateOverlay', id: ov.id, patch: { duration: num(e) } })
             }
           />
-        </>
-      )}
-      <label className="field">x（0–1）</label>
+        )}
+        <label className="field check">
+          <input
+            type="checkbox"
+            checked={ov.duration === null}
+            onChange={(e) =>
+              send({
+                name: 'updateOverlay',
+                id: ov.id,
+                patch: { duration: e.target.checked ? null : 3 },
+              })
+            }
+          />
+          until end
+        </label>
+      </div>
+      <label className="field">x (0–1)</label>
       <input
         type="number"
         step="0.05"
@@ -407,7 +419,7 @@ export function Inspector() {
           })
         }
       />
-      <label className="field">y（0–1）</label>
+      <label className="field">y (0–1)</label>
       <input
         type="number"
         step="0.05"
@@ -467,7 +479,7 @@ export function Inspector() {
               }
             }}
           />
-          <label className="field">Fill</label>
+          <label className="field">Color</label>
           <input
             type="color"
             defaultValue={ov.text.fill}
@@ -485,16 +497,17 @@ export function Inspector() {
           />
         </>
       )}
-      <button
-        className="btn-danger icon-btn"
-        style={{ marginTop: 12 }}
-        onClick={() => {
-          send({ name: 'removeOverlay', id: ov.id });
-          useSelection.getState().select(null);
-        }}
-      >
-        <Trash2 size={13} /> Delete overlay
-      </button>
+      <div className="danger-zone">
+        <button
+          className="btn-danger icon-btn"
+          onClick={() => {
+            send({ name: 'removeOverlay', id: ov.id });
+            useSelection.getState().select(null);
+          }}
+        >
+          <Trash2 size={13} /> Delete overlay
+        </button>
+      </div>
     </div>
   );
 }

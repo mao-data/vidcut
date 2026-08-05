@@ -195,7 +195,7 @@ describe('Inspector', () => {
     useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
     const { container } = render(<Inspector />);
 
-    type(fieldAfter(container, 'Start time'), '4');
+    type(fieldAfter(container, 'Start (s)'), '4');
     expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovAbs', patch: { start: 4 } }]);
   });
 
@@ -204,7 +204,7 @@ describe('Inspector', () => {
     useSelection.getState().select({ kind: 'overlay', id: 'ovAnchor' });
     const { container } = render(<Inspector />);
 
-    type(fieldAfter(container, 'Anchored to clip'), '2');
+    type(fieldAfter(container, 'Offset from clip'), '2');
     expect(sent).toEqual([
       { name: 'updateOverlay', id: 'ovAnchor', patch: { anchor: { clipId: 'c2', offset: 2 } } },
     ]);
@@ -215,7 +215,7 @@ describe('Inspector', () => {
     useSelection.getState().select({ kind: 'overlay', id: 'ovAnchor' });
     const { container } = render(<Inspector />);
 
-    const input = fieldAfter(container, 'Anchored to clip');
+    const input = fieldAfter(container, 'Offset from clip');
     expect(input.min).toBe(''); // min="0" 會讓瀏覽器步進/驗證擋掉負值，與拖曳語意衝突
     type(input, '-1.5');
     expect(sent).toEqual([
@@ -223,12 +223,12 @@ describe('Inspector', () => {
     ]);
   });
 
-  it('"show until end" switches duration between null and a fixed length', () => {
+  it('"until end" switches duration between null and a fixed length', () => {
     seedProject();
     useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
     const { container } = render(<Inspector />);
 
-    const box = fieldAfter(container, 'Show until end');
+    const box = fieldAfter(container, 'until end');
     act(() => {
       fireEvent.click(box);
     });
@@ -304,12 +304,12 @@ describe('Inspector', () => {
     useSelection.getState().select({ kind: 'overlay', id: 'txtA' });
     const { container, rerender } = render(<Inspector />);
     expect(fieldAfter(container, 'Font size').value).toBe('64');
-    expect(fieldAfter(container, 'Fill').value).toBe('#ffffff');
+    expect(fieldAfter(container, 'Color').value).toBe('#ffffff');
 
     useSelection.getState().select({ kind: 'overlay', id: 'txtB' });
     rerender(<Inspector />);
     expect(fieldAfter(container, 'Font size').value).toBe('32');
-    expect(fieldAfter(container, 'Fill').value).toBe('#ff0000');
+    expect(fieldAfter(container, 'Color').value).toBe('#ff0000');
   });
 
   // 上面那條「換選取」其實用 `key={ov.id}` 也會通過（換 overlay 時 id 跟值一起變）。
@@ -333,7 +333,7 @@ describe('Inspector', () => {
     useSelection.getState().select({ kind: 'overlay', id: 'txtA' });
     const { container, rerender } = render(<Inspector />);
     expect(fieldAfter(container, 'Font size').value).toBe('64');
-    expect(fieldAfter(container, 'Fill').value).toBe('#ffffff');
+    expect(fieldAfter(container, 'Color').value).toBe('#ffffff');
     const before = fieldAfter(container, 'Font size');
 
     // server echo：同一個 overlay id，只有值變了（走真正的 applyServerMsg 路徑）
@@ -350,7 +350,7 @@ describe('Inspector', () => {
     rerender(<Inspector />);
 
     expect(fieldAfter(container, 'Font size').value).toBe('96');
-    expect(fieldAfter(container, 'Fill').value).toBe('#00ff00');
+    expect(fieldAfter(container, 'Color').value).toBe('#00ff00');
     // 而且是**換了一個 DOM 節點**（key 變 → remount），不是靠 React 去改非受控 input
     expect(fieldAfter(container, 'Font size')).not.toBe(before);
   });
@@ -372,6 +372,116 @@ describe('Inspector', () => {
     const { container } = render(<Inspector />);
     fireEvent.blur(fieldAfter(container, 'Font size'));
     expect(sent).toEqual([]);
+  });
+});
+
+/**
+ * 版面與命名的回歸檢查。這些不是「功能會不會壞」，是「使用者會不會讀錯意思」：
+ * 勾選框排在它控制的欄位之前、同一個概念在四個表單有三個名字、刪除鈕跟一般操作
+ * 擠在同一排——每一條都在使用者回報「放的地方不直觀」的名單上（2026-08-05）。
+ */
+describe('Inspector — 版面與命名', () => {
+  const labels = (c: HTMLElement) => Array.from(c.querySelectorAll('label'));
+  const labelWith = (c: HTMLElement, text: string) =>
+    labels(c).find((l) => l.textContent?.includes(text));
+  const buttonWith = (c: HTMLElement, text: string) =>
+    Array.from(c.querySelectorAll('button')).find((b) => b.textContent?.includes(text));
+
+  it('「until end」開著時 Duration 欄位留在原地變灰，不是整組消失', () => {
+    // 消失的話版面會往上跳，勾選框頓時失去它所修飾的對象，看起來像在講上一個欄位。
+    const doc = demoProject();
+    doc.tracks.overlays[0]!.duration = null;
+    seedProject(doc);
+    useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
+    const { container } = render(<Inspector />);
+
+    const dur = fieldAfter(container, 'Duration');
+    expect(dur.disabled).toBe(true);
+    expect(dur.value).toBe('to end of video');
+  });
+
+  it('「until end」勾選框跟 Duration 同一組，且排在 Duration 標籤之後', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
+    const { container } = render(<Inspector />);
+
+    const durLabel = labelWith(container, 'Duration')!;
+    const check = labels(container).find((l) => l.querySelector('input[type="checkbox"]'))!;
+    expect(check).toBeTruthy();
+    expect(check.parentElement).toBe(durLabel.parentElement);
+    expect(
+      durLabel.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('錨定 overlay 的偏移欄位有自己的名字，錨在哪一段另外講', () => {
+    // 舊版把說明和 clip 名稱全塞進 label：「Anchored to clip (offset in s; follows
+    // the clip):clip two」，200px 下擠成兩行，而下面那個數字是什麼得自己猜。
+    seedProject();
+    useSelection.getState().select({ kind: 'overlay', id: 'ovAnchor' });
+    const { container } = render(<Inspector />);
+
+    expect(fieldAfter(container, 'Offset from clip').value).toBe('0.5');
+    expect(container.textContent).toContain('clip two');
+  });
+
+  it('時間軸起點在 audio / caption / overlay 三個表單都叫 Start (s)', () => {
+    seedProject();
+    const selections = [
+      { kind: 'audio', id: 'a1' },
+      { kind: 'caption', id: 'cap1' },
+      { kind: 'overlay', id: 'ovAbs' },
+    ] as const;
+    for (const sel of selections) {
+      useSelection.getState().select(sel);
+      const { container, unmount } = render(<Inspector />);
+      expect(labelWith(container, 'Start (s)'), `${sel.kind} 少了 Start (s)`).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it('顏色欄位在字幕與文字 overlay 都叫 Color', () => {
+    const doc = demoProject();
+    doc.tracks.overlays = [
+      {
+        id: 'txt1',
+        imagePath: 'derived/text/abc.base.png',
+        text: { text: '字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    ];
+    seedProject(doc);
+
+    useSelection.getState().select({ kind: 'caption', id: 'cap1' });
+    const cap = render(<Inspector />);
+    expect(fieldAfter(cap.container, 'Color').type).toBe('color');
+    cap.unmount();
+
+    useSelection.getState().select({ kind: 'overlay', id: 'txt1' });
+    const ov = render(<Inspector />);
+    expect(fieldAfter(ov.container, 'Color').type).toBe('color');
+  });
+
+  it('overlay 表單不混用全形括號', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
+    const { container } = render(<Inspector />);
+    expect(container.textContent).not.toMatch(/[（）]/);
+  });
+
+  it('Delete clip 不跟 Split / Freeze 擠在同一排', () => {
+    // 同一個 flexWrap 裡換行後，刪除鈕會落在不可預期的位置，很容易誤點。
+    seedProject();
+    useSelection.getState().select({ kind: 'clip', id: 'c1' });
+    const { container } = render(<Inspector />);
+
+    const del = buttonWith(container, 'Delete clip')!;
+    const split = container.querySelector('button[title="S"]')!;
+    expect(del).toBeTruthy();
+    expect(split).toBeTruthy();
+    expect(del.parentElement).not.toBe(split.parentElement);
   });
 });
 
