@@ -209,7 +209,7 @@ export function Inspector() {
           value={a.fadeOut ?? 0}
           onChange={(e) => upd({ fadeOut: num(e) })}
         />
-        <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label className="field check">
           <input
             type="checkbox"
             checked={a.ducking === true}
@@ -367,7 +367,7 @@ export function Inspector() {
           />
         </>
       )}
-      <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <label className="field check">
         <input
           type="checkbox"
           checked={ov.duration === null}

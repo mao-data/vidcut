@@ -210,6 +210,26 @@ a {
 .form select {
   width: 100%;
 }
+/* 勾選框不是「滿寬輸入」。吃到上面那條 width:100% 的話，方塊會被撐成隨 Inspector
+ * 寬度變動的長條（Chrome 會把 checkbox 畫在被撐開的框正中），勾選框的位置就會隨面板
+ * 拉寬拉窄而左右飄，文字也被擠到右緣換行。 */
+.form input[type='checkbox'],
+.form input[type='radio'] {
+  width: auto;
+  flex: none;
+  margin: 0;
+}
+/* 勾選列：方塊固定貼左、文字接在後面，窄面板換行時方塊仍對齊第一行。 */
+.form .field.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0;
+  cursor: pointer;
+}
+.form .field.check input {
+  margin-top: 1px;
+}
 
 /* 時間軸 trim handle：預設隱形（常駐白條在片段交界看起來像破圖），
  * hover 到片段才浮現、直接 hover 到 handle 最亮（CapCut 慣例）。 */
