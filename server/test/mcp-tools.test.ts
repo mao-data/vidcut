@@ -460,3 +460,105 @@ describe('instructions 與工具清單同步', () => {
     expect(client.getInstructions() ?? '').toMatch(/純音訊/);
   });
 });
+
+/**
+ * 批 D：輸入邊界。這幾條的共同性質是「以前不會噴錯，而是靜靜做了別的事」——
+ * 回全部而不是零筆、回 ok 而什麼都沒改、把檔案寫到專案外。錯誤訊息比錯誤行為好。
+ */
+describe('批 D：輸入邊界', () => {
+  it('get_history 的 limit:0 回零筆（以前 slice(-0) ＝ slice(0) ＝ 回全部）', async () => {
+    // 先堆出足夠的歷史，否則「回全部」與「回零筆」在空歷史上長得一樣
+    for (const fit of ['blur', 'contain', 'blur', 'contain'] as const) {
+      await call('set_canvas_fit', { fit });
+    }
+    const all = (await call('get_history', { limit: 200 })).structuredContent as {
+      history: unknown[];
+    };
+    expect(all.history.length).toBeGreaterThan(2);
+
+    const zero = (await call('get_history', { limit: 0 })).structuredContent as {
+      history: unknown[];
+    };
+    expect(zero.history).toHaveLength(0);
+
+    const two = (await call('get_history', { limit: 2 })).structuredContent as {
+      history: unknown[];
+    };
+    expect(two.history).toHaveLength(2);
+  });
+
+  it('get_history 的 limit 不接受負數（以前 -3 是「砍掉最舊的三筆」）', async () => {
+    const r = await call('get_history', { limit: -3 });
+    expect(r.isError).toBe(true);
+  });
+
+  /**
+   * zod 預設 strip 未知鍵，所以打錯欄位名 → 空 patch → applyCommand 產生零個 immer
+   * patch → 回一句 `ok, version=<沒動>`。呼叫端看到成功、文件卻沒變、也沒有警告。
+   * 這正是 update_caption 的描述特別警告過的那種靜默 no-op，只是發生在 schema 層。
+   */
+  it('update_clip 打錯欄位名會被拒，不再靜默回 ok', async () => {
+    const clipId = store.doc.tracks.video[0]!.id;
+    const before = store.version;
+    // clip 沒有 start 欄位（那是 overlay/caption 才有的）
+    const r = await call('update_clip', { clipId, patch: { start: 2 } });
+    expect(r.isError).toBe(true);
+    expect(store.version).toBe(before);
+  });
+
+  it('update_audio 打錯欄位名會被拒（gain 不是 volume）', async () => {
+    await call('extract_audio', { clipId: store.doc.tracks.video[0]!.id });
+    const audioId = store.doc.tracks.audio[0]!.id;
+    const before = store.version;
+    const r = await call('update_audio', { id: audioId, patch: { gain: 0.5 } });
+    expect(r.isError).toBe(true);
+    expect(store.version).toBe(before);
+  });
+
+  it('合法欄位照樣通得過（strict 沒有把正常用法一起擋掉）', async () => {
+    const clipId = store.doc.tracks.video[0]!.id;
+    const r = await call('update_clip', { clipId, patch: { volume: 0.5 } });
+    expect(r.isError).toBeFalsy();
+    expect(store.doc.tracks.video[0]!.volume).toBe(0.5);
+  });
+
+  it('render 的 stamp 不能是路徑（會把成品寫到專案目錄外）', async () => {
+    for (const stamp of ['../../escape', 'a/b', '..']) {
+      const r = await call('render', { stamp });
+      expect(r.isError, stamp).toBe(true);
+    }
+  });
+
+  it('render 的尺寸有上下界，非整數會被拒', async () => {
+    for (const bad of [{ width: 0 }, { width: 99999 }, { width: 100.5 }, { fps: 0 }]) {
+      const r = await call('render', bad);
+      expect(r.isError, JSON.stringify(bad)).toBe(true);
+    }
+  });
+
+  /**
+   * auto_caption 以前不論成敗都走 result()，寫入失敗時錯誤只藏在摘要文字開頭，
+   * isError 是 false——任何靠 isError 判斷的客戶端都會把它當成功。
+   * 這兩條走的是「早期守衛」那條路（審核中／版本已過期在呼叫當下就看得出來），
+   * 順帶釘住「不要先燒掉一趟分鐘級的 whisper 再說」。
+   */
+  it('auto_caption 在審核進行中直接回錯，而且不跑辨識', async () => {
+    store.mutate('ai', 'request review', (d) => {
+      d.review = { id: 'r1', summary: 's', sinceVersion: 0, requestedAt: '' };
+    });
+    const t0 = Date.now();
+    const r = await call('auto_caption', {});
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/review/);
+    // 辨識要跑 ffmpeg 混音 + whisper，秒級起跳；早退應該是毫秒級
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
+  it('auto_caption 的 ifVersion 已過期時直接回錯，而且不跑辨識', async () => {
+    const t0 = Date.now();
+    const r = await call('auto_caption', { ifVersion: store.version + 999 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/stale/);
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+});

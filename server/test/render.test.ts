@@ -3,7 +3,13 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildRenderArgs, render, renderProgressBus, withProbedChannels } from '../src/render.js';
+import {
+  assertSafeStamp,
+  buildRenderArgs,
+  render,
+  renderProgressBus,
+  withProbedChannels,
+} from '../src/render.js';
 import { buildDemoProject } from '../src/demo.js';
 import { ProjectStore } from '../src/store.js';
 import { probe, runFfmpeg } from '../src/ffmpeg.js';
@@ -187,6 +193,88 @@ describe('buildRenderArgs', () => {
     expect(() => buildRenderArgs(p, '/proj', '/proj/out.mp4', {})).toThrow(
       /bgm1.*GHOST_ID|GHOST_ID.*bgm1/,
     );
+  });
+
+  /**
+   * 匯出尺寸必須是偶數——libx264 的 yuv420p 不吃奇數維度，整支匯出會以一句 ffmpeg
+   * 錯誤結束（實測 `width: 721` → exit 187）。`even()` 以前**只包了推算出來的那一邊**，
+   * 呼叫端明給的值原封不動送進 scale 濾鏡，而註解卻寫著「取偶數」。
+   * 三個方向都要釘：明給的那一邊、推算的那一邊、兩邊都給。
+   */
+  describe('匯出尺寸一律取偶數', () => {
+    const scaleOf = (exp: Record<string, unknown>) => {
+      const plan = buildRenderArgs(demoLikeProject(), '/proj', '/proj/out.mp4', { export: exp });
+      const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+      return /scale=(\d+):(\d+):flags=lanczos/.exec(fc);
+    };
+
+    it('明給的奇數寬會進位，推算出來的高也是偶數', () => {
+      const m = scaleOf({ width: 721 });
+      expect(m, 'width 給了就該有匯出縮放').not.toBeNull();
+      expect(Number(m![1]) % 2).toBe(0);
+      expect(Number(m![2]) % 2).toBe(0);
+      expect(m![1]).toBe('722');
+    });
+
+    it('明給的奇數高會進位', () => {
+      const m = scaleOf({ height: 721 });
+      expect(Number(m![1]) % 2).toBe(0);
+      expect(Number(m![2]) % 2).toBe(0);
+      expect(m![2]).toBe('722');
+    });
+
+    it('兩邊都給奇數時兩邊都進位（不依比例互推）', () => {
+      const m = scaleOf({ width: 405, height: 721 });
+      expect(m![1]).toBe('406');
+      expect(m![2]).toBe('722');
+    });
+
+    // 反向保險：畫布原尺寸不該被 even() 碰。1080×1920 本來就是偶數，
+    // 重點是「沒給 width/height 時完全不插 scale 濾鏡」這個既有行為不能變。
+    it('沒給尺寸時不插匯出縮放濾鏡', () => {
+      expect(scaleOf({})).toBeNull();
+    });
+  });
+});
+
+/**
+ * `stamp` 直接變成 `output/<stamp>.mp4` 的檔名，而它有**兩個**入口（MCP 的 render 工具、
+ * WS 的 `{type:'render'}`），兩邊以前都沒驗。`../../x` 會把成品寫到專案目錄外，
+ * 並讓 `render.lastOutput` 指向一個逃出去的相對路徑——之後 extractCover 拿它抽封面
+ * 就再也抽不到。擋點放在 render.ts 才涵蓋得到兩條路。
+ */
+describe('assertSafeStamp', () => {
+  it('放行正常的 stamp', () => {
+    for (const s of ['render_42', 'wysiwyg', 'a.b-c_d', 'A1']) {
+      expect(() => assertSafeStamp(s), s).not.toThrow();
+    }
+  });
+
+  it('擋下會逃出 output/ 的 stamp', () => {
+    for (const s of ['../../escape', 'a/b', '..', '.', '/abs', 'x\\y', '']) {
+      expect(() => assertSafeStamp(s), s).toThrow(/stamp/);
+    }
+  });
+
+  it('擋下過長的 stamp（檔名長度上限）', () => {
+    expect(() => assertSafeStamp('a'.repeat(65))).toThrow(/stamp/);
+    expect(() => assertSafeStamp('a'.repeat(64))).not.toThrow();
+  });
+
+  /**
+   * 上面三條只證明這個純函式本身對——**忘了接上去**的話它們照樣全綠。
+   * 這條打的是 `render()` 這個真正的入口（WS 那條路沒有 zod，只有這一道擋著），
+   * 而且驗它擋在**做任何事之前**：專案是空的，若真的走進去會先撞上
+   * 「timeline is empty」而不是 stamp 的錯誤。
+   */
+  it('render() 自己就會擋下危險的 stamp（不是只靠 MCP 的 schema）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-stamp-'));
+    try {
+      const store = await ProjectStore.load(join(dir, 'project.json'));
+      await expect(render(store, dir, '../../escape')).rejects.toThrow(/stamp/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

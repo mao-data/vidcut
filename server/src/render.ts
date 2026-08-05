@@ -229,6 +229,30 @@ export function frozenFramePath(clipId: string): string {
   return join('derived', 'frozen', `${clipId}.jpg`);
 }
 
+/** 檔名安全的 stamp：英數與 `.` `_` `-`，最多 64 字。 */
+const STAMP_RE = /^[A-Za-z0-9._-]{1,64}$/;
+
+/**
+ * `stamp` 會**直接**變成輸出檔名（`output/<stamp>.mp4`、sidecar 的 `.srt` 也是），
+ * 而它從兩個地方進來：MCP 的 render 工具、WS 的 `{type:'render'}`（wsHub.ts）。
+ * 兩邊以前都沒有任何驗證，所以 `stamp: '../../x'` 會把成品寫到**專案目錄外**，
+ * 而且 `render.lastOutput` 被寫成一個逃出去的相對路徑——之後 extractCover 拿它去抽
+ * 封面就再也抽不到（實測會吐一句 ffmpeg 的 `Error opening input`，離成因十萬八千里）。
+ *
+ * 擋在這裡而不是各自的 zod schema 裡：這是兩條路唯一都會經過的地方。MCP 那側另外有
+ * 一份同樣的 regex，純粹是為了讓模型在送出前就拿到一句好懂的錯誤，不是安全邊界。
+ *
+ * `.`／`..` 被 regex 放行（點是合法檔名字元），所以要另外點名擋掉。
+ */
+export function assertSafeStamp(stamp: string): void {
+  if (!STAMP_RE.test(stamp) || stamp === '.' || stamp === '..') {
+    throw new Error(
+      `render: stamp「${stamp}」不合法——只能用英數與 . _ -（最多 64 字），` +
+        '因為它會直接變成 output/<stamp>.mp4 的檔名。',
+    );
+  }
+}
+
 /** blur 填充的模糊半徑（對 1080 寬的畫布視覺上剛好）。 */
 const BLUR_RADIUS = 24;
 /** ducking 時影片主軌被壓到的音量比例。 */
@@ -454,9 +478,20 @@ export function buildRenderArgs(
   // 匯出縮放：合成一律在專案畫布尺寸做（overlay/字卡才對得上），最後才縮到輸出尺寸。
   // 只給單邊時另一邊依畫布比例推算——沿用畫布原尺寸會默默輸出變形的成品，
   // 而 MCP 的 render 工具允許 AI 只指定其中一邊。取偶數（h264 要求 yuv420p 的偶數維度）。
+  //
+  // ⚠️ `even()` 以前**只包了推算出來的那一邊**，呼叫端明給的值原封不動送進 scale 濾鏡。
+  // 於是 `width: 721` 會產生 `scale=721:1282`，libx264 的 yuv420p 拒收奇數寬 → 整支匯出
+  // 以一句 ffmpeg 錯誤結束（實測 exit 187）。註解寫著要取偶數、程式卻只對一半的值做，
+  // 是這裡最容易看漏的一行。現在兩邊都包。
+  //
+  // 但**只包 `exp` 給的值**，不包畫布原尺寸：畫布若是奇數寬，even() 會讓 outW !== width
+  // 而憑空插進一條 scale 濾鏡，等於替一個沒人要求的縮放買單。畫布是奇數本來就會在
+  // 編碼階段失敗，那是另一件事，不該由這裡偷偷「修好」。
   const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
-  const outW = exp.width ?? (exp.height ? even((exp.height * width) / height) : width);
-  const outH = exp.height ?? (exp.width ? even((exp.width * height) / width) : height);
+  const expW = exp.width !== undefined ? even(exp.width) : undefined;
+  const expH = exp.height !== undefined ? even(exp.height) : undefined;
+  const outW = expW ?? (expH ? even((expH * width) / height) : width);
+  const outH = expH ?? (expW ? even((expW * height) / width) : height);
   if (outW !== width || outH !== height) {
     fc.push(`${vcur}scale=${outW}:${outH}:flags=lanczos[vout]`);
     vcur = '[vout]';
@@ -534,6 +569,7 @@ export async function render(
   exportOpts?: RenderOptions,
 ): Promise<RenderResult> {
   const stored = store.doc;
+  assertSafeStamp(stamp);
   if (stored.tracks.video.length === 0) throw new Error('render: timeline is empty');
 
   // 零複製引用的素材可能被移走。先檢查，給出比 ffmpeg 原始輸出更明確的錯誤。

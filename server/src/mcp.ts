@@ -44,6 +44,17 @@ function result(structured: Record<string, unknown>, summary: string) {
 }
 
 /**
+ * 失敗但仍要把 structured payload 交回去。目前只有 auto_caption 用得到：辨識已經跑完
+ * （分鐘級的 whisper），寫入才失敗——把算好的 captions 一起回去，呼叫端改用
+ * set_captions 就好，不必再燒一次 whisper。但**一定要標 isError**：它以前走的是
+ * `result()`，寫入失敗時回的是成功形狀，錯誤只藏在摘要文字的開頭，
+ * 任何靠 isError 判斷的客戶端都會把它當成功。
+ */
+function errResult(structured: Record<string, unknown>, summary: string) {
+  return { ...result(structured, summary), isError: true };
+}
+
+/**
  * 回覆內嵌 JPEG 影像 block。遠端 client（如 Claude Desktop）抓不到本機
  * 127.0.0.1 的 URL，畫面必須直接放進回覆；URL/路徑仍留在 structured 給本機 client。
  */
@@ -91,12 +102,22 @@ function projectSummary(store: ProjectStore) {
   };
 }
 
-const clipPatchShape = {
-  in: z.number().optional(),
-  duration: z.number().optional(),
-  volume: z.number().min(0).max(2).optional(),
-  label: z.string().optional(),
-};
+/**
+ * `.strict()` 不是裝飾：zod 預設會**靜默丟掉**未知的鍵，所以
+ * `patch: { start: 2 }`（clip 沒有 start 欄位，那是 overlay/caption 才有的）會被
+ * 剝成空 patch → applyCommand 產生零個 immer patch → 工具回一句 `ok, version=<沒動>`。
+ * 呼叫端得到的是「成功」，文件卻什麼都沒變，而且連個警告都沒有。
+ * 本檔其餘的 patch/item schema（overlay、caption、audio）本來就都是 strict，
+ * 只有 clip 與 audio 的 patch 漏掉——這裡補齊。
+ */
+const clipPatchSchema = z
+  .object({
+    in: z.number().optional(),
+    duration: z.number().optional(),
+    volume: z.number().min(0).max(2).optional(),
+    label: z.string().optional(),
+  })
+  .strict();
 
 const overlayTextSchema = z
   .object({
@@ -317,20 +338,24 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'get_history',
     {
-      description: '最近的變更記錄（version/label/source/ts）。',
-      inputSchema: { limit: z.number().optional() },
+      description:
+        '最近的變更記錄（version/label/source/ts）。limit 預設 30、最多 200（＝歷史保留上限）。',
+      inputSchema: {
+        limit: z.number().int().min(0).max(200).optional().describe('回傳最近幾筆，預設 30'),
+      },
       annotations: { readOnlyHint: true },
     },
     async ({ limit }) => {
-      const h = store
-        .history()
-        .slice(-(limit ?? 30))
-        .map((e): HistoryBrief => ({
-          version: e.version,
-          label: e.label,
-          source: e.source,
-          ts: e.ts,
-        }));
+      // `slice(-n)` 對 n=0 是 `slice(-0)` ＝ `slice(0)` ＝ **整個陣列**，所以
+      // `limit: 0` 以前會回全部（最多 200 筆）而不是零筆——語意正好相反。
+      // 負數同樣詭異（`slice(3)` 是「砍掉最舊的 3 筆」）。先夾成非負整數再分流。
+      const n = Math.max(0, Math.floor(limit ?? 30));
+      const h = (n === 0 ? [] : store.history().slice(-n)).map((e): HistoryBrief => ({
+        version: e.version,
+        label: e.label,
+        source: e.source,
+        ts: e.ts,
+      }));
       return result({ history: h }, `${h.length} entries`);
     },
   );
@@ -515,7 +540,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description: '修改片段 in/duration/volume/label（會驗證 trim 邊界）。',
       inputSchema: {
         clipId: z.string(),
-        patch: z.object(clipPatchShape),
+        patch: clipPatchSchema,
         ifVersion: z.number().optional(),
       },
     },
@@ -790,6 +815,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
       },
     },
     async ({ language, karaoke, maxGapMs, maxDurationMs, maxUnits, style, ifVersion }) => {
+      // 先擋一次「反正一定寫不進去」的兩種情況。真正的守衛仍在下面的 aiWrite（樂觀鎖的
+      // 語意就是要在寫入的當下比對），這裡純粹是不要為了一個註定失敗的寫入先燒掉一趟
+      // whisper——辨識是分鐘級的，而審核中／版本已過期在呼叫的當下就看得出來。
+      if (store.doc.review !== null) return err('error: a review is in progress');
+      if (ifVersion !== undefined && ifVersion !== store.version)
+        return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
       const r = await transcribe(store.doc, projectDir, { language });
       const captions = buildCaptionPages(
         r.words,
@@ -797,16 +828,17 @@ export function createMcpServer(deps: McpDeps): McpServer {
         { ...DEFAULT_CAPTION_STYLE, ...style },
       );
       const write = aiWrite(store, { name: 'setCaptions', captions }, ifVersion);
-      return result(
-        {
-          language: r.language,
-          wordCount: r.words.length,
-          captionCount: captions.length,
-          captions,
-          write: write.ok ? { version: write.version } : { error: write.error },
-        },
-        `${writeResultText(write)}｜自動字幕 ${captions.length} 句 / ${r.words.length} 詞（${r.language}）`,
-      );
+      const payload = {
+        language: r.language,
+        wordCount: r.words.length,
+        captionCount: captions.length,
+        captions,
+        write: write.ok ? { version: write.version } : { error: write.error },
+      };
+      const summary = `${writeResultText(write)}｜自動字幕 ${captions.length} 句 / ${r.words.length} 詞（${r.language}）`;
+      // 寫入失敗要標 isError（見 errResult）。captions 照樣回去——辨識已經花掉了，
+      // 呼叫端拿它去 set_captions 就不必重跑。
+      return write.ok ? result(payload, summary) : errResult(payload, summary);
     },
   );
 
@@ -864,15 +896,19 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description: '調整單一音訊項（音量、淡入淡出、時間、ducking）。',
       inputSchema: {
         id: z.string(),
-        patch: z.object({
-          start: z.number().optional(),
-          in: z.number().optional(),
-          duration: z.number().optional(),
-          volume: z.number().min(0).max(2).optional(),
-          fadeIn: z.number().min(0).optional(),
-          fadeOut: z.number().min(0).optional(),
-          ducking: z.boolean().optional(),
-        }),
+        // strict：理由同 clipPatchSchema——打錯欄位名（例如 gain）會被靜默丟掉，
+        // 然後回一句「ok」但音量根本沒動。
+        patch: z
+          .object({
+            start: z.number().optional(),
+            in: z.number().optional(),
+            duration: z.number().optional(),
+            volume: z.number().min(0).max(2).optional(),
+            fadeIn: z.number().min(0).optional(),
+            fadeOut: z.number().min(0).optional(),
+            ducking: z.boolean().optional(),
+          })
+          .strict(),
         ifVersion: z.number().optional(),
       },
     },
@@ -964,7 +1000,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
         "要上傳到會自動翻譯字幕的平台就用 'sidecar'（另存 .srt，回傳 subtitlePath）。" +
         'burn 以外的模式畫面都是乾淨的——soft track 疊上燒錄會讓觀眾看到兩排字。',
       inputSchema: {
-        stamp: z.string().optional(),
+        stamp: z
+          .string()
+          .regex(/^[A-Za-z0-9._-]{1,64}$/)
+          .optional()
+          .describe(
+            '輸出檔名（成品是 output/<stamp>.mp4），預設 render_<version>。' +
+              '只能用英數與 . _ -，因為它就是檔名——不是路徑，不能有 / 或 ..。',
+          ),
         subtitles: z
           .enum(['burn', 'off', 'sidecar', 'embed'])
           .optional()
@@ -972,9 +1015,23 @@ export function createMcpServer(deps: McpDeps): McpServer {
             '字幕處理：burn=燒進畫面（預設）／off=不放／sidecar=另存 .srt／embed=內嵌 soft track。' +
               'burn 以外都不燒。字幕軌是空的時候 sidecar/embed 不會產生任何字幕檔或字幕軌。',
           ),
-        width: z.number().optional().describe('輸出寬（預設用專案畫布 1080）'),
-        height: z.number().optional().describe('輸出高（預設 1920）'),
-        fps: z.number().optional(),
+        // 尺寸的上下界與「奇數會被進位」都要講明：h264 的 yuv420p 不吃奇數維度，
+        // 而只給單邊時另一邊是依畫布比例推算的（推算值本來就會取偶數）。
+        width: z
+          .number()
+          .int()
+          .min(16)
+          .max(7680)
+          .optional()
+          .describe('輸出寬（預設用專案畫布 1080）。奇數會自動進位到偶數（h264 不吃奇數維度）'),
+        height: z
+          .number()
+          .int()
+          .min(16)
+          .max(7680)
+          .optional()
+          .describe('輸出高（預設 1920）。只給單邊時另一邊依畫布比例推算，同樣取偶數'),
+        fps: z.number().positive().max(240).optional(),
         crf: z.number().min(0).max(51).optional().describe('品質，越小越好，預設 20'),
         videoBitrate: z.string().optional().describe("如 '10M'；給了就用位元率模式"),
         codec: z.enum(['h264', 'hevc']).optional(),
