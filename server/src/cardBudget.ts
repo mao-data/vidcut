@@ -1,7 +1,7 @@
 // server/src/cardBudget.ts — 字卡的輸出像素預算：所有產卡路徑（HTTP 預覽、cardSync、
 // 文字 overlay 前置）共用的同一套上限。放在獨立模組是刻意的：上限只有一份，
 // 加新的產卡入口時不會又漏掉一條。
-import type { CardRequest } from './rasterizer.js';
+import { cardMargin, type CardRequest } from './rasterizer.js';
 
 /**
  * 一張字卡允許的最大輸出像素數（width × height）。
@@ -58,51 +58,138 @@ export interface CardEstimate {
 }
 
 /**
- * 沒有 tokens 時 `text_card.py` 的 `wrap_text()` 最多會排出幾行——**嚴格上界**。
+ * 單一字元的 advance（前進寬）上界，單位 em（＝ fontSize 的倍數）。
  *
- * 論證（對照 `wrap_text` 的實作）：
- * 1. 真的 `\n` 一律強制換行，所以總行數 = Σ 各段落的行數。
- * 2. 段落內：貪婪填行只有在「目前這行非空、下一塊放不下」時才送出一行，而且
- *    行首的空白原子會被丟掉 → **每一行都至少含一個非空白字元**。
- * 3. 各行使用的字元互不重疊（空白可能被丟掉，但沒有字元會出現在兩行）。
- *    → 段落行數 ≤ 段落內的字元數；空段落仍佔一行 → 取 `max(1, len)`。
+ * Node 這側沒有字型量測，所以「這段文字有多寬」只能用「字元數 × 每字上界」估。
+ * 3 em 是**量出來的**，不是拍腦袋的：對 `server/src/fonts.ts` 字型表裡每一個字型檔，
+ * 用 Pillow 掃過整個 BMP（U+0020–U+FFFF）加上 emoji／數學字母／CJK ext-B 幾段星號平面，
+ * 取最大 advance／fontSize：
+ *   STHeiti Medium      1.188 em（U+2030 ‰）
+ *   Hiragino Sans GB    1.000 em
+ *   Arial Unicode MS    2.266 em（U+FDA9，阿拉伯連字）  ← 全表最寬
+ *   Arial               1.375 em（U+0478 Ѹ）
+ * 3 em 對實測最寬字元留 32% 餘裕。`server/test/textCards.test.ts` 有一條測試會**重跑
+ * 這個掃描**（對 `loadFontTable()` 實際載得起來的字型），加了更寬的字型就會當場失敗。
  *
- * 這個上界**是可以被打到的**（不是隨手放大的保險係數）：把可用寬壓到只放得下
- * 一個字（例如 `width` 1080、`fontSize` 512、`maxWidthFrac` 0.1 → 可用寬 108 < 512），
- * 每個 CJK 字就真的各佔一行，實際行數 = 字元數 = 這個上界。所以在「Node 這側沒有
- * 字型量測」的前提下，沒有比它更緊的安全上界（`server/test/textCards.test.ts`
- * 有一條測試把這個等號釘住）。
+ * **什麼字元打得穿它**：阿拉伯連字 U+FDFD ﷽（BISMILLAH）在 Noto Naskh Arabic 這類
+ * 字型裡約 11 em，U+FDFA ﷺ 在 Arial Unicode 裡也已經 1.94 em。本機字型表沒有一個字型
+ * 真的畫得出 U+FDFD（都退回 1 em 的 .notdef），但**若哪天字型表加了那種字型，這個常數
+ * 就必須跟著調大**——那正是上面那條掃描測試存在的理由。
+ * 退化是漸進的、不是斷崖：真實最寬字元若是 R em，超出預算的倍率至多 R/3
+ * （例如 11 em 的字型 → 最多 3.7 倍＝約 44 Mpx／4.5 秒／0.2 GB，不是 40 GB／17 分鐘）。
  *
- * **代價要講清楚**：一般情況它會高估很多（1080 寬、fontSize 64 的中文一行放得下
- * 15 字，估算卻當成 15 行）。實務上限＝ fontSize 64 時約 146 字、fontSize 40 時約
- * 232 字；再長就會被預算擋下，即使真的畫出來只有十幾行。這是刻意的取捨：低估會讓
- * 預算從「保證」退化成「看起來很安全的假數字」，而預算存在的理由是一個實測 ~40 GB／
- * ~17 分鐘的 payload。要拿回精確度只有一條路——把判斷搬到有字型量測的那一側
- * （python 排完版、`Image.new` 之前再擋一次），那會讓 `cardRequestError` 變成非同步，
- * 是另一個批次的事。
+ * 其他形狀的字元怎麼算：
+ * - **全形 CJK**＝1 em；組合附加符號（U+0300…）advance 0 或很小 → 都遠在 3 em 內。
+ * - **星號平面（emoji、CJK ext-B）**：JS 的 `string.length` 算 2 個 UTF-16 單位、
+ *   python 算 1 個字元，所以每個星號平面字元會被記成 6 em——**高估安全**，刻意不正規化。
+ * - **合字（ligature）**：Pillow 這邊 raqm 沒編進去（`PIL.features.check('raqm')` = False），
+ *   走 BASIC layout ＝不做 shaping、不套 kerning，`textlength(a+b)` 實測**恰好**等於
+ *   `textlength(a)+textlength(b)`（下面的可加性論證因此是等式而不只是不等式）。
+ *   就算哪天換成 raqm，shaping/kerning 幾乎只會讓字串變窄（連字、負 kerning），
+ *   仍在上界這一側。
  */
-function maxWrappedLines(text: string): number {
+export const MAX_ADVANCE_EM = 3;
+
+/**
+ * 貪婪換行的行數上界：`L ≤ floor(2 × 總前進寬上界 ÷ 可用寬) + 1`。
+ *
+ * 論證（對照 `text_card.py` 的 `wrap_text()`／`layout_tokens()`，兩者是同一套貪婪迴圈）：
+ * 1. 每送出一行是因為「目前這行非空，且再接下一塊就超過可用寬」：
+ *    `W(第 i 行) + W(第 i+1 行的第一塊) > 可用寬`。
+ * 2. `W(第 i+1 行的第一塊) ≤ W(第 i+1 行)`，所以每一組相鄰兩行的寬度和 > 可用寬。
+ * 3. 把 i = 1..L−1 全部加起來，每一行最多被算進去兩次（一次當左邊、一次當右邊）：
+ *    `2 × Σ W(行) > (L−1) × 可用寬`。
+ * 4. 各行用到的字元互不重疊（換行點的空白會被丟掉，沒有字元出現在兩行），
+ *    而 `textlength` 是逐字 advance 相加（見 `MAX_ADVANCE_EM` 註解）
+ *    → `Σ W(行) ≤ Σ 每個字元的 advance ≤ MAX_ADVANCE_EM × fontSize × 字元數`。
+ * ⇒ `L − 1 < 2 × advance 上界 ÷ 可用寬`，取整得本式。
+ *
+ * 那個 **2 倍不是保險係數，是這條式子的等號代價**：貪婪填行可以排出「窄一行、滿一行、
+ * 窄一行…」的鋸齒（一個接近滿寬的不可斷長單字後面跟一個單字元），每兩行只用掉大約
+ * 一個可用寬。本機字型實測最緊的對抗案例已經到 0.51（U+FDA9 ×4 為一個原子、
+ * 實際 80 行 vs 估算 158 行）；理論上的等號要有 3 em 寬的字元才打得到，而本機字型表
+ * 最寬只有 2.27 em。
+ */
+function greedyLineBound(advanceUpperBound: number, usable: number): number {
+  return Math.floor((2 * advanceUpperBound) / usable) + 1;
+}
+
+/**
+ * `text_card.py` 的可用寬（`max_width = max(1, width - margin*2)`）。
+ *
+ * `margin` 由呼叫端算（`cardMargin()`，見 rasterizer.ts —— **唯一**的換算來源），
+ * 省略時 python 用自己的預設 `max(32, width // 20)`。這裡取**兩者較大**的 margin
+ * （＝較窄的可用寬）純粹是保險：現行所有 spawn 點都有傳 margin，1080 寬 + 預設
+ * maxWidthFrac 0.9 時兩式同值（54），但哪天有人漏傳，估算取窄邊才不會低估行數。
+ */
+function usableWidth(req: CardRequest): number {
+  const width = Math.floor(req.width);
+  const margin = Math.max(
+    cardMargin(width, req.maxWidthFrac ?? 0.9),
+    Math.max(32, Math.floor(width / 20)),
+  );
+  return Math.max(1, width - margin * 2);
+}
+
+/**
+ * 沒有 tokens 時 `wrap_text()` 最多會排出幾行——**嚴格上界**（前提：沒有字元寬過
+ * `MAX_ADVANCE_EM` em）。真的 `\n` 一律強制換行，所以總行數 = Σ 各段落的行數。
+ *
+ * 每段取兩個上界的**較小值**：
+ * - **字元數上界**（`max(1, 段落字元數)`）：每一行至少含一個非空白字元、且各行不共用
+ *   字元 → 行數 ≤ 字元數。這條與字型完全無關，永遠成立，也是 2026-08-04 上線時唯一的
+ *   估算式。可用寬窄到只放得下一個字時它就是等號（1080 寬 / fontSize 512 /
+ *   maxWidthFrac 0.1 → 可用寬 108 < 一個 512px 的全形字），`textCards.test.ts` 有測試釘住。
+ * - **前進寬上界**（`greedyLineBound`）：一般文字緊得多。
+ *
+ * 為什麼要加後者：只有字元數上界時＝假設「每個字元各佔一行」，1080 寬 / fontSize 64
+ * 的實務上限只有 **146 字**——自動換行剛上線（2026-08-04），使用者貼一段正常長度的
+ * 段落就會被拒（實測一段 163 字的中文散文就已經被擋下）。同樣條件下新上限是
+ * **369 字**（實際只會折成約 25 行）；fontSize 40 時 935 字（舊估算 232 字）。
+ * 兩條都是上界，取 min 只會更緊、不會失去保證。
+ */
+function maxWrappedLines(text: string, size: number, usable: number): number {
   let n = 0;
-  // 用 UTF-16 長度（不是 code point 數）：星號平面字元在 JS 算 2、python 算 1，
-  // 高估安全、低估致命，所以刻意不做正規化。空白也照算（同理）。
-  for (const para of text.split('\n')) n += Math.max(1, para.length);
+  for (const para of text.split('\n')) {
+    // UTF-16 長度（不是 code point 數）：星號平面字元在 JS 算 2、python 算 1，
+    // 高估安全、低估致命，所以刻意不做正規化。空白也照算（同理）。
+    const chars = para.length;
+    n += Math.max(1, Math.min(chars, greedyLineBound(MAX_ADVANCE_EM * size * chars, usable)));
+  }
   return n;
+}
+
+/**
+ * 有 tokens（karaoke）時 `layout_tokens()` 的行數上界。同樣取兩者較小：
+ * - 貪婪填行每行至少一個詞 → 行數 ≤ 詞數。
+ * - 前進寬上界：字元總數要**加上詞間分隔空白**（`separator()` 最多一個空白，
+ *   每個詞算一個，也是上界）。
+ */
+function maxTokenLines(tokens: string[], size: number, usable: number): number {
+  let chars = 0;
+  for (const t of tokens) chars += t.length + 1; // +1 = 這個詞前面可能有的分隔空白
+  return Math.max(
+    1,
+    Math.min(tokens.length, greedyLineBound(MAX_ADVANCE_EM * size * chars, usable)),
+  );
 }
 
 /**
  * 複刻 text_card.py 的幾何算式（render_cards）：
  *   line_h = size + max(6, size // 5)
  *   height = line_h * len(lines) + stroke_w * 2 + 8
- * 行數一律取**上界**（Node 這側沒有字型量測，寧可高估）：
- * - 有 tokens：貪婪換行每行至少一個詞 → 行數 ≤ 詞數。
- * - 沒有 tokens：見 `maxWrappedLines`。（2026-08-04 之前這裡是 `split('\n').length`，
- *   那在 python 開始自動換行之後會**低估**——一行長文字可以變成幾百行，預算就不再是保證。）
+ * 行數一律取**上界**（Node 這側沒有字型量測，寧可高估）：見 `maxWrappedLines`／
+ * `maxTokenLines`。（2026-08-04 之前這裡是 `split('\n').length`，那在 python 開始自動
+ * 換行之後會**低估**——一行長文字可以變成幾百行，預算就不再是保證。）
  */
 export function estimateCard(req: CardRequest): CardEstimate {
   const size = Math.floor(req.style.fontSize); // python 的 int()
   const lineH = size + Math.max(6, Math.floor(size / 5));
   const strokeW = req.style.stroke ? Math.max(2, Math.floor(size / 16)) : 0;
-  const lines = req.tokens?.length ? req.tokens.length : maxWrappedLines(req.text);
+  const usable = usableWidth(req);
+  const lines = req.tokens?.length
+    ? maxTokenLines(req.tokens, size, usable)
+    : maxWrappedLines(req.text, size, usable);
   const height = lineH * lines + strokeW * 2 + 8;
   return { lines, height, pixels: Math.floor(req.width) * height };
 }
@@ -141,8 +228,8 @@ export function cardRequestError(req: CardRequest): string | null {
       `text card too large: at most ${est.lines} line(s) at fontSize ${size} → ` +
       `${Math.floor(req.width)}×${est.height} ≈ ${(est.pixels / 1e6).toFixed(1)} Mpx, ` +
       `limit ${MAX_CARD_PIXELS / 1e6} Mpx. ` +
-      '（行數是**最壞情況**上界：伺服器這側量不到字寬，只能假設每個字元自己佔一行' +
-      '——實際畫出來通常少很多。請縮短文字或縮小 fontSize。）'
+      '（行數是**最壞情況**上界：伺服器這側量不到字寬，只能用「每個字元最寬 ' +
+      `${MAX_ADVANCE_EM} em」去估——實際畫出來通常少很多。請縮短文字或縮小 fontSize。）`
     );
   }
   return null;

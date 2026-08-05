@@ -642,3 +642,237 @@ describe('會落盤的產卡路徑要吃像素預算（命令層拒絕，不是�
     expect(r.ok === false && r.error).toMatch(/fontSize/);
   });
 });
+
+// ---- 命令層的數值健檢（2026-08-04）------------------------------------------
+//
+// 這一組守的是「壞數字寫進 project.json」這條路。壞值的來源不是假想敵：
+// - `JSON.stringify(NaN)` / `JSON.stringify(Infinity)` 都是 **null**，所以任何算出 NaN
+//   的呼叫端（Player 的拖曳在 stageW 還沒量到時就會，那裡因此加了保險絲）送到伺服器時
+//   長得像 `null`；而 WS 通道沒有任何 schema（wsHub 是 `JSON.parse(...) as WsClientMsg`）。
+// - NaN 跟任何值比較都是 false，所以命令層既有的 `duration <= 0`、`in < 0` 這類檢查
+//   對它**完全沒作用**——不是擋得不夠嚴，是根本沒擋。
+// 症狀會延到 render 才爆（ffmpeg 濾鏡運算式壞掉），離成因很遠，所以擋在寫入前。
+describe('applyCommand 的數值健檢', () => {
+  async function storeWithEverything() {
+    const store = await storeWithClips();
+    store.mutate('ai', 'seed2', (d) => {
+      d.tracks.overlays = [
+        {
+          id: 'ov1',
+          imagePath: 'assets/a.png',
+          start: 0,
+          duration: 2,
+          position: { x: 0.5, y: 0.1, scale: 1 },
+        },
+      ];
+      d.tracks.audio = [{ id: 'a1', mediaId: 'm1', start: 0, in: 0, duration: 3, volume: 1 }];
+    });
+    return store;
+  }
+  /** 壞值要繞過型別（型別本來就說是 number；擋的是**執行期**送進來的東西）。 */
+  const bad = (v: unknown): number => v as number;
+
+  // JSON 傳不了 NaN/Infinity，落到線上的形狀就是 null；三種都要擋。
+  const BAD_VALUES: Array<[string, unknown]> = [
+    ['null（NaN/Infinity 序列化後的樣子）', null],
+    ['NaN（同程序內呼叫）', NaN],
+    ['Infinity', Infinity],
+  ];
+
+  for (const [label, v] of BAD_VALUES) {
+    it(`updateOverlay position.x = ${label} → 拒絕、指名欄位、文件不動`, async () => {
+      const store = await storeWithEverything();
+      const before = store.version;
+      const r = applyCommand(store, 'human', {
+        name: 'updateOverlay',
+        id: 'ov1',
+        patch: { position: { x: bad(v), y: 0.1, scale: 1 } },
+      });
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toMatch(/patch\.position\.x must be a finite number/);
+      expect(store.doc.tracks.overlays[0]!.position.x).toBe(0.5); // 沒被寫進去
+      expect(store.version).toBe(before); // 也沒有多出一個版本／undo 步驟
+    });
+  }
+
+  // ⚠️ 這條是**反向**保護：position 早就不限定 0–1（元素可以掛在畫布外，
+  // 見 OverlayItem.position 的註解），把範圍檢查誤加進來會是回歸。
+  it('畫布外的合法位置照樣放行（不是把 0–1 夾制偷渡進來）', async () => {
+    const store = await storeWithEverything();
+    for (const p of [
+      { x: -0.5, y: -0.2, scale: 1 },
+      { x: 1.8, y: 2.5, scale: 1 },
+      { x: -1000, y: 1000, scale: 1 },
+      { x: 0.5, y: 0.1, scale: 0 }, // 0 ＝「看不見」，預覽與成品一致，是明講的行為
+    ]) {
+      const r = applyCommand(store, 'human', {
+        name: 'updateOverlay',
+        id: 'ov1',
+        patch: { position: p },
+      });
+      expect(r.ok, `${JSON.stringify(p)} 應該放行`).toBe(true);
+      expect(store.doc.tracks.overlays[0]!.position).toEqual(p);
+    }
+  });
+
+  it('scale 負值與過大值被擋（負值＝預覽鏡像／成品整張消失的落差；過大＝記憶體炸彈）', async () => {
+    const store = await storeWithEverything();
+    for (const s of [-1, -0.001, 10.5, 1e6]) {
+      const r = applyCommand(store, 'human', {
+        name: 'updateOverlay',
+        id: 'ov1',
+        patch: { position: { x: 0.5, y: 0.1, scale: s } },
+      });
+      expect(r.ok, `scale ${s} 應該被擋`).toBe(false);
+      expect(r.ok === false && r.error).toMatch(/patch\.position\.scale must be within/);
+    }
+    // 邊界內側仍然可用
+    expect(
+      applyCommand(store, 'human', {
+        name: 'updateOverlay',
+        id: 'ov1',
+        patch: { position: { x: 0.5, y: 0.1, scale: 10 } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('addOverlay 缺 position 或 position 是 null → 拒絕（render 會直接讀 position.x）', async () => {
+    const store = await storeWithEverything();
+    const base = { id: 'ov_np', imagePath: 'a.png', start: 0, duration: 1 };
+    const r1 = applyCommand(store, 'human', {
+      name: 'addOverlay',
+      overlay: base as unknown as (typeof store.doc.tracks.overlays)[number],
+    });
+    expect(r1.ok).toBe(false);
+    expect(r1.ok === false && r1.error).toMatch(/overlay\.position is required/);
+    const r2 = applyCommand(store, 'human', {
+      name: 'addOverlay',
+      overlay: { ...base, position: null } as unknown as (typeof store.doc.tracks.overlays)[number],
+    });
+    expect(r2.ok).toBe(false);
+    expect(store.doc.tracks.overlays).toHaveLength(1);
+  });
+
+  it('setOverlays：整組裡有一個壞的就整批拒絕、指名是第幾個', async () => {
+    const store = await storeWithEverything();
+    const good = {
+      id: 'g',
+      imagePath: 'a.png',
+      start: 0,
+      duration: 1,
+      position: { x: 0.5, y: 0, scale: 1 },
+    };
+    const r = applyCommand(store, 'human', {
+      name: 'setOverlays',
+      overlays: [good, { ...good, id: 'b', position: { x: 0.5, y: bad(null), scale: 1 } }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/overlays\[1\]\.position\.y must be a finite number/);
+    expect(store.doc.tracks.overlays.map((o) => o.id)).toEqual(['ov1']); // 整批沒進去
+  });
+
+  it('overlay duration: null（＝到片尾）不是壞值', async () => {
+    const store = await storeWithEverything();
+    expect(
+      applyCommand(store, 'human', { name: 'updateOverlay', id: 'ov1', patch: { duration: null } })
+        .ok,
+    ).toBe(true);
+  });
+
+  it('anchor.offset 壞掉 → 拒絕（overlayWindow 會拿它去算絕對時間）', async () => {
+    const store = await storeWithEverything();
+    const r = applyCommand(store, 'human', {
+      name: 'updateOverlay',
+      id: 'ov1',
+      patch: { anchor: { clipId: 'c1', offset: bad(null) } },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/patch\.anchor\.offset/);
+  });
+
+  it('updateClip：NaN 進不了 in/duration/volume（既有的 <0 檢查對 NaN 完全沒作用）', async () => {
+    const store = await storeWithEverything();
+    for (const patch of [{ in: NaN }, { duration: NaN }, { volume: bad(null) }]) {
+      const r = applyCommand(store, 'human', { name: 'updateClip', clipId: 'c1', patch });
+      expect(r.ok, `${JSON.stringify(patch)} 應該被擋`).toBe(false);
+    }
+    expect(store.doc.tracks.video[0]!.in).toBe(2);
+    expect(store.doc.tracks.video[0]!.duration).toBe(5);
+  });
+
+  it('updateCaption：style.y 壞掉 → 拒絕（cardBudget 只管 fontSize，y 沒有人驗）', async () => {
+    const store = await storeWithEverything();
+    const r = applyCommand(store, 'human', {
+      name: 'updateCaption',
+      id: 'cap1',
+      patch: { style: { fontFamily: 'sans-serif', fontSize: 48, fill: '#fff', y: bad(null) } },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/patch\.style\.y must be a finite number/);
+    expect(store.doc.tracks.captions[0]!.style.y).toBe(0.8);
+  });
+
+  it('updateCaption：start / duration / tokens 的時間戳也擋', async () => {
+    const store = await storeWithEverything();
+    expect(
+      applyCommand(store, 'human', { name: 'updateCaption', id: 'cap1', patch: { start: NaN } }).ok,
+    ).toBe(false);
+    const r = applyCommand(store, 'human', {
+      name: 'updateCaption',
+      id: 'cap1',
+      patch: { tokens: [{ text: 'a', start: 0, end: bad(null) }] },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/patch\.tokens\[0\]\.end/);
+  });
+
+  it('setCaptions：整批裡一句壞掉就整批拒絕（跟像素預算同一個原則）', async () => {
+    const store = await storeWithEverything();
+    const style = { fontFamily: 'sans-serif', fontSize: 48, fill: '#fff', y: 0.8 };
+    const r = applyCommand(store, 'human', {
+      name: 'setCaptions',
+      captions: [
+        { id: 'n1', text: 'a', start: 0, duration: 1, style },
+        { id: 'n2', text: 'b', start: bad(null), duration: 1, style },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/captions\[1\]\.start/);
+    expect(store.doc.tracks.captions.map((c) => c.id)).toEqual(['cap1']);
+  });
+
+  it('setAudio / updateAudio：音訊軌本來完全沒有數值驗證（setAudio 直接整組覆蓋）', async () => {
+    const store = await storeWithEverything();
+    const r = applyCommand(store, 'human', {
+      name: 'setAudio',
+      audio: [{ id: 'x', mediaId: 'm1', start: 0, in: 0, duration: bad(Infinity), volume: 1 }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/audio\[0\]\.duration/);
+    expect(store.doc.tracks.audio.map((a) => a.id)).toEqual(['a1']);
+
+    // updateAudio 是 Object.assign(item, patch)：patch 裡的壞值會原封不動蓋進文件
+    const r2 = applyCommand(store, 'human', {
+      name: 'updateAudio',
+      id: 'a1',
+      patch: { volume: NaN },
+    });
+    expect(r2.ok).toBe(false);
+    expect(store.doc.tracks.audio[0]!.volume).toBe(1);
+  });
+
+  it('時間軸操作：splitAt / deleteBefore / freezeFrame 的 time 與 duration', async () => {
+    const store = await storeWithEverything();
+    expect(applyCommand(store, 'human', { name: 'splitAt', time: NaN }).ok).toBe(false);
+    // deleteBefore(NaN) 以前會通過所有比較、把「全部保留」寫成一個新版本（靜默 no-op mutation）
+    const before = store.version;
+    const r = applyCommand(store, 'human', { name: 'deleteBefore', time: bad(null) });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/^time must be a finite number/);
+    expect(store.version).toBe(before);
+    // freezeFrame(duration: NaN) 以前會插入一個 duration = NaN 的片段
+    const r2 = applyCommand(store, 'human', { name: 'freezeFrame', time: 1, duration: NaN });
+    expect(r2.ok).toBe(false);
+    expect(store.doc.tracks.video).toHaveLength(2);
+  });
+});

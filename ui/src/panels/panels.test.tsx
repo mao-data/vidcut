@@ -119,6 +119,56 @@ describe('Inspector', () => {
     expect(sent).toEqual([{ name: 'updateCaption', id: 'cap1', patch: { start: 2 } }]);
   });
 
+  // 以前這個欄位是 `value` + `onChange`：**每一鍵一筆 updateCaption**——每個按鍵都是一筆
+  // history、一次字卡重產（實測 33 個字 → derived/text/ 多 99 個檔，而那個目錄沒有 GC）。
+  // 現在跟同一面板的文字 overlay Text 欄一致：打字純本地，失焦才送一筆。
+  it('caption Text: 打字期間一個命令都不送,失焦才送一筆(不再每鍵灌爆 history)', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'caption', id: 'cap1' });
+    const { container } = render(<Inspector />);
+    const ta = container.querySelector('textarea')!;
+    expect(ta.value).toBe('first line');
+
+    for (const v of ['f', 'fi', 'fix', 'fixed line']) {
+      fireEvent.change(ta, { target: { value: v } });
+    }
+    expect(sent).toEqual([]);
+
+    fireEvent.blur(ta);
+    expect(sent).toEqual([{ name: 'updateCaption', id: 'cap1', patch: { text: 'fixed line' } }]);
+  });
+
+  it('caption Text: 沒改就失焦不送命令(silent-overwrite guard)', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'caption', id: 'cap1' });
+    const { container } = render(<Inspector />);
+    fireEvent.blur(container.querySelector('textarea')!);
+    expect(sent).toEqual([]);
+  });
+
+  // 非受控輸入的老問題：id 沒變、值從外部變了（AI 的 update_caption、或字幕列表那條
+  // 三段式改完 commit 回來的 echo）。沒有把值編進 key 的話 React 沿用同一個 DOM 節點、
+  // defaultValue 不會重套，面板停在舊字；使用者接著一 blur 就把外部的修改靜默蓋掉。
+  it('caption Text: 外部改了同一句（id 不變）→ 欄位要跟著更新', () => {
+    const doc = demoProject();
+    seedProject(doc);
+    useSelection.getState().select({ kind: 'caption', id: 'cap1' });
+    const { container, rerender } = render(<Inspector />);
+    const before = container.querySelector('textarea')!;
+    expect(before.value).toBe('first line');
+
+    const patched = structuredClone(doc);
+    patched.tracks.captions[0]!.text = '外部改過的字';
+    act(() => {
+      seedProject(patched, 2);
+    });
+    rerender(<Inspector />);
+
+    const after = container.querySelector('textarea')!;
+    expect(after.value).toBe('外部改過的字');
+    expect(after).not.toBe(before); // key 變 → remount，不是靠 React 去改非受控節點
+  });
+
   it('an absolute overlay shows a start field and sends start', () => {
     seedProject();
     useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });

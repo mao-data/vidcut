@@ -1,5 +1,8 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { mkdir, mkdtemp, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
@@ -7,7 +10,13 @@ import { createServer } from 'node:http';
 import type { CaptionItem } from '@vidcut/shared';
 import { cardKey, TextCardService } from '../src/textCards.js';
 import { capToCardRequest } from '../src/cardSync.js';
-import { estimateCard, MAX_CARD_PIXELS } from '../src/cardBudget.js';
+import {
+  cardRequestError,
+  estimateCard,
+  MAX_ADVANCE_EM,
+  MAX_CARD_PIXELS,
+} from '../src/cardBudget.js';
+import { loadFontTable } from '../src/fonts.js';
 import { PillowRasterizer, type CardRequest } from '../src/rasterizer.js';
 import { ProjectStore } from '../src/store.js';
 import { createApp } from '../src/app.js';
@@ -15,6 +24,7 @@ import { renderCaptionCard } from '../src/render.js';
 
 const raster = new PillowRasterizer(() => undefined);
 afterAll(() => raster.dispose());
+const execFileP = promisify(execFile);
 
 const REQ: CardRequest = {
   text: '哈囉世界',
@@ -380,6 +390,194 @@ describe('estimateCard ≥ text_card.py 的實際幾何（上界，不是等號�
     const geo = await raster.rasterize(req, join(dir, 't.base.png'));
     expect(estimateCard(req).height).toBeGreaterThanOrEqual(geo.height);
   }, 30_000);
+});
+
+// ---- 行數上界的地基：「沒有字元寬過 MAX_ADVANCE_EM 個 em」----
+//
+// 2026-08-04（第二次）：行數上界從「每個字元各佔一行」收緊成
+// 「floor(2 × 字元數 × MAX_ADVANCE_EM × fontSize ÷ 可用寬) + 1」（見 cardBudget.ts）。
+// 新式子唯一的假設就是那個 3 em——**它是量出來的**，所以這裡真的再量一次：
+// 換字型／加字型時這條會當場失敗，而不是等到某天一張卡默默超出預算。
+const FONT_SCAN_PY = `
+import json, sys
+from PIL import Image, ImageDraw, ImageFont
+tmp = Image.new("RGBA", (1, 1)); d = ImageDraw.Draw(tmp)
+SIZE = 64
+# 整個 BMP + emoji / 數學字母 / CJK ext-B 開頭幾段星號平面
+RANGES = [(0x20,0xFFFF),(0x1F300,0x1FAFF),(0x1D400,0x1D7FF),(0x20000,0x2007F)]
+out = []
+for path in sys.argv[1:]:
+    f = ImageFont.truetype(path, SIZE)
+    best, cp_best = 0.0, 0
+    for lo, hi in RANGES:
+        for cp in range(lo, hi + 1):
+            try:
+                w = d.textlength(chr(cp), font=f)
+            except Exception:
+                continue
+            if w > best: best, cp_best = w, cp
+    out.append({"path": path, "em": best / SIZE, "cp": cp_best})
+print(json.dumps(out))
+`;
+
+async function scanWidestGlyphs(
+  paths: string[],
+): Promise<Array<{ path: string; em: number; cp: number }>> {
+  const { stdout } = await execFileP('python3', ['-c', FONT_SCAN_PY, ...paths]);
+  return JSON.parse(stdout) as Array<{ path: string; em: number; cp: number }>;
+}
+
+describe('MAX_ADVANCE_EM 的前提：字型表裡沒有字元寬過這個倍數', () => {
+  it('掃過每個可用字型的整個 BMP＋星號平面樣本，最寬字元 ≤ MAX_ADVANCE_EM em', async () => {
+    const table = await loadFontTable(raster);
+    expect(table.length).toBeGreaterThan(0); // 一個字型都載不起來的話這條就沒在驗東西
+    const scan = await scanWidestGlyphs(table.map((f) => f.path));
+    for (const r of scan) {
+      // 失敗時要看得出是哪個字型的哪個字元把上界撐破的（不是只看到一個 false）
+      expect(
+        r.em,
+        `${r.path} 最寬字元 U+${r.cp.toString(16).toUpperCase()} = ${r.em.toFixed(3)} em`,
+      ).toBeLessThanOrEqual(MAX_ADVANCE_EM);
+    }
+    // 也順便釘住「這個常數不是無限保守」：本機最寬的字型（Arial Unicode 的 U+FDA9
+    // 阿拉伯連字 2.27 em）已經吃掉 3 em 的三分之二以上。
+    expect(Math.max(...scan.map((r) => r.em))).toBeGreaterThan(MAX_ADVANCE_EM / 2);
+  }, 180_000);
+});
+
+// 用**全字型表最寬**的字型（Arial Unicode MS）跑對抗式案例：預設的字型解析器回 undefined
+// → python 退回 STHeiti（最寬 1.19 em），撐不出真正的最壞情況，把 2 倍係數拿掉都測不出來。
+const WIDE_FONT = '/System/Library/Fonts/Supplemental/Arial Unicode.ttf';
+const hasWideFont = existsSync(WIDE_FONT);
+const wideRaster = new PillowRasterizer(() => WIDE_FONT);
+afterAll(() => wideRaster.dispose());
+
+describe.skipIf(!hasWideFont)('新行數上界的對抗式驗證（真的排版，比實際行數）', () => {
+  // 可用寬 = 1080 − cardMargin(1080, 0.9) × 2 = 972
+  const F = 64;
+  const req = (text: string, extra: Partial<CardRequest> = {}): CardRequest => ({
+    text,
+    style: { fontFamily: 'Arial Unicode MS', fontSize: F, fill: '#fff' },
+    width: 1080,
+    ...extra,
+  });
+  // 鋸齒：一個接近滿寬的不可斷長單字後面跟一個單字元 → 每兩行才用掉約一個可用寬，
+  // 這正是式子裡那個 2 倍的來源。
+  const zigzag = Array.from({ length: 40 }, (_, i) => (i % 2 ? 'i' : 'm'.repeat(18))).join(' ');
+  // 最寬字元（U+FDA9，2.27 em ＝ 145px）四個一組 ＝ 580px > 可用寬的一半 → 每行只放得下一組
+  const widestAtoms = Array.from({ length: 120 }, () => 'ﶩﶩﶩﶩ').join(' ');
+  const cases: Array<[string, CardRequest]> = [
+    ['鋸齒（長單字與單字元交錯）', req(zigzag)],
+    ['最寬字元組成的原子，每行只放得下一組', req(widestAtoms)],
+    ['真實中文長段（新上限 369 字）', req('天地玄黃宇宙洪荒日月盈昃'.repeat(30) + '辰宿列張')],
+    ['英文散文', req('the quick brown fox jumps over the lazy dog '.repeat(15))],
+    ['emoji（星號平面：JS 長度 2、python 1 字元）', req('😀🎉'.repeat(80))],
+    ['換行寬壓到最小（0.1）＋混合中英', req('中文abc'.repeat(20), { maxWidthFrac: 0.1 })],
+    [
+      'karaoke tokens 長句',
+      req('詞'.repeat(120), { tokens: Array.from({ length: 120 }, () => '詞') }),
+    ],
+  ];
+  for (const [name, r] of cases) {
+    it(`${name}：實際行數 ≤ 估算行數`, async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'vidcut-adv-'));
+      const geo = await wideRaster.rasterize(r, join(dir, 'a.base.png'));
+      const est = estimateCard(r);
+      expect(est.lines).toBeGreaterThanOrEqual(geo.lines);
+      expect(est.height).toBeGreaterThanOrEqual(geo.height);
+      expect(est.pixels).toBeGreaterThanOrEqual(geo.width * geo.height);
+    }, 60_000);
+  }
+
+  // 上界不能只是「安全」，還要說得出有多鬆。這條把最緊的對抗案例釘在 0.45 以上：
+  // 拿掉式子裡的 2 倍係數會讓它掉到 1 以上（上面那批 ≤ 就會先紅——這也是
+  // widestAtoms 用 120 組而不是 60 組的原因：60 組時「拿掉 2 倍」剛好卡在等號上，
+  // 測不出來），把 MAX_ADVANCE_EM 放大到 6 則會讓它掉到 0.25 而在這裡被抓到。
+  it('最緊的對抗案例：實際／估算 ≈ 0.5（2 倍係數與 3 em 都不是隨手放大的）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vidcut-adv-tight-'));
+    const r = req(Array.from({ length: 120 }, () => 'ﶩﶩﶩﶩ').join(' '));
+    const geo = await wideRaster.rasterize(r, join(dir, 't.base.png'));
+    const est = estimateCard(r);
+    expect(geo.lines / est.lines).toBeGreaterThan(0.45);
+    expect(geo.lines / est.lines).toBeLessThanOrEqual(1);
+  }, 60_000);
+});
+
+describe('收緊之後的實務上限（這次改動要解決的問題本身）', () => {
+  // 式子本身的釘子（不必真的排版）：可用寬 = 1080 − cardMargin(1080, 0.9)×2 = 972，
+  // 100 個字元、fontSize 64 → floor(2 × 100 × 3em × 64 ÷ 972) + 1 = floor(39.5) + 1 = 40。
+  // 2 倍係數、3 em、可用寬三者任何一個被動到，這條就會紅——上面那批對抗案例是
+  // 「安全性」的證據，這條是「式子沒被偷改」的證據。
+  it('估算式＝floor(2 × 字元數 × MAX_ADVANCE_EM × fontSize ÷ 可用寬) + 1', () => {
+    const est = estimateCard({
+      text: 'x'.repeat(100),
+      style: { fontFamily: 'Heiti TC', fontSize: 64, fill: '#fff' },
+      width: 1080,
+    });
+    expect(est.lines).toBe(Math.floor((2 * 100 * MAX_ADVANCE_EM * 64) / 972) + 1);
+    expect(est.lines).toBe(40);
+  });
+
+  const req = (text: string, fontSize = 64): CardRequest => ({
+    text,
+    style: { fontFamily: 'Heiti TC', fontSize, fill: '#ffffff' },
+    width: 1080,
+  });
+  const oldEstimateRejects = (text: string, fontSize = 64): boolean => {
+    // 收緊前的估算式：每個字元各佔一行（Σ 各段落 max(1, 字元數)）
+    const lineH = fontSize + Math.max(6, Math.floor(fontSize / 5));
+    return 1080 * (lineH * text.length + 8) > MAX_CARD_PIXELS;
+  };
+
+  it('1080 寬 / fontSize 64 的上限從 146 字變成 369 字', () => {
+    expect(cardRequestError(req('字'.repeat(369)))).toBeNull();
+    expect(cardRequestError(req('字'.repeat(370)))).toMatch(/too large/);
+    // 舊估算在第 147 字就會拒——這條同時證明「146」那個數字不是我編的
+    expect(oldEstimateRejects('字'.repeat(146))).toBe(false);
+    expect(oldEstimateRejects('字'.repeat(147))).toBe(true);
+  });
+
+  it('一段 163 字的真實中文散文：舊估算會拒，現在收得下（實際只折成十幾行）', () => {
+    const para =
+      '在台北的午後，我沿著河堤慢慢地走，風把樹葉吹得沙沙作響，遠處的觀音山被薄霧籠罩著，' +
+      '像是一幅還沒乾透的水彩畫。攤販推著車經過，鐵輪在石板路上發出規律的聲響，' +
+      '孩子們追著一隻流浪貓跑過草地，笑聲一路灑到堤防的另一端。我停下腳步，' +
+      '看著河面上倒映的天光慢慢變成橘紅色，忽然覺得這座城市其實一直都很溫柔，' +
+      '只是我們太忙，忘了停下來看它一眼。';
+    expect(para.length).toBeGreaterThan(146); // 舊上限之外
+    expect(oldEstimateRejects(para)).toBe(true);
+    expect(cardRequestError(req(para))).toBeNull();
+  });
+
+  // karaoke 走 layout_tokens（另一個貪婪迴圈），舊估算是「行數 ≤ 詞數」。同一套論證
+  // 適用，所以一起收緊——不然同一句話「加了逐詞時間戳就變成太大」會很難解釋。
+  it('karaoke（tokens）一起收緊：160 個詞的字幕從被拒變成收得下', () => {
+    const tokens = Array.from({ length: 160 }, () => '詞');
+    const r: CardRequest = {
+      text: tokens.join(''),
+      tokens,
+      style: { fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+      width: 1080,
+    };
+    // 舊估算＝詞數就是行數 → 160 行 × line_h 76 已經超出預算
+    expect(1080 * (76 * 160 + 8)).toBeGreaterThan(MAX_CARD_PIXELS);
+    expect(cardRequestError(r)).toBeNull();
+    expect(estimateCard(r).lines).toBeLessThan(tokens.length);
+  });
+
+  it('收緊的是估算、不是預算：估算出來的像素數仍然不得超過 MAX_CARD_PIXELS', () => {
+    expect(estimateCard(req('字'.repeat(369))).pixels).toBeLessThanOrEqual(MAX_CARD_PIXELS);
+    expect(estimateCard(req('字'.repeat(370))).pixels).toBeGreaterThan(MAX_CARD_PIXELS);
+    // reviewer 那個 40 GB payload 照樣被算成天文數字（4001 個空段落 → 每段仍佔一行）
+    expect(
+      estimateCard({
+        text: '\n'.repeat(4000),
+        style: { fontFamily: 'Heiti TC', fontSize: 512, fill: '#ffffff' },
+        width: 4096,
+        maxWidthFrac: 1,
+      }).pixels,
+    ).toBeGreaterThan(10e9);
+  });
 });
 
 describe('TextCardService.ensure 的像素預算（所有產卡路徑的最後一道防線）', () => {

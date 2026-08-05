@@ -16,7 +16,7 @@
  * 「上一次的終點變成下一次的起點」的坑在這裡不存在）。
  * Chrome 路徑可用 CHROME_BIN 覆寫；視窗尺寸可用 VIDCUT_VIEWPORT（如 1400x1000）。
  *
- * ⚠️ 這支腳本**現在應該是全綠的**（四個 case）。任何一項轉紅都是真的回歸：
+ * ⚠️ 這支腳本**現在應該是全綠的**（五個 case）。任何一項轉紅都是真的回歸：
  * 字幕那項紅＝量測本身壞了（兩邊同一張 PNG、同一個位置），先修腳本不要動斷言；
  * overlay 三項紅＝幾何落差回來了，先看 `measure/` 裡的 PNG。
  *
@@ -199,10 +199,13 @@ async function mcp(name, args) {
 
 // ---------------------------------------------------------------- fixture
 
+/** 素材長度＝case 數（每個 case 各佔 1 秒、互不重疊）。加 case 記得一起加。 */
+const FIXTURE_SECONDS = 5;
+
 /**
  * 專門為了「量得準」而設計的素材：純深灰滿版直式影片（沒有 testsrc2 的花紋，
  * 亮度門檻才切得乾淨）、白字深描邊（墨跡＝白色字身，跟背景差 200+ luma）、
- * 四個項目各佔一段互不重疊的時間窗（同一幀只有一個東西，墨跡外框＝那個項目的外框，
+ * 五個項目各佔一段互不重疊的時間窗（同一幀只有一個東西，墨跡外框＝那個項目的外框，
  * 不必做連通區域分割這種會自己引入誤差的事）。多行那一項的墨跡外框是**整塊文字**
  * 的外框（不是單行），折行位置一分岔外框就會變——正是我們要抓的東西。
  */
@@ -236,10 +239,53 @@ const CASES = [
      * 換行一旦被拿掉，這段文字會排成單行 2600px 寬、被畫布邊緣裁掉 → 高度掉到一行、
      * 寬度貼滿 1080，兩個條件同時破。
      */
-    exportInk: { minH: 152, maxW: 756 },
+    exportInk: {
+      min: { h: 152 },
+      max: { w: 756 },
+      why:
+        '這代表這段文字根本沒有折行（單行被畫布邊緣裁掉），' +
+        '下面的「預覽 vs 成品」比對抓不到這件事——兩邊吃的是同一張 PNG。',
+    },
     note:
       '自動換行（2026-08-04）：maxWidth 以前是死欄位，長文字不折行、被畫布邊緣裁掉。' +
       '這一項紅通常代表折行位置在預覽與成品之間分岔——先看兩張 measure/*.png 的行數',
+  },
+  {
+    key: 'overlay-offtop',
+    title: 'overlay 掛在畫布上緣外（position.y 為負，被上緣裁掉）',
+    frame: 135, // t = 4.5s
+    /**
+     * 為什麼是**上緣**（而不是下/左/右）：`5537a43` 把拖曳夾制從「整個元素留在畫布內」
+     * 改成「元素中心留在畫布內」之後，**`position.y` 才第一次可能是負值**——x 那條
+     * 在改之前就已經可以露出一半（錨點本來就是水平中心），y 卻被夾在 [0, 1-h/H]。
+     * 也就是說「餵給 ffmpeg 一個負的 y」是這次新開的狀態空間，而它當時只有**手動**
+     * 驗過一次（1920 畫布、200px 高的圖、y=-0.05 → 成品只剩 104px、從上緣裁掉，
+     * 與預覽 stage 的 `overflow: hidden` 一致），沒有任何自動化守著。這個 case 補的就是它。
+     *
+     * 下緣/右緣**刻意不重複**：那兩邊的座標仍是正值（只是大於畫布尺寸），
+     * 兩側都是同一條「超出就裁掉」的路徑，而每多一個 case 就是多一秒素材、
+     * 多一次真 render 與一輪瀏覽器逐幀前進。
+     * 左上角那種「一次吃兩個負座標」的擺法**評估後放棄**：stage 有 `borderRadius: 10`，
+     * 預覽的四個角是圓角裁切、成品是方角，圓角半徑換算回畫布座標約 17px（大於容差 4），
+     * 角落的墨跡會因為這個純視覺差異被判紅——那是假警報，不是座標的落差。
+     * 所以這一項水平置中（x=0.5），墨跡離左右圓角很遠。
+     *
+     * exportInk：釘住成品側**真的被裁到**。同一段文字、同一個字級在 ov_scale1 那項量到的
+     * 是 444×74（未被裁）；這裡 y=-0.03 → 卡片上緣在 -57.6，墨跡只剩約 31px 高、上緣貼齊
+     * y0=0。渲染端要是哪天補了一手「保險用」的 `Math.max(0, H*y)`，墨跡會整個回到畫面內
+     * （y0>0、h 回到 74），這裡就會當場失敗——而「預覽 vs 成品」那段比對也會跟著紅，
+     * 因為預覽端沒有那道夾制。
+     */
+    exportInk: {
+      max: { y0: 0, h: 50 },
+      why:
+        '成品應該被畫布上緣裁掉（墨跡上緣貼齊 y0=0、高度明顯小於未裁切的 74px）。' +
+        '沒被裁到通常代表渲染端把負的 y 夾成 0 了（預覽端不會夾，那就是新的「預覽≠成品」）。',
+    },
+    note:
+      '掛在上緣外的 overlay（2026-08-04，夾制改成「中心留在畫布內」之後 y 才可能為負）：' +
+      '預覽靠 stage 的 overflow:hidden 裁、成品靠 ffmpeg overlay 的負座標裁。' +
+      '這一項紅代表兩邊的裁切位置對不上——先看 measure/ 裡兩張圖各露出多少字身',
   },
 ];
 
@@ -255,7 +301,7 @@ async function buildFixture() {
     '-f',
     'lavfi',
     '-i',
-    `color=c=0x181818:s=${CANVAS.w}x${CANVAS.h}:d=4:r=${CANVAS.fps}`,
+    `color=c=0x181818:s=${CANVAS.w}x${CANVAS.h}:d=${FIXTURE_SECONDS}:r=${CANVAS.fps}`,
     '-c:v',
     'libx264',
     '-preset',
@@ -276,7 +322,7 @@ async function populateProject() {
 
   const imported = await mcp('import_media', { relPath: 'bg.mp4', label: 'bg' });
   const mediaId = imported.data.mediaId;
-  await mcp('set_timeline', { clips: [{ mediaId, in: 0, duration: 4 }] });
+  await mcp('set_timeline', { clips: [{ mediaId, in: 0, duration: FIXTURE_SECONDS }] });
 
   const text = {
     text: 'WYSIWYG',
@@ -320,6 +366,18 @@ async function populateProject() {
       start: 3,
       duration: 1,
       position: { x: 0.5, y: 0.2, scale: 1 },
+    },
+  });
+  // 掛在畫布上緣外：position.y 為負（`5537a43` 把夾制改成「中心留在畫布內」之後才可能）。
+  // 文字/字級與 ov_scale1 完全相同，所以「未被裁時是 444×74」是已知的對照值——
+  // 這一項量到的高度明顯小於 74 才代表真的被上緣裁掉了。
+  await mcp('add_overlay', {
+    overlay: {
+      id: 'ov_offtop',
+      text,
+      start: 4,
+      duration: 1,
+      position: { x: 0.5, y: -0.03, scale: 1 },
     },
   });
   await mcp('set_captions', {
@@ -442,14 +500,23 @@ async function main() {
       if (!exportInk[c.key]) {
         throw new Error(`成品第 ${c.frame} 幀完全沒有墨跡（${c.title}）——fixture 或渲染壞了`);
       }
+      // 成品側的形狀約束（只有給了 exportInk 的 case 才檢查）。存在的理由是：有些回歸
+      // **兩邊會一起壞**（文字 overlay 的預覽與成品吃同一張 PNG；渲染端夾了負座標而
+      // 預覽端也夾了的話同理），那時「預覽 vs 成品」的比對照樣是綠的。這道檢查釘的是
+      // 「成品本身應該長什麼樣」，跟兩邊比對互補。
       if (c.exportInk) {
         const b = exportInk[c.key];
-        if (b.h < c.exportInk.minH || b.w > c.exportInk.maxW) {
+        const bad = [];
+        for (const [k, v] of Object.entries(c.exportInk.min ?? {})) {
+          if (b[k] < v) bad.push(`${k}=${b[k]} 應 ≥ ${v}`);
+        }
+        for (const [k, v] of Object.entries(c.exportInk.max ?? {})) {
+          if (b[k] > v) bad.push(`${k}=${b[k]} 應 ≤ ${v}`);
+        }
+        if (bad.length) {
           throw new Error(
-            `${c.title}：成品的墨跡外框 ${fmtBox(b)} 不符合預期形狀` +
-              `（高應 ≥ ${c.exportInk.minH}、寬應 ≤ ${c.exportInk.maxW}）。` +
-              '這代表這段文字根本沒有折行（單行被畫布邊緣裁掉），' +
-              '下面的「預覽 vs 成品」比對抓不到這件事——兩邊吃的是同一張 PNG。',
+            `${c.title}：成品的墨跡外框 ${fmtBox(b)} 不符合預期形狀（${bad.join('、')}）。` +
+              c.exportInk.why,
           );
         }
       }
@@ -738,7 +805,7 @@ async function main() {
   if (failures.length) {
     console.error(
       `\n✗ ${failures.length} 項「預覽 ≠ 成品」：${failures.join('、')}\n` +
-        '  （四項本來全綠；字幕那項若也紅，先懷疑量測本身而不是渲染）',
+        '  （五項本來全綠；字幕那項若也紅，先懷疑量測本身而不是渲染）',
     );
     process.exit(1);
   }

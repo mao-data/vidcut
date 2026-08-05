@@ -238,12 +238,32 @@ export function Inspector() {
       <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Caption</h3>
         <label className="field">Text</label>
+        {/*
+         * **失焦才送命令**（與同一面板的文字 overlay Text 欄同一個模式）。
+         * 以前是 `value` + `onChange` 每一鍵一筆 `updateCaption`：每個按鍵都是一筆 history、
+         * 一次 cardSync 重產字卡（實測打 33 個字 → `derived/text/` 多出 99 個檔案，而那個
+         * 目錄目前只增不減、沒有 GC）。
+         *
+         * 這裡刻意**不接**打字三段式（`ui/src/stores/editDraft.ts` + `CaptionList.tsx`）：
+         * 那條路的 debounce 計時器與 `useEditDraft` 的單一草稿槽都是 CaptionList 的模組私有
+         * 狀態，兩個編輯面板同時往同一個槽寫，會出現「誰的草稿蓋掉誰」的競態；要共用得先把
+         * schedulePreview/cancelPreview 抽成共用模組並訂出草稿所有權，那是另一批的事。
+         * 現況：畫布即時打字看得到的那條路仍在右上字幕列表（雙擊那一句），這裡是「改完就送」。
+         *
+         * 非受控 + `key` 帶值：AI/別的 session 從外部改了同一句字（id 不變、值變了）時要
+         * remount 才會刷新，否則面板停在舊值、使用者一 blur 就把外部的修改靜默蓋掉。
+         * 沒有 Enter 送出——這個 `<textarea>` 正是使用者打「真的換行」的地方（見 HANDOFF）。
+         */}
         <textarea
           style={{ minHeight: 48 }}
-          value={cap.text}
-          onChange={(e) =>
-            send({ name: 'updateCaption', id: cap.id, patch: { text: e.target.value } })
-          }
+          defaultValue={cap.text}
+          key={cap.id + cap.text}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v && v !== cap.text) {
+              send({ name: 'updateCaption', id: cap.id, patch: { text: v } });
+            }
+          }}
         />
         <label className="field">Start (s)</label>
         <input
