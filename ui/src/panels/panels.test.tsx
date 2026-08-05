@@ -471,6 +471,95 @@ describe('Inspector — 版面與命名', () => {
     expect(container.textContent).not.toMatch(/[（）]/);
   });
 
+  /** 這個 label 落在哪一個小節標題底下（沒有分段就回 null）。 */
+  const sectionOf = (c: HTMLElement, labelText: string) => {
+    const el = labels(c).find((l) => l.textContent?.trim().startsWith(labelText));
+    if (!el) throw new Error(`label not found: ${labelText}`);
+    let current: string | null = null;
+    for (const h of Array.from(c.querySelectorAll('.section'))) {
+      if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+        current = h.textContent;
+      }
+    }
+    return current;
+  };
+
+  it('overlay 表單分成 Timing / Position / Style 三段', () => {
+    const doc = demoProject();
+    doc.tracks.overlays = [
+      {
+        id: 'txt1',
+        imagePath: 'derived/text/abc.base.png',
+        text: { text: '字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    ];
+    seedProject(doc);
+    useSelection.getState().select({ kind: 'overlay', id: 'txt1' });
+    const { container } = render(<Inspector />);
+
+    expect(Array.from(container.querySelectorAll('.section')).map((h) => h.textContent)).toEqual([
+      'Timing',
+      'Position',
+      'Style',
+    ]);
+    expect(sectionOf(container, 'Start (s)')).toBe('Timing');
+    expect(sectionOf(container, 'Duration')).toBe('Timing');
+    expect(sectionOf(container, 'x')).toBe('Position');
+    expect(sectionOf(container, 'Scale')).toBe('Position');
+    expect(sectionOf(container, 'Font size')).toBe('Style');
+  });
+
+  it('audio 表單把時間與音量分開', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'audio', id: 'a1' });
+    const { container } = render(<Inspector />);
+
+    expect(sectionOf(container, 'Start (s)')).toBe('Timing');
+    expect(sectionOf(container, 'Source in')).toBe('Timing');
+    expect(sectionOf(container, 'Volume')).toBe('Levels');
+    expect(sectionOf(container, 'Fade in')).toBe('Levels');
+    expect(sectionOf(container, 'Duck the video track')).toBe('Levels');
+  });
+
+  it('caption 表單把時間與樣式分開，Text 留在最上面不歸段', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'caption', id: 'cap1' });
+    const { container } = render(<Inspector />);
+
+    expect(sectionOf(container, 'Text')).toBe(null);
+    expect(sectionOf(container, 'Start (s)')).toBe('Timing');
+    expect(sectionOf(container, 'Font size')).toBe('Style');
+    expect(sectionOf(container, 'Color')).toBe('Style');
+  });
+
+  it('clip 表單不分段——四個欄位加小標只是雜訊', () => {
+    seedProject();
+    useSelection.getState().select({ kind: 'clip', id: 'c1' });
+    const { container } = render(<Inspector />);
+    expect(container.querySelectorAll('.section')).toHaveLength(0);
+  });
+
+  it('x 與 y 併成一列，Scale 獨立一行', () => {
+    // 三欄放不下：200px 面板下每格只剩 37px 文字空間，而畫布拖曳寫進來的是四位小數
+    // （demo 專案現有 -0.0688，要 42px），三欄會把它截成 -0.0——使用者讀到錯的數字。
+    seedProject();
+    useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
+    const { container } = render(<Inspector />);
+
+    const x = fieldAfter(container, 'x (0–1)');
+    const y = fieldAfter(container, 'y (0–1)');
+    const scale = fieldAfter(container, 'Scale');
+    const duo = container.querySelector('.duo');
+
+    expect(duo).toBeTruthy();
+    expect(duo!.contains(x)).toBe(true);
+    expect(duo!.contains(y)).toBe(true);
+    expect(duo!.contains(scale)).toBe(false);
+  });
+
   it('Delete clip 不跟 Split / Freeze 擠在同一排', () => {
     // 同一個 flexWrap 裡換行後，刪除鈕會落在不可預期的位置，很容易誤點。
     seedProject();

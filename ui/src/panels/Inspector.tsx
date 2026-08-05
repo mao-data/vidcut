@@ -175,6 +175,7 @@ export function Inspector() {
     return (
       <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Audio {a.label ?? a.mediaId}</h3>
+        <p className="section">Timing</p>
         <label className="field">Start (s)</label>
         <input type="number" step="0.1" value={a.start} onChange={(e) => upd({ start: num(e) })} />
         <label className="field">Source in (s)</label>
@@ -186,6 +187,7 @@ export function Inspector() {
           value={a.duration}
           onChange={(e) => upd({ duration: num(e) })}
         />
+        <p className="section">Levels</p>
         <label className="field">Volume (0–2)</label>
         <input
           type="number"
@@ -275,6 +277,7 @@ export function Inspector() {
             }
           }}
         />
+        <p className="section">Timing</p>
         <label className="field">Start (s)</label>
         <input
           type="number"
@@ -289,6 +292,7 @@ export function Inspector() {
           value={cap.duration}
           onChange={(e) => send({ name: 'updateCaption', id: cap.id, patch: { duration: num(e) } })}
         />
+        <p className="section">Style</p>
         <label className="field">Font size</label>
         <input
           type="number"
@@ -338,6 +342,7 @@ export function Inspector() {
   return (
     <div className="form" style={{ padding: 12 }}>
       <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Overlay {ov.imagePath.split('/').pop()}</h3>
+      <p className="section">Timing</p>
       {ov.anchor ? (
         <>
           <label className="field">Offset from clip (s)</label>
@@ -406,32 +411,43 @@ export function Inspector() {
           until end
         </label>
       </div>
-      <label className="field">x (0–1)</label>
-      <input
-        type="number"
-        step="0.05"
-        value={ov.position.x}
-        onChange={(e) =>
-          send({
-            name: 'updateOverlay',
-            id: ov.id,
-            patch: { position: { ...ov.position, x: num(e) } },
-          })
-        }
-      />
-      <label className="field">y (0–1)</label>
-      <input
-        type="number"
-        step="0.05"
-        value={ov.position.y}
-        onChange={(e) =>
-          send({
-            name: 'updateOverlay',
-            id: ov.id,
-            patch: { position: { ...ov.position, y: num(e) } },
-          })
-        }
-      />
+      <p className="section">Position</p>
+      {/*
+       * x·y 併成兩欄，Scale 留一整行。三欄放不下——見 theme.css 的 .duo：畫布拖曳寫進來
+       * 的是四位小數，最窄面板下三欄會把數字截掉，使用者會讀到截斷後的值當成真值。
+       */}
+      <div className="duo">
+        <div>
+          <label className="field">x (0–1)</label>
+          <input
+            type="number"
+            step="0.05"
+            value={ov.position.x}
+            onChange={(e) =>
+              send({
+                name: 'updateOverlay',
+                id: ov.id,
+                patch: { position: { ...ov.position, x: num(e) } },
+              })
+            }
+          />
+        </div>
+        <div>
+          <label className="field">y (0–1)</label>
+          <input
+            type="number"
+            step="0.05"
+            value={ov.position.y}
+            onChange={(e) =>
+              send({
+                name: 'updateOverlay',
+                id: ov.id,
+                patch: { position: { ...ov.position, y: num(e) } },
+              })
+            }
+          />
+        </div>
+      </div>
       <label className="field">Scale</label>
       <input
         type="number"
@@ -447,6 +463,7 @@ export function Inspector() {
       />
       {ov.text && (
         <>
+          <p className="section">Style</p>
           <label className="field">Text</label>
           <textarea
             rows={2}

@@ -254,6 +254,27 @@ a {
   grid-column: 1 / -1;
   grid-row: 2;
 }
+/* 表單分段：把平列的欄位切成「時間／位置／樣式」，讓「Duration 屬於時間、Scale 屬於
+ * 位置」這件事是看到的而不是猜的。欄位少的表單（clip）刻意不分段——4 個欄位加小標
+ * 只是雜訊。 */
+.form .section {
+  margin: 16px 0 0;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+/* x·y 併成兩欄。**不能是三欄**：面板拉到最窄（200px）時每格只剩 37px 的文字空間，
+ * 而畫布拖曳寫進 position 的是四位小數（-0.0688 要 42px，滑鼠移上去出現 spinner 後
+ * 只剩 24px），三欄會把數字截掉——使用者會讀到 -0.0 然後以為那就是真值。 */
+.form .duo {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
 /* 欄位下的狀態說明（例：這個 overlay 錨在哪一段），不是可編輯的東西。 */
 .form .hint {
   margin: 5px 0 0;
