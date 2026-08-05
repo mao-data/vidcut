@@ -6,6 +6,7 @@ import {
   Play,
   SkipBack,
   SkipForward,
+  Type,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -113,6 +114,33 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
             }}
           />
         </label>
+        <button
+          className="icon-btn"
+          title="Add a text overlay at playhead"
+          onClick={() => {
+            const id = `ovtext_${Math.random().toString(36).slice(2, 8)}`;
+            sendCommand({
+              name: 'addOverlay',
+              overlay: {
+                id,
+                imagePath: '',
+                text: {
+                  text: '新文字',
+                  fontFamily: 'Heiti TC',
+                  fontSize: 64,
+                  fill: '#ffffff',
+                  stroke: '#000000',
+                },
+                start: usePlayback.getState().time,
+                duration: 3,
+                position: { x: 0.5, y: 0.4, scale: 1 },
+              },
+            });
+            useSelection.getState().select({ kind: 'overlay', id });
+          }}
+        >
+          <Type size={13} /> Text
+        </button>
         <button
           className="icon-btn"
           onClick={() => useView.getState().zoomBy(1 / 1.4)}

@@ -9,6 +9,8 @@ import { EditorContext } from '../src/editorContext.js';
 import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import { makeVideo } from './fixtures.js';
+import { TextCardService } from '../src/textCards.js';
+import { PillowRasterizer } from '../src/rasterizer.js';
 
 interface Structured {
   structuredContent?: Record<string, unknown>;
@@ -26,6 +28,7 @@ async function connect(timeoutMs = 900_000) {
     editorContext,
     reviews,
     baseUrl: 'http://127.0.0.1:3845',
+    textCards: new TextCardService(dir, new PillowRasterizer(() => undefined)),
   };
   const server = createMcpServer(deps);
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();

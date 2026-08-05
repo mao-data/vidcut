@@ -7,7 +7,10 @@ import { resolveMediaPath } from './paths.js';
 
 /**
  * 抽出時間軸時間 t 的 active 片段畫面成 JPEG，回傳相對專案資料夾的路徑。
- * M3 僅片段畫面（用 proxy）；overlay/字幕合成留待 M4 的 get_frame 升級。
+ * **只有片段畫面**（用 proxy 抽單幀）：不合成 overlay／字幕／blur 背景。
+ * M4 已完成，但這個合成從來沒做過，也沒有排進任何計畫——別再寫成「留待 M4 升級」，
+ * 那句 roadmap 殘留曾經害 AI 誤判 overlay 沒設定成功（見 CLAUDE.md 鐵則）。
+ * 要驗 overlay／字幕請 render，或請使用者看 UI 預覽（`mcp.ts` 的 get_frame 描述同此）。
  * 回 null 表示該時間無 active 片段。
  */
 export async function extractFrame(

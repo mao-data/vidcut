@@ -6,7 +6,18 @@ import prettier from 'eslint-config-prettier';
 
 export default [
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'projects/**', '_skill_extracted/**'],
+    // `.claude/**`：別的 session 的 worktree 會被放在 `.claude/worktrees/<name>/`，
+    // 那是**整個 repo 的另一份拷貝**——不排掉的話 lint 會去 lint 別人做到一半的程式碼，
+    // 於是 `npm run lint` 的紅綠取決於「此刻剛好有沒有人開著 worktree」（實測同一份工作
+    // 樹在 20 分鐘內從 34 個錯 → 0 個錯 → 又回到 34 個錯）。那種紅跟你的改動無關，
+    // 而且會讓 `lint && format:check` 這種 `&&` 串永遠跑不到後面那個。
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      'projects/**',
+      '_skill_extracted/**',
+      '.claude/**',
+    ],
   },
   js.configs.recommended,
   {
@@ -20,6 +31,7 @@ export default [
         console: 'readonly',
         fetch: 'readonly',
         setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
   },

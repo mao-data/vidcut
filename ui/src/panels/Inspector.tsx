@@ -152,6 +152,8 @@ export function Inspector() {
           >
             <AudioWaveform size={13} /> Extract audio
           </button>
+        </div>
+        <div className="danger-zone">
           <button
             className="btn-danger icon-btn"
             onClick={() => {
@@ -173,7 +175,8 @@ export function Inspector() {
     return (
       <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Audio {a.label ?? a.mediaId}</h3>
-        <label className="field">Timeline start (s)</label>
+        <p className="section">Timing</p>
+        <label className="field">Start (s)</label>
         <input type="number" step="0.1" value={a.start} onChange={(e) => upd({ start: num(e) })} />
         <label className="field">Source in (s)</label>
         <input type="number" step="0.1" value={a.in} onChange={(e) => upd({ in: num(e) })} />
@@ -184,6 +187,7 @@ export function Inspector() {
           value={a.duration}
           onChange={(e) => upd({ duration: num(e) })}
         />
+        <p className="section">Levels</p>
         <label className="field">Volume (0–2)</label>
         <input
           type="number"
@@ -209,7 +213,7 @@ export function Inspector() {
           value={a.fadeOut ?? 0}
           onChange={(e) => upd({ fadeOut: num(e) })}
         />
-        <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label className="field check">
           <input
             type="checkbox"
             checked={a.ducking === true}
@@ -217,16 +221,17 @@ export function Inspector() {
           />
           Duck the video track while this plays
         </label>
-        <button
-          className="btn-danger icon-btn"
-          style={{ marginTop: 12 }}
-          onClick={() => {
-            send({ name: 'removeAudio', id: a.id });
-            useSelection.getState().select(null);
-          }}
-        >
-          <Trash2 size={13} /> Delete audio
-        </button>
+        <div className="danger-zone">
+          <button
+            className="btn-danger icon-btn"
+            onClick={() => {
+              send({ name: 'removeAudio', id: a.id });
+              useSelection.getState().select(null);
+            }}
+          >
+            <Trash2 size={13} /> Delete audio
+          </button>
+        </div>
       </div>
     );
   }
@@ -238,13 +243,41 @@ export function Inspector() {
       <div className="form" style={{ padding: 12 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Caption</h3>
         <label className="field">Text</label>
+        {/*
+         * **失焦才送命令**（與同一面板的文字 overlay Text 欄同一個模式）。
+         * 以前是 `value` + `onChange` 每一鍵一筆 `updateCaption`：每個按鍵都是一筆 history、
+         * 一次 cardSync 重產字卡（實測打 33 個字 → `derived/text/` 多出 99 個檔案，而那個
+         * 目錄目前只增不減、沒有 GC）。
+         *
+         * 這裡刻意**不接**打字三段式（`ui/src/stores/editDraft.ts` + `CaptionList.tsx`）：
+         * 那條路的 debounce 計時器與 `useEditDraft` 的單一草稿槽都是 CaptionList 的模組私有
+         * 狀態，兩個編輯面板同時往同一個槽寫，會出現「誰的草稿蓋掉誰」的競態；要共用得先把
+         * schedulePreview/cancelPreview 抽成共用模組並訂出草稿所有權，那是另一批的事。
+         * 現況：畫布即時打字看得到的那條路仍在右上字幕列表（雙擊那一句），這裡是「改完就送」。
+         *
+         * 非受控 + `key` 帶值：AI/別的 session 從外部改了同一句字（id 不變、值變了）時要
+         * remount 才會刷新，否則面板停在舊值、使用者一 blur 就把外部的修改靜默蓋掉。
+         * 沒有 Enter 送出——這個 `<textarea>` 正是使用者打「真的換行」的地方（見 HANDOFF）。
+         */}
         <textarea
           style={{ minHeight: 48 }}
-          value={cap.text}
-          onChange={(e) =>
-            send({ name: 'updateCaption', id: cap.id, patch: { text: e.target.value } })
-          }
+          defaultValue={cap.text}
+          key={cap.id + cap.text}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v && v !== cap.text) {
+              // `tokens: []`（空陣列＝清除）**不能省**。有逐詞時間戳的那些句子，
+              // 字卡是照 tokens 排版的——`text_card.py` 的 render_cards 在有 tokens 時
+              // 走 layout_tokens，`cfg["text"]` 從頭到尾沒被讀過。只送 text 的話：文件裡
+              // 的 text 換了、tokens 沒動 → 產出的 PNG 與改字前**逐位元組相同**，畫面沒有
+              // 任何變化，也沒有任何錯誤訊息。使用者會以為自己打錯地方了。
+              // 而且舊的詞邊界本來就對不上新文字，留著只會讓 karaoke 照錯的詞界跑。
+              // CaptionList.tsx 的打字路徑一直是這樣送的，這裡以前漏了（2026-08-05 修）。
+              send({ name: 'updateCaption', id: cap.id, patch: { text: v, tokens: [] } });
+            }
+          }}
         />
+        <p className="section">Timing</p>
         <label className="field">Start (s)</label>
         <input
           type="number"
@@ -259,6 +292,7 @@ export function Inspector() {
           value={cap.duration}
           onChange={(e) => send({ name: 'updateCaption', id: cap.id, patch: { duration: num(e) } })}
         />
+        <p className="section">Style</p>
         <label className="field">Font size</label>
         <input
           type="number"
@@ -308,16 +342,13 @@ export function Inspector() {
   return (
     <div className="form" style={{ padding: 12 }}>
       <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Overlay {ov.imagePath.split('/').pop()}</h3>
+      <p className="section">Timing</p>
       {ov.anchor ? (
         <>
-          <label className="field">
-            Anchored to clip (offset in s; follows the clip):
-            {doc.tracks.video.find((c) => c.id === ov.anchor!.clipId)?.label ?? ov.anchor.clipId}
-          </label>
+          <label className="field">Offset from clip (s)</label>
           <input
             type="number"
             step="0.1"
-            min="0"
             value={ov.anchor.offset}
             onChange={(e) =>
               send({
@@ -327,10 +358,14 @@ export function Inspector() {
               })
             }
           />
+          <p className="hint">
+            📎 follows{' '}
+            {doc.tracks.video.find((c) => c.id === ov.anchor!.clipId)?.label ?? ov.anchor.clipId}
+          </p>
         </>
       ) : (
         <>
-          <label className="field">Start time (s)</label>
+          <label className="field">Start (s)</label>
           <input
             type="number"
             step="0.1"
@@ -340,23 +375,17 @@ export function Inspector() {
           />
         </>
       )}
-      <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <input
-          type="checkbox"
-          checked={ov.duration === null}
-          onChange={(e) =>
-            send({
-              name: 'updateOverlay',
-              id: ov.id,
-              patch: { duration: e.target.checked ? null : 3 },
-            })
-          }
-        />
-        Show until end
-      </label>
-      {ov.duration !== null && (
-        <>
-          <label className="field">Duration (s)</label>
+      {/*
+       * 勾選框排在 Duration **之後**，而且勾起來時輸入框留在原地變灰、不整組消失。
+       * 舊版是「勾選框在前 + `{ov.duration !== null && …}`」：勾下去 Duration 整組不見、
+       * 版面往上跳，勾選框頓時緊貼上一個欄位（offset），看起來像在修飾那一個。
+       * DOM 順序仍是 label → input → 勾選列，視覺位置由 .field-group 的 grid 排。
+       */}
+      <div className="field-group">
+        <label className="field">Duration (s)</label>
+        {ov.duration === null ? (
+          <input type="text" value="to end of video" disabled readOnly />
+        ) : (
           <input
             type="number"
             step="0.1"
@@ -366,34 +395,59 @@ export function Inspector() {
               send({ name: 'updateOverlay', id: ov.id, patch: { duration: num(e) } })
             }
           />
-        </>
-      )}
-      <label className="field">x（0–1）</label>
-      <input
-        type="number"
-        step="0.05"
-        value={ov.position.x}
-        onChange={(e) =>
-          send({
-            name: 'updateOverlay',
-            id: ov.id,
-            patch: { position: { ...ov.position, x: num(e) } },
-          })
-        }
-      />
-      <label className="field">y（0–1）</label>
-      <input
-        type="number"
-        step="0.05"
-        value={ov.position.y}
-        onChange={(e) =>
-          send({
-            name: 'updateOverlay',
-            id: ov.id,
-            patch: { position: { ...ov.position, y: num(e) } },
-          })
-        }
-      />
+        )}
+        <label className="field check">
+          <input
+            type="checkbox"
+            checked={ov.duration === null}
+            onChange={(e) =>
+              send({
+                name: 'updateOverlay',
+                id: ov.id,
+                patch: { duration: e.target.checked ? null : 3 },
+              })
+            }
+          />
+          until end
+        </label>
+      </div>
+      <p className="section">Position</p>
+      {/*
+       * x·y 併成兩欄，Scale 留一整行。三欄放不下——見 theme.css 的 .duo：畫布拖曳寫進來
+       * 的是四位小數，最窄面板下三欄會把數字截掉，使用者會讀到截斷後的值當成真值。
+       */}
+      <div className="duo">
+        <div>
+          <label className="field">x (0–1)</label>
+          <input
+            type="number"
+            step="0.05"
+            value={ov.position.x}
+            onChange={(e) =>
+              send({
+                name: 'updateOverlay',
+                id: ov.id,
+                patch: { position: { ...ov.position, x: num(e) } },
+              })
+            }
+          />
+        </div>
+        <div>
+          <label className="field">y (0–1)</label>
+          <input
+            type="number"
+            step="0.05"
+            value={ov.position.y}
+            onChange={(e) =>
+              send({
+                name: 'updateOverlay',
+                id: ov.id,
+                patch: { position: { ...ov.position, y: num(e) } },
+              })
+            }
+          />
+        </div>
+      </div>
       <label className="field">Scale</label>
       <input
         type="number"
@@ -407,16 +461,70 @@ export function Inspector() {
           })
         }
       />
-      <button
-        className="btn-danger icon-btn"
-        style={{ marginTop: 12 }}
-        onClick={() => {
-          send({ name: 'removeOverlay', id: ov.id });
-          useSelection.getState().select(null);
-        }}
-      >
-        <Trash2 size={13} /> Delete overlay
-      </button>
+      {ov.text && (
+        <>
+          <p className="section">Style</p>
+          <label className="field">Text</label>
+          <textarea
+            rows={2}
+            defaultValue={ov.text.text}
+            key={ov.id + ov.text.text}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== ov.text!.text) {
+                send({
+                  name: 'updateOverlay',
+                  id: ov.id,
+                  patch: { text: { ...ov.text!, text: v } },
+                });
+              }
+            }}
+          />
+          <label className="field">Font size</label>
+          <input
+            type="number"
+            defaultValue={ov.text.fontSize}
+            key={ov.id + ov.text.fontSize}
+            onBlur={(e) => {
+              const n = Number(e.target.value);
+              if (n > 0 && n !== ov.text!.fontSize) {
+                send({
+                  name: 'updateOverlay',
+                  id: ov.id,
+                  patch: { text: { ...ov.text!, fontSize: n } },
+                });
+              }
+            }}
+          />
+          <label className="field">Color</label>
+          <input
+            type="color"
+            defaultValue={ov.text.fill}
+            key={ov.id + ov.text.fill}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v !== ov.text!.fill) {
+                send({
+                  name: 'updateOverlay',
+                  id: ov.id,
+                  patch: { text: { ...ov.text!, fill: v } },
+                });
+              }
+            }}
+          />
+        </>
+      )}
+      <div className="danger-zone">
+        <button
+          className="btn-danger icon-btn"
+          onClick={() => {
+            send({ name: 'removeOverlay', id: ov.id });
+            useSelection.getState().select(null);
+          }}
+        >
+          <Trash2 size={13} /> Delete overlay
+        </button>
+      </div>
     </div>
   );
 }

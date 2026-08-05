@@ -53,8 +53,36 @@ export interface VideoClip {
   meta?: Record<string, unknown>;
 }
 
+/** 文字 overlay 的規格：伺服器據此產卡（見 textOverlays.ts），文字可編輯。 */
+export interface OverlayText {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fill: string;
+  stroke?: string;
+  /**
+   * 自動換行寬度，0–1 相對畫布寬，預設 0.9。**真的生效**（2026-08-04 起；
+   * 在那之前它是死欄位，`text_card.py` 只在帶 tokens 的 karaoke 路徑用它，
+   * 文字 overlay 走 `text.split('\n')` 完全不換行，長字直接被畫布邊緣裁掉）。
+   *
+   * 換行規則（實作在 `server/scripts/text_card.py` 的 `wrap_text()`）：
+   * - 可用寬 = `width - cardMargin(width, maxWidth) * 2`（`server/src/rasterizer.ts`，
+   *   預覽與匯出兩條路徑共用同一個換算）。
+   * - CJK 逐字斷；拉丁/數字整個單字為單位，不會切進單字中間；
+   *   換行點上的空白丟掉；行首禁則標點（。，」）…）會黏回前一行。
+   * - 文字裡真的 `\n` 一律強制換行（原本唯一的行為，沒有變）。
+   * - 單一不可斷字串（超長網址、maxWidth 調到極小）比可用寬還長時**逐字硬切**
+   *   （等同 CSS `break-word`），不會溢出被裁掉，也不會無窮迴圈。
+   *
+   * 卡片寬度仍固定＝畫布寬（多的行只讓卡片變高）。改這個值會改變快取 key **也會**
+   * 改變像素——舊卡變孤兒，是預期的。
+   */
+  maxWidth?: number;
+}
+
 export interface OverlayItem {
   id: string;
+  /** 文字 overlay 時 = 伺服器產物，勿手動指定（由 resolveTextCommand 依 text 產生並寫入） */
   imagePath: string;
   /** 錨定片段（與 start 二選一）：片段被拖動時 overlay 跟著走 */
   anchor?: { clipId: string; offset: number };
@@ -63,11 +91,24 @@ export interface OverlayItem {
   /** null = 到片尾（JSON 不能存 Infinity） */
   duration: number | null;
   /**
-   * 0–1 相對畫布；scale 為倍率。**語意不對稱**：x 是圖片水平中心、y 是圖片上緣
+   * 相對畫布；scale 為倍率。**語意不對稱**：x 是圖片水平中心、y 是圖片上緣
    * （預覽 translate(-50%, 0)、渲染 x=(W*x)-(w/2), y=H*y 一致）。
    * 滿版直式圖用 {x:0.5, y:0}；y:0.5 是「上緣壓在畫面正中」，不是置中。
+   *
+   * **不限定 0–1**：元素可以部分掛在畫布外（2026-08-04 起四邊都可以）。y 為負值＝
+   * 掛在上緣外，超出的部分被裁掉——預覽靠 stage 的 `overflow: hidden`、渲染靠 ffmpeg
+   * `overlay` 對負座標的裁切，兩者行為一致（實測 200px 高的圖 y=-0.05 只露下面 104px）。
+   * UI 拖曳的夾制規則是「**元素中心必須留在畫布內**」（見 ui/src/player/dragLayer.ts 的
+   * clampCentre），也就是每邊最多露出一半；MCP／命令層不夾制範圍，可以設更極端的值
+   * （只驗**有限性**——NaN/Infinity/null 會被 commands.ts 的 numericError 擋下，
+   * 那是為了不讓一次壞掉的寫入永久留在專案檔裡；scale 另外限 0–10，見該處註解）。
+   * scale 繞「上緣中點」縮放（x/y 錨點不動）：預覽是 CSS transform，渲染是 overlay 前的
+   * `scale=iw*s:ih*s`（overlay 的 w 因此是縮放後的寬，置中式子不用改）。
+   * 2026-08-04 之前渲染端**沒有實作 scale**，改它只有預覽會變——已修，見 verify:wysiwyg。
    */
   position: { x: number; y: number; scale: number };
+  /** 有值 = 文字 overlay（可編輯文字），imagePath 由伺服器維護；無值 = 預烤 PNG（外部腳本產生，文字不可編輯） */
+  text?: OverlayText;
 }
 
 export interface CaptionStyle {
@@ -139,8 +180,21 @@ export interface RenderState {
   coverPath?: string;
 }
 
+/**
+ * 字幕在成品裡的處理方式。
+ * - `burn`（預設）：燒進畫面，關不掉——維持本欄位存在前的行為。
+ * - `off`：完全不放字幕。
+ * - `sidecar`：畫面乾淨，另外產一個同名 `.srt` 放在 `output/`。
+ * - `embed`：畫面乾淨，字幕以 soft track 內嵌進 mp4（`mov_text`），播放器可自行開關。
+ *
+ * `off`/`sidecar`/`embed` 都**不燒**——soft track 若同時燒錄，觀眾開字幕會看到兩排字。
+ */
+export type SubtitleExportMode = 'burn' | 'off' | 'sidecar' | 'embed';
+
 /** 匯出設定。省略時用專案畫布尺寸與預設品質。 */
 export interface RenderOptions {
+  /** 字幕處理方式，預設 `burn`。 */
+  subtitles?: SubtitleExportMode;
   /** 輸出短邊寬（等比縮放整個合成結果），例：720 / 1080 */
   width?: number;
   height?: number;
@@ -189,7 +243,9 @@ export type Command =
       name: 'updateOverlay';
       id: string;
       /** start 與 anchor 互斥：給 start 會清 anchor（轉絕對）、給 anchor 會清 start（轉錨定） */
-      patch: Partial<Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor'>>;
+      patch: Partial<
+        Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor' | 'text' | 'imagePath'>
+      >;
     }
   | {
       name: 'updateCaption';
@@ -267,7 +323,9 @@ export type WsServerMsg =
     }
   | { type: 'commandError'; reqId?: string; error: string }
   /** 渲染進度旁路（暫態，不進版本/歷史/undo） */
-  | { type: 'renderProgress'; progress: number };
+  | { type: 'renderProgress'; progress: number }
+  /** 字幕卡 id→hash 對照（僅字幕；文字 overlay 走 doc.imagePath，不需要對照表） */
+  | { type: 'textCards'; entries: Array<{ id: string; hash: string }> };
 
 export type WsClientMsg =
   | { type: 'resync' }

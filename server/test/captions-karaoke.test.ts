@@ -77,7 +77,6 @@ describe('buildRenderArgs with karaoke cards', () => {
 
     // 就算本機有 drawtext，有字卡就必須走字卡——drawtext 做不到逐詞著色
     const plan = buildRenderArgs(p, dir, join(dir, 'o.mp4'), {
-      hasDrawtext: true,
       captionCards: cards,
     });
     const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
