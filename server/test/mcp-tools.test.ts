@@ -463,6 +463,50 @@ describe('instructions 與工具清單同步', () => {
 });
 
 /**
+ * 批 G：outputSchema。
+ *
+ * 以前 31 個工具一個都沒宣告，其中十幾個卻回 structuredContent——client 無從驗證，
+ * 模型只能從回覆文字裡猜欄位名。
+ *
+ * ⚠️ 宣告之後的兩個硬約束（都被下面的測試釘住）：
+ * - 非 isError 的回覆**必須**帶 structuredContent，否則 SDK 直接丟 InvalidParams。
+ * - 送給 client 的 JSON Schema 帶 `additionalProperties: false`，**多一個沒宣告的鍵，
+ *   client 就拒收整個回覆**。實測 probeOutput 漏了 rotation → `data/probe must NOT
+ *   have additional properties`。所以「只列保證有的欄位」是行不通的。
+ */
+describe('批 G：outputSchema', () => {
+  it('每個工具都宣告了 outputSchema', async () => {
+    const { tools } = await client.listTools();
+    const missing = tools.filter((t) => !t.outputSchema).map((t) => t.name);
+    expect(missing, `這些工具沒有 outputSchema：${missing.join(', ')}`).toEqual([]);
+    expect(tools.length).toBeGreaterThanOrEqual(31);
+  });
+
+  it('宣告的 schema 一律禁止多餘欄位（所以宣告必須完整）', async () => {
+    const { tools } = await client.listTools();
+    const get = (n: string) =>
+      tools.find((t) => t.name === n)!.outputSchema as Record<string, unknown>;
+    // 這條不是在測 SDK，是把「宣告要完整」這個約束寫進測試——有人把某個 schema 改成
+    // 只列一半欄位時，下面那些真的呼叫工具的測試會紅，而這條解釋為什麼。
+    expect(get('get_frame').additionalProperties).toBe(false);
+  });
+
+  /**
+   * render 以前只有錯誤路徑被打過（stamp、尺寸邊界），成功路徑的 structuredContent
+   * 因此從沒被驗證過——而錯誤路徑**不會**觸發 outputSchema 驗證（SDK 對 isError 直接跳過）。
+   * 用最小的輸出尺寸真的跑一次。
+   */
+  it('render 的成功回覆通過自己的 outputSchema', async () => {
+    const r = await call('render', { stamp: 'g_out', subtitles: 'off', width: 64, height: 114 });
+    expect(r.isError, text(r)).toBeFalsy();
+    const s = r.structuredContent as { output: string; subtitles: string; captionsBurned: boolean };
+    expect(s.output).toMatch(/g_out\.mp4$/);
+    expect(s.subtitles).toBe('off');
+    expect(typeof s.captionsBurned).toBe('boolean');
+  }, 180_000);
+});
+
+/**
  * 批 D：輸入邊界。這幾條的共同性質是「以前不會噴錯，而是靜靜做了別的事」——
  * 回全部而不是零筆、回 ok 而什麼都沒改、把檔案寫到專案外。錯誤訊息比錯誤行為好。
  */

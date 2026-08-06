@@ -35,10 +35,6 @@ export interface McpDeps {
   textCards: TextCardService;
 }
 
-function text(s: string) {
-  return { content: [{ type: 'text' as const, text: s }] };
-}
-
 /** 應用層失敗：標 isError 讓模型能明確辨識（訊息本身與成功路徑同格式）。 */
 function err(s: string) {
   return { content: [{ type: 'text' as const, text: s }], isError: true };
@@ -106,6 +102,66 @@ function projectSummary(store: ProjectStore) {
     audio: d.tracks.audio.length,
   };
 }
+
+/**
+ * ---- 輸出 schema ----------------------------------------------------------
+ *
+ * 以前 31 個工具**一個都沒有** outputSchema，其中十幾個卻回 structuredContent——
+ * client 拿不到形狀就無從驗證，模型也只能從回覆文字裡猜欄位名。
+ *
+ * 兩件事要記住：
+ * 1. SDK 只在**非 isError** 的回覆上驗（見 validateToolOutput），所以 `err()` 那條路
+ *    不受影響；但成功路徑一旦宣告就**必須**帶 structuredContent，否則直接 InvalidParams。
+ *    這也是 writeReply／clipTrackReply 改成一律回 structuredContent 的原因。
+ * 2. ⚠️ **宣告要完整，不能只列「保證有的欄位」**。伺服器端用 zod 驗（預設 strip，多的鍵
+ *    不會失敗），但送給 client 的是轉出來的 JSON Schema，而那份帶著
+ *    `additionalProperties: false`——client 會因為多出來的鍵**直接拒收整個回覆**。
+ *    實測：probeOutput 漏宣告 `rotation` → `data/probe must NOT have additional properties`。
+ *    不想逐欄列的地方用 `z.unknown()`（轉出來是無約束的 `{}`），不要用「少列幾個」。
+ */
+
+/** 所有寫入類工具的共同輸出。changed:false ＝ 命令合法但沒有任何欄位改變。 */
+const writeOutput = {
+  version: z.number().describe('寫入後的版本號'),
+  changed: z.boolean().optional().describe('false ＝ no-op，一個欄位都沒改到'),
+};
+
+/** 會動到主軌片段的工具：多回一份「這次弄斷了哪些錨點」。 */
+const clipTrackOutput = {
+  ...writeOutput,
+  orphanedOverlays: z
+    .array(z.string())
+    .describe('anchor 指向已不存在 clip 的 overlay id；它們在預覽與成品都不會顯示'),
+};
+
+/** ProbeInfo 的完整鏡像——少一個欄位 client 就會拒收（見上面第 2 點）。 */
+const probeOutput = z
+  .object({
+    duration: z.number(),
+    width: z.number(),
+    height: z.number(),
+    fps: z.number(),
+    hasAudio: z.boolean(),
+    rotation: z.number(),
+    hasVideo: z.boolean().optional().describe('false ＝ 純音訊素材'),
+    audioChannels: z.number().optional(),
+  })
+  .describe('ffprobe 結果');
+
+const historyEntryOutput = z.object({
+  version: z.number(),
+  label: z.string(),
+  source: z.enum(['ai', 'human']),
+  ts: z.string(),
+});
+
+const captionTokenOutput = z.object({ text: z.string(), start: z.number(), end: z.number() });
+
+const transcriptWordOutput = z.object({
+  text: z.string(),
+  start: z.number(),
+  end: z.number(),
+});
 
 /**
  * `.strict()` 不是裝飾：zod 預設會**靜默丟掉**未知的鍵，所以
@@ -309,9 +365,17 @@ function writeResultText(r: {
     : `ok, version=${r.version}`;
 }
 
-/** 寫入類工具的統一回覆：成功回文字、失敗回 isError。 */
+/**
+ * 寫入類工具的統一回覆：成功帶 structuredContent、失敗回 isError。
+ *
+ * 成功時**一定要**有 structuredContent——宣告了 outputSchema 之後這是 SDK 的硬性要求
+ * （見 validateToolOutput：非 isError 且沒有 structuredContent 直接丟 InvalidParams）。
+ * 順帶讓 version 與 changed 變成**資料**而不是要從文字裡挖的字串。
+ */
 function writeReply(r: { ok: boolean; version?: number; error?: string; changed?: boolean }) {
-  return r.ok ? text(writeResultText(r)) : err(writeResultText(r));
+  return r.ok
+    ? result({ version: r.version, changed: r.changed ?? true }, writeResultText(r))
+    : err(writeResultText(r));
 }
 
 /**
@@ -341,9 +405,12 @@ function clipTrackReply(
 ) {
   if (!r.ok) return err(writeResultText(r));
   const orphaned = orphanedAnchors(store);
-  if (orphaned.length === 0) return text(writeResultText(r));
+  // orphanedOverlays **一律**回傳（沒有就是空陣列）：宣告了 outputSchema 之後形狀不能
+  // 時有時無，而「這次沒弄斷任何錨點」本身也是有用的資訊。
+  const structured = { version: r.version, changed: r.changed ?? true, orphanedOverlays: orphaned };
+  if (orphaned.length === 0) return result(structured, writeResultText(r));
   return result(
-    { version: r.version, orphanedOverlays: orphaned },
+    structured,
     `${writeResultText(r)}\n⚠️ ${orphaned.length} 個 overlay 的 anchor 指向已不存在的 clip：` +
       `${orphaned.join(', ')}——它們在預覽與成品裡都不會顯示。` +
       '請用 update_overlay 換成新的 anchor，或改用絕對 start。',
@@ -402,6 +469,22 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '取得專案裁剪總覽（clips/captions/media/version/review）；full:true 回完整 JSON。' +
         '⚠️ 精簡模式的 overlays 與 audio 是**數量**（數字）不是陣列——要 overlay/音訊項的' +
         'id、位置、錨點請用 full:true。',
+      outputSchema: {
+        version: z.number(),
+        // 兩種形狀共用一個宣告：full:true 回 doc，否則回裁剪總覽。
+        // zod 是 strip 不是 strict，所以「多回的欄位」不會讓驗證失敗；
+        // 這裡列的是**保證有**的部分。
+        doc: z.unknown().optional().describe('full:true 時的完整專案 JSON'),
+        name: z.string().optional(),
+        canvas: z.unknown().optional(),
+        total: z.number().optional().describe('全片長（秒）'),
+        review: z.unknown().nullable().optional(),
+        media: z.array(z.unknown()).optional(),
+        clips: z.array(z.unknown()).optional(),
+        overlays: z.number().optional().describe('overlay **數量**，不是陣列'),
+        captions: z.array(z.unknown()).optional(),
+        audio: z.number().optional().describe('音訊項**數量**，不是陣列'),
+      },
       inputSchema: { full: z.boolean().optional() },
       annotations: { readOnlyHint: true },
     },
@@ -424,6 +507,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '最近的變更記錄（version/label/source/ts）。limit 預設 30、最多 200（＝歷史保留上限）。',
+      outputSchema: { history: z.array(historyEntryOutput) },
       inputSchema: {
         limit: z.number().int().min(0).max(200).optional().describe('回傳最近幾筆，預設 30'),
       },
@@ -448,6 +532,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'get_feedback',
     {
       description: '自指定 version 以來的人類變更摘要（AI 讀回使用者的調整）。',
+      outputSchema: {
+        sinceVersion: z.number(),
+        currentVersion: z.number(),
+        humanChanges: z.array(z.object({ version: z.number(), label: z.string(), ts: z.string() })),
+      },
       inputSchema: { sinceVersion: z.number() },
       annotations: { readOnlyHint: true },
     },
@@ -467,6 +556,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'get_editor_context',
     {
       description: '人在 UI 的當前選取、playhead 位置、拖選時間範圍。',
+      outputSchema: {
+        selection: z
+          .object({ kind: z.enum(['clip', 'overlay', 'caption', 'audio']), id: z.string() })
+          .nullable(),
+        playhead: z.number(),
+        range: z.object({ start: z.number(), end: z.number() }).nullable(),
+      },
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -486,6 +582,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '抽出指定時間點的畫面 JPEG（AI 的「眼睛」）。只有片段畫面——不合成 overlay/字幕/blur 背景；' +
         '要驗證這些請 render 或請使用者看 UI 預覽。' +
         '不改專案狀態（會在 derived/frames/ 留一張快取圖）。time 會被夾在 [0, 全片長] 內。',
+      outputSchema: {
+        url: z.string().describe('本機 client 可直接開；遠端 client 請用回覆裡內嵌的 JPEG'),
+        path: z.string().describe('相對專案資料夾'),
+      },
       inputSchema: { time: z.number() },
       annotations: { readOnlyHint: true },
     },
@@ -508,6 +608,19 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '列出素材夾內可匯入的檔案（不遞迴、排除隱藏檔、只回白名單副檔名）。' +
         'dir 為絕對路徑。imported 標示該檔是否已在本專案的 doc.media 裡。' +
         `超過 ${MAX_FILES_INLINE} 筆只內嵌前段並標 truncated。`,
+      outputSchema: {
+        dir: z.string(),
+        total: z.number().describe('符合條件的檔案總數（可能多於 files 的長度）'),
+        files: z.array(
+          z.object({
+            name: z.string(),
+            size: z.number(),
+            mtime: z.number().describe('epoch ms'),
+            imported: z.boolean(),
+          }),
+        ),
+        truncated: z.boolean().optional(),
+      },
       inputSchema: { dir: z.string() },
       annotations: { readOnlyHint: true },
     },
@@ -534,6 +647,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '登記素材檔並產生衍生檔（proxy/filmstrip/peaks）。relPath 可為專案內相對路徑，' +
         '也可為專案外的絕對路徑（零複製引用，原檔留在原地）。純音訊（mp3/wav…）可直接' +
         '匯入，跳過 proxy/filmstrip 只產 peaks，僅供音訊軌（set_audio）使用。回 mediaId。',
+      outputSchema: {
+        mediaId: z.string(),
+        probe: probeOutput,
+        alreadyImported: z.boolean().optional().describe('true ＝ 這支檔早就匯入過，沿用既有 id'),
+        version: z.number().optional().describe('真的新增時才有'),
+      },
       inputSchema: {
         relPath: z.string(),
         label: z.string().optional(),
@@ -579,6 +698,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '會斷掉——斷掉的 overlay 在預覽與成品裡都不會顯示，回覆會列出是哪幾個。' +
         '要保住錨點就在項目裡帶上原本的 id（可用 get_project 取得）；' +
         '只是想加片段到尾端請用 add_clip，它不動既有片段。',
+      outputSchema: clipTrackOutput,
       inputSchema: { clips: z.array(timelineClipSchema), ifVersion: z.number().optional() },
     },
     async ({ clips, ifVersion }) =>
@@ -591,6 +711,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '把已匯入的素材接到主軌尾端（不動既有片段，適合逐支加片）。' +
         '純音訊素材會被拒——放 BGM／旁白請用 set_audio。回新 clip 的 clipId。',
+      outputSchema: { clipId: z.string(), version: z.number() },
       inputSchema: {
         mediaId: z.string(),
         in: z.number(),
@@ -614,6 +735,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_clip',
     {
       description: '修改片段 in/duration/volume/label（會驗證 trim 邊界）。',
+      outputSchema: writeOutput,
       inputSchema: {
         clipId: z.string(),
         patch: clipPatchSchema,
@@ -628,6 +750,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'reorder_clips',
     {
       description: '重排主軌片段（order 為 clipId 的排列）。',
+      outputSchema: writeOutput,
       inputSchema: { order: z.array(z.string()), ifVersion: z.number().optional() },
     },
     async ({ order, ifVersion }) =>
@@ -638,6 +761,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'remove_clip',
     {
       description: '移除片段。',
+      outputSchema: clipTrackOutput,
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
     async ({ clipId, ifVersion }) =>
@@ -650,6 +774,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '整組替換 overlay 軌。每個項目 text 與 imagePath 恰好給一個：帶 text 的自動產字卡並填 ' +
         'imagePath（不要自己給）；純圖項目給實際 imagePath。',
+      outputSchema: writeOutput,
       inputSchema: { overlays: z.array(overlaySchema), ifVersion: z.number().optional() },
     },
     async ({ overlays, ifVersion }) => {
@@ -669,6 +794,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_captions',
     {
       description: '整組替換字幕軌。',
+      outputSchema: writeOutput,
       inputSchema: { captions: z.array(captionSchema), ifVersion: z.number().optional() },
     },
     async ({ captions, ifVersion }) =>
@@ -692,6 +818,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '或同時給 start 與 duration 且 duration 跟著變（縮頭：右緣不動、start 往後）——' +
         '那是在改「這句顯示多久」，不是改「哪個字什麼時候被唸出來」。' +
         '同一次呼叫若也給了 tokens，則以你給的為準（不再平移）。',
+      outputSchema: writeOutput,
       inputSchema: {
         id: z.string(),
         patch: z
@@ -724,6 +851,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '只改一張疊圖（start/anchor/duration/position/text）。start 與 anchor 互斥：給哪個就轉成哪種定位。' +
         '文字 overlay 改字/樣式就送新 text（伺服器重新產卡並更新 imagePath，不必也不該自己給 imagePath）。',
+      outputSchema: writeOutput,
       inputSchema: {
         id: z.string(),
         patch: z
@@ -775,6 +903,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '新增單張疊圖（其他 overlay 不動）。text 與 imagePath 恰好給一個：文字類 overlay 帶 text ' +
         '（伺服器自動產字卡並維護 imagePath，不要自己給）；純圖 overlay 給實際 imagePath。',
+      outputSchema: writeOutput,
       inputSchema: { overlay: overlaySchema, ifVersion: z.number().optional() },
     },
     async ({ overlay, ifVersion }) => {
@@ -794,6 +923,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'remove_overlay',
     {
       description: '移除一張疊圖。',
+      outputSchema: writeOutput,
       inputSchema: { id: z.string(), ifVersion: z.number().optional() },
     },
     async ({ id, ifVersion }) =>
@@ -804,6 +934,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'remove_audio',
     {
       description: '移除一個音訊項。',
+      outputSchema: writeOutput,
       inputSchema: { id: z.string(), ifVersion: z.number().optional() },
     },
     async ({ id, ifVersion }) => writeReply(aiWrite(store, { name: 'removeAudio', id }, ifVersion)),
@@ -816,6 +947,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '撤回最近 N 筆編輯（游標式：連續呼叫一路往回退）。渲染/審核等狀態變更不在範圍。' +
         '⚠️ undo 堆疊是**人與 AI 共用的一份**——你撤掉的可能是使用者剛剛做的調整。' +
         '不確定就先 get_history 看最近幾筆的 source。',
+      outputSchema: writeOutput,
       inputSchema: {
         steps: z.number().int().min(1).optional().describe('撤回幾筆，預設 1'),
         ifVersion: z.number().optional(),
@@ -830,6 +962,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '重做最近 N 筆被撤回的編輯（undo 的反向）。新的編輯會清空可重做的內容。' +
         '堆疊與人共用，注意事項同 undo。',
+      outputSchema: writeOutput,
       inputSchema: {
         steps: z.number().int().min(1).optional().describe('重做幾筆，預設 1'),
         ifVersion: z.number().optional(),
@@ -850,6 +983,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '而且會寫 derived/asr.wav 與 derived/asr.json（後者的路徑就是回傳的 jsonPath）。' +
         `要直接上字幕請用 auto_caption。逐詞結果超過 ${MAX_WORDS_INLINE} 詞、` +
         `或整份逐字稿超過 ${MAX_TEXT_INLINE} 字時只內嵌前段並標 truncated，全量在 jsonPath。`,
+      outputSchema: {
+        language: z.string(),
+        wordCount: z.number().describe('全部的詞數（可能多於 words 的長度）'),
+        words: z.array(transcriptWordOutput).describe('時間是時間軸絕對秒數'),
+        wordsTruncated: z.boolean().optional(),
+        text: z.string(),
+        textTruncated: z.boolean().optional(),
+        jsonPath: z.string().describe('全量結果的檔案路徑，相對專案資料夾'),
+      },
       inputSchema: {
         language: z
           .string()
@@ -889,6 +1031,25 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '想自己控制斷句就改用 transcribe + set_captions。' +
         `超過 ${MAX_CAPTIONS_INLINE} 句時回覆只內嵌前段並標 captionsTruncated` +
         '（寫入成功的話全量在文件裡，get_project 讀得到）。',
+      outputSchema: {
+        language: z.string(),
+        wordCount: z.number(),
+        captionCount: z.number().describe('產出的字幕總數（可能多於 captions 的長度）'),
+        captions: z.array(
+          z.object({
+            id: z.string(),
+            text: z.string(),
+            start: z.number(),
+            duration: z.number(),
+            style: z.unknown(),
+            tokens: z.array(captionTokenOutput).optional(),
+          }),
+        ),
+        captionsTruncated: z.boolean().optional(),
+        write: z
+          .object({ version: z.number().optional(), error: z.string().optional() })
+          .describe('寫入結果。有 error 就代表字幕沒進文件（回覆同時會標 isError）'),
+      },
       inputSchema: {
         language: z.string().optional(),
         karaoke: z.boolean().optional().describe('逐詞高亮，預設 true'),
@@ -950,6 +1111,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '往左移，字幕/音訊卻留在原地——會失步，要自己補 update_caption / update_audio。' +
         '（與 CapCut 同語意，不是 bug。）另外整段片段消失時，錨定在它上面的 overlay 會斷，' +
         '回覆會列出是哪幾個。',
+      outputSchema: clipTrackOutput,
       inputSchema: {
         op: z.enum(['split', 'deleteBefore', 'deleteAfter', 'freeze']),
         time: z.number().describe('時間軸絕對秒數'),
@@ -976,6 +1138,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'extract_audio',
     {
       description: '把片段的聲音抽成獨立音訊項（片段轉靜音），之後可單獨調音量/淡化/刪除。',
+      outputSchema: writeOutput,
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
     async ({ clipId, ifVersion }) =>
@@ -986,6 +1149,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_audio',
     {
       description: '整組設定音訊軌（放旁白/BGM）。start 為時間軸絕對秒數；ducking 會壓低影片原聲。',
+      outputSchema: writeOutput,
       inputSchema: { audio: z.array(audioSchema), ifVersion: z.number().optional() },
     },
     async ({ audio, ifVersion }) =>
@@ -996,6 +1160,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_audio',
     {
       description: '調整單一音訊項（音量、淡入淡出、時間、ducking）。',
+      outputSchema: writeOutput,
       inputSchema: {
         id: z.string(),
         // strict：理由同 clipPatchSchema——打錯欄位名（例如 gain）會被靜默丟掉，
@@ -1024,6 +1189,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '素材未填滿畫布時的處理：contain=黑邊、blur=模糊放大填充（把橫向素材放進 9:16 時建議用 blur）。',
+      outputSchema: writeOutput,
       inputSchema: { fit: z.enum(['contain', 'blur']), ifVersion: z.number().optional() },
     },
     async ({ fit, ifVersion }) =>
@@ -1034,6 +1200,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_cover',
     {
       description: '設定封面圖（有成品時從成品抽該時間點的畫面，否則從來源素材抽）。回傳圖片 URL。',
+      outputSchema: {
+        coverPath: z.string().describe('相對專案資料夾'),
+        url: z.string(),
+        version: z.number(),
+      },
       inputSchema: { time: z.number(), ifVersion: z.number().optional() },
     },
     async ({ time, ifVersion }) => {
@@ -1060,6 +1231,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '請使用者在瀏覽器 UI 審核目前的時間軸，阻塞直到核准/退回/逾時。回傳 outcome 與審核期間的人類變更。',
+      outputSchema: {
+        outcome: z.enum(['approved', 'rejected', 'approved_with_notes', 'timeout']),
+        note: z.string().optional(),
+        humanChanges: z.array(historyEntryOutput).describe('審核期間人做的變更'),
+        version: z.number(),
+      },
       inputSchema: { summary: z.string(), focus: z.array(z.string()).optional() },
       annotations: { title: 'Request human review' },
     },
@@ -1105,6 +1282,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
         "想讓觀眾自己開關字幕就用 'embed'（soft track，回傳 subtitlesEmbedded）；" +
         "要上傳到會自動翻譯字幕的平台就用 'sidecar'（另存 .srt，回傳 subtitlePath）。" +
         'burn 以外的模式畫面都是乾淨的——soft track 疊上燒錄會讓觀眾看到兩排字。',
+      outputSchema: {
+        output: z.string().describe('成品路徑，相對專案資料夾'),
+        url: z.string(),
+        captionsBurned: z.boolean(),
+        subtitles: z.enum(['burn', 'off', 'sidecar', 'embed']),
+        subtitlePath: z.string().optional().describe('sidecar 模式才有'),
+        subtitlesEmbedded: z.boolean(),
+      },
       inputSchema: {
         stamp: z
           .string()
