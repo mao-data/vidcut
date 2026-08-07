@@ -42,6 +42,10 @@ step "突變錨點（--check，秒級：確認每隻 mutant 的 find 仍命中�
 node scripts/mutate.mjs --check 2>&1 | sed 's/^/   /'
 node scripts/mutate.mjs --check >/dev/null 2>&1; check $?
 
+step "文件引用（斷言型文件不得指向不存在或被忽略的東西）"
+node scripts/docs-check.mjs 2>&1 | sed 's/^/   /'
+node scripts/docs-check.mjs >/dev/null 2>&1; check $?
+
 step "依賴稽核 (npm audit --omit=dev 為執行期；全量含 dev)"
 npm audit --audit-level=high 2>&1 | tail -3 | sed 's/^/   /'
 
