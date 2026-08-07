@@ -1,76 +1,170 @@
+<div align="center">
+
 # vidcut
 
-AI 原生的本機影片時間軸編輯器。AI（Claude Code 或任何 MCP client）透過 MCP 剪片，人類在瀏覽器裡即時看到每一步、隨時介入調整，AI 讀回人類的調整繼續工作。
+**The AI-native video editor — your AI cuts through MCP, you supervise in the browser.**
 
-參考對象：[Vyra](https://www.usevyra.com/) 的 External AI Integration 模式。
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.base.json)
+[![MCP](https://img.shields.io/badge/MCP-native-8b5cf6.svg)](#connect-your-ai)
 
-## 快速開始
+[繁體中文](README.zh-TW.md)
+
+<img src="docs/assets/hero.png" alt="vidcut UI — timeline, live preview, captions panel" width="900" />
+
+</div>
+
+## What is vidcut?
+
+vidcut is a **local-first timeline editor for vertical short video (1080×1920)** built around one idea: the AI and the human edit **the same timeline, at the same time**.
+
+It is _not_ a prompt-to-video generator. An AI agent (Claude Code, or any MCP client) edits the project through [31 MCP tools](#mcp-tools) — importing footage, cutting, captioning, mixing audio, rendering. Every change appears **live in your browser** over WebSocket. You drag a caption, trim a clip, leave a review note — and the AI reads your adjustments back and keeps working. A human-in-the-loop editing loop, not a black box.
+
+- 🖥️ **Local & private** — a single Node process on `127.0.0.1:3845`. Your footage never leaves your machine.
+- 🤝 **Built for supervision** — the AI can call `request_review`; you annotate in the browser; it reads your feedback and continues.
+- 🔍 **WYSIWYG captions & overlays** — preview and export render from the _same_ rasterized text card (byte-identical PNGs), guarded by a pixel-level regression suite.
+- 🎬 **Real render pipeline** — ffmpeg composes the final 1080×1920 video from `project.json`, with progress reporting.
+
+## How it works
+
+```
+┌──────────────┐   MCP  /mcp    ┌───────────────────────────┐   WebSocket  /ws   ┌───────────────┐
+│ Claude Code  │ ─────────────▶ │   vidcut server  :3845    │ ◀────────────────▶ │  Browser UI   │
+│ (or any MCP  │                │  ProjectStore · commands  │                    │  timeline ·   │
+│  client)     │ ◀───────────── │  ffmpeg · whisper · cards │                    │  A/B preview ·│
+└──────────────┘  review loop   └────────────┬──────────────┘                    │  inspector    │
+                                             │                                   └───────────────┘
+                                        project.json
+                                     (single source of truth)
+```
+
+One process, one port, four kinds of traffic: static UI, `/media` (native Range for `<video>`), `/mcp`, and `/ws`. Every state change — from the AI or from you — goes through the same serialized command path and is broadcast to the browser as immer patches.
+
+## Features
+
+- ✂️ **Timeline editing** — split / delete-left / delete-right / freeze-frame at the playhead, trim by dragging, reorder, magnetic track, cursor-anchored zoom, snapping with guide lines, undo/redo
+- 📺 **Seamless preview** — A/B dual-`<video>` player for gapless playback across cuts
+- 🗣️ **Auto captions** — whisper.cpp transcription with word-level timestamps, automatic sentence segmentation, one call from audio to styled captions (`auto_caption`)
+- 🎤 **Karaoke highlight** — per-word color reveal, rendered deterministically (one card per word) so export geometry is exact
+- 📝 **WYSIWYG text cards** — captions and text overlays are rasterized by one Pillow pipeline shared by preview and export; CJK-aware auto-wrapping (per-character CJK, word-boundary Latin, forbidden-punctuation rules)
+- 🖼️ **Overlays** — text or image, drag directly on the canvas with center/safe-margin snap guides
+- 🔊 **Audio** — extract audio from clips, voiceover/BGM tracks, volume & fades, auto-ducking under speech
+- 🌫️ **Blur fill** — landscape footage in a 9:16 canvas gets a blurred background instead of black bars
+- 📤 **Export options** — 720p/1080p/4K, quality (CRF), 24/30/60 fps, H.264/HEVC; subtitles as **burn** / **embed** / **sidecar (.srt)** / **off**
+- 🖼️ **Cover frame** — pick any moment as the cover, extracted from the rendered output when available
+- 🔁 **Review loop** — `request_review` pauses writes, you approve or annotate in the UI, the AI reads `get_feedback` and continues
+
+## Quick start
+
+Prerequisites: **Node.js 20+**, **ffmpeg** (and ffprobe), optionally **whisper.cpp** for auto captions.
 
 ```bash
-npm install                 # 安裝所有 workspace 依賴
-brew install ffmpeg         # 需要原生 ffmpeg/ffprobe
+brew install ffmpeg
+brew install whisper-cpp   # optional — auto captions
+# put a model in ~/.cache/whisper.cpp/ (e.g. ggml-large-v3-turbo-q5_0.bin),
+# or point VIDCUT_WHISPER_MODEL at one
 
-npm run demo                # 建 demo 專案 + 起 server（127.0.0.1:3845）
-npm run dev:ui              # 另開終端機 → http://localhost:5173
+git clone https://github.com/mao-data/vidcut.git
+cd vidcut
+npm install
+npm run demo               # scaffolds the demo project and starts the server
 ```
 
-瀏覽器會顯示時間軸與預覽播放器。按 ▶ 播放，點時間軸任意位置 seek。
+Open **http://127.0.0.1:3845** — you'll see the timeline and live preview.
 
-## 開發指令
+> ⚠️ `npm run demo` _regenerates_ `projects/demo` every time. To serve an existing project without touching it:
+>
+> ```bash
+> npx tsx server/src/index.ts projects/demo
+> ```
 
-| 指令                                 | 作用                                 |
-| ------------------------------------ | ------------------------------------ |
-| `npm test`                           | 跑所有 workspace 的 vitest           |
-| `npm run typecheck`                  | 三個 workspace 的 tsc --noEmit       |
-| `npm run lint`                       | ESLint                               |
-| `npm run format`                     | Prettier 寫入                        |
-| `npm run dev:server -- <projectDir>` | 起 server 服務某專案                 |
-| `npm run dev:ui`                     | 起 Vite dev server（proxy 到 :3845） |
+## Connect your AI
 
-## 架構
+vidcut speaks [Model Context Protocol](https://modelcontextprotocol.io) over HTTP. With the server running:
 
-單一 Node 程序（`server/`）綁 `127.0.0.1:3845`，一個 port 服務四種流量：靜態 UI、`/media/*`（原生 Range，給 `<video>`）、`/mcp`（M3）、`/ws`（狀態同步）。專案狀態是一份 `project.json`，所有變更（AI 或人）都走 `ProjectStore.mutate()` 這條序列化路徑，經 immer patch 廣播給瀏覽器。
-
-```
-shared/   @vidcut/shared  型別 + 純函數（server/ui 共用）
-server/   @vidcut/server  ProjectStore、ffmpeg、ingest、http/ws、MCP、render、asr（whisper）
-ui/       @vidcut/ui      React：ws client、A/B 播放器、時間軸
-```
-
-詳細設計見 [`docs/superpowers/specs/`](docs/superpowers/specs/)，實作計畫見 [`docs/superpowers/plans/`](docs/superpowers/plans/)，目前進度與已知限制見 [`HANDOFF.md`](HANDOFF.md)。
-
-## 里程碑
-
-- **M1 看得到** ✅ — ProjectStore + WS 同步 + ingest + 唯讀時間軸 + A/B 無縫預覽
-- **M2 改得動** ✅ — 命令層 + trim 拖拉、排序、Inspector 編輯、undo、活動面板
-- **M3 AI 接上** ✅ — MCP server（工具清單見 mcp.ts）+ request_review 審核閉環 + 編輯脈絡回報
-- **M4 渲染** ✅ — ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + 渲染 UI
-
-- **T1 CapCut 快贏** ✅ — 播放頭分割/刪左右/定格、時間軸縮放吸附、音訊混音與 ducking、blur 填充、匯出選項、封面
-- **T2 #8 自動字幕** ✅ — whisper.cpp 逐字稿（`transcribe`）、一鍵自動字幕（`auto_caption`）、逐詞高亮、字幕列表 UI
-- **UI 重設計** ✅ — 深藍紫玻璃視覺系統（theme.css token）、峰值+RMS 雙層波形、頂欄匯出、面板收合、GSAP 動效
-
-全部里程碑的核心功能已實作並自動化驗證。親眼驗收與 Claude Code 實連步驟見 [`HANDOFF.md`](HANDOFF.md)。
-
-## 快捷鍵
-
-| 鍵             | 作用                           |
-| -------------- | ------------------------------ |
-| 空白           | 播放 / 暫停                    |
-| `S` / `Ctrl+B` | 在播放頭分割片段               |
-| `Q` / `W`      | 刪除播放頭左側 / 右側          |
-| `F`            | 插入定格幀                     |
-| `N`            | 吸附開關                       |
-| `Shift+Z`      | 時間軸全覽                     |
-| `←` `→`        | 逐幀移動（`Shift` 一次 10 幀） |
-| `Ctrl`+滾輪    | 以游標為錨縮放時間軸           |
-| `Cmd/Ctrl+Z`   | 復原                           |
-
-## 接 Claude Code
+**Claude Code**
 
 ```bash
-npm run dev:server -- projects/demo          # 先起 server
 claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 ```
 
-然後在 Claude Code 裡請它用 vidcut 剪片；你在瀏覽器 UI 即時看到並可介入。
+or in your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "vidcut": {
+      "type": "http",
+      "url": "http://127.0.0.1:3845/mcp"
+    }
+  }
+}
+```
+
+Then just talk to your agent:
+
+> “Import the clips in `~/footage/cats`, keep the best 20 seconds, auto-caption it with karaoke highlight, duck the BGM under my voiceover, and send it to me for review before rendering.”
+
+Any other MCP client works the same way — point it at `http://127.0.0.1:3845/mcp`.
+
+## MCP tools
+
+31 tools, grouped by what they touch:
+
+| Group                 | Tools                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Read & context**    | `get_project` · `get_history` · `get_feedback` · `get_editor_context` (user's selection & playhead) · `get_frame` (see the canvas at time t) · `list_source` |
+| **Media**             | `import_media` (absolute paths welcome — zero-copy)                                                                                                          |
+| **Timeline**          | `set_timeline` · `add_clip` · `update_clip` · `reorder_clips` · `remove_clip` · `timeline_op` (split / deleteBefore / deleteAfter / freeze)                  |
+| **Captions**          | `transcribe` (word timestamps) · `auto_caption` (one-shot ASR → captions) · `set_captions` · `update_caption`                                                |
+| **Overlays**          | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                                         |
+| **Audio**             | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                              |
+| **Canvas & output**   | `set_canvas_fit` (letterbox / blur) · `set_cover` · `render`                                                                                                 |
+| **History**           | `undo` · `redo`                                                                                                                                              |
+| **Human in the loop** | `request_review`                                                                                                                                             |
+
+Tool descriptions in the server are the authoritative, always-current reference — MCP clients see them automatically.
+
+## Development
+
+```
+shared/   @vidcut/shared   types + pure functions (used by both sides)
+server/   @vidcut/server   ProjectStore, commands, ffmpeg, whisper, MCP, WS, render
+ui/       @vidcut/ui       React + Vite: timeline, A/B player, inspector, panels
+```
+
+| Command                                 | What it does                                                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `npm test`                              | full suite — real ffmpeg, real whisper (no mocks)                                                                |
+| `npm run typecheck`                     | `tsc --noEmit` across all three workspaces                                                                       |
+| `npm run lint` / `npm run format:check` | ESLint / Prettier                                                                                                |
+| `npm run dev:ui`                        | Vite dev server with HMR (proxies to :3845)                                                                      |
+| `npm run verify:panels`                 | real-browser regression: panel controls                                                                          |
+| `npm run verify:canvas`                 | real-browser regression: canvas zoom / drag / snap guides                                                        |
+| `npm run verify:wysiwyg`                | renders a real video, screenshots the preview, compares ink bounding boxes — the proof behind "preview = export" |
+
+Note: the server serves `ui/dist` (the build output). After changing UI source, run `npm run build -w @vidcut/ui` — only the `dev:ui` path skips this.
+
+## Known limitations
+
+Honesty over marketing:
+
+- **Karaoke preview ≠ export, slightly.** Exported karaoke captions are correct (one card per word, single layer). The _preview_ composites two cards with a clip-path, which makes text strokes look marginally thicker (~1% of pixels differ; invisible in practice). Non-karaoke captions and all overlays are byte-identical between preview and export.
+- **Very short audio (≲4 s)** gets unreliable word timestamps from whisper.cpp; vidcut normalizes them, but expect less precision.
+- **Single project, single user, localhost** — by design, for now.
+
+## Roadmap
+
+Next up (see [`docs/ROADMAP.md`](docs/ROADMAP.md)): detection tools for AI decision-making (`detect_silence` / `detect_scenes` / `detect_beats`), templates + batch rendering, and transcript-driven long-to-short editing.
+
+## Contributing & docs
+
+- [`CLAUDE.md`](CLAUDE.md) — agent-facing project rules (also a good map of the codebase's sharp edges)
+- [`HANDOFF.md`](HANDOFF.md) — current state, how everything is verified, known trade-offs
+- [`docs/superpowers/specs/`](docs/superpowers/specs/) — design decisions; [`docs/superpowers/plans/`](docs/superpowers/plans/) — implementation plans
+
+Issues and PRs welcome.
+
+## License
+
+[MIT](LICENSE)
