@@ -74,10 +74,10 @@
   {
     "id": "tl-anchor-offset",
     "file": "ui/src/timeline/Timeline.tsx",
-    "find": "          const offset = Number(Math.max(0, d.preview.absStart - clipStart).toFixed(3));",
-    "replace": "          const offset = Number(Math.max(0, d.preview.absStart).toFixed(3));",
+    "find": "          const offset = Number((d.preview.absStart - clipStart).toFixed(3));",
+    "replace": "          const offset = Number(d.preview.absStart.toFixed(3));",
     "tests": "ui/src/timeline/Timeline.test.tsx",
-    "note": "錨定 offset 忘了扣掉片段起點 → 錨定式疊圖斷言必須抓到"
+    "note": "錨定 offset 忘了扣掉片段起點 → 錨定式疊圖斷言必須抓到（find 隨 main 拿掉 Math.max(0,…) 夾制而更新，offset 現在可為負＝疊圖先於片段出現）"
   },
   {
     "id": "tl-audio-trim-link",
@@ -154,10 +154,10 @@
   {
     "id": "inspector-deselect",
     "file": "ui/src/panels/Inspector.tsx",
-    "find": "          send({ name: 'removeOverlay', id: ov.id });\n          useSelection.getState().select(null);",
-    "replace": "          send({ name: 'removeOverlay', id: ov.id });",
+    "find": "            send({ name: 'removeOverlay', id: ov.id });\n            useSelection.getState().select(null);",
+    "replace": "            send({ name: 'removeOverlay', id: ov.id });",
     "tests": "ui/src/panels/panels.test.tsx",
-    "note": "刪除疊圖後沒取消選取 → 會停留在不存在的項目上"
+    "note": "刪除疊圖後沒取消選取 → 會停留在不存在的項目上（find 隨 main 的 Inspector 分段重構縮排變動而更新）"
   },
   {
     "id": "store-atomic-write",
@@ -219,10 +219,10 @@
   {
     "id": "render-aspect",
     "file": "server/src/render.ts",
-    "find": "  const outW = exp.width ?? (exp.height ? even((exp.height * width) / height) : width);",
-    "replace": "  const outW = exp.width ?? width;",
+    "find": "  const outW = expW ?? (expH ? even((expH * width) / height) : width);",
+    "replace": "  const outW = expW ?? width;",
     "tests": "server/test/render-t1.test.ts",
-    "note": "只給 height 時寬度不再依比例推算 → 等比縮放斷言必須抓到"
+    "note": "只給 height 時寬度不再依比例推算 → 等比縮放斷言必須抓到（find 隨 main 把 exp.width/height 抽成 expW/expH 而更新）"
   },
   {
     "id": "fx-source-gate",
@@ -299,10 +299,10 @@
   {
     "id": "mcp-writereply-always-err",
     "file": "server/src/mcp.ts",
-    "find": "return r.ok ? text(writeResultText(r)) : err(writeResultText(r));",
-    "replace": "return err(writeResultText(r));",
+    "find": "  return r.ok\n    ? result({ version: r.version, changed: r.changed ?? true }, writeResultText(r))\n    : err(writeResultText(r));",
+    "replace": "  return err(writeResultText(r));",
     "tests": "server/test/mcp-optim.test.ts",
-    "note": "成功也標 isError → 成功路徑負向斷言必須抓到（武裝 RED 時即綠的那條）"
+    "note": "成功也標 isError → 成功路徑負向斷言必須抓到（find 隨 main 把 writeReply 從 text() 改成 result() 而更新）"
   },
   {
     "id": "mcp-ifversion-drop",
@@ -547,10 +547,10 @@
   {
     "id": "setaudio-validate",
     "file": "server/src/commands.ts",
-    "find": "      for (const a of cmd.audio) {\n        const media = store.doc.media.find((m) => m.id === a.mediaId);\n        if (!media) return { ok: false, error: `audio ${a.id}: media not found: ${a.mediaId}` };\n        if (a.duration <= 0) return { ok: false, error: `audio ${a.id}: duration must be > 0` };\n        if (a.in < 0) return { ok: false, error: `audio ${a.id}: in must be >= 0` };\n        if (a.in + a.duration > media.probe.duration + 1e-6) {\n          return { ok: false, error: `audio ${a.id}: out of bounds for ${a.mediaId}` };\n        }\n      }\n",
+    "find": "      for (const a of cmd.audio) {\n        const media = store.doc.media.find((m) => m.id === a.mediaId);\n        if (!media) return { ok: false, error: `audio ${a.id}: media not found: ${a.mediaId}` };\n        const ruleErr = audioRuleError(a, media);\n        if (ruleErr) return { ok: false, error: `audio ${a.id}: ${ruleErr}` };\n      }\n",
     "replace": "",
     "tests": "server/test/commands.test.ts",
-    "note": "拿掉 setAudio 的逐項驗證 → 不存在的 mediaId／負 in／超界全部會被默默接受並落盤，直到 render 才炸；拒絕的斷言必須抓到"
+    "note": "拿掉 setAudio 的逐項驗證 → 不存在的 mediaId／負 start／負 in／超界全部會被默默接受並落盤，直到 render 才炸；拒絕的斷言必須抓到（find 隨 main 把規則抽成共用的 audioRuleError 而更新）"
   },
   {
     "id": "listsource-truncate",

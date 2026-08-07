@@ -1337,3 +1337,88 @@ expected [] to deeply equal [ "vidcut-leakprobe-P5lz7Q", "vidcut-leakprobe-x7tNW
 ——任何人用這個逃生口跑整套都會踩到。修法是在 `runFixture()` 裡把 `VIDCUT_KEEP_TMP` 與
 `VIDCUT_TMP_FIXTURE_FAIL` 從繼承來的環境變數中刪掉，讓每條測試自己決定。修完兩種跑法
 （一般、帶 `VIDCUT_KEEP_TMP=1`）都是 3/3 綠。
+
+---
+
+# 補記：五隻失效的 mutant，與讓它不會再靜默發生的關卡
+
+合併後的第一次完整 gauntlet 在突變關卡失敗，但**不是有 mutant 存活**——是三隻報
+`find 出現 0 次`。逐一用 `git show main:<file>` 比對確認：**這三隻在 `main` 上就已經
+失配了，不是合併造成的**。也就是說 `main` 當時的 gauntlet 本身是紅的。
+
+## 為什麼會失效，以及為什麼沒人發現
+
+`scripts/mutate.mjs` 靠字面字串比對定位要突變的程式碼。正當的重構會讓 `find` 失配，
+那隻 mutant 就靜默失去守備——引擎會報 ERROR，但前提是**有人跑完整突變測試**。
+
+兩個放大這個問題的缺陷，都在 `scripts/gauntlet.sh` 自己身上：
+
+```bash
+node scripts/mutate.mjs 2>&1 | tail -3 | sed 's/^/   /'   # ← 失敗清單被截斷
+node scripts/mutate.mjs >/dev/null 2>&1; check $?          # ← 同一關卡跑第二次
+```
+
+- **`tail -3` 把失敗清單截掉**：實際壞掉的是**五隻**，報告只印出三隻。另外兩隻
+  （`tl-anchor-offset`、`inspector-deselect`）是後來加了 `--check` 才浮現的——換句話說，
+  這份報告如果只信 gauntlet 的輸出，會漏掉 40% 的失效項目。
+- **同一關卡跑兩次**（一次給人看、一次拿退出碼）：全場最慢的關卡耗時直接雙倍，
+  這也是大家傾向用 `--fast` 的原因之一，而 `--fast` 整關跳過突變。
+
+## 五隻的成因與修法
+
+全部是 `main` 那 57 個 commit 的正當重構，`mutants.json` 沒跟上：
+
+| id                          | 目標怎麼變的                                                 |
+| --------------------------- | ------------------------------------------------------------ |
+| `render-aspect`             | `exp.width`／`exp.height` 抽成 `expW`／`expH`                |
+| `mcp-writereply-always-err` | `writeReply` 從 `text(…)` 改成 `result({version,changed},…)` |
+| `setaudio-validate`         | 驗證抽成與 `updateAudio` 共用的 `audioRuleError`             |
+| `tl-anchor-offset`          | 拿掉 `Math.max(0, …)` 夾制（offset 現在可為負）              |
+| `inspector-deselect`        | Inspector 分段重構，縮排變動                                 |
+
+每隻都對回**原本的突變意圖**（不是隨便找一行能替換的字串），更新後各自單獨實跑
+`node scripts/mutate.mjs <id>` → **5 隻全部 1/1 killed**，執行後 `git diff` 確認原始碼
+自動還原。
+
+## 治本：`--check` 錨點關卡
+
+`node scripts/mutate.mjs --check` 只驗每隻 mutant 的 `find` 在目標檔**恰好命中一次**，
+不套用突變、不跑測試，秒級完成。已成為 `gauntlet.sh` 的獨立關卡，且**排在 `--fast` 會
+跑到的位置**——原本的缺口正是「完整突變太慢 → 用 `--fast` → 整關跳過 → 失效可以躺很久」。
+
+同時修掉上面兩個 gauntlet 自身的缺陷：突變關卡只跑一次；綠燈印摘要，紅燈印**全部**
+壞掉的那幾隻。
+
+**負向對照**（證明這道關卡真的擋得住，不是擺設）：把 `render.ts` 的 `expW` 改名成
+`expWidth`（模擬一次正當重構後忘了更新 mutant），`--check` 立刻 exit 1 並指名
+`render-aspect — find 出現 0 次`；還原後回到 `76/76` exit 0。
+
+## 附帶更正：`main` 已補完先前記錄的 `setAudio` 驗證缺口
+
+`docs/ROADMAP.md` 第 11 條原記「`setAudio` 只驗 `mediaId`／`duration`／`in`，負的
+`start` 會被接受並在 render 被靜默放到 0 秒」。`main` 的 MCP 稽核 F 批把規則抽成
+`audioRuleError(a, media)`，`setAudio` 與 `updateAudio` 共用，**含 `start >= 0`**
+（`commands.ts` 該函式第一行）——該缺口已不存在，ROADMAP 條目已改寫。
+
+（本報告先前的口頭判斷曾說「只補了一半、負 start 仍會通過」，那是只看了 `num()`
+（僅驗有限數）而漏看 `audioRuleError` 的誤判，一併在此更正。）
+
+**但有一項是真的**：`start >= 0` 這條規則**沒有任何測試釘住**
+（`grep 'start must be >= 0' server/test` 零命中）。`setaudio-validate` 整段拿掉驗證
+迴圈時，殺掉它的是「mediaId 不存在」那條斷言，不是負 start。已列進 ROADMAP。
+
+## GAUNTLET（最終，`1c42788` + 本節變更）
+
+| 關卡                   | 結果                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| 版本                   | node v22.18.0／npm 11.5.2／tsc 5.9.3／vitest 3.2.7／ffmpeg 8.1.2／source `1c42788`                  |
+| 型別檢查（tsc ×3）     | PASS                                                                                                |
+| Lint／格式             | PASS／PASS                                                                                          |
+| 全測試套件             | **740 passed**（shared 45／server 439／ui 256），0 failed                                           |
+| UI 覆蓋率              | Statements/Lines 89.59%（3351/3740）、Branches 87.38%（942/1078）、Functions 71.36%（167/234）      |
+| 隨機順序               | ui／server（seed 1337）皆 PASS                                                                      |
+| **突變錨點（新關卡）** | **76/76 mutants 的 `find` 都恰好命中一次**                                                          |
+| 依賴稽核               | 沿用既有 baseline，本節未新增依賴                                                                   |
+| 秘密掃描               | PASS                                                                                                |
+| 突變測試               | **75 killed + 1 equivalent control**（`store-corrupt-load`）＝`scripts/mutants.json` 全部 **76 隻** |
+| 總結                   | `GAUNTLET: 全數通過`                                                                                |

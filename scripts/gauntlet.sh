@@ -38,6 +38,10 @@ step "隨機順序（抓 flaky / 順序相依）"
 (cd ui && npx vitest run --sequence.shuffle --sequence.seed=1337 >/dev/null 2>&1); check $?
 (cd server && npx vitest run --sequence.shuffle --sequence.seed=1337 >/dev/null 2>&1); check $?
 
+step "突變錨點（--check，秒級：確認每隻 mutant 的 find 仍命中目標）"
+node scripts/mutate.mjs --check 2>&1 | sed 's/^/   /'
+node scripts/mutate.mjs --check >/dev/null 2>&1; check $?
+
 step "依賴稽核 (npm audit --omit=dev 為執行期；全量含 dev)"
 npm audit --audit-level=high 2>&1 | tail -3 | sed 's/^/   /'
 
@@ -52,8 +56,15 @@ fi
 
 if [ "$FAST" -eq 0 ]; then
   step "突變測試（scripts/mutants.json）"
-  node scripts/mutate.mjs 2>&1 | tail -3 | sed 's/^/   /'
-  node scripts/mutate.mjs >/dev/null 2>&1; check $?
+  # 只跑一次（這是全場最慢的關卡，跑兩次等於雙倍）。綠燈印摘要；紅燈印**全部**壞掉的
+  # 那幾隻——舊版固定 `tail -3`，5 隻壞的只會看到 3 隻，剩下的靜默消失。
+  mut_out=$(node scripts/mutate.mjs 2>&1); mut_rc=$?
+  if [ "$mut_rc" -eq 0 ]; then
+    printf '%s\n' "$mut_out" | tail -3 | sed 's/^/   /'
+  else
+    printf '%s\n' "$mut_out" | grep -E '^\s*(ERROR|SURVIVED):|mutants killed' | sed 's/^/   /'
+  fi
+  check "$mut_rc"
 fi
 
 printf '\n'

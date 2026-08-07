@@ -247,11 +247,21 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
 
 **MCP 面補完分支（最終全分支審查發現，經裁決不擋合併）：**
 
-- **`setAudio` 只驗了 `mediaId`／`duration`／`in`，沒驗 `start`／`fadeIn`／`fadeOut`／
-  `volume`**——與 `updateAudio` 不對稱。實際後果：負的 `start` 會被接受並落盤，而 render
-  在組濾鏡鏈時不會為負值生成 `adelay`，**音訊被靜默放到 0 秒**，使用者看不到任何錯誤。
-  這正是本輪立案要消滅的那類「壞資料默默落盤」，只是換了個欄位。修法照 `setAudio` 現有
-  的逐項驗證迴圈往下加即可（`server/src/commands.ts` 的 `case 'setAudio'`）。
+- ~~**`setAudio` 只驗了 `mediaId`／`duration`／`in`**~~ ——**已由 `main` 的 MCP 稽核 F 批補完**。
+  規則抽成 `audioRuleError(a, media)`，`setAudio` 與 `updateAudio` 共用同一份，涵蓋
+  `start >= 0`、`in >= 0`、`duration > 0`、`volume` 在 0..2、`fadeIn`/`fadeOut` 在
+  0..duration，以及 `in+duration` 不超過素材長度。當初擔心的具體後果（負 `start` 落盤 →
+  render 不生成 `adelay` → 音訊被靜默放到 0 秒）已不可能發生。
+  **但 `start >= 0` 這條規則沒有任何測試釘住**（`grep 'start must be >= 0' server/test`
+  零命中）——`setaudio-validate` 這隻 mutant 整段拿掉驗證迴圈時，殺掉它的是「mediaId
+  不存在」那條斷言，不是負 start。補一條測試即可，屬小 Task。
+- **`mutants.json` 的 find 字串會被重構打斷，而且曾經無人察覺**——一次修好五隻
+  （`render-aspect`／`mcp-writereply-always-err`／`setaudio-validate`／`tl-anchor-offset`／
+  `inspector-deselect`），全是 main 正當重構後 `mutants.json` 沒跟上。已加
+  `node scripts/mutate.mjs --check` 錨點關卡（秒級、`--fast` 也會跑），並修掉
+  `gauntlet.sh` 兩個自身缺陷：突變關卡的 `tail -3` 會截斷失敗清單（五隻壞的只印三隻）、
+  以及同一關卡被跑兩次。**日後改動 mutant 目標所在的程式碼時，請一併更新 `find`**——
+  錨點關卡會當場擋下來，不會再靜默失效。
 - **`add_clip` 的 AC12（審核進行中）可以有 mutant，本輪誤判為做不到**——`mutants.json`
   加一筆，`find` 是 `mcp.ts` 裡的 `const r = aiWrite(store, cmd, ifVersion);`，`replace`
   寫成 `const r = (await import('./commands.js')).applyCommand(store, 'ai', cmd);`。審查者

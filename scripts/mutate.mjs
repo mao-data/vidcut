@@ -6,7 +6,13 @@
  * 哪個測試檔應該因此變紅。本腳本逐隻套用 → 跑該測試檔 → 期待失敗（= 殺掉）
  * → 還原 → 下一隻。任何一隻存活（測試照樣綠）就代表那組斷言是假的，退出碼 1。
  *
- * 用法：node scripts/mutate.mjs [id ...]      （不給 id = 全部）
+ * 用法：node scripts/mutate.mjs [--check] [id ...]      （不給 id = 全部）
+ *
+ * --check 只驗每隻 mutant 的 find 字串在目標檔恰好出現一次，不跑任何測試（秒級）。
+ * 存在的理由：重構會讓 find 字串失配，那隻 mutant 就靜默失去守備——實際發生過三隻
+ * （render-aspect / mcp-writereply-always-err / setaudio-validate）在多個 commit
+ * 之間都是失效的。完整模式當然抓得到，但它要跑十幾分鐘，於是大家用 --fast，而
+ * --fast 整關跳過突變。這個模式便宜到可以放進 --fast，讓那個缺口關起來。
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -15,7 +21,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const mutants = JSON.parse(readFileSync(join(root, 'scripts/mutants.json'), 'utf8'));
-const only = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const checkOnly = argv.includes('--check');
+const only = argv.filter((a) => !a.startsWith('--'));
 const picked = only.length ? mutants.filter((m) => only.includes(m.id)) : mutants;
 
 function runTests(testPath) {
@@ -43,6 +51,10 @@ for (const m of picked) {
     results.push({ ...m, outcome: 'ERROR', detail: `find 出現 ${hits} 次（需恰好 1 次）` });
     continue;
   }
+  if (checkOnly) {
+    results.push({ ...m, outcome: 'ANCHORED' });
+    continue;
+  }
   try {
     writeFileSync(abs, original.replace(m.find, m.replace));
     const r = runTests(m.tests);
@@ -62,7 +74,15 @@ for (const m of picked) {
   process.stdout.write(`${mark} ${m.id}  ${m.note}\n`);
 }
 
-const bad = results.filter((r) => r.outcome !== 'KILLED' && r.outcome !== 'EQUIVALENT');
+const bad = results.filter(
+  (r) => r.outcome !== 'KILLED' && r.outcome !== 'EQUIVALENT' && r.outcome !== 'ANCHORED',
+);
+if (checkOnly) {
+  const anchored = results.filter((r) => r.outcome === 'ANCHORED').length;
+  console.log(`${anchored}/${results.length} mutants 的 find 字串都在目標檔恰好命中一次`);
+  for (const b of bad) console.log(`  ${b.outcome}: ${b.id} — ${b.detail}`);
+  process.exit(bad.length ? 1 : 0);
+}
 const killed = results.filter((r) => r.outcome === 'KILLED').length;
 const equiv = results.filter((r) => r.outcome === 'EQUIVALENT').length;
 console.log(
