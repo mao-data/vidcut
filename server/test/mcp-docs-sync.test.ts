@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { Command } from '@vidcut/shared';
 import { ProjectStore } from '../src/store.js';
 import { EditorContext } from '../src/editorContext.js';
 import { ReviewManager } from '../src/reviews.js';
@@ -11,6 +12,38 @@ import { makeVideo } from './fixtures.js';
 import { TextCardService } from '../src/textCards.js';
 import { PillowRasterizer } from '../src/rasterizer.js';
 import { tmpDir } from './tmp.js';
+
+/**
+ * 從 Command 聯集型別取出所有 name。這是編譯期檢查：任何 variant 新增或改名，
+ * 而這份清單沒跟上，tsc 就會失敗（Record 的鍵不完整）——不會靜默漏掉。
+ */
+const COMMAND_VARIANT_MAP: Record<Command['name'], true> = {
+  updateClip: true,
+  reorderClips: true,
+  removeClip: true,
+  addClip: true,
+  setTimeline: true,
+  updateOverlay: true,
+  updateCaption: true,
+  setOverlays: true,
+  addOverlay: true,
+  removeOverlay: true,
+  setCaptions: true,
+  splitAt: true,
+  deleteBefore: true,
+  deleteAfter: true,
+  freezeFrame: true,
+  extractAudio: true,
+  updateAudio: true,
+  removeAudio: true,
+  setAudio: true,
+  setCanvasFit: true,
+  registerMedia: true,
+  setCover: true,
+  undo: true,
+  redo: true,
+};
+const COMMAND_VARIANTS = Object.keys(COMMAND_VARIANT_MAP);
 
 /**
  * MCP「面的完整性」守衛。與 mcp-tools.test.ts 的差別：那邊驗個別工具的行為，
@@ -97,5 +130,43 @@ describe('MCP 面的完整性', () => {
     const mentioned = [...new Set(instructions.match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? [])];
     const ghosts = mentioned.filter((n) => !names.has(n));
     expect(ghosts, `instructions 提到但實際沒註冊的工具：${ghosts.join(', ')}`).toEqual([]);
+  });
+});
+
+/**
+ * 鐵則第三步的執行面守衛：Command variant 加了、commands.ts 也加了，但忘記
+ * registerTool——AI 就永遠碰不到這個能力。前例：addClip 做完八輪 TDD 卻沒人能用。
+ * 第一、二步漏掉會被 tsc 抓到（commands.ts 的 switch 少 case 編不過），只有第三步
+ * 從前沒有任何東西擋。
+ */
+const MCP_EXEMPT_COMMANDS: Record<string, string> = {
+  splitAt: '由 timeline_op 的 op:"split" 觸達',
+  deleteBefore: '由 timeline_op 的 op:"deleteBefore" 觸達',
+  deleteAfter: '由 timeline_op 的 op:"deleteAfter" 觸達',
+  freezeFrame: '由 timeline_op 的 op:"freeze" 觸達',
+  registerMedia: '由 import_media 內部呼叫觸達',
+};
+
+describe('Command variant 都能從 MCP 觸達', () => {
+  it('每個 Command variant 都有對應的 MCP 工具，或有明列的豁免理由', async () => {
+    const { tools } = await client.listTools();
+    const toolNames = new Set(tools.map((t) => t.name));
+    // camelCase variant → snake_case 工具名（addClip → add_clip）
+    const toSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+    const unreachable = COMMAND_VARIANTS.filter(
+      (v) => !toolNames.has(toSnake(v)) && !(v in MCP_EXEMPT_COMMANDS),
+    );
+
+    expect(
+      unreachable,
+      `這些 Command variant 沒有對應的 MCP 工具，也沒列進豁免表：${unreachable.join(', ')}\n` +
+        `＝ AI 永遠碰不到這個能力（CLAUDE.md 鐵則第三步）。`,
+    ).toEqual([]);
+  });
+
+  it('豁免清單不得列入不存在的 variant', () => {
+    const stale = Object.keys(MCP_EXEMPT_COMMANDS).filter((v) => !COMMAND_VARIANTS.includes(v));
+    expect(stale, `豁免清單裡這些 variant 已經不存在：${stale.join(', ')}`).toEqual([]);
   });
 });
