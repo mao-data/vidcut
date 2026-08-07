@@ -336,7 +336,7 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   `frame.ts` 的 `extractFrame()` 會 `mkdir` 並跑一次 ffmpeg 寫出
   `derived/frames/t<時間>.jpg`（:30-34，而且沒有快取查詢，每次呼叫都重抽）。MCP 的
   `readOnlyHint` 語意是「不修改其環境」，host 會拿它來免權限提示。同一個檔案裡
-  `transcribe` **刻意不標**這個 hint，理由寫在 `mcp.ts:1041-1042`（「『不改專案狀態』不等於
+  `transcribe` **刻意不標**這個 hint，理由就寫在它 `annotations` 上方的註解（「『不改專案狀態』不等於
   『便宜且無副作用』」）——兩者標準不一致。`get_frame` 確實便宜（單幀），所以這比較像
   「要不要把 hint 的語意定義成『不改專案狀態』」的一次裁決，不是明確的 bug。
   裁決之後兩邊要一致：若維持現狀，就在 `transcribe` 那段註解補一句說明兩者的分界；
