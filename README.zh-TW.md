@@ -56,10 +56,13 @@ vidcut 是一個 **本機優先的直式短影音（1080×1920）時間軸編輯
 
 ## 快速開始
 
-前置需求：**Node.js 20+**、**ffmpeg**（含 ffprobe），自動字幕需要 **whisper.cpp**（選裝）。
+前置需求：**Node.js 20+**、**ffmpeg**（含 ffprobe）、**Python 3 + Pillow**（`pip3 install pillow`），自動字幕需要 **whisper.cpp**（選裝）。
 
 ```bash
 brew install ffmpeg
+pip3 install pillow        # 字幕／文字 overlay 的字卡光柵管線要靠它——
+                            # 沒裝的話 server 照樣能起，但字幕/overlay 會退回較粗糙的
+                            # DOM 近似預覽，匯出的 burn 模式也燒不進字幕
 brew install whisper-cpp   # 選裝——自動字幕用
 # 模型放 ~/.cache/whisper.cpp/（例如 ggml-large-v3-turbo-q5_0.bin），
 # 或用 VIDCUT_WHISPER_MODEL 指定路徑
@@ -67,7 +70,8 @@ brew install whisper-cpp   # 選裝——自動字幕用
 git clone https://github.com/mao-data/vidcut.git
 cd vidcut
 npm install
-npm run demo               # 建立 demo 專案並啟動 server
+npm run build -w @vidcut/ui   # build 出 server 會服務的 ui/dist——沒 build 過 :3845 會 404
+npm run demo                   # 建立 demo 專案並啟動 server
 ```
 
 打開 **http://127.0.0.1:3845** 就能看到時間軸與即時預覽。

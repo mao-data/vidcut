@@ -56,10 +56,13 @@ One process, one port, four kinds of traffic: static UI, `/media` (native Range 
 
 ## Quick start
 
-Prerequisites: **Node.js 20+**, **ffmpeg** (and ffprobe), optionally **whisper.cpp** for auto captions.
+Prerequisites: **Node.js 20+**, **ffmpeg** (and ffprobe), **Python 3 + Pillow** (`pip3 install pillow`), optionally **whisper.cpp** for auto captions.
 
 ```bash
 brew install ffmpeg
+pip3 install pillow        # powers the text-card rasterizer for captions & text overlays —
+                            # without it the server still runs, but captions/overlays fall back
+                            # to a rough DOM preview and won't burn into the rendered export
 brew install whisper-cpp   # optional — auto captions
 # put a model in ~/.cache/whisper.cpp/ (e.g. ggml-large-v3-turbo-q5_0.bin),
 # or point VIDCUT_WHISPER_MODEL at one
@@ -67,7 +70,8 @@ brew install whisper-cpp   # optional — auto captions
 git clone https://github.com/mao-data/vidcut.git
 cd vidcut
 npm install
-npm run demo               # scaffolds the demo project and starts the server
+npm run build -w @vidcut/ui   # builds ui/dist, which the server serves — skip this and :3845 404s
+npm run demo                   # scaffolds the demo project and starts the server
 ```
 
 Open **http://127.0.0.1:3845** — you'll see the timeline and live preview.
