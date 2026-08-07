@@ -29,13 +29,19 @@ paths: ["ui/**", "scripts/**"]
   本底雜訊超過 4px 容差，那種紅是量測誤差不是回歸。兩邊量到的畫面存成 PNG 放在臨時
   專案的 `measure/`，數字對不上直接開圖看。`VIDCUT_PORT`（`server/src/index.ts`）就是
   為這支腳本才加的。
-- 上面沒提到、但三支腳本都吃的環境變數（要並行跑或改連線目標時才用得到）：
-  `VIDCUT_URL`（`verify:panels`／`verify:canvas` 要打的網址，預設
-  `http://127.0.0.1:3845/`；`verify:wysiwyg` 不吃，它打自己起的那台）、
-  `VIDCUT_CDP_PORT`（三支的預設**刻意不同**：panels 9333／canvas 9334／wysiwyg 9336，
-  所以同時跑不會互搶）、`VIDCUT_CDP_TIMEOUT_MS`（單發 CDP 逾時，預設 30000）、
-  `VIDCUT_WYSIWYG_DIR`（臨時專案位置，預設 `os.tmpdir()/vidcut-wysiwyg-fixture`）。
-  `VIDCUT_VIEWPORT` 的預設也不同：panels／canvas 是 1440x820，wysiwyg 是 1200x1400。
+- 上面沒提到、三支腳本**各自**還吃的環境變數（要並行跑或改連線目標時才用得到）。
+  **不是每支都吃每一個**，設錯支不會報錯、只會沒效果：
+  - `VIDCUT_URL`——`verify:panels`／`verify:canvas` 要打的網址，預設
+    `http://127.0.0.1:3845/`。**`verify:wysiwyg` 不吃**（它打自己起的那台）。
+  - `VIDCUT_CDP_PORT`——三支都吃，預設**刻意不同**：panels 9333／canvas 9334／
+    wysiwyg 9336，所以同時跑不會互搶。
+  - `VIDCUT_CDP_TIMEOUT_MS`——單發 CDP 逾時，預設 30000。只有 `verify:canvas` 與
+    `verify:wysiwyg` 吃，**`verify:panels` 不吃**（那支沒有逾時保險絲，卡住的瀏覽器
+    會讓它一直 pending，別浪費時間設這個變數）。
+  - `VIDCUT_WYSIWYG_DIR`——臨時專案位置，預設 `os.tmpdir()/vidcut-wysiwyg-fixture`。
+    **只有 `verify:wysiwyg` 吃。**
+  - `VIDCUT_VIEWPORT`——三支都吃，但預設不同：panels／canvas 是 1440x820，
+    wysiwyg 是 1200x1400。
 - `verify:canvas` 檢查 1 的「誤差 0.000%」**不等於「預覽跟成品對齊」**。那段量測只讀
   transform 矩陣的 `a`（scaleX）：不看 `d`、`e`/`f`、transform-origin。對抗性驗證過——
   刻意把 transformOrigin 改成 center（整片位移 391×696px）、把 transform 改成

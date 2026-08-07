@@ -304,6 +304,13 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   已經沒有這一節——`<img draggable>` 那條記錄現在在 `.claude/rules/ui-verification.md`。
   把交叉參考改指新位置即可，屬小 Task。（`scripts/docs-check.mjs` 抓不到這種：它檢查的是
   斷言型文件裡的反引號路徑，不是原始碼註解裡的章節名。）
+- **`server/scripts/text_card.py:170-171` 的 `wrap_text` docstring 已過期**：寫著
+  「行數 ≤ max(1, 段落內字元數)。`server/src/cardBudget.ts` 的預算估算**就是靠這條**」，
+  但 `cardBudget.ts` 的 `maxWrappedLines()` 現在取「字元數上界」與 `greedyLineBound()`
+  前進寬上界**兩者的 min**（正是把 1080 寬 / fontSize 64 上限從 146 字放寬到 369 字的
+  那次改動）。字元數上界仍然成立，錯的是「就是靠這條」這個唯一性宣稱。改法：把那句改成
+  「這是 `cardBudget.ts` 兩個上界之一（另一個是前進寬上界）」。同檔 `:120`
+  （`split_atoms` 的「原子數 ≤ 字元數，這是 cardBudget.ts 上界估算的依據」）同理，可一併看。
 
 ## 上線前必須由人確認
 
