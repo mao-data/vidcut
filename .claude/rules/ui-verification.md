@@ -10,7 +10,10 @@ paths: ["ui/**", "scripts/**"]
   換視窗尺寸：`VIDCUT_VIEWPORT=1280x620 npm run verify:panels`（`verify:canvas` 同樣吃）。
   Chrome 路徑可用 `CHROME_BIN` 覆寫。`findChrome()` 的順序是 `CHROME_BIN` →
   playwright 快取的 Chromium（`~/Library/Caches/ms-playwright/chromium-*`）→
-  `/Applications`——實際跑的一直是 playwright 那顆。
+  系統安裝路徑（`/Applications/Google Chrome.app`、`/usr/bin/google-chrome`、
+  `/usr/bin/chromium`）——實際跑的一直是 playwright 那顆。三支 e2e 腳本各自帶一份
+  **一模一樣**的 `findChrome()`（刻意不抽共用模組，理由見 `ui/e2e/preview-vs-export.mjs`
+  檔頭）：改搜尋順序要三支一起改。
 - **不要用 `npm run demo` 當 verify 的前置**——它會重新產生 `projects/demo`；
   直接 `npx tsx server/src/index.ts projects/demo` 起 server 即可。
 - `verify:canvas` **不假設 t=0 就有 overlay**（`projects/demo` 是共用可變狀態，別的
@@ -20,11 +23,19 @@ paths: ["ui/**", "scripts/**"]
 - `npm run verify:wysiwyg` **不需要先起 server**：自己在 :3999 起一台吃
   `os.tmpdir()/vidcut-wysiwyg-fixture` 的臨時專案（每次先刪掉重建），不碰
   `projects/demo` 也不碰 :3845。換 port 用 `VIDCUT_WYSIWYG_PORT`；需要 python3/Pillow。
-  **`ui/dist` 過期它會自己擋下來**（比對 `ui/src`、`shared/src` 的 mtime）——忘記 build
+  **`ui/dist` 過期它會自己擋下來**（`stalestSource()` 比對 `ui/src`、`shared/src`、
+  `ui/index.html`、`ui/vite.config.ts`、`ui/package.json` 的 mtime，`.test.ts(x)` 除外）——忘記 build
   的話它量的是上一版 UI，全綠但毫無意義。**視窗太小也會擋**：stage 寬 < 400px 時量測
   本底雜訊超過 4px 容差，那種紅是量測誤差不是回歸。兩邊量到的畫面存成 PNG 放在臨時
   專案的 `measure/`，數字對不上直接開圖看。`VIDCUT_PORT`（`server/src/index.ts`）就是
   為這支腳本才加的。
+- 上面沒提到、但三支腳本都吃的環境變數（要並行跑或改連線目標時才用得到）：
+  `VIDCUT_URL`（`verify:panels`／`verify:canvas` 要打的網址，預設
+  `http://127.0.0.1:3845/`；`verify:wysiwyg` 不吃，它打自己起的那台）、
+  `VIDCUT_CDP_PORT`（三支的預設**刻意不同**：panels 9333／canvas 9334／wysiwyg 9336，
+  所以同時跑不會互搶）、`VIDCUT_CDP_TIMEOUT_MS`（單發 CDP 逾時，預設 30000）、
+  `VIDCUT_WYSIWYG_DIR`（臨時專案位置，預設 `os.tmpdir()/vidcut-wysiwyg-fixture`）。
+  `VIDCUT_VIEWPORT` 的預設也不同：panels／canvas 是 1440x820，wysiwyg 是 1200x1400。
 - `verify:canvas` 檢查 1 的「誤差 0.000%」**不等於「預覽跟成品對齊」**。那段量測只讀
   transform 矩陣的 `a`（scaleX）：不看 `d`、`e`/`f`、transform-origin。對抗性驗證過——
   刻意把 transformOrigin 改成 center（整片位移 391×696px）、把 transform 改成

@@ -20,7 +20,7 @@ ui/       @vidcut/ui      React + Vite：時間軸、A/B 播放器、Inspector�
 npx tsx server/src/index.ts projects/demo   # 起 server，載入既有專案
 npm run demo                                # ⚠️ 會「重新產生」projects/demo，覆蓋既有內容
 npm run dev:ui                              # UI 熱重載（另開終端機；port 不保證 5173，以 vite 啟動訊息為準，只綁 IPv6 localhost）
-npm test                                    # 全部（真 ffmpeg + 真 whisper；機器空閒時約 70 秒）
+npm test                                    # 全部（真 ffmpeg + 真 whisper；某次實測機器空閒時約 70 秒，未重驗）
 npm run typecheck                           # 三 workspace tsc
 npm run lint && npm run format:check        # 應乾淨；紅的都是真問題，不要當雜訊放過（format 用 npm run format 修）
 npm run verify:panels                       # 真瀏覽器回歸：面板控制項（需 server 在跑 + ui/dist 最新）
@@ -38,7 +38,7 @@ bash scripts/gauntlet.sh                    # 全層驗證一條龍；當下數�
 ## 「預覽即成品」的實際範圍（別當全域保證用）
 
 **非 karaoke 字幕與 overlay（含文字 overlay）成立**：字幕輸出 PNG 逐位元組相同，
-overlay 由 `npm run verify:wysiwyg` 守著（六項全綠，最大差 1.1px）。
+overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1px 是某次實測，未重驗）。
 **karaoke 字幕預覽略有偏差（描邊看起來略厚），但匯出成品是正確的**——寫文件或對外
 描述一律帶限定詞，也不要跑去修那個不存在的匯出 bug。
 完整範圍、成因、實測數字與字卡管線（自動換行、像素預算、幾何 schema 演進）見

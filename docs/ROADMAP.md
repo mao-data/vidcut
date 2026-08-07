@@ -292,6 +292,19 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   斷言（那條才是獨立 oracle）。功能上無漏洞，但這條斷言證明不了它宣稱的「回傳的 id
   就是新 clip 的 id」。改法：把預期 id 在呼叫前先算好或改用 label／長度等獨立 oracle。
 
+**文件稽核（2026-08-07，見 `docs/DOC-AUDIT-2026-08-07.md`）發現，但要動到程式碼、
+不在「只動文件」的稽核範圍內：**
+
+- **`ui/e2e/panel-affordance.mjs` 檔頭寫「前置：`npm run demo`」**，與 `CLAUDE.md`／
+  `.claude/rules/ui-verification.md`「**不要**用 `npm run demo` 當 verify 的前置（它會重新
+  產生 `projects/demo`、覆蓋既有內容）」直接矛盾。姊妹腳本 `ui/e2e/canvas-direct.mjs` 的
+  檔頭就寫對了（`npx tsx server/src/index.ts projects/demo`）。照 canvas-direct 的寫法改那
+  一行檔頭註解即可，屬小 Task。
+- **`ui/src/player/Player.tsx` 的註解引用「`CLAUDE.md`「UI 驗證的陷阱」」**，但 `CLAUDE.md`
+  已經沒有這一節——`<img draggable>` 那條記錄現在在 `.claude/rules/ui-verification.md`。
+  把交叉參考改指新位置即可，屬小 Task。（`scripts/docs-check.mjs` 抓不到這種：它檢查的是
+  斷言型文件裡的反引號路徑，不是原始碼註解裡的章節名。）
+
 ## 上線前必須由人確認
 
 自動化測試涵蓋不到，需要真人與真環境：
