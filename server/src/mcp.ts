@@ -305,9 +305,9 @@ const audioSchema = z
     in: z.number(),
     duration: z.number(),
     volume: z.number().min(0).max(2),
-    fadeIn: z.number().min(0).optional(),
-    fadeOut: z.number().min(0).optional(),
-    ducking: z.boolean().optional(),
+    fadeIn: z.number().min(0).optional().describe('淡入秒數，不能超過這一項的 duration'),
+    fadeOut: z.number().min(0).optional().describe('淡出秒數，不能超過這一項的 duration'),
+    ducking: z.boolean().optional().describe('true ＝ 這一項播放期間把影片原聲壓到四分之一'),
     label: z.string().optional(),
   })
   .strict();
@@ -459,8 +459,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
         '小修單一項目用細粒度工具（update_clip / update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
         '不要整組重送 set_*。寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；' +
-        '審核進行中寫入會被拒（import_media 與 set_cover 也一樣，它們同樣是寫入）。' +
-        '寫入回「no-op」代表命令合法但沒有任何欄位真的改變——通常是值跟現況相同，或欄位名填錯。',
+        '審核進行中寫入會被拒（import_media、set_cover 與 render 也一樣，它們同樣是寫入）；' +
+        '而且被退回時，自送審以來的變更會被整批回滾。' +
+        '寫入回「no-op」代表命令合法但沒有任何欄位真的改變——通常是送的值跟現況相同。' +
+        'update_clip / update_caption / update_overlay / update_audio 的 patch 是嚴格比對的，' +
+        '欄位名填錯會直接回 schema 錯誤，不會變成 no-op。',
     },
   );
 
@@ -584,7 +587,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '抽出指定時間點的畫面 JPEG（AI 的「眼睛」）。只有片段畫面——不合成 overlay/字幕/blur 背景；' +
         '要驗證這些請 render 或請使用者看 UI 預覽。' +
-        '不改專案狀態（會在 derived/frames/ 留一張快取圖）。time 會被夾在 [0, 全片長] 內。',
+        '不改專案狀態，但會在 derived/frames/ 寫一張 JPEG（每次呼叫都重抽一次，不是快取）。' +
+        'time 會被夾在 [0, 全片長] 內；主軌是空的時候回錯誤。',
       outputSchema: {
         url: z.string().describe('本機 client 可直接開；遠端 client 請用回覆裡內嵌的 JPEG'),
         path: z.string().describe('相對專案資料夾'),
@@ -700,7 +704,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '⚠️ 每個項目都會拿到**新的 clipId**，所以錨定在舊片段上的 overlay（anchor.clipId）' +
         '會斷掉——斷掉的 overlay 在預覽與成品裡都不會顯示，回覆會列出是哪幾個。' +
         '要保住錨點就在項目裡帶上原本的 id（可用 get_project 取得）；' +
-        '只是想加片段到尾端請用 add_clip，它不動既有片段。',
+        '只是想加片段到尾端請用 add_clip，它不動既有片段。' +
+        '逐項驗證、**任一項不合格就整批拒絕、文件完全不動**：mediaId 要存在、' +
+        '純音訊素材會被擋（放 BGM／旁白請用 set_audio）、in 與 duration 不能超出素材長度、' +
+        '自己帶的 id 不能重複。',
       outputSchema: clipTrackOutput,
       inputSchema: { clips: z.array(timelineClipSchema), ifVersion: z.number().optional() },
     },
@@ -737,7 +744,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'update_clip',
     {
-      description: '修改片段 in/duration/volume/label（會驗證 trim 邊界）。',
+      description:
+        '修改單一片段的 in/duration/volume/label（不動它在主軌上的順序）。' +
+        '邊界拿「改完之後的樣子」驗：in >= 0、duration >= 0.1 秒、' +
+        'in+duration 不能超過素材長度、volume 在 0–2。' +
+        '⚠️ duration 一改，主軌是磁性的，後面所有片段都會跟著位移，而字幕與音訊用絕對時間、' +
+        '不會跟著移——要自己補 update_caption / update_audio。',
       outputSchema: writeOutput,
       inputSchema: {
         clipId: z.string(),
@@ -763,7 +775,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'remove_clip',
     {
-      description: '移除片段。',
+      description:
+        '移除單一片段（磁性主軌自動閉合，後面的片段整段左移）。' +
+        '錨定在它上面的 overlay 會斷，回覆會列出是哪幾個；字幕與音訊用絕對時間、' +
+        '不會跟著左移，要自己補 update_caption / update_audio。',
       outputSchema: clipTrackOutput,
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
@@ -775,8 +790,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_overlays',
     {
       description:
-        '整組替換 overlay 軌。每個項目 text 與 imagePath 恰好給一個：帶 text 的自動產字卡並填 ' +
-        'imagePath（不要自己給）；純圖項目給實際 imagePath。',
+        '整組替換 overlay 軌（原有 overlay 全部被取代；空陣列＝清空）。' +
+        '每個項目 text 與 imagePath 恰好給一個：帶 text 的自動產字卡並填 ' +
+        'imagePath（不要自己給）；純圖項目給實際 imagePath。' +
+        '每項還要滿足：start 與 anchor 二選一給一個、anchor.clipId 指向現存片段、' +
+        'duration > 0 或 null（＝到片尾）、id 不重複。' +
+        '⚠️ **這四條在整組替換這條路上不會被擋下來**（只有 add_overlay 會驗）——' +
+        '寫錯不會報錯，只是那張圖在預覽與成品都不顯示。逐張新增請用 add_overlay。' +
+        '字卡超過像素預算則會整批拒絕。',
       outputSchema: writeOutput,
       inputSchema: { overlays: z.array(overlaySchema), ifVersion: z.number().optional() },
     },
@@ -796,7 +817,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'set_captions',
     {
-      description: '整組替換字幕軌。',
+      description:
+        '整組替換字幕軌（原有字幕全部被取代；空陣列＝清空）。start 與 tokens 都是' +
+        '時間軸絕對秒數。逐句驗證、**任一句不合格就整批拒絕、文件完全不動**：' +
+        'duration 要 > 0、整句不能落在 t=0 之前、字卡不能超過像素預算' +
+        '（文字太長或 fontSize 太大，錯誤訊息會寫出估到的尺寸）。' +
+        '小修單一句請用 update_caption。',
       outputSchema: writeOutput,
       inputSchema: { captions: z.array(captionSchema), ifVersion: z.number().optional() },
     },
@@ -814,7 +840,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '只改一句字幕（text/start/duration/style/tokens）。小修用這個，別用 set_captions 整組重送。' +
         'style 提供時整組替換；tokens 給 [] 代表清除逐詞時間戳。' +
         '⚠️ 有 tokens 的句子改 text 要**同時**送 tokens（清成 [] 或給對得上新文字的一組），' +
-        '只送 text 是靜默 no-op（字卡照 tokens 排版，根本不看 text）——見 patch.text 的說明。' +
+        '只送 text 畫面不會有任何變化（字卡照 tokens 排版，根本不看 text），而且寫入是**成功**的' +
+        '——version 照樣前進、不會回「no-op」，從回覆完全看不出來。見 patch.text 的說明。' +
         'tokens（逐詞時間戳）存的是時間軸絕對秒數，伺服器只在「整句平移」時自動幫你一起移：' +
         '只給 start（或給了 start 且 duration 不變）＝整句搬到別的時間點，每個詞的 start/end ' +
         '平移同樣的差值，不必自己重算。修邊則完全不動詞時間：只給 duration（縮尾巴）、' +
@@ -830,8 +857,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
               .string()
               .optional()
               .describe(
-                '⚠️ 這句**有 tokens 時，只改 text 是靜默 no-op**：字卡是照 tokens 排版的' +
-                  '（有 tokens 就完全不看 text），畫面不會有任何變化也不會報錯。' +
+                '⚠️ 這句**有 tokens 時，只改 text 畫面不會有任何變化**：字卡是照 tokens 排版的' +
+                  '（有 tokens 就完全不看 text）。文字確實會寫進文件、version 也會前進，' +
+                  '所以回覆跟真的改到東西一模一樣（不是「no-op」、也不報錯），只有畫面不動。' +
                   '改字請一併送 `tokens: []` 清掉舊的詞邊界——它們本來就對不上新文字了；' +
                   '要保留逐詞高亮就自己給一組對得上新文字的 tokens。',
               ),
@@ -905,7 +933,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         '新增單張疊圖（其他 overlay 不動）。text 與 imagePath 恰好給一個：文字類 overlay 帶 text ' +
-        '（伺服器自動產字卡並維護 imagePath，不要自己給）；純圖 overlay 給實際 imagePath。',
+        '（伺服器自動產字卡並維護 imagePath，不要自己給）；純圖 overlay 給實際 imagePath。' +
+        '會驗：id 不能與現有 overlay 重複、start 與 anchor 要給且只給一個、' +
+        'anchor.clipId 要指向現存片段、duration > 0 或 null（＝到片尾）。' +
+        '錨定（anchor）的 overlay 會跟著片段走，絕對 start 則不會。',
       outputSchema: writeOutput,
       inputSchema: { overlay: overlaySchema, ifVersion: z.number().optional() },
     },
@@ -947,7 +978,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'undo',
     {
       description:
-        '撤回最近 N 筆編輯（游標式：連續呼叫一路往回退）。渲染/審核等狀態變更不在範圍。' +
+        '撤回最近 N 筆編輯（游標式：連續呼叫一路往回退）。' +
+        '**只有動到軌道與畫布的變更可撤回**——渲染、審核、封面（set_cover）與匯入素材' +
+        '（import_media）都不進 undo 堆疊，撤不掉。可撤的不足 N 筆時撤到沒有為止；' +
+        '一筆都沒有才回錯誤。' +
         '⚠️ undo 堆疊是**人與 AI 共用的一份**——你撤掉的可能是使用者剛剛做的調整。' +
         '不確定就先 get_history 看最近幾筆的 source。',
       outputSchema: writeOutput,
@@ -980,8 +1014,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'transcribe',
     {
       description:
-        '對「時間軸目前的混音」跑語音辨識（whisper.cpp），回傳逐詞時間戳。' +
+        '對整條時間軸的聲音跑語音辨識（whisper.cpp），回傳逐詞時間戳。' +
         '時間是時間軸絕對秒數，可直接當字幕時間用，不必換算來源時間。' +
+        '⚠️ 餵給辨識的**不是**成品混音：為了最大辨識度，片段音量、音訊項音量、淡入淡出與 ' +
+        'ducking 一律被忽略——被靜音的片段（含 extract_audio 之後的原片段）裡的台詞照樣會辨識出來。' +
+        '定格片段與無音軌素材以靜音佔位，所以時間對得上。時間軸完全沒有聲音時會失敗。' +
         '**不改專案狀態**，但會跑一次全時間軸混音（ffmpeg）再跑 whisper——分鐘級的操作，' +
         '而且會寫 derived/asr.wav 與 derived/asr.json（後者的路徑就是回傳的 jsonPath）。' +
         `要直接上字幕請用 auto_caption。逐詞結果超過 ${MAX_WORDS_INLINE} 詞、` +
@@ -1029,7 +1066,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'auto_caption',
     {
       description:
-        '一鍵自動字幕：辨識 → 分頁 → 寫入字幕軌（整組替換）。' +
+        '一鍵自動字幕：辨識 → 分頁 → 寫入字幕軌（整組替換，原有字幕全部被取代）。' +
+        '辨識跟 transcribe 走同一條路——分鐘級的 ffmpeg＋whisper，同樣會寫 derived/asr.wav ' +
+        '與 derived/asr.json，同樣忽略音量與 ducking。' +
         'karaoke 預設開啟（逐詞高亮，渲染時一個詞一張字卡）。' +
         '想自己控制斷句就改用 transcribe + set_captions。' +
         `超過 ${MAX_CAPTIONS_INLINE} 句時回覆只內嵌前段並標 captionsTruncated` +
@@ -1113,7 +1152,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '⚠️ **只動主軌**的代價：字幕與音訊用的是時間軸絕對秒數，deleteBefore 之後畫面整個' +
         '往左移，字幕/音訊卻留在原地——會失步，要自己補 update_caption / update_audio。' +
         '（與 CapCut 同語意，不是 bug。）另外整段片段消失時，錨定在它上面的 overlay 會斷，' +
-        '回覆會列出是哪幾個。',
+        '回覆會列出是哪幾個。' +
+        'split 的切點必須嚴格落在片段內部，切完兩側各至少 0.1 秒，太靠邊會被拒；' +
+        'freeze 插進去的定格片段是**無聲**的（會佔掉時間軸長度，後面的畫面整段右移）。',
       outputSchema: clipTrackOutput,
       inputSchema: {
         op: z.enum(['split', 'deleteBefore', 'deleteAfter', 'freeze']),
@@ -1140,7 +1181,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'extract_audio',
     {
-      description: '把片段的聲音抽成獨立音訊項（片段轉靜音），之後可單獨調音量/淡化/刪除。',
+      description:
+        '把片段的聲音抽成獨立音訊項（片段音量歸零），之後可單獨調音量/淡化/刪除。' +
+        '抽出的音訊項用**時間軸絕對時間**，不跟隨原片段搬動——之後重排或刪片段，' +
+        '聲音會留在原處，要自己補 update_audio。素材沒有音軌時會被拒。',
       outputSchema: writeOutput,
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
@@ -1151,7 +1195,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'set_audio',
     {
-      description: '整組設定音訊軌（放旁白/BGM）。start 為時間軸絕對秒數；ducking 會壓低影片原聲。',
+      description:
+        '整組設定音訊軌（放旁白/BGM；原有音訊項全部被取代，空陣列＝清空音訊軌）。' +
+        'start 為時間軸絕對秒數；ducking 會在該項播放期間把影片原聲壓到四分之一。' +
+        '逐項驗證、**任一項不合格就整批拒絕、文件完全不動**：mediaId 要存在、' +
+        'start 與 in 要 >= 0、duration 要 > 0、fadeIn/fadeOut 不能超過 duration、' +
+        'in+duration 不能超過素材長度。小修單一項請用 update_audio。',
       outputSchema: writeOutput,
       inputSchema: { audio: z.array(audioSchema), ifVersion: z.number().optional() },
     },
@@ -1162,7 +1211,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'update_audio',
     {
-      description: '調整單一音訊項（音量、淡入淡出、時間、ducking）。',
+      description:
+        '調整單一音訊項（音量、淡入淡出、時間、ducking）。' +
+        '規則是拿「**改完之後的樣子**」去驗，不是只驗你送的欄位——' +
+        '例如只縮短 duration，卻讓既有的 fadeOut 超出新的 duration，這次呼叫就會被拒。' +
+        '邊界同 set_audio。',
       outputSchema: writeOutput,
       inputSchema: {
         id: z.string(),
@@ -1202,7 +1255,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'set_cover',
     {
-      description: '設定封面圖（有成品時從成品抽該時間點的畫面，否則從來源素材抽）。回傳圖片 URL。',
+      description:
+        '設定封面圖：成品檔案還在時從成品抽該時間點的畫面（含 overlay 與字幕），' +
+        '否則退回從來源素材抽（就只有片段畫面）。固定寫到 output/cover.jpg，' +
+        '每次呼叫覆蓋同一個檔。回覆內嵌 JPEG，URL 與路徑在 structured 裡。',
       outputSchema: {
         coverPath: z.string().describe('相對專案資料夾'),
         url: z.string(),
@@ -1233,7 +1289,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'request_review',
     {
       description:
-        '請使用者在瀏覽器 UI 審核目前的時間軸，阻塞直到核准/退回/逾時。回傳 outcome 與審核期間的人類變更。',
+        '請使用者在瀏覽器 UI 審核目前的時間軸，阻塞直到核准/退回/逾時（預設 15 分鐘）。' +
+        '回傳 outcome 與審核期間的人類變更。' +
+        '⚠️ outcome 是 rejected 時，**自本次呼叫以來的變更會被整批回滾**' +
+        '（回到送審當下的版本），不是只回一句「被退回」。' +
+        '審核期間你的所有寫入都會被拒，只有使用者能改；核准/退回之後才恢復。' +
+        '前一輪還沒結束就再呼叫一次，會把前一輪以 timeout 收掉。',
       outputSchema: {
         outcome: z.enum(['approved', 'rejected', 'approved_with_notes', 'timeout']),
         note: z.string().optional(),
@@ -1284,7 +1345,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '逐詞高亮＝一個詞一張字卡，字幕很多時渲染會變慢）。' +
         "想讓觀眾自己開關字幕就用 'embed'（soft track，回傳 subtitlesEmbedded）；" +
         "要上傳到會自動翻譯字幕的平台就用 'sidecar'（另存 .srt，回傳 subtitlePath）。" +
-        'burn 以外的模式畫面都是乾淨的——soft track 疊上燒錄會讓觀眾看到兩排字。',
+        'burn 以外的模式畫面都是乾淨的——soft track 疊上燒錄會讓觀眾看到兩排字。' +
+        '⚠️ render 本身也是寫入：審核進行中會被拒，而且它會把渲染狀態寫進專案，' +
+        '**版本號會前進**——手上的 ifVersion 在 render 之後就過期了，要重讀。' +
+        '主軌是空的會失敗；burn 模式的字卡總數（逐詞高亮＝一詞一張）超過 600 張時' +
+        '整支拒絕渲染，改用 karaoke:false 重跑 auto_caption 或分段渲染。',
       outputSchema: {
         output: z.string().describe('成品路徑，相對專案資料夾'),
         url: z.string(),

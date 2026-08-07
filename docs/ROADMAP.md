@@ -312,6 +312,33 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   「這是 `cardBudget.ts` 兩個上界之一（另一個是前進寬上界）」。同檔 `:120`
   （`split_atoms` 的「原子數 ≤ 字元數，這是 cardBudget.ts 上界估算的依據」）同理，可一併看。
 
+- **`setOverlays` 的驗證比 `addOverlay` 鬆四條，寫壞的 overlay 會靜默落盤**（Task 6 的
+  MCP 工具描述稽核發現）。`commands.ts` 的 `setOverlays()`（約 :753-769）只跑
+  `validateOverlayTextCard`，而 `addOverlay()`（:656-683）另外驗了四件事，整組替換這條路
+  全都沒有：①「既無 `start` 也無 `anchor`」②「`anchor.clipId` 指向不存在的片段」
+  ③「`duration <= 0`」④「同一批裡 `id` 重複」。實測（對空專案直接呼叫 `applyCommand`）
+  四種全部回 `{"ok":true}` 並寫進文件，重複 id 那次 overlay 軌真的變成
+  `["dup","dup"]`；同樣四個 overlay 送 `addOverlay` 則分別被
+  `overlay needs start or anchor`／`anchor clip not found: ghost`／
+  `overlay duration must be > 0 or null` 擋下。後果是 `overlayWindow()` 對這些回 `null`
+  ＝**預覽與成品都不顯示，而工具回的是成功**，使用者只會發現「有幾張圖不見了」。
+  修法：把 `addOverlay` 那四條抽成一個 `overlayRuleError(o, doc)`，`setOverlays` 逐項套用
+  並沿用「任一項不合格就整批拒絕」的既有立場（與 `setCaptions`／`setAudio` 一致）。
+  ⚠️ 這會讓現在能過的呼叫變成不能過，屬行為變更，所以 Task 6（只動文件）沒有動它——
+  目前是在 `set_overlays` 的工具描述裡明說「這四條在整組替換這條路上不會被擋下來」。
+  修掉之後記得把那句描述一併改掉。
+
+- **`get_frame` 標了 `annotations.readOnlyHint: true`，但它會寫檔**（同上，Task 6 發現）。
+  `frame.ts` 的 `extractFrame()` 會 `mkdir` 並跑一次 ffmpeg 寫出
+  `derived/frames/t<時間>.jpg`（:30-34，而且沒有快取查詢，每次呼叫都重抽）。MCP 的
+  `readOnlyHint` 語意是「不修改其環境」，host 會拿它來免權限提示。同一個檔案裡
+  `transcribe` **刻意不標**這個 hint，理由寫在 :1004-1005（「『不改專案狀態』不等於
+  『便宜且無副作用』」）——兩者標準不一致。`get_frame` 確實便宜（單幀），所以這比較像
+  「要不要把 hint 的語意定義成『不改專案狀態』」的一次裁決，不是明確的 bug。
+  裁決之後兩邊要一致：若維持現狀，就在 `transcribe` 那段註解補一句說明兩者的分界；
+  若收緊，就把 `get_frame` 的 hint 拿掉。改 annotations 會改變 host 的權限提示行為，
+  屬行為變更，故 Task 6 未動。
+
 ## 上線前必須由人確認
 
 自動化測試涵蓋不到，需要真人與真環境：
