@@ -433,6 +433,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
         'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
         '純音訊素材（mp3/wav…）只能上音訊軌，add_clip 與 set_timeline 會擋下它。' +
+        '想把某片段的原聲抽出來單獨調音量/淡化，用 extract_audio（片段轉靜音，聲音變成獨立音訊項）。' +
         'render 的 subtitles 預設 burn（字幕燒進畫面）；要讓觀眾自己開關就用 embed，' +
         '要上傳到會自動翻譯字幕的平台就用 sidecar（另存 .srt），burn 以外畫面都乾淨。' +
         '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
@@ -443,9 +444,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '真要轉型請 remove_overlay + add_overlay。' +
         'set_timeline 會給每個片段**新的 clipId**，錨定在舊片段上的 overlay 因此會斷' +
         '（回覆會列出是哪幾個；斷掉的在預覽與成品都不顯示）——要保住錨點就把原本的 id' +
-        '一起帶進 clips，只是想加片段到尾端請用 add_clip。timeline_op 的' +
+        '一起帶進 clips，只是想加片段到尾端請用 add_clip，只是想調順序請用 reorder_clips' +
+        '（order 給完整的 clipId 排列，不換 clipId 本身，不影響錨點）。timeline_op 的' +
         ' deleteBefore/deleteAfter 同理，而且它**只動主軌**：字幕與音訊用的是絕對時間，' +
-        '畫面左移後它們會失步，要自己補 update_caption / update_audio。' +
+        '畫面左移後它們會失步，要自己補 update_caption / update_audio。remove_clip 移除' +
+        '單一片段時錨點會斷跟 deleteBefore/deleteAfter 一樣，回覆同樣會列出是哪幾個 overlay。' +
         'update_caption 整句平移（duration 不變只改 start）時，該句的 tokens' +
         '（逐詞時間戳＝時間軸絕對秒數）會自動一起平移；修邊（改 duration）則不動詞時間。' +
         '文字 overlay 與字幕都會**自動換行**：預設折在畫布寬的 90%（文字 overlay 可用 maxWidth 調），' +
@@ -454,7 +457,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '行數取的是上界估算，實際折出來通常少很多）。' +
         'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
         'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
-        '小修單一項目用細粒度工具（update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
+        '小修單一項目用細粒度工具（update_clip / update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
         '不要整組重送 set_*。寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；' +
         '審核進行中寫入會被拒（import_media 與 set_cover 也一樣，它們同樣是寫入）。' +
         '寫入回「no-op」代表命令合法但沒有任何欄位真的改變——通常是值跟現況相同，或欄位名填錯。',
