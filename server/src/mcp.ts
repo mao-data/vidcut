@@ -706,8 +706,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '要保住錨點就在項目裡帶上原本的 id（可用 get_project 取得）；' +
         '只是想加片段到尾端請用 add_clip，它不動既有片段。' +
         '逐項驗證、**任一項不合格就整批拒絕、文件完全不動**：mediaId 要存在、' +
-        '純音訊素材會被擋（放 BGM／旁白請用 set_audio）、in 與 duration 不能超出素材長度、' +
-        '自己帶的 id 不能重複。',
+        '純音訊素材會被擋（放 BGM／旁白請用 set_audio）、in >= 0 且 duration > 0、' +
+        'in+duration 不能超出素材長度、volume 在 0–2、自己帶的 id 不能重複。',
       outputSchema: clipTrackOutput,
       inputSchema: { clips: z.array(timelineClipSchema), ifVersion: z.number().optional() },
     },
@@ -793,10 +793,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '整組替換 overlay 軌（原有 overlay 全部被取代；空陣列＝清空）。' +
         '每個項目 text 與 imagePath 恰好給一個：帶 text 的自動產字卡並填 ' +
         'imagePath（不要自己給）；純圖項目給實際 imagePath。' +
-        '每項還要滿足：start 與 anchor 二選一給一個、anchor.clipId 指向現存片段、' +
+        '每項還要滿足：start 與 anchor 至少要給一個、anchor.clipId 指向現存片段、' +
         'duration > 0 或 null（＝到片尾）、id 不重複。' +
-        '⚠️ **這四條在整組替換這條路上不會被擋下來**（只有 add_overlay 會驗）——' +
+        '⚠️ **這四條在整組替換這條路上不會被擋下來**（add_overlay 才會驗）——' +
         '寫錯不會報錯，只是那張圖在預覽與成品都不顯示。逐張新增請用 add_overlay。' +
+        '兩個都給時 anchor 會蓋過 start，這條路與 add_overlay 都不擋，只有 update_overlay 會擋。' +
         '字卡超過像素預算則會整批拒絕。',
       outputSchema: writeOutput,
       inputSchema: { overlays: z.array(overlaySchema), ifVersion: z.number().optional() },
@@ -934,8 +935,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         '新增單張疊圖（其他 overlay 不動）。text 與 imagePath 恰好給一個：文字類 overlay 帶 text ' +
         '（伺服器自動產字卡並維護 imagePath，不要自己給）；純圖 overlay 給實際 imagePath。' +
-        '會驗：id 不能與現有 overlay 重複、start 與 anchor 要給且只給一個、' +
+        '會驗：id 不能與現有 overlay 重複、start 與 anchor **至少要給一個**、' +
         'anchor.clipId 要指向現存片段、duration > 0 或 null（＝到片尾）。' +
+        '⚠️ start 與 anchor 兩個都給**不會報錯**，但 anchor 會蓋過 start、' +
+        'start 靜默失效——三條路裡只有 update_overlay 會擋下這種組合。' +
         '錨定（anchor）的 overlay 會跟著片段走，絕對 start 則不會。',
       outputSchema: writeOutput,
       inputSchema: { overlay: overlaySchema, ifVersion: z.number().optional() },
@@ -1199,8 +1202,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '整組設定音訊軌（放旁白/BGM；原有音訊項全部被取代，空陣列＝清空音訊軌）。' +
         'start 為時間軸絕對秒數；ducking 會在該項播放期間把影片原聲壓到四分之一。' +
         '逐項驗證、**任一項不合格就整批拒絕、文件完全不動**：mediaId 要存在、' +
-        'start 與 in 要 >= 0、duration 要 > 0、fadeIn/fadeOut 不能超過 duration、' +
-        'in+duration 不能超過素材長度。小修單一項請用 update_audio。',
+        'start 與 in 要 >= 0、duration 要 > 0、volume 在 0–2、' +
+        'fadeIn/fadeOut 不能超過 duration、in+duration 不能超過素材長度。' +
+        '小修單一項請用 update_audio。',
       outputSchema: writeOutput,
       inputSchema: { audio: z.array(audioSchema), ifVersion: z.number().optional() },
     },

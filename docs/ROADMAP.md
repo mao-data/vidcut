@@ -327,12 +327,16 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   ⚠️ 這會讓現在能過的呼叫變成不能過，屬行為變更，所以 Task 6（只動文件）沒有動它——
   目前是在 `set_overlays` 的工具描述裡明說「這四條在整組替換這條路上不會被擋下來」。
   修掉之後記得把那句描述一併改掉。
+  **順手改掉 `commands.ts:751-752` 那段註解**——它寫著 `setOverlays`「跟
+  `addOverlay`/`updateOverlay` 用同一套規則，**不因為是『整組替換』就放寬**」。第一句雖已
+  把範圍限定在 text/imagePath，第二句仍會讓維護者相信上面這個缺口不存在（本 Task 只動
+  文件，沒有動產品程式碼裡的註解，所以留到這裡一併處理）。
 
 - **`get_frame` 標了 `annotations.readOnlyHint: true`，但它會寫檔**（同上，Task 6 發現）。
   `frame.ts` 的 `extractFrame()` 會 `mkdir` 並跑一次 ffmpeg 寫出
   `derived/frames/t<時間>.jpg`（:30-34，而且沒有快取查詢，每次呼叫都重抽）。MCP 的
   `readOnlyHint` 語意是「不修改其環境」，host 會拿它來免權限提示。同一個檔案裡
-  `transcribe` **刻意不標**這個 hint，理由寫在 :1004-1005（「『不改專案狀態』不等於
+  `transcribe` **刻意不標**這個 hint，理由寫在 `mcp.ts:1041-1042`（「『不改專案狀態』不等於
   『便宜且無副作用』」）——兩者標準不一致。`get_frame` 確實便宜（單幀），所以這比較像
   「要不要把 hint 的語意定義成『不改專案狀態』」的一次裁決，不是明確的 bug。
   裁決之後兩邊要一致：若維持現狀，就在 `transcribe` 那段註解補一句說明兩者的分界；
