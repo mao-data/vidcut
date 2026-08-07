@@ -1,6 +1,6 @@
 # vidcut 上線計劃與可行方向
 
-最後更新 2026-08-03。現況與已驗證範圍見 `HANDOFF.md`；各項設計定案見 `docs/superpowers/specs/`。
+最後更新 2026-08-05。現況與已驗證範圍見 `HANDOFF.md`；各項設計定案見 `docs/superpowers/specs/`。
 
 ## 進行中
 
@@ -14,6 +14,142 @@
 | 2    | 右側面板新增 `Media` 分頁：素材夾掃描 → 勾選匯入 → 已匯入清單 → 加到時間軸                                                                             | 待實作                                     |
 
 後端零複製能力 + MCP 工具已全部上線；MCP 面原先階段 1 完成時仍有空白（`import_media` 掛、`add_clip` 缺），現已補完。
+
+### 字幕能力補完（源自 FreeCut 調研，2026-08-04）
+
+調研對象：[walterlow/freecut](https://github.com/walterlow/freecut)（MIT，瀏覽器內 NLE）。
+五項裡「字幕匯出」已完成，其餘排期如下。**抄程式碼要保留 MIT 版權聲明。**
+第 6 項不是來自 FreeCut 調研，是 2026-08-05 使用實測時發現的缺口。
+
+| #   | 項目                                     | 狀態    | 估時   | 備註                                                                                                     |
+| --- | ---------------------------------------- | ------- | ------ | -------------------------------------------------------------------------------------------------------- |
+| 1   | **SRT/VTT 匯出（sidecar + soft track）** | ✅ 完成 | 半天   | `render` 新增 `subtitles: 'burn'\|'off'\|'sidecar'\|'embed'`，預設 `burn` 維持現有行為                   |
+| 2   | 字幕樣式 preset（5 組）                  | 待實作  | 1–2 天 | 見下                                                                                                     |
+| 3   | typewriter 逐字揭示                      | 待實作  | 半天   | 見下                                                                                                     |
+| 4   | word 單位的 in/out 文字動畫              | 待實作  | 2–3 天 | 見下                                                                                                     |
+| 5   | SRT/VTT 匯入 + 內嵌軌抽取                | 待實作  | 2–3 天 | ⚠️ 必須與「字幕錨定 clip」綁在一起，見下                                                                 |
+| 6   | **UI 手動新增字幕**                      | 待實作  | 半天   | 唯一一個 UI 完全沒有入口的字幕操作；需求細節未定案，見下                                                 |
+| —   | ~~自寫 MKV EBML parser~~                 | 不做    | —      | FreeCut 手刻 548 行是因為瀏覽器沒有 ffmpeg；我們有，用 `ffprobe -select_streams s` + `ffmpeg -map 0:s:0` |
+| —   | ~~per-character 真動畫~~                 | 暫緩    | —      | Pillow 預烤 PNG 下等於每格重新光柵化；ffmpeg 端一句 12 字＝12 路濾鏡鏈會爆。等渲染路徑換掉再說           |
+
+#### 2. 字幕樣式 preset
+
+FreeCut 的 `layout` 存**比例**（`fontSizeRatio`/`yRatio`）是為了多解析度；vidcut 固定
+1080×1920，直接存絕對值即可。真正值錢的是那 5 組數值本身 —— 換算到 1920 高之後：
+
+| preset      | fontSize | y    | 描邊     | 其他                                   |
+| ----------- | -------- | ---- | -------- | -------------------------------------- |
+| TikTok      | **144**  | 置中 | 2px 黑   | Anton、letterSpacing 1、陰影 blur 8    |
+| Bold Yellow | **96**   | 0.38 | 1.5px 黑 | `#FFD400`、Roboto Slab bold            |
+| YouTube     | **86**   | 0.34 | 無       | 純陰影 blur 14、Roboto medium          |
+| Netflix     | **77**   | 0.36 | 無       | 半透明黑底 `rgba(0,0,0,.55)`、radius 4 |
+| Outlined    | **77**   | 0.34 | 1px 黑   | 無陰影、Manrope                        |
+
+**注意目前的 `DEFAULT_CAPTION_STYLE.fontSize = 64` 比這五組都小** —— 1080 寬、64px 在手機上
+偏秀氣，TikTok 那組的 144px 才是短影音的實際尺度。這個發現本身可能比 preset 功能還有價值。
+
+落地成本不是零：`CaptionStyle` 目前只有 `fontFamily/fontSize/fill/stroke/y/highlight`，
+上表要完整落地得先擴 `text_card.py` 的參數面 —— `strokeWidth`（現在的 `stroke` 只有顏色）、
+`textShadow`、`backgroundColor`+`radius`、`letterSpacing`。**建議分兩步**：先加前三個
+（涵蓋五組裡四組），preset 表放 `shared/src/captionPresets.ts`，MCP 加
+`set_caption_style({ preset })`；`letterSpacing` 留最後。
+順帶抄 `detectActiveCaptionPreset()`（反向比對目前樣式來高亮 UI 上作用中的 chip）。
+
+#### 3. typewriter 逐字揭示
+
+FreeCut 的 typewriter preset 根本不是動畫：`channels: (p) => ({ alpha: p >= 1 ? 1 : 0 })`，
+就是「第 N 個字在第 N×stagger 幀出現」。**這跟既有的 karaoke clip-path 是同一個機制** ——
+預覽端把 `karaokeClip()` 的 active index 從「唸到第幾個詞」換成「時間到第幾個字」即可；
+匯出端已有「一詞一卡」，改逐字同理。幾乎零成本，先做這個。
+
+#### 4. word 單位的 in/out 文字動畫
+
+**抄架構，不抄實作。** FreeCut 的 `text-motion/evaluate.ts` 精華是：motion 是
+clip-relative frame 的**確定性純函數**（無狀態、無烘焙關鍵影格），所以預覽/拖動/匯出
+「由建構保證一致」。這對 vidcut 特別重要 —— `verify:wysiwyg` 剛把「預覽=成品」釘住，
+動畫若引入任何狀態或烘焙，那個性質立刻破功。
+
+要抄的規則：
+
+- preset = 10 行內的純函數 `(easedP, ctx) => Partial<MotionState>`。
+- 位移用 `fontSize` 倍數（`dy: (1-p) * 0.25 * fontSize * intensity`）→ 任何字級看起來一樣。
+- in/out 窗口超過 clip 一半就**整體等比壓縮**，不是截斷（短句上的長 stagger 會擠不會斷尾）。
+- out 永遠贏：落在 out 窗口內的 frame 只算 out，in 視為已定格（clamp，never glitch）。
+- random 順序用 mulberry32 確定性 PRNG + memo（每格每字都算，O(n) shuffle 會變 O(n²)）。
+
+**不能抄的**：FreeCut 把狀態餵進 GPU glyph atlas，per-glyph 每格算。我們是 Pillow 預烤 PNG。
+可行降級：把狀態降成「整張卡的 dx/dy/scale/alpha」，複用既有的一詞一卡機制，用 ffmpeg
+overlay 時間表達式（`x='...'` / `colorchannelmixer=aa='...'`）。`fade-up`/`rise`/`pop`/
+`fade-down`/`sink` 五個 word 單位的 preset 全部可行 —— 80% 體感、20% 工。
+
+#### 5. SRT/VTT 匯入 + 內嵌軌抽取
+
+`shared/utils/subtitles.ts` 的 parser 是 180 行零依賴純函數（BOM、`\r\n`、時數可省略、
+`,`/`.` 兩種毫秒分隔、VTT 的 `NOTE`/`STYLE`/`REGION` 跳過、壞掉的 block 收進 `warnings[]`
+而不是整批失敗），**可以直接抄**。`SubtitleCue{id,startSeconds,endSeconds,text}` 跟
+`CaptionItem` 只差 `duration = end - start`。
+
+內嵌軌用 ffmpeg，不要抄 EBML parser：
+
+```bash
+ffprobe -v error -select_streams s \
+  -show_entries stream=index,codec_name:stream_tags=language,title -of json in.mkv
+ffmpeg -i in.mkv -map 0:s:0 -c:s srt out.srt
+```
+
+快取沿用 FreeCut 的做法：**fileSize + mtime 當指紋**寫 sidecar JSON，避免每次重掃
+（3GB MKV 掃一次 20–30 秒）。
+
+**⚠️ 這項有一筆帳要先付，所以不能單獨排。** 匯入的 SRT 是**素材時間**，
+`CaptionItem.start` 是**時間軸絕對秒**，要算 `timelineStart = clip.start + (cue.start - clip.in)`
+並裁掉落在 trim 範圍外的 cue。vidcut 目前**沒有 source↔timeline 換算層**（`auto_caption`
+吃的是時間軸混音，當初刻意省掉的）。同一筆帳也是「字幕跟隨剪輯」缺口的成因 ——
+現在 `timeline_op split`/`deleteBefore` 之後字幕**不會跟著動**。兩件事綁在一起做：
+給 `CaptionItem` 加 `anchor?: {clipId, offset}`（比照 `OverlayItem.anchor`），
+渲染前把錨定解析成絕對時間。
+
+ASS inline markup（`subtitle-cue-format.ts`）只取一半：剝掉標記 + 認 `{\anN}` 換算成
+`style.y`（`{\an8}` → y≈0.05）。per-run 粗斜體要改 `text_card.py`，等真的需要再說。
+
+#### 6. UI 手動新增字幕
+
+**發現經過（2026-08-05）**：使用者按時間軸工具列的「Text」鈕，以為會加字幕，實際拿到的是
+**文字 overlay**（`Toolbar.tsx` 送的是 `addOverlay` 帶 `text`，tooltip 也寫著 "Add a text
+overlay at playhead"）。這是階段 2 的預期行為、不是 bug，但因此暴露了一個真缺口。
+
+**字幕目前只有兩個來源**：`auto_caption`（whisper 辨識）或 MCP `set_captions`。
+**UI 上完全沒有辦法手動加一句字幕。**
+
+編輯面其實已經很完整，缺的只有「新增」與「拆/合」：
+
+| 在哪                | 已經能做                                                                   |
+| ------------------- | -------------------------------------------------------------------------- |
+| 字幕列表面板        | 雙擊改字（打字三段式即時預覽）、刪除、點時間跳播、樣式套全部、關掉 karaoke |
+| Inspector（選取時） | 改文字、`start`、`duration`、字級/顏色/`y`                                 |
+| 時間軸 captions 軌  | 拖曳平移、左右緣 trim                                                      |
+| 預覽畫布            | 直接拖字幕高度（改 `style.y`）                                             |
+
+| 做不到     | 缺什麼                                                                 |
+| ---------- | ---------------------------------------------------------------------- |
+| 新增一句   | UI 沒入口；`Command` 沒有 `addCaption`（只有整組覆蓋的 `setCaptions`） |
+| 一句拆兩句 | 沒有 `splitCaption`                                                    |
+| 兩句合一句 | 沒有 `mergeCaptions`                                                   |
+
+**影響**：沒有語音的影片（例如純 BGM 的排名片）想要「字幕樣式的文字」時，只能改用
+Text 鈕做 overlay —— 於是失去 SRT 匯出（匯出只讀 `tracks.captions`）與逐詞高亮。
+
+**需求未定案，開工前要先確認的問題**：
+
+1. 新增那一句的**時長**怎麼決定？固定 2 秒（比照 Text 鈕的固定 3 秒，最簡單）／自動填到
+   下一句字幕開始／用時間軸選取範圍（但時間軸目前沒有「範圍選取」這個概念，要另外做）。
+2. 只做「新增」，還是連「拆/合」一起做？（拆/合是 ASR 斷句不理想時的主要修法，
+   `buildCaptionPages` 的 `maxGapMs`/`maxUnits` 調不動個別句子。）
+3. 入口放哪？字幕列表面板加「＋」／工具列再加一顆 `Caption` 鈕／把 Text 鈕改成下拉二選一。
+   最後一個會動到既有行為，前兩個是純新增。
+
+**實作面**：無論選哪個，都要在 `shared` 的 `Command` 加 variant + `commands.ts` 加驗證與
+case（鐵則：UI 與 MCP 自動都能用）。`addCaption` 要走 `validateCaptionCard` 的像素預算檢查，
+跟 `setCaptions` 一致。
 
 ## 可行方向（尚未排程）
 
@@ -57,8 +193,12 @@ Node peak RSS 297MB、耗時 919ms；改成 `body: file` + `req.pipe` 後為 1MB
 
 ### 7. e2e 檢查擴充
 
-`ui/e2e/panel-affordance.mjs` 目前涵蓋面板收合/展開控制項（12 項斷言、4 種視窗尺寸）。
-同樣的手法（真瀏覽器命中測試）可延伸到時間軸拖曳與字幕編輯 —— jsdom 量不出被遮擋與捲動裁切。
+`ui/e2e/panel-affordance.mjs` 涵蓋面板收合/展開控制項（12 項斷言、4 種視窗尺寸）；
+`ui/e2e/canvas-direct.mjs`（`npm run verify:canvas`，字幕 WYSIWYG Task 16 新增）涵蓋
+預覽畫布的 1080 空間縮放正確性、overlay/字幕直接拖曳、吸附導線——這部分**已完成**，
+不再是待辦。同樣的手法（真瀏覽器命中測試 + CDP 合成 pointer 事件）仍可延伸到**時間軸**
+本身的拖曳（trim/排序/縮放吸附）與字幕列表面板的雙擊改字 —— jsdom 量不出被遮擋、
+捲動裁切，也沒有真的 pointer capture 可以測拖曳。
 
 ### 8. MCP elicitation URL mode
 
@@ -134,7 +274,8 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   保留。清理**必須**放在 globalSetup 的 teardown 而非各檔的 afterAll——`ProjectStore`
   落盤是 debounce 500ms 的射後不理，測試檔剛結束時常有存檔還在路上，afterAll 立刻刪會
   撞出 `ENOENT: rename '.project.json.tmp'`（第一版就是這樣被隨機順序關卡抓到的）。
-  實測同一套測試：修法前留下 147 個目錄／97MB，修法後 0 個。四隻 mutant 守著。
+  實測同一套測試（合併 main 之後、439 條）：不清理會留下 266 個目錄／125MB，清理生效後
+  0 個。全分支共轉換 100 個 mkdtemp 呼叫點，四隻 mutant 守著。
 - **`mcp-tools.test.ts:317` 有一條套套邏輯斷言**——
   `expect(sc.clipId).toBe(store.doc.tracks.video.at(-1)!.id)` 兩邊用同一個 `.at(-1)` 讀
   同一份狀態，恆真。審查者把 `push` 改成 `unshift` 實測，真正轉紅的是鄰行的 `label`
@@ -148,3 +289,6 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
 - 播放流暢度與 A/B 無縫切換的實際觀感
 - 成品觀感（字幕排版、ducking 音量、blur 填充）
 - Claude Code 的真實 MCP 連線（目前驗過 transport，未驗過完整對話流程）
+- 畫布拖曳/吸附的手感（吸附靈敏度、導線時機）與打字三段式的體感；拖曳/改字後
+  實際渲染一次，比對成品與預覽畫布是否一致（e2e 只驗了伺服器座標值有變，
+  沒有跑過真的 render 去比對成品像素）

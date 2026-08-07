@@ -1164,7 +1164,7 @@ mutant，兩輪跑完未留下任何殘留變更）。
 
 ## 問題與它為何不是「補個 afterAll」就好
 
-`server/test` 有 **91 個 `mkdtemp` 呼叫，只有 15 處 `rm(recursive)`**。那 15 處全是同一種
+`server/test` 有大量 `mkdtemp` 呼叫，配對的 `rm(recursive)` 只有 15 處。那 15 處全是同一種
 模式——目錄在模組頂層建、一個檔案就一個、`afterAll` 刪它。
 
 多數檔案不是這樣：`mkdtemp` 藏在**每條測試都會呼叫一次的 helper** 裡（典型如 `setup()`），
@@ -1292,3 +1292,48 @@ expected [] to deeply equal [ "vidcut-leakprobe-P5lz7Q", "vidcut-leakprobe-x7tNW
 
 此表引用的是最後一次**程式碼**修改之後的單一次執行；該次之後只再動過本檔與
 `docs/ROADMAP.md`，唯一會被文件影響的關卡 `prettier --check` 已於文件定稿後單獨重跑通過。
+
+---
+
+# 補記：合併 `main`（57 個 commit）之後的複驗與數字更正
+
+上面兩節是在 `main` 還停在 `1133909` 時做的。之後 `main` 前進了 57 個 commit
+（`caption-wysiwyg` 整條併入、MCP 稽核 E/F/G、Skia 光柵器），本分支落後 57、無法快轉，
+於是把 `main` 合進本分支。
+
+## 合併
+
+三個衝突，全部在 import 區塊（`mcp-optim`／`mcp-tools`／`mcp.test.ts`）——本分支把
+`mkdtemp(join(tmpdir(), …))` 換成 `tmpDir(…)` 動到 import，`main` 在同一段加了
+`TextCardService`／`PillowRasterizer`／`extractCover`。解法是聯集，無語意衝突。
+
+**真正的工作不在衝突，在合併帶進來的新呼叫點**：`main` 的 57 個 commit 帶來
+`rasterizer.test.ts`（14 處）、`textCards.test.ts`（16 處）等**39 個新的 `mkdtemp` 呼叫點**，
+它們全都會漏。一併轉成 `tmpDir()`，合計本分支轉換 **100 個呼叫點**。轉換後全樹只剩
+`test/global-setup.ts` 一處 `mkdtemp`（就是建本輪根目錄的那一處）。
+
+## 數字更正（如實記錄）
+
+上一節原本寫「`server/test` 有 **91 個 `mkdtemp` 呼叫**」。**那個 91 是從錯的樹上數來的**
+——盤點指令當時指向主 repo 目錄，而主 repo 當時檢出的是 `caption-wysiwyg` 分支；實際做
+轉換的卻是本 worktree（基於 `main` `1133909`），只有 61 處。兩個數字分屬不同的樹，放在
+同一段裡等於互相矛盾。已把該處改成不寫死數字，正確的量化改由本節提供。
+
+## 合併後的實測（同一套測試，`TMPDIR` 指向乾淨沙箱）
+
+| 情境                                 | 測試結果   | 跑完後殘留     | 佔用       |
+| ------------------------------------ | ---------- | -------------- | ---------- |
+| 若不清理（`VIDCUT_KEEP_TMP=1` 量測） | 439 passed | **266 個目錄** | **125 MB** |
+| 正常（清理生效）                     | 439 passed | **0 個**       | 0          |
+
+（34 個測試檔、439 條。「若不清理」那列直接用逃生口量，等同修法前的行為，不需要把程式碼
+退回去。沙箱裡剩下的唯一項目是 Node 自己的 `node-compile-cache`。）
+
+## 這次量測順手抓到的缺陷
+
+用 `VIDCUT_KEEP_TMP=1` 量的那一跑出現 **1 failed** ——`tmp-cleanup.test.ts` 的第一條。
+成因是子行程繼承了 `process.env`：外層設了 `VIDCUT_KEEP_TMP=1`，子行程也跟著保留目錄，
+於是「整輪跑完不留下任何暫存目錄」那條假性失敗。**這是我自己測試的缺陷，不是修法失效**
+——任何人用這個逃生口跑整套都會踩到。修法是在 `runFixture()` 裡把 `VIDCUT_KEEP_TMP` 與
+`VIDCUT_TMP_FIXTURE_FAIL` 從繼承來的環境變數中刪掉，讓每條測試自己決定。修完兩種跑法
+（一般、帶 `VIDCUT_KEEP_TMP=1`）都是 3/3 綠。

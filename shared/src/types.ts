@@ -53,8 +53,36 @@ export interface VideoClip {
   meta?: Record<string, unknown>;
 }
 
+/** 文字 overlay 的規格：伺服器據此產卡（見 textOverlays.ts），文字可編輯。 */
+export interface OverlayText {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fill: string;
+  stroke?: string;
+  /**
+   * 自動換行寬度，0–1 相對畫布寬，預設 0.9。**真的生效**（2026-08-04 起；
+   * 在那之前它是死欄位，`text_card.py` 只在帶 tokens 的 karaoke 路徑用它，
+   * 文字 overlay 走 `text.split('\n')` 完全不換行，長字直接被畫布邊緣裁掉）。
+   *
+   * 換行規則（實作在 `server/scripts/text_card.py` 的 `wrap_text()`）：
+   * - 可用寬 = `width - cardMargin(width, maxWidth) * 2`（`server/src/rasterizer.ts`，
+   *   預覽與匯出兩條路徑共用同一個換算）。
+   * - CJK 逐字斷；拉丁/數字整個單字為單位，不會切進單字中間；
+   *   換行點上的空白丟掉；行首禁則標點（。，」）…）會黏回前一行。
+   * - 文字裡真的 `\n` 一律強制換行（原本唯一的行為，沒有變）。
+   * - 單一不可斷字串（超長網址、maxWidth 調到極小）比可用寬還長時**逐字硬切**
+   *   （等同 CSS `break-word`），不會溢出被裁掉，也不會無窮迴圈。
+   *
+   * 卡片寬度仍固定＝畫布寬（多的行只讓卡片變高）。改這個值會改變快取 key **也會**
+   * 改變像素——舊卡變孤兒，是預期的。
+   */
+  maxWidth?: number;
+}
+
 export interface OverlayItem {
   id: string;
+  /** 文字 overlay 時 = 伺服器產物，勿手動指定（由 resolveTextCommand 依 text 產生並寫入） */
   imagePath: string;
   /** 錨定片段（與 start 二選一）：片段被拖動時 overlay 跟著走 */
   anchor?: { clipId: string; offset: number };
@@ -63,11 +91,24 @@ export interface OverlayItem {
   /** null = 到片尾（JSON 不能存 Infinity） */
   duration: number | null;
   /**
-   * 0–1 相對畫布；scale 為倍率。**語意不對稱**：x 是圖片水平中心、y 是圖片上緣
+   * 相對畫布；scale 為倍率。**語意不對稱**：x 是圖片水平中心、y 是圖片上緣
    * （預覽 translate(-50%, 0)、渲染 x=(W*x)-(w/2), y=H*y 一致）。
    * 滿版直式圖用 {x:0.5, y:0}；y:0.5 是「上緣壓在畫面正中」，不是置中。
+   *
+   * **不限定 0–1**：元素可以部分掛在畫布外（2026-08-04 起四邊都可以）。y 為負值＝
+   * 掛在上緣外，超出的部分被裁掉——預覽靠 stage 的 `overflow: hidden`、渲染靠 ffmpeg
+   * `overlay` 對負座標的裁切，兩者行為一致（實測 200px 高的圖 y=-0.05 只露下面 104px）。
+   * UI 拖曳的夾制規則是「**元素中心必須留在畫布內**」（見 ui/src/player/dragLayer.ts 的
+   * clampCentre），也就是每邊最多露出一半；MCP／命令層不夾制範圍，可以設更極端的值
+   * （只驗**有限性**——NaN/Infinity/null 會被 commands.ts 的 numericError 擋下，
+   * 那是為了不讓一次壞掉的寫入永久留在專案檔裡；scale 另外限 0–10，見該處註解）。
+   * scale 繞「上緣中點」縮放（x/y 錨點不動）：預覽是 CSS transform，渲染是 overlay 前的
+   * `scale=iw*s:ih*s`（overlay 的 w 因此是縮放後的寬，置中式子不用改）。
+   * 2026-08-04 之前渲染端**沒有實作 scale**，改它只有預覽會變——已修，見 verify:wysiwyg。
    */
   position: { x: number; y: number; scale: number };
+  /** 有值 = 文字 overlay（可編輯文字），imagePath 由伺服器維護；無值 = 預烤 PNG（外部腳本產生，文字不可編輯） */
+  text?: OverlayText;
 }
 
 export interface CaptionStyle {
@@ -139,8 +180,21 @@ export interface RenderState {
   coverPath?: string;
 }
 
+/**
+ * 字幕在成品裡的處理方式。
+ * - `burn`（預設）：燒進畫面，關不掉——維持本欄位存在前的行為。
+ * - `off`：完全不放字幕。
+ * - `sidecar`：畫面乾淨，另外產一個同名 `.srt` 放在 `output/`。
+ * - `embed`：畫面乾淨，字幕以 soft track 內嵌進 mp4（`mov_text`），播放器可自行開關。
+ *
+ * `off`/`sidecar`/`embed` 都**不燒**——soft track 若同時燒錄，觀眾開字幕會看到兩排字。
+ */
+export type SubtitleExportMode = 'burn' | 'off' | 'sidecar' | 'embed';
+
 /** 匯出設定。省略時用專案畫布尺寸與預設品質。 */
 export interface RenderOptions {
+  /** 字幕處理方式，預設 `burn`。 */
+  subtitles?: SubtitleExportMode;
   /** 輸出短邊寬（等比縮放整個合成結果），例：720 / 1080 */
   width?: number;
   height?: number;
@@ -174,6 +228,27 @@ export interface Project {
   render: RenderState;
 }
 
+/**
+ * `setTimeline` 的輸入單元。`id` 省略時由命令層生成（nanoid）。
+ *
+ * **為什麼 id 是可選的、而且省略時不再用「索引＋mediaId」推導**：舊的
+ * `clip_${索引}_${mediaId}` 是決定性的，重排之後同一個名字仍然存在、卻已經是**另一個
+ * 片段**了——錨在它上面的 overlay 不會變孤兒（那還看得出來），而是靜靜地跑到別的時間點。
+ * 實測同素材同順序重送一次 set_timeline：4 個 overlay 有 2 個的 anchor 指向不存在的
+ * clip，第 3 個的 anchor 名字還在但指到了後面一格。
+ * 要讓錨點活下來，就**明確帶上原本的 id**——這才是有意義的「同一個片段」。
+ */
+export interface TimelineClipSpec {
+  /** 省略＝這是一個新片段，命令層給新 id；帶上既有 id ＝沿用，錨定的 overlay 因此不斷。 */
+  id?: string;
+  mediaId: string;
+  in: number;
+  duration: number;
+  label?: string;
+  volume?: number;
+  meta?: Record<string, unknown>;
+}
+
 // ---- 命令層（人類 UI 與 MCP 工具共用的唯一寫入語意來源）----
 export type Command =
   | {
@@ -185,11 +260,18 @@ export type Command =
   | { name: 'removeClip'; clipId: string }
   /** 新增一段畫面到主軌尾端（人從素材庫加入；AI 通常用 set_timeline 整組排） */
   | { name: 'addClip'; mediaId: string; in: number; duration: number; label?: string }
+  /**
+   * 整組替換影片主軌（初次排片）。以前這是 MCP 工具**自己 store.mutate** 的，是唯一
+   * 繞過命令層的編輯——因此也繞過了 numericError，而 WS 那條路根本用不到它。
+   */
+  | { name: 'setTimeline'; clips: TimelineClipSpec[] }
   | {
       name: 'updateOverlay';
       id: string;
       /** start 與 anchor 互斥：給 start 會清 anchor（轉絕對）、給 anchor 會清 start（轉錨定） */
-      patch: Partial<Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor'>>;
+      patch: Partial<
+        Pick<OverlayItem, 'start' | 'duration' | 'position' | 'anchor' | 'text' | 'imagePath'>
+      >;
     }
   | {
       name: 'updateCaption';
@@ -222,10 +304,34 @@ export type Command =
   | { name: 'removeAudio'; id: string }
   | { name: 'setAudio'; audio: AudioItem[] }
   | { name: 'setCanvasFit'; fit: CanvasFit }
+  /**
+   * 登記一支已經處理完（proxy/filmstrip/peaks 都產好）的素材。跑 ffmpeg 的 async 前置
+   * 留在 `server/src/ingest.ts` 的 `prepareMedia`，命令層只做同步的登記——與文字 overlay
+   * 的 `resolveTextCommand` 同一個模式（見 textOverlays.ts）。
+   *
+   * 走命令層是為了讓 AI 那條路吃得到 `aiWrite` 的審核鎖：以前 import_media 直接
+   * `store.mutate`，**審核進行中照樣能把素材塞進專案**（實測素材 11 → 12 筆）。
+   * 人的路徑（HTTP 上傳）走 applyCommand，不受審核鎖——那是使用者自己的審核。
+   *
+   * patch path 是 `media` 不是 `tracks`／`canvas`，所以不進 undo 堆疊（見 store 的 isUndoable）。
+   */
+  | { name: 'registerMedia'; asset: MediaAsset }
+  /** 設定封面圖。抽幀的 async 前置留在 `render.ts` 的 `renderCoverImage`；理由同 registerMedia。 */
+  | { name: 'setCover'; path: string }
   | { name: 'undo'; steps?: number }
   | { name: 'redo'; steps?: number };
 
-export type CommandResult = { ok: true; version: number } | { ok: false; error: string };
+/**
+ * `changed: false` ＝ 命令合法、也真的套用了，但**沒有任何欄位改變**（immer 產生零個
+ * patch），所以 version 停在原地。這不是錯誤——送一個跟現值相同的 position 本來就合法
+ * ——但呼叫端一定要分得出來：以前這種情形回的是跟真正成功一字不差的 `ok, version=N`，
+ * 而 N 沒動；AI 沒有任何辦法知道自己的編輯其實沒生效。
+ *
+ * 可選欄位（不是必填）：undo/redo 這種不經過 `mutate` 回傳值的路徑就不帶，
+ * 現有的呼叫端也不必全部改。只有明確的 `false` 才代表「什麼都沒變」。
+ */
+export type CommandResult =
+  { ok: true; version: number; changed?: boolean } | { ok: false; error: string };
 
 // ---- 審核與編輯脈絡 ----
 export type ReviewOutcome = 'approved' | 'rejected' | 'approved_with_notes' | 'timeout';
@@ -267,7 +373,9 @@ export type WsServerMsg =
     }
   | { type: 'commandError'; reqId?: string; error: string }
   /** 渲染進度旁路（暫態，不進版本/歷史/undo） */
-  | { type: 'renderProgress'; progress: number };
+  | { type: 'renderProgress'; progress: number }
+  /** 字幕卡 id→hash 對照（僅字幕；文字 overlay 走 doc.imagePath，不需要對照表） */
+  | { type: 'textCards'; entries: Array<{ id: string; hash: string }> };
 
 export type WsClientMsg =
   | { type: 'resync' }

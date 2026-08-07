@@ -27,6 +27,13 @@ export const DEFAULT_PAGE_OPTIONS: Required<Omit<CaptionPageOptions, 'karaoke'>>
   maxUnits: 24,
 };
 
+export interface TokenBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   fontFamily: 'PingFang TC',
   fontSize: 64,
@@ -95,17 +102,22 @@ export function textUnits(s: string): number {
   return n;
 }
 
+/**
+ * 兩個相鄰詞之間該不該插空白：CJK 與任何字之間不加（中文排版慣例）、拉丁字之間加。
+ * 與 server/scripts/text_card.py 的 separator() 同規則（用最後/第一個字元判斷）——
+ * UI 端的字幕 fallback（CaptionLayer 的 ApproxCaption）也用這個函式，
+ * 好讓瀏覽器近似排版與成片字卡的斷詞規則一致。
+ */
+export function tokenSeparator(prev: string, next: string): string {
+  if (!prev || !next) return '';
+  return CJK.test(prev[prev.length - 1]!) || CJK.test(next[0]!) ? '' : ' ';
+}
+
 /** CJK 與 CJK／CJK 與拉丁之間不加空白（中文排版慣例）；拉丁之間加空白。 */
 function joinTokens(parts: string[]): string {
   let out = '';
   for (const p of parts) {
-    if (out === '') {
-      out = p;
-      continue;
-    }
-    const prev = out[out.length - 1]!;
-    const next = p[0]!;
-    out += CJK.test(prev) || CJK.test(next) ? p : ` ${p}`;
+    out = out === '' ? p : out + tokenSeparator(out, p) + p;
   }
   return out;
 }
@@ -188,4 +200,23 @@ export function activeTokenIndex(cap: CaptionItem, t: number): number {
     else break;
   }
   return idx;
+}
+
+/**
+ * 逐詞揭色的 CSS clip-path。active<0 → null(hl 層整個不顯示)。pad=描邊外擴補償
+ * 回傳 `path('M.. Z M.. Z')`:0..active 每個 box 一個矩形子路徑(先 pad 外擴)。
+ */
+export function karaokeClip(boxes: TokenBox[], active: number, pad = 0): string | null {
+  if (active < 0 || boxes.length === 0) return null;
+  const rects = boxes
+    .slice(0, Math.min(active + 1, boxes.length))
+    .map((b) => {
+      const x = b.x - pad;
+      const y = b.y - pad;
+      const w = b.w + pad * 2;
+      const h = b.h + pad * 2;
+      return `M${x},${y} h${w} v${h} h${-w} Z`;
+    })
+    .join(' ');
+  return `path('${rects}')`;
 }

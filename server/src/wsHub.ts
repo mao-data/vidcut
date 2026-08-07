@@ -4,7 +4,10 @@ import type { HistoryBrief, WsClientMsg, WsServerMsg } from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
+import type { CaptionCardSync } from './cardSync.js';
+import type { TextCardService } from './textCards.js';
 import { applyCommand } from './commands.js';
+import { resolveTextCommand } from './textOverlays.js';
 import { extractCover, render, renderProgressBus } from './render.js';
 
 const HISTORY_IN_FULL = 50;
@@ -14,6 +17,8 @@ export interface WsDeps {
   editorContext?: EditorContext;
   reviews?: ReviewManager;
   projectDir?: string;
+  cardSync?: CaptionCardSync;
+  textCards?: TextCardService;
 }
 
 /**
@@ -22,8 +27,12 @@ export interface WsDeps {
  * 收 context 更新 EditorContext；收 reviewResolve 交給 ReviewManager。
  */
 export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
-  const { store, editorContext, reviews, projectDir } = deps;
+  const { store, editorContext, reviews, projectDir, cardSync, textCards } = deps;
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  // command 需要先 await resolveTextCommand(可能產卡)才 applyCommand，
+  // 但訊息必須按抵達順序生效——串成一條 queue，逐一 resolve-then-apply，
+  // 錯誤在每個任務內吞掉（送 commandError），不讓 queue 卡死或中斷。
+  let commandQueue: Promise<void> = Promise.resolve();
 
   const send = (ws: WebSocket, msg: WsServerMsg) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -45,6 +54,13 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
     for (const client of wss.clients) send(client, msg);
   });
 
+  if (cardSync) {
+    cardSync.onReady = (entries) => {
+      const msg: WsServerMsg = { type: 'textCards', entries };
+      for (const client of wss.clients) send(client, msg);
+    };
+  }
+
   store.onChange((e) => {
     const msg: WsServerMsg = {
       type: 'patch',
@@ -55,10 +71,16 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
       ts: e.ts,
     };
     for (const client of wss.clients) send(client, msg);
+    if (cardSync && e.patches.some((p) => p.path[0] === 'tracks' && p.path[1] === 'captions')) {
+      cardSync.schedule();
+    }
   });
 
   wss.on('connection', (ws) => {
     send(ws, full());
+    if (cardSync && cardSync.latest.length > 0) {
+      send(ws, { type: 'textCards', entries: cardSync.latest });
+    }
     ws.on('message', (data) => {
       let msg: WsClientMsg;
       try {
@@ -69,8 +91,22 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
       if (msg.type === 'resync') {
         send(ws, full());
       } else if (msg.type === 'command') {
-        const result = applyCommand(store, 'human', msg.cmd);
-        if (!result.ok) send(ws, { type: 'commandError', reqId: msg.reqId, error: result.error });
+        const cmd = msg.cmd;
+        const reqId = msg.reqId;
+        const run = async (): Promise<void> => {
+          try {
+            const resolved = textCards ? await resolveTextCommand(textCards, store, cmd) : cmd;
+            const result = applyCommand(store, 'human', resolved);
+            if (!result.ok) send(ws, { type: 'commandError', reqId, error: result.error });
+          } catch (e) {
+            send(ws, {
+              type: 'commandError',
+              reqId,
+              error: `字卡產生失敗：${(e as Error).message}`,
+            });
+          }
+        };
+        commandQueue = commandQueue.then(run, run);
       } else if (msg.type === 'context') {
         editorContext?.set(msg.context);
       } else if (msg.type === 'reviewResolve') {

@@ -55,4 +55,20 @@ describe('useProject store', () => {
     expect(wanted).toBe('resync');
     expect(useProject.getState().doc?.name).toBe('demo');
   });
+
+  it('textCards stores capId → hash and returns ok (no resync loop)', () => {
+    const doc = createEmptyProject('p', 'demo');
+    useProject.getState().applyServerMsg({ type: 'full', version: 1, doc, history: [] });
+    const result = useProject.getState().applyServerMsg({
+      type: 'textCards',
+      entries: [
+        { id: 'cap1', hash: 'aaa111' },
+        { id: 'cap2', hash: 'bbb222' },
+      ],
+    });
+    expect(result).toBe('ok');
+    expect(useProject.getState().captionCards).toEqual({ cap1: 'aaa111', cap2: 'bbb222' });
+    // version 未跟著這則旁路訊息前進——它不是 patch
+    expect(useProject.getState().version).toBe(1);
+  });
 });

@@ -52,7 +52,11 @@ export class ProjectStore {
   /** 游標式 undo：只收「可撤回的編輯」；undo 把 entry 移去 redo、redo 移回來 */
   #undoStack: HistoryEntry[] = [];
   #redoStack: HistoryEntry[] = [];
-  /** undo/redo 套用中的旗標：其產生的 mutation 不得再進堆疊（防遞迴/自我污染） */
+  /**
+   * 「這次 mutation 不進 undo/redo 堆疊」的旗標。兩種用途：
+   *  - undo/redo 重放本身（防遞迴／自我污染）；
+   *  - 系統層的衍生資料修復（見 runWithoutUndo）。
+   */
   #replaying = false;
   #listeners = new Set<(e: ChangeEvent) => void>();
   #filePath: string;
@@ -186,6 +190,32 @@ export class ProjectStore {
       });
     } finally {
       this.#replaying = false;
+    }
+  }
+
+  /**
+   * 在 `fn` 期間發生的 mutation **不進 undo 堆疊、也不清 redo**，其餘完全照常
+   * （記歷史、廣播 patch、落盤）。給「系統修復衍生資料」用，不是給編輯用。
+   *
+   * 為什麼需要：字卡是內容定址的，`imagePath` 烤在 doc 裡，光柵器版本一升就得回頭
+   * 重寫（見 textOverlays.ts 的 refreshTextOverlayCards）。那是一次**維護**，不是使用者
+   * 做過的編輯——走一般 mutate 的話它會變成開檔後 undo 堆疊裡唯一的一筆，使用者
+   * 反射性按一次 Cmd+Z 撤掉的就是它，`imagePath` 被還原回舊 hash；若 `derived/` 已被
+   * 清過，那個檔案根本不存在，`ffmpeg -i` 讀不到就是整支匯出失敗。撤銷一件自己
+   * 從沒做過的事，還撤出一個壞掉的專案，沒有任何道理。
+   *
+   * **`fn` 必須是同步的**：旗標在 `finally` 就還原，回傳 Promise 的話 await 之後
+   * 產生的 mutation 已經不在保護範圍內（而且中間夾的使用者編輯會被誤標成不可撤銷）。
+   * 現在唯一的呼叫端包的是 `applyCommand`，它是同步的（產卡那段 async 前置刻意留在
+   * 命令層外，見 resolveTextCommand 的註解）。
+   */
+  runWithoutUndo<T>(fn: () => T): T {
+    const prev = this.#replaying;
+    this.#replaying = true;
+    try {
+      return fn();
+    } finally {
+      this.#replaying = prev;
     }
   }
 

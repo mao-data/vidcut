@@ -5,6 +5,7 @@ import { Timeline } from './Timeline.js';
 import { useSelection } from '../stores/selection.js';
 import { useView } from '../stores/view.js';
 import { useProject } from '../stores/project.js';
+import { usePlayback } from '../stores/playback.js';
 import * as ws from '../ws.js';
 import { demoProject, seedProject, resetStores } from '../test/fixtures.js';
 
@@ -139,6 +140,22 @@ describe('Timeline drags', () => {
     ]);
   });
 
+  it('anchored overlay can be dragged before its clip start (negative offset)', () => {
+    const { container } = render(<Timeline />);
+    // ovAnchor 錨在 c2（起點 6s），offset .5 → 絕對 6.5s；往左 80px = -2s → offset -1.5
+    drag(chipByText(container, '📎'), 100, 20);
+    expect(sent).toEqual([
+      { name: 'updateOverlay', id: 'ovAnchor', patch: { anchor: { clipId: 'c2', offset: -1.5 } } },
+    ]);
+  });
+
+  it('keeps a backward-dragged anchored overlay at its released position until the server echoes', () => {
+    // 放手時的 pending 必須跟拖曳中的 preview 同值，否則 chip 會先跟手、放手瞬間彈走
+    const { container } = render(<Timeline />);
+    drag(chipByText(container, '📎'), 100, 20); // 絕對 6.5s → 4.5s
+    expect(chipByText(container, '📎').style.left).toBe(`${4.5 * PPS}px`);
+  });
+
   it('clip trim-out sends updateClip with the new duration', () => {
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');
@@ -201,5 +218,22 @@ describe('Timeline drags', () => {
     });
     // jsdom 的 rect.left = 0，故 clientX 直接換算成秒
     expect(sec(4 * PPS)).toBe(4);
+  });
+
+  it('Toolbar 的 Text 鈕在 playhead 加一個文字 overlay 並選取它', () => {
+    usePlayback.getState().seek(2);
+    const { container } = render(<Timeline />);
+    const btn = container.querySelector<HTMLButtonElement>(
+      'button[title="Add a text overlay at playhead"]',
+    )!;
+    act(() => {
+      fireEvent.click(btn);
+    });
+    expect(sent).toHaveLength(1);
+    const cmd = sent[0] as Extract<Command, { name: 'addOverlay' }>;
+    expect(cmd.name).toBe('addOverlay');
+    expect(cmd.overlay.text).toMatchObject({ text: '新文字' });
+    expect(cmd.overlay.start).toBe(2);
+    expect(useSelection.getState().selected).toEqual({ kind: 'overlay', id: cmd.overlay.id });
   });
 });

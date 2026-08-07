@@ -5,6 +5,7 @@ import {
   normalizeWords,
   textUnits,
   DEFAULT_CAPTION_STYLE,
+  karaokeClip,
   type TranscriptWord,
 } from './captions.js';
 
@@ -162,5 +163,28 @@ describe('activeTokenIndex', () => {
 
   it('is -1 for captions without tokens', () => {
     expect(activeTokenIndex({ ...cap, tokens: undefined }, 1.5)).toBe(-1);
+  });
+});
+
+describe('karaokeClip', () => {
+  const boxes = [
+    { x: 100, y: 10, w: 50, h: 70 },
+    { x: 150, y: 10, w: 60, h: 70 },
+    { x: 80, y: 80, w: 90, h: 70 }, // 第二行
+  ];
+  it('active < 0 → null', () => {
+    expect(karaokeClip(boxes, -1)).toBeNull();
+  });
+  it('active=0 → 只含第一個矩形', () => {
+    const p = karaokeClip(boxes, 0, 0)!;
+    expect(p).toBe("path('M100,10 h50 v70 h-50 Z')");
+  });
+  it('active=2 → 三個子路徑,含第二行', () => {
+    const p = karaokeClip(boxes, 2, 0)!;
+    expect(p.match(/M/g)).toHaveLength(3);
+    expect(p).toContain('M80,80');
+  });
+  it('pad 外擴矩形', () => {
+    expect(karaokeClip([boxes[0]!], 0, 4)!).toBe("path('M96,6 h58 v78 h-58 Z')");
   });
 });

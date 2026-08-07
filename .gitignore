@@ -9,3 +9,6 @@ proxies/
 .DS_Store
 *.tsbuildinfo
 .superpowers/
+
+# python 匯入 text_card.py 做測試時會留下的位元碼快取
+__pycache__/

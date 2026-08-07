@@ -3,3 +3,7 @@ dist
 projects
 _skill_extracted
 *.skill
+# 別的 session 開的 git worktree ＝ 整個 repo 的另一份拷貝，不是本 repo 追蹤的原始碼。
+# 不濾掉的話 format:check 會隨「此刻剛好有沒有人開著 worktree」時紅時綠，
+# 而那些 [warn] 沒有一個是你能修的。eslint.config.js 的 ignores 已經先擋掉這一段了。
+.claude

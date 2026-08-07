@@ -17,9 +17,14 @@ const serverDir = join(dirname(fileURLToPath(import.meta.url)), '..');
  */
 async function runFixture(env: Record<string, string> = {}) {
   const sandbox = await tmpDir('vidcut-leaksandbox-');
+  // 這兩個變數必須由每條測試自己決定，不能從外層繼承：否則有人用
+  // VIDCUT_KEEP_TMP=1 跑整套時，子行程會跟著保留，第一條測試就假性失敗。
+  const base = { ...process.env };
+  delete base.VIDCUT_KEEP_TMP;
+  delete base.VIDCUT_TMP_FIXTURE_FAIL;
   const r = spawnSync('npx', ['vitest', 'run', '--root', '.'], {
     cwd: serverDir,
-    env: { ...process.env, TMPDIR: sandbox, VIDCUT_TMP_FIXTURE: '1', ...env },
+    env: { ...base, TMPDIR: sandbox, VIDCUT_TMP_FIXTURE: '1', ...env },
     encoding: 'utf8',
   });
   // 只看 vidcut-*：vitest／node 自己也可能在 TMPDIR 放東西，那不是我們要管的。

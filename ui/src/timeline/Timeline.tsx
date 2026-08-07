@@ -509,10 +509,10 @@ export function Timeline() {
     } else if (d.mode === 'ov') {
       if (d.preview.absStart !== d.orig.absStart) {
         if (d.orig.anchorClipId) {
-          // 錨定式：換算回相對片段起點的 offset（保持跟隨片段）
+          // 錨定式：換算回相對片段起點的 offset（保持跟隨片段；可為負＝先於片段出現）
           const idx = doc.tracks.video.findIndex((c) => c.id === d.orig.anchorClipId);
           const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;
-          const offset = Number(Math.max(0, d.preview.absStart - clipStart).toFixed(3));
+          const offset = Number((d.preview.absStart - clipStart).toFixed(3));
           setPending({
             mode: 'ov',
             id: d.id,

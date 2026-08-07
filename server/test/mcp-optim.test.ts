@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
-import { rm } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -10,6 +10,8 @@ import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import type { ProjectTracks } from '@vidcut/shared';
 import { makeAudio, makeVideo } from './fixtures.js';
 import { transcribe as transcribeMock } from '../src/asr.js';
+import { TextCardService } from '../src/textCards.js';
+import { PillowRasterizer } from '../src/rasterizer.js';
 import { tmpDir } from './tmp.js';
 
 // whisper 是外部程序（mock 邊界）；B6 截斷邏輯在 mcp.ts，不在被 mock 的模組裡
@@ -32,6 +34,7 @@ let client: Client;
 let reviews: ReviewManager;
 let mediaId: string;
 let baseline: ProjectTracks;
+let rasterizer: PillowRasterizer;
 
 const call = (name: string, args: Record<string, unknown> = {}) =>
   client.callTool({ name, arguments: args }) as Promise<Structured>;
@@ -42,12 +45,14 @@ beforeAll(async () => {
   await makeVideo(dir, 'a.mp4', { duration: 6 });
   store = await ProjectStore.load(join(dir, 'project.json'));
   reviews = new ReviewManager(store, 900_000);
+  rasterizer = new PillowRasterizer(() => undefined);
   const deps: McpDeps = {
     store,
     projectDir: dir,
     editorContext: new EditorContext(),
     reviews,
     baseUrl: 'http://127.0.0.1:3845',
+    textCards: new TextCardService(dir, rasterizer),
   };
   const server = createMcpServer(deps);
   const [ct, st] = InMemoryTransport.createLinkedPair();
@@ -104,6 +109,7 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
+  rasterizer.dispose();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -243,6 +249,31 @@ describe('B4 fine-grained edit tools', () => {
     expect(store.doc.tracks.overlays.find((o) => o.id === 'o1')!.start).toBe(1.5);
   });
 
+  // update_overlay 的 text 欄位描述宣告「只對本來就是文字 overlay 的項目有效」——
+  // 這條測試釘住描述與行為一致（CLAUDE.md 鐵則）：對純圖 overlay 送 text 必須被拒，
+  // 而不是靜默把使用者的 imagePath 換成產出來的文字卡。
+  it('update_overlay refuses to turn a plain image overlay into a text card', async () => {
+    const r = await call('update_overlay', {
+      id: 'o1', // fixture 的 o1 是純圖 overlay（imagePath: a.png，沒有 text）
+      patch: { text: { text: '偷換', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' } },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('not a text overlay');
+    const ov = store.doc.tracks.overlays.find((o) => o.id === 'o1')!;
+    expect(ov.imagePath).toBe('a.png');
+    expect(ov.text).toBeUndefined();
+  }, 60_000);
+
+  // update_caption 描述宣告「改 start 會連同 tokens 一起平移」——同上，釘住描述=行為。
+  it('update_caption shifts word timestamps with the caption start', async () => {
+    const r = await call('update_caption', { id: 'k1', patch: { start: 1.5 } });
+    expect(r.isError).toBeFalsy();
+    const c = store.doc.tracks.captions.find((x) => x.id === 'k1')!;
+    expect(c.start).toBe(1.5);
+    // 原本 0→0.5；往後平移 1.5 應為 1.5→2.0（方向寫反會是 -1.5→-1.0）
+    expect(c.tokens).toEqual([{ text: 'hello', start: 1.5, end: 2 }]);
+  });
+
   it('add_overlay appends and remove_overlay deletes', async () => {
     await call('add_overlay', {
       overlay: {
@@ -256,6 +287,117 @@ describe('B4 fine-grained edit tools', () => {
     expect(store.doc.tracks.overlays.map((o) => o.id)).toContain('o2');
     await call('remove_overlay', { id: 'o2' });
     expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('o2');
+  });
+
+  it('add_overlay with text creates an editable text overlay (server-made card)', async () => {
+    const r = await call('add_overlay', {
+      overlay: {
+        id: 'txt1',
+        text: { text: 'MCP 文字', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    });
+    expect(r.isError).toBeFalsy();
+    const ov = store.doc.tracks.overlays.find((o) => o.id === 'txt1')!;
+    expect(ov.text?.text).toBe('MCP 文字');
+    expect(ov.imagePath).toMatch(/derived\/text\//);
+
+    const upd = await call('update_overlay', {
+      id: 'txt1',
+      patch: { text: { text: '改過', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' } },
+    });
+    expect(upd.isError).toBeFalsy();
+    expect(store.doc.tracks.overlays.find((o) => o.id === 'txt1')!.text?.text).toBe('改過');
+  }, 60_000);
+
+  it('set_overlays with a text-carrying overlay generates its card too (not just add/update_overlay)', async () => {
+    const r = await call('set_overlays', {
+      overlays: [
+        {
+          id: 'txt2',
+          text: {
+            text: 'set_overlays 文字',
+            fontFamily: 'Heiti TC',
+            fontSize: 64,
+            fill: '#ffffff',
+          },
+          start: 0,
+          duration: 2,
+          position: { x: 0.5, y: 0.3, scale: 1 },
+        },
+      ],
+    });
+    expect(r.isError).toBeFalsy();
+    const ov = store.doc.tracks.overlays.find((o) => o.id === 'txt2')!;
+    expect(ov.imagePath).toMatch(/derived\/text\//);
+    expect((await stat(join(dir, ov.imagePath))).size).toBeGreaterThan(0);
+  }, 60_000);
+
+  // text 與 imagePath 互斥。以前 imagePath 必填、文字 overlay 得傳空字串佔位，而那個空字串
+  // 正是 commands.ts 視為「產卡前置沒跑」的毒藥哨兵；同時呼叫端給的真實路徑會被靜默丟棄。
+  // 現在兩種誤用都要變成明確的 schema 錯誤（而不是靜默接受）。
+  it('add_overlay rejects text together with imagePath instead of silently discarding the path', async () => {
+    const r = await call('add_overlay', {
+      overlay: {
+        id: 'txt_both',
+        imagePath: 'assets/hand_made.png',
+        text: { text: '兩個都給', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/imagePath/);
+    expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('txt_both');
+  });
+
+  it('add_overlay rejects an overlay with neither text nor imagePath', async () => {
+    const r = await call('add_overlay', {
+      overlay: { id: 'txt_none', start: 0, duration: 2, position: { x: 0.5, y: 0.3, scale: 1 } },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/imagePath/);
+    expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('txt_none');
+  });
+
+  // 空字串是舊介面教人傳的值，也是 render 時會變成「把專案目錄餵給 ffmpeg」的那個值。
+  // 純圖 overlay 給空字串必須擋在 schema，不能靠下游。
+  it('add_overlay rejects an empty imagePath on a pure-image overlay', async () => {
+    const r = await call('add_overlay', {
+      overlay: {
+        id: 'img_empty',
+        imagePath: '',
+        start: 0,
+        duration: 2,
+        position: { x: 0.5, y: 0.3, scale: 1 },
+      },
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/imagePath/);
+    expect(store.doc.tracks.overlays.map((o) => o.id)).not.toContain('img_empty');
+  });
+
+  it('set_overlays applies the same exclusivity rule (shared schema, both entry points)', async () => {
+    const before = store.doc.tracks.overlays.map((o) => o.id);
+    const r = await call('set_overlays', {
+      overlays: [
+        {
+          id: 'txt_both2',
+          imagePath: 'assets/hand_made.png',
+          text: { text: '兩個都給', fontFamily: 'Heiti TC', fontSize: 64, fill: '#ffffff' },
+          start: 0,
+          duration: 2,
+          position: { x: 0.5, y: 0.3, scale: 1 },
+        },
+      ],
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/imagePath/);
+    // 整組替換被擋下時不可以留下半套狀態（原本的軌必須原封不動）
+    expect(store.doc.tracks.overlays.map((o) => o.id)).toEqual(before);
   });
 
   it('remove_audio deletes one audio item', async () => {
@@ -279,10 +421,27 @@ describe('B5 readOnlyHint annotations', () => {
       'get_feedback',
       'get_editor_context',
       'get_frame',
-      'transcribe',
+      'list_source',
     ]) {
       expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
     }
+  });
+
+  /**
+   * transcribe 曾經在上面那份清單裡，2026-08-05 移出來。
+   *
+   * 它確實「不改專案狀態」——但 readOnlyHint 不是拿來描述這件事的：host 會用它來
+   * **免權限提示**，語意是「便宜、可重複、沒有副作用」。而 transcribe 會跑一次全時間軸
+   * 混音（ffmpeg）再跑 whisper（分鐘級），並寫 derived/asr.wav 與 derived/asr.json
+   * ——後者的路徑還當成 jsonPath 回傳，等於自己承認寫了檔。
+   *
+   * 反向釘住：這是一個決定，不是漏標。哪天有人「順手補齊」把它加回去，這條會擋下來。
+   */
+  it('transcribe 刻意不標 readOnlyHint（它是分鐘級的、而且寫檔）', async () => {
+    const { tools } = await client.listTools();
+    const t = tools.find((x) => x.name === 'transcribe');
+    expect(t, 'transcribe 應該存在').toBeDefined();
+    expect(t?.annotations?.readOnlyHint ?? false).toBe(false);
   });
 
   it('write tools do not claim to be read-only', async () => {

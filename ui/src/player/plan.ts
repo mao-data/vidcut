@@ -52,6 +52,17 @@ export interface PlayerPlan {
   done: boolean;
 }
 
+/**
+ * OverlayItem → 播放器要畫的形狀。單獨抽出來是因為 Player 有第二個呼叫點：
+ * 拖曳中的 overlay 就算離開時間窗也要留在畫面上（見 Player.tsx 的 withDragged），
+ * 那條路徑必須跟這裡產生一模一樣的 src/position，否則會出現「補回來的那張圖路徑不同」。
+ */
+export function overlayView(
+  o: Project['tracks']['overlays'][number],
+): PlayerPlan['overlays'][number] {
+  return { id: o.id, src: `/media/${o.imagePath}`, position: o.position };
+}
+
 function sourceFor(p: Project, clipIndex: number, offsetInClip: number): ActiveSource | null {
   const clip = p.tracks.video[clipIndex];
   if (!clip) return null;
@@ -99,7 +110,7 @@ export function planAt(p: Project, t: number): PlayerPlan {
       const w = overlayWindow(p, o);
       return w && t >= w.start && t < w.end;
     })
-    .map((o) => ({ id: o.id, src: `/media/${o.imagePath}`, position: o.position }));
+    .map(overlayView);
   const captions = p.tracks.captions.filter((c) => t >= c.start && t < c.start + c.duration);
   const audio = activeAudioAt(p, t);
   const ducked = audio.some((a) => a.ducking);

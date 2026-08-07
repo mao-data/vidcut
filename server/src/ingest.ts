@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import type { MediaAsset } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
+import { applyCommand } from './commands.js';
 import { resolveMediaPath } from './paths.js';
 
 export interface IngestOpts {
@@ -16,19 +17,31 @@ export interface IngestOpts {
 const PEAK_SAMPLES_PER_BUCKET = 80;
 const PEAK_SAMPLE_RATE = 8000;
 
+/** `prepareMedia` 的結果：已經匯入過（回既有 id），或產好了一份待登記的素材。 */
+export type PreparedMedia = { existingId: string } | { asset: MediaAsset };
+
 /**
- * 登記素材檔並產出衍生檔（proxy / filmstrip / peaks）。回傳 mediaId。
- * 素材檔須已在 projectDir 內（relPath 相對路徑）。冪等：同 relPath 重複呼叫回既有 id。
+ * 產出衍生檔（proxy / filmstrip / peaks）並組出 MediaAsset——**但不寫文件**。
+ * 登記交給 `registerMedia` 命令（見 shared 的 Command 註解）：async 的重活留在這裡，
+ * 命令層保持同步，於是 AI 那條路可以用 aiWrite 吃到審核鎖。
+ *
+ * 冪等：同一支檔重複呼叫回既有 id，而且**在跑任何 ffmpeg 之前**就判斷完。
+ * 判斷用的是**解析後的絕對路徑**，不是字串相等——`doc.media` 裡相對路徑代表專案內、
+ * 絕對路徑代表零複製外部引用，直接比字串的話同一支檔用兩種寫法各匯一次會變成兩筆。
+ * （`sourceFolder.ts` 的 `imported` 早就是這樣比了，這裡以前沒跟上：list_source 說
+ * 「已匯入」，import_media 卻還是幫你多建一筆。）
+ *
  * 詳見 spec §8.1。
  */
-export async function ingestMedia(
+export async function prepareMedia(
   store: ProjectStore,
   projectDir: string,
   relPath: string,
   opts: IngestOpts = {},
-): Promise<string> {
-  const existing = store.doc.media.find((m) => m.path === relPath);
-  if (existing) return existing.id;
+): Promise<PreparedMedia> {
+  const wanted = resolveMediaPath(projectDir, relPath);
+  const existing = store.doc.media.find((m) => resolveMediaPath(projectDir, m.path) === wanted);
+  if (existing) return { existingId: existing.id };
 
   const abs = resolveMediaPath(projectDir, relPath);
   const info = await probe(abs);
@@ -142,7 +155,7 @@ export async function ingestMedia(
       await rm(pcmDir, { recursive: true, force: true });
     }
 
-    // 4. 登記（單一 mutation）
+    // 4. 組出待登記的 asset（寫文件是呼叫端的事，見函式註解）
     const asset: MediaAsset = {
       id,
       path: relPath,
@@ -157,12 +170,27 @@ export async function ingestMedia(
       ...(opts.label ? { label: opts.label } : {}),
       ...(opts.meta ? { meta: opts.meta } : {}),
     };
-    store.mutate('ai', `import ${relPath}`, (d) => {
-      d.media.push(asset);
-    });
-    return id;
+    return { asset };
   } catch (e) {
     await rm(derivedAbs, { recursive: true, force: true });
     throw e;
   }
+}
+
+/**
+ * 人的路徑：產衍生檔 + 登記，回 mediaId。走 `applyCommand` 而不是 aiWrite——
+ * HTTP 上傳與 demo 建置都是使用者自己的動作，不該被他自己的審核擋住。
+ * AI 那條路（MCP 的 import_media）自己組 prepareMedia + aiWrite，才吃得到審核鎖。
+ */
+export async function ingestMedia(
+  store: ProjectStore,
+  projectDir: string,
+  relPath: string,
+  opts: IngestOpts = {},
+): Promise<string> {
+  const prepared = await prepareMedia(store, projectDir, relPath, opts);
+  if ('existingId' in prepared) return prepared.existingId;
+  const r = applyCommand(store, 'human', { name: 'registerMedia', asset: prepared.asset });
+  if (!r.ok) throw new Error(`import ${relPath}: ${r.error}`);
+  return prepared.asset.id;
 }

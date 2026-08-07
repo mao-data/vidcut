@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { buildRenderArgs, render, renderProgressBus, withProbedChannels } from '../src/render.js';
+import {
+  assertSafeStamp,
+  buildRenderArgs,
+  render,
+  renderProgressBus,
+  withProbedChannels,
+} from '../src/render.js';
 import { buildDemoProject } from '../src/demo.js';
 import { ProjectStore } from '../src/store.js';
 import { probe, runFfmpeg } from '../src/ffmpeg.js';
@@ -43,7 +49,7 @@ function demoLikeProject(): Project {
 describe('buildRenderArgs', () => {
   it('builds inputs per clip + overlay, concat + overlay filtergraph, 1080x1920', () => {
     const p = demoLikeProject();
-    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', { hasDrawtext: false });
+    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', {});
     const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
     // 2 clip inputs (-ss/-t/-i ×2) + 1 overlay input
     expect(plan.args.filter((a) => a === '-i')).toHaveLength(3);
@@ -59,7 +65,61 @@ describe('buildRenderArgs', () => {
     expect(plan.captionsBurned).toBe(false);
   });
 
-  it('burns captions via drawtext when available', () => {
+  /**
+   * position.scale 必須真的進 filtergraph。曾經整條 overlay 濾鏡鏈上沒有任何 scale
+   * （預覽端吃 CSS transform、渲染端完全忽略），Inspector 那個使用者改得動的 scale 欄位
+   * 因此是「預覽變、成品不變」——verify:wysiwyg 量到 scale=0.5 時預覽/成品寬比 0.4505、
+   * 最大差 244px。
+   */
+  describe('overlay position.scale', () => {
+    const withScale = (s: number) => {
+      const p = demoLikeProject();
+      p.tracks.overlays[0]!.position = { x: 0.5, y: 0.06, scale: s };
+      const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', {});
+      return plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    };
+
+    it('scales the overlay input before compositing it', () => {
+      const fc = withScale(0.5);
+      // 縮放必須發生在 overlay 之前：overlay 的 w/h 讀的是「當下這一路的尺寸」，
+      // 置中式子 (W*x)-(w/2) 才會用縮放後的寬置中。
+      expect(fc).toContain('[2:v]scale=iw*0.5:ih*0.5[ovs0]');
+      expect(fc).toContain('[ovs0]overlay=x=(W*0.5)-(w/2):y=(H*0.06)');
+      // 縮放後的標籤才是 overlay 的輸入；不得再直接吃原始 input
+      expect(fc).not.toContain('[2:v]overlay=');
+      expect(fc.indexOf('scale=iw*0.5')).toBeLessThan(fc.indexOf('[ovs0]overlay='));
+    });
+
+    it('keeps the anchor semantics (x=centre, y=top) when scaled', () => {
+      // 不對稱錨點是這個專案出過事故的地方：加了 scale 之後 y 仍然是「上緣」，
+      // 不得偷偷變成中心（那會讓 1920*y 的圖整片位移半個高度）。
+      const fc = withScale(0.25);
+      expect(fc).toMatch(/\[ovs0\]overlay=x=\(W\*0\.5\)-\(w\/2\):y=\(H\*0\.06\)/);
+      expect(fc).not.toContain('(h/2)');
+    });
+
+    it('emits no scale filter at scale = 1 (identity stays byte-identical)', () => {
+      const fc = withScale(1);
+      expect(fc).not.toContain('scale=iw*');
+      expect(fc).toContain('[2:v]overlay=x=(W*0.5)-(w/2):y=(H*0.06)');
+    });
+
+    it('drops the overlay entirely at scale <= 0 instead of compositing it full size', () => {
+      // ffmpeg 的 `scale=0` 意思是「沿用原尺寸」，而預覽端 CSS scale(0) 是「看不見」——
+      // 照原樣疊上去就是又一次「預覽沒有、成品有」的靜默落差。
+      for (const s of [0, -1, Number.NaN]) {
+        const fc = withScale(s);
+        expect(fc).not.toContain('overlay=x=(W*0.5)-(w/2)');
+        expect(fc).not.toContain('scale=iw*');
+      }
+    });
+  });
+
+  // 2026-08-05：原生 `drawtext` 分支整條刪掉了（見 buildRenderArgs 的註解）。這條測試
+  // 從「有 drawtext 就走它」翻轉成**釘死它不准回來**：那條路沒有 fontfile=、不換行、
+  // 描邊寫死 3px，是跟字卡完全不同的光柵器；本機 ffmpeg 沒 freetype 所以踩不到，
+  // 換一台有的機器「預覽＝成品」會靜默失效。沒有字卡就是不燒字，不要有第二條路。
+  it('沒有字卡就不燒字——不得退回原生 drawtext（那是另一個光柵器）', () => {
     const p = demoLikeProject();
     p.tracks.captions = [
       {
@@ -70,13 +130,13 @@ describe('buildRenderArgs', () => {
         style: { fontFamily: 's', fontSize: 48, fill: '#fff', y: 0.8 },
       },
     ];
-    const withText = buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: true });
-    expect(withText.captionsBurned).toBe(true);
-    const fc = withText.args[withText.args.indexOf('-filter_complex') + 1]!;
-    expect(fc).toContain('drawtext=text=');
+    const noCards = buildRenderArgs(p, '/x', '/x/o.mp4', {});
+    expect(noCards.captionsBurned).toBe(false);
+    const fc = noCards.args[noCards.args.indexOf('-filter_complex') + 1]!;
+    expect(fc).not.toContain('drawtext');
   });
 
-  it('composites PNG caption cards via overlay when drawtext unavailable', () => {
+  it('composites PNG caption cards via overlay', () => {
     const p = demoLikeProject();
     p.tracks.captions = [
       {
@@ -88,10 +148,9 @@ describe('buildRenderArgs', () => {
       },
     ];
     // 無字卡 → 不燒
-    expect(buildRenderArgs(p, '/x', '/x/o.mp4', { hasDrawtext: false }).captionsBurned).toBe(false);
+    expect(buildRenderArgs(p, '/x', '/x/o.mp4', {}).captionsBurned).toBe(false);
     // 有字卡 → 以 overlay 合成
     const withCards = buildRenderArgs(p, '/x', '/x/o.mp4', {
-      hasDrawtext: false,
       captionCards: [
         {
           cap: p.tracks.captions[0]!,
@@ -121,7 +180,7 @@ describe('buildRenderArgs', () => {
       probe: { duration: 30, width: 0, height: 0, fps: 0, hasAudio: true, rotation: 0 },
     });
     p.tracks.audio = [{ id: 'a1', mediaId: 'vo', start: 0, in: 0, duration: 2, volume: 1 }];
-    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', { hasDrawtext: false });
+    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', {});
     expect(plan.args).toContain('/outside/vo.mp3');
     expect(plan.args).not.toContain(join('/proj', '/outside/vo.mp3'));
   });
@@ -131,9 +190,91 @@ describe('buildRenderArgs', () => {
   it('音訊素材找不到時，錯誤訊息同時含 audio item id 與 mediaId', () => {
     const p = demoLikeProject();
     p.tracks.audio = [{ id: 'bgm1', mediaId: 'GHOST_ID', start: 0, in: 0, duration: 1, volume: 1 }];
-    expect(() => buildRenderArgs(p, '/proj', '/proj/out.mp4', { hasDrawtext: false })).toThrow(
+    expect(() => buildRenderArgs(p, '/proj', '/proj/out.mp4', {})).toThrow(
       /bgm1.*GHOST_ID|GHOST_ID.*bgm1/,
     );
+  });
+
+  /**
+   * 匯出尺寸必須是偶數——libx264 的 yuv420p 不吃奇數維度，整支匯出會以一句 ffmpeg
+   * 錯誤結束（實測 `width: 721` → exit 187）。`even()` 以前**只包了推算出來的那一邊**，
+   * 呼叫端明給的值原封不動送進 scale 濾鏡，而註解卻寫著「取偶數」。
+   * 三個方向都要釘：明給的那一邊、推算的那一邊、兩邊都給。
+   */
+  describe('匯出尺寸一律取偶數', () => {
+    const scaleOf = (exp: Record<string, unknown>) => {
+      const plan = buildRenderArgs(demoLikeProject(), '/proj', '/proj/out.mp4', { export: exp });
+      const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+      return /scale=(\d+):(\d+):flags=lanczos/.exec(fc);
+    };
+
+    it('明給的奇數寬會進位，推算出來的高也是偶數', () => {
+      const m = scaleOf({ width: 721 });
+      expect(m, 'width 給了就該有匯出縮放').not.toBeNull();
+      expect(Number(m![1]) % 2).toBe(0);
+      expect(Number(m![2]) % 2).toBe(0);
+      expect(m![1]).toBe('722');
+    });
+
+    it('明給的奇數高會進位', () => {
+      const m = scaleOf({ height: 721 });
+      expect(Number(m![1]) % 2).toBe(0);
+      expect(Number(m![2]) % 2).toBe(0);
+      expect(m![2]).toBe('722');
+    });
+
+    it('兩邊都給奇數時兩邊都進位（不依比例互推）', () => {
+      const m = scaleOf({ width: 405, height: 721 });
+      expect(m![1]).toBe('406');
+      expect(m![2]).toBe('722');
+    });
+
+    // 反向保險：畫布原尺寸不該被 even() 碰。1080×1920 本來就是偶數，
+    // 重點是「沒給 width/height 時完全不插 scale 濾鏡」這個既有行為不能變。
+    it('沒給尺寸時不插匯出縮放濾鏡', () => {
+      expect(scaleOf({})).toBeNull();
+    });
+  });
+});
+
+/**
+ * `stamp` 直接變成 `output/<stamp>.mp4` 的檔名，而它有**兩個**入口（MCP 的 render 工具、
+ * WS 的 `{type:'render'}`），兩邊以前都沒驗。`../../x` 會把成品寫到專案目錄外，
+ * 並讓 `render.lastOutput` 指向一個逃出去的相對路徑——之後 extractCover 拿它抽封面
+ * 就再也抽不到。擋點放在 render.ts 才涵蓋得到兩條路。
+ */
+describe('assertSafeStamp', () => {
+  it('放行正常的 stamp', () => {
+    for (const s of ['render_42', 'wysiwyg', 'a.b-c_d', 'A1']) {
+      expect(() => assertSafeStamp(s), s).not.toThrow();
+    }
+  });
+
+  it('擋下會逃出 output/ 的 stamp', () => {
+    for (const s of ['../../escape', 'a/b', '..', '.', '/abs', 'x\\y', '']) {
+      expect(() => assertSafeStamp(s), s).toThrow(/stamp/);
+    }
+  });
+
+  it('擋下過長的 stamp（檔名長度上限）', () => {
+    expect(() => assertSafeStamp('a'.repeat(65))).toThrow(/stamp/);
+    expect(() => assertSafeStamp('a'.repeat(64))).not.toThrow();
+  });
+
+  /**
+   * 上面三條只證明這個純函式本身對——**忘了接上去**的話它們照樣全綠。
+   * 這條打的是 `render()` 這個真正的入口（WS 那條路沒有 zod，只有這一道擋著），
+   * 而且驗它擋在**做任何事之前**：專案是空的，若真的走進去會先撞上
+   * 「timeline is empty」而不是 stamp 的錯誤。
+   */
+  it('render() 自己就會擋下危險的 stamp（不是只靠 MCP 的 schema）', async () => {
+    const dir = await tmpDir('vidcut-stamp-');
+    try {
+      const store = await ProjectStore.load(join(dir, 'project.json'));
+      await expect(render(store, dir, '../../escape')).rejects.toThrow(/stamp/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -163,7 +304,7 @@ describe('render (integration)', () => {
     expect(info.duration).toBeLessThan(16);
     expect(store.doc.render.status).toBe('done');
     expect(store.doc.render.lastOutput).toBe(res.outPath);
-    // demo 有 2 條字幕；本機無 drawtext → 應走 PNG 字卡並回報已燒
+    // demo 有 2 條字幕；burn 模式一律走 PNG 字卡（唯一的燒字路徑）→ 回報已燒
     expect(res.captionsBurned).toBe(true);
   }, 180_000);
 
