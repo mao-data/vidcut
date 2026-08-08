@@ -1,5 +1,8 @@
 # 素材匯入的 MCP 面補完 Implementation Plan
 
+> **歷史文件（2026-08-03 的實作計畫）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 讓階段 1 做出來的後端能力（素材夾掃描、零複製匯入、接片到主軌尾端）真的有使用者——補上 MCP 工具面，並收掉盤點時發現的文件與維護債。

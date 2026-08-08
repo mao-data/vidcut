@@ -1,5 +1,8 @@
 # 文件與 MCP 一致性稽核 + 永久關卡 Implementation Plan
 
+> **歷史文件（2026-08-07 的實作計畫）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把 vidcut 所有常駐文件與 MCP 工具面對照程式碼校正一次，並把其中「能可靠機檢」的部分做成 gauntlet 關卡，讓同類漂移不會再靜默發生。

@@ -1407,8 +1407,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const s = stamp ?? `render_${store.version}`;
         const res = await render(store, projectDir, s, exportOpts);
         const mode = exportOpts.subtitles ?? 'burn';
-        // burn 模式下沒燒成功才值得警告（字卡一張都沒產出來——python3/Pillow 不在、
-        // 或字型表是空的）；其他模式的「沒燒」是使用者要的，別報成問題。
+        // 其他模式的「沒燒」是使用者要的，別報成問題。
+        // ⚠️ burn 模式下 `captionsBurned === false` 的**唯一**成因是「專案的字幕軌是空的」：
+        // `render()` 只在 `captions.length > 0 && subtitleMode === 'burn'` 時才產字卡，而
+        // `renderCaptionCards()` 對每條 caption 至少回一張卡，所以 captionCards 空 ⟺ captions 空
+        // （`buildRenderArgs` 的 `useCards = burnCaptions && captionCards.length > 0`）。
+        // 「python3/Pillow 不在」與「字型候選鏈全滅」都**不會**走到這裡：前者讓
+        // `spawn('python3', …)` 丟 ENOENT、後者由 `fontFallbackError()` reject，兩者都經
+        // `mapLimit`（任一項 reject 就整體 reject）讓 `render()` 整個失敗，落到下面的 catch。
+        // 下面 note 那句 'is python3/Pillow available?' 因此是**假診斷**——但它是執行期輸出，
+        // 改它屬行為變更，已記進 `docs/ROADMAP.md` 第 11 條待專案擁有者裁決。
         const note =
           mode === 'burn'
             ? res.captionsBurned

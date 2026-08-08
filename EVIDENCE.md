@@ -1,5 +1,8 @@
 # EVIDENCE — vidcut 全功能驗證
 
+> **這是驗證記錄，不是現況描述**：每個數字都綁定當時的 commit SHA，**不隨程式碼更新**。
+> 要知道現在的狀態，跑 `bash scripts/gauntlet.sh`。現況描述以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 依 `docs/superpowers/specs/2026-08-01-full-verification.md`（使用者 2026-08-01 核准全套執行）。
 **Spec approval: obtained**（使用者核准後才動工）。
 

@@ -1,5 +1,8 @@
 # 素材匯入 階段 1（後端能力）Implementation Plan
 
+> **歷史文件（2026-08-03 的實作計畫）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 讓 vidcut 能引用專案資料夾**外**的素材（零複製），並從素材夾挑檔匯入、直接排上主軌。

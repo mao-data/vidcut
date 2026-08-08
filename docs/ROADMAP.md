@@ -1,6 +1,10 @@
 # vidcut 上線計劃與可行方向
 
-最後更新 2026-08-05。現況與已驗證範圍見 `HANDOFF.md`；各項設計定案見 `docs/superpowers/specs/`。
+> **這是前瞻型文件**：描述「可能要做的事」，引用的檔案路徑可能還不存在。
+> 描述「現況」的是 `CLAUDE.md`、`.claude/rules/`、`HANDOFF.md` 與 `README.md`——
+> 那幾份的引用由 `scripts/docs-check.mjs` 保證指向真實存在的東西，本檔不納入該檢查。
+
+最後更新 2026-08-07。現況與已驗證範圍見 `HANDOFF.md`；各項設計定案見 `docs/superpowers/specs/`。
 
 ## 進行中
 
@@ -271,10 +275,18 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   SDK 在**工具不存在**時同樣回 `isError`，所以把 `add_clip` 改名後兩條照樣通過。照
   `list_source` 目錄不存在那條的做法補上訊息內容斷言（例如斷言訊息含 `media not found`
   ／`out of bounds`）即可。
-- **instructions 同步守衛測試沒有真的呼叫 `listTools()`**——這條測試是為了防「`commands.ts`
-  加了 case 卻忘記在 `mcp.ts` `registerTool`」（`CLAUDE.md` 鐵則第三步）而寫的，但它比對
-  的是靜態字串，工具真的沒註冊時它不會紅。要有保護力必須實際 `listTools()` 並與
-  instructions 裡列出的工具名取交集比對。
+- ~~**instructions 同步守衛測試沒有真的呼叫 `listTools()`**~~ ——**已修**（commit `09a4bb2`
+  「工具面完整性守衛取代硬編的假守衛（ROADMAP I-5）」＋ `fc4d60f`）。舊守衛
+  （`mcp-tools.test.ts` 的 `describe('instructions 與工具清單同步')`）硬編 6 個工具名做
+  `toContain`，工具真的沒註冊時照樣綠；`09a4bb2` 把它整段刪掉，換成
+  `server/test/mcp-docs-sync.test.ts`，四條測試全部先 `await client.listTools()` 再比對：
+  「每個註冊的工具都出現在 instructions 裡，或有明列的豁免理由」（`INSTRUCTIONS_EXEMPT`
+  要求寫下理由）、「豁免清單不得列入不存在的工具」、「instructions 提到的工具名都真的
+  註冊了」（反方向，防描述留著實作已移除）、以及 `fc4d60f` 補的
+  `describe('Command variant 都能從 MCP 觸達')`——**那條才是鐵則第三步的直接守衛**：
+  拿 `shared/src/types.ts` 的 `Command` 聯集對 `listTools()` 取差集，漏 `registerTool`
+  就轉紅（`MCP_EXEMPT_COMMANDS` 列出五個由 `timeline_op`／`import_media` 間接觸達的）。
+  查證：`npx vitest run --root server test/mcp-docs-sync.test.ts` → **6 passed**。
 - ~~**測試會洩漏暫存目錄**~~ ——**已修**（產品面與測試面兩半都修完）。原問題：
   `server/test` 有 91 個 `mkdtemp` 呼叫但只有 15 處 `rm`，而且多數 `mkdtemp` 藏在
   每條測試都會呼叫一次的 helper 裡（`commands.test.ts` 只寫 3 個 `mkdtemp` 卻產出
@@ -286,7 +298,8 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   撞出 `ENOENT: rename '.project.json.tmp'`（第一版就是這樣被隨機順序關卡抓到的）。
   實測同一套測試（合併 main 之後、439 條）：不清理會留下 266 個目錄／125MB，清理生效後
   0 個。全分支共轉換 100 個 mkdtemp 呼叫點，四隻 mutant 守著。
-- **`mcp-tools.test.ts:317` 有一條套套邏輯斷言**——
+- **`mcp-tools.test.ts` 有一條套套邏輯斷言**（在 `describe('add_clip')` 的
+  「接到主軌尾端，回新 clip 的 id」那條裡）——
   `expect(sc.clipId).toBe(store.doc.tracks.video.at(-1)!.id)` 兩邊用同一個 `.at(-1)` 讀
   同一份狀態，恆真。審查者把 `push` 改成 `unshift` 實測，真正轉紅的是鄰行的 `label`
   斷言（那條才是獨立 oracle）。功能上無漏洞，但這條斷言證明不了它宣稱的「回傳的 id
@@ -295,11 +308,16 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
 **文件稽核（2026-08-07，見 `docs/DOC-AUDIT-2026-08-07.md`）發現，但要動到程式碼、
 不在「只動文件」的稽核範圍內：**
 
-- **`ui/e2e/panel-affordance.mjs` 檔頭寫「前置：`npm run demo`」**，與 `CLAUDE.md`／
-  `.claude/rules/ui-verification.md`「**不要**用 `npm run demo` 當 verify 的前置（它會重新
-  產生 `projects/demo`、覆蓋既有內容）」直接矛盾。姊妹腳本 `ui/e2e/canvas-direct.mjs` 的
-  檔頭就寫對了（`npx tsx server/src/index.ts projects/demo`）。照 canvas-direct 的寫法改那
-  一行檔頭註解即可，屬小 Task。
+- ~~**`ui/e2e/panel-affordance.mjs` 檔頭寫「前置：`npm run demo`」**~~ ——**已修**
+  （Task 8，2026-08-07）。原本與 `CLAUDE.md`／`.claude/rules/ui-verification.md`
+  「**不要**用 `npm run demo` 當 verify 的前置（它會重新產生 `projects/demo`、覆蓋既有
+  內容）」直接矛盾。**兩處**都改成姊妹腳本 `ui/e2e/canvas-direct.mjs` 的寫法：檔頭註解
+  改為「`npm run build -w @vidcut/ui` 是最新的 + `npx tsx server/src/index.ts projects/demo`」
+  並明寫不要用 `npm run demo`；`main()` 裡連不上時的 `console.error` 提示也一併改掉
+  （原本是「先跑 npm run demo」，等於在失敗當下再教人覆蓋一次 demo）。
+  只動了這兩處字串，沒有動任何斷言或流程；`node --check` 通過，`npm run lint`／
+  `npm run format:check` 維持乾淨。**這條沒有自動關卡守著**——`scripts/docs-check.mjs`
+  檢查的是斷言型文件裡的反引號路徑，不是原始碼註解裡的前置條件。
 - **`ui/src/player/Player.tsx` 的註解引用「`CLAUDE.md`「UI 驗證的陷阱」」**，但 `CLAUDE.md`
   已經沒有這一節——`<img draggable>` 那條記錄現在在 `.claude/rules/ui-verification.md`。
   把交叉參考改指新位置即可，屬小 Task。（`scripts/docs-check.mjs` 抓不到這種：它檢查的是
@@ -313,8 +331,8 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   （`split_atoms` 的「原子數 ≤ 字元數，這是 cardBudget.ts 上界估算的依據」）同理，可一併看。
 
 - **`setOverlays` 的驗證比 `addOverlay` 鬆四條，寫壞的 overlay 會靜默落盤**（Task 6 的
-  MCP 工具描述稽核發現）。`commands.ts` 的 `setOverlays()`（約 :753-769）只跑
-  `validateOverlayTextCard`，而 `addOverlay()`（:656-683）另外驗了四件事，整組替換這條路
+  MCP 工具描述稽核發現）。`commands.ts` 的 `setOverlays()` 只跑
+  `validateOverlayTextCard`，而 `addOverlay()` 另外驗了四件事，整組替換這條路
   全都沒有：①「既無 `start` 也無 `anchor`」②「`anchor.clipId` 指向不存在的片段」
   ③「`duration <= 0`」④「同一批裡 `id` 重複」。實測（對空專案直接呼叫 `applyCommand`）
   四種全部回 `{"ok":true}` 並寫進文件，重複 id 那次 overlay 軌真的變成
@@ -327,7 +345,7 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   ⚠️ 這會讓現在能過的呼叫變成不能過，屬行為變更，所以 Task 6（只動文件）沒有動它——
   目前是在 `set_overlays` 的工具描述裡明說「這四條在整組替換這條路上不會被擋下來」。
   修掉之後記得把那句描述一併改掉。
-  **順手改掉 `commands.ts:751-752` 那段註解**——它寫著 `setOverlays`「跟
+  **順手改掉 `setOverlays()` 上方那段 doc 註解**——它寫著 `setOverlays`「跟
   `addOverlay`/`updateOverlay` 用同一套規則，**不因為是『整組替換』就放寬**」。第一句雖已
   把範圍限定在 text/imagePath，第二句仍會讓維護者相信上面這個缺口不存在（本 Task 只動
   文件，沒有動產品程式碼裡的註解，所以留到這裡一併處理）。
@@ -343,6 +361,30 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   若收緊，就把 `get_frame` 的 hint 拿掉。改 annotations 會改變 host 的權限提示行為，
   屬行為變更，故 Task 6 未動。
 
+- **`render` 工具在 burn 模式下的 `note` 是假診斷**（Task 7 實測、Task 8 補完判定）。
+  `mcp.ts` 的 render handler 在 `mode === 'burn' && !res.captionsBurned` 時附上
+  `' (captions not burned: no text cards were produced — is python3/Pillow available?)'`。
+  **但那句提到的兩個成因都不可能走到這裡**：
+  - python3/Pillow 不在 → `renderCaptionCard()` 的 `spawn('python3', …)` 丟 ENOENT；
+  - 字型候選鏈全滅（`text_card.py` 的 `load_font` fallback）→ `fontFallbackError()` reject。
+    兩者都經 `render.ts` 的 `mapLimit`（任一項 reject 就整體 reject）讓 `render()` 整個
+    失敗，被 `mcp.ts` render handler 的 catch 接住回 `render failed: …`。Task 7 已實測
+    第一條：把 `python3` 移出 `PATH`（保留 ffmpeg/ffprobe）、專案有字幕、`subtitles:'burn'`
+    → `render()` 直接 reject `spawn python3 ENOENT`，不是回傳 `captionsBurned:false`。
+
+  **這個分支不是死碼，但唯一可達的情境不是它說的那個。** 判定依據（讀 `render.ts`）：
+  `render()` 只在 `captions.length > 0 && subtitleMode === 'burn'` 時才填 `captionCards`，
+  而 `renderCaptionCards()` 對每條 caption 至少回一張卡（無 tokens 回 1 張、有 tokens 回
+  `tokens.length` 張），所以 `captionCards` 是空的 ⟺ **字幕軌是空的**；
+  `buildRenderArgs` 的 `useCards = burnCaptions && captionCards.length > 0` 於是為 false。
+  也就是說：**burn 模式下 `captionsBurned === false` ⟺ 專案根本沒有字幕**，而使用者拿到的
+  提示卻是「是不是 python3/Pillow 沒裝」。
+  `server/test/render-subtitles.test.ts` 裡所有 `captionsBurned` 為 false 的斷言都是
+  `off`／`sidecar`／`embed` 模式，**沒有任何測試釘住 burn + 空字幕軌這條**。
+  修法：把那句改成「專案沒有字幕可燒」之類的實話（或在真的沒字幕時乾脆不附 note）。
+  ⚠️ `note` 是回給 AI 的執行期輸出，改它屬行為變更，故 Task 8（只動文件）未動——
+  只把 `mcp.ts` 那段**程式碼註解**改成上面的正確描述，留下這條給專案擁有者裁決。
+
 ## 上線前必須由人確認
 
 自動化測試涵蓋不到，需要真人與真環境：
@@ -350,6 +392,21 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
 - 播放流暢度與 A/B 無縫切換的實際觀感
 - 成品觀感（字幕排版、ducking 音量、blur 填充）
 - Claude Code 的真實 MCP 連線（目前驗過 transport，未驗過完整對話流程）
-- 畫布拖曳/吸附的手感（吸附靈敏度、導線時機）與打字三段式的體感；拖曳/改字後
-  實際渲染一次，比對成品與預覽畫布是否一致（e2e 只驗了伺服器座標值有變，
-  沒有跑過真的 render 去比對成品像素）
+- 畫布拖曳/吸附的手感（吸附靈敏度、導線時機）與打字三段式的體感
+- 「拖曳/改字之後**實際渲染一次**，比對成品與預覽畫布是否一致」這條完整路徑。
+  ⚠️ 這條原本寫著「e2e 只驗了伺服器座標值有變，沒有跑過真的 render 去比對成品像素」，
+  **已過期**：`npm run verify:wysiwyg`（`ui/e2e/preview-vs-export.mjs`）就是在做真 render
+  → 抽幀 → 量墨跡外框，對上 headless 預覽截圖量到的同一個外框，兩邊都換算回
+  1080×1920 畫布座標再比。六個 case：`overlay-scale1`、`overlay-scale05`、`overlay-wrap`
+  （長文字自動換行）、`overlay-offtop`（`position.y` 為負、被裁到）、`overlay-offcentre`
+  （`position.x = 0.25`，唯一 x≠0.5 的）、`caption`（**無**逐詞高亮）。
+  所以「幾何映射對不對」已有自動化，**仍待人驗的是這三塊**：
+  1. **拖曳這一段**——`verify:wysiwyg` 的 fixture 都是用 MCP 直接寫進去的
+     （`import_media` → `set_timeline` → `add_overlay` ×5 → `set_captions`），
+     不經過 UI 拖曳或改字；`verify:canvas` 拖得動、
+     但它到「伺服器存了新座標」為止就結束，沒有接著 render。兩支合起來仍缺中間那一接。
+  2. **比對的是外框，不是全畫面像素**——`inkBBox` 用固定亮度門檻（`INK_LUMA` = 128）
+     圍出等亮度線，容差 `TOL_PX` = 4px。描邊粗細、顏色、反鋸齒不在比對範圍內。
+  3. **karaoke 字幕沒有被涵蓋**——`caption` 那個 case 明寫是無逐詞高亮。karaoke 的
+     已知狀況見 `CLAUDE.md`：**預覽描邊看起來略厚，匯出成品才是正確的**（不要跑去修
+     那個不存在的匯出 bug）。

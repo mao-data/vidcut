@@ -1,5 +1,8 @@
 # 面板拖曳伸縮 Implementation Plan
 
+> **歷史文件（2026-07-30 的實作計畫）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** 左右面板可拖曳調寬（含 <140px 自動收合、雙擊回預設、localStorage 記憶）。

@@ -1,5 +1,8 @@
 # vidcut UI 重設計 Implementation Plan
 
+> **歷史文件（2026-07-30 的實作計畫）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把工程原型級 UI 重塑為「C 現代 web 工具」視覺系統（深藍紫玻璃＋紫漸層強調），含保守版面調整、峰值+RMS 波形、GSAP 動效。

@@ -1,5 +1,8 @@
 # vidcut UI 重設計（視覺系統 × 版面微調 × 動效）
 
+> **歷史文件（2026-07-30 的設計定案）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 2026-07-30。經 brainstorming（含瀏覽器 mockup 比選）定案；mockup 存於
 `.superpowers/brainstorm/42534-1785406672/content/`（gitignored，僅本機參考）。
 

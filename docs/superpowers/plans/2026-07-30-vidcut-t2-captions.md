@@ -1,5 +1,8 @@
 # T2 #8：逐字稿 + 自動字幕 + 逐詞高亮
 
+> **歷史文件（2026-07-30 的實作計畫）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 目標：`transcribe` / `auto_caption` 兩個 MCP 工具、`CaptionItem.tokens` 資料結構、
 渲染端逐詞 karaoke 高亮、UI 字幕列表 view。gap analysis 稱它「ROI 之王」。
 

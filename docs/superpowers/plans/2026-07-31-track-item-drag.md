@@ -1,5 +1,8 @@
 # 字幕／音訊／overlay 拖曳 Implementation Plan
 
+> **歷史文件（2026-07-31 的實作計畫）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:executing-plans. Steps use checkbox syntax.
 
 **Goal:** 三軌 chips 可拖曳平移（吸附）、字幕/音訊左右緣 trim、錨定 overlay 改 offset。

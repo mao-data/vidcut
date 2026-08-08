@@ -1,5 +1,8 @@
 # 字幕 WYSIWYG + 文字 overlay + 預覽拖曳 實作計畫
 
+> **歷史文件（2026-08-04 的實作計畫）**：記錄當時的決策與理由，**不隨程式碼更新**。
+> 現況以 `CLAUDE.md`／`HANDOFF.md` 為準。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 預覽字幕/文字與渲染成品像素級一致(單一 Pillow 光柵器)、可編輯文字 overlay、預覽直接拖曳。

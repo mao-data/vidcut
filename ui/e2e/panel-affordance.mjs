@@ -4,7 +4,9 @@
  * 為什麼不是 vitest：這些是「元素有沒有被別人蓋住 / 有沒有被捲出視窗」的問題，
  * 需要真的排版與命中測試，jsdom 沒有版面引擎，量不出來。
  *
- * 前置：`npm run demo`（server 起在 :3845 並吃 ui/dist）＋ `npm run build -w @vidcut/ui`。
+ * 前置：`npm run build -w @vidcut/ui` 是最新的 + 一個吃著真專案的 server 已在跑
+ * （`npx tsx server/src/index.ts projects/demo`，:3845，服務的是 ui/dist）。
+ * **不要**用 `npm run demo`（會重新產生 projects/demo，蓋掉既有內容）。
  * 執行：`npm run verify:panels`
  * Chrome 路徑可用 CHROME_BIN 覆寫。
  */
@@ -66,7 +68,9 @@ async function main() {
     const r = await fetch(APP_URL);
     if (!r.ok) throw new Error(String(r.status));
   } catch (e) {
-    console.error(`✗ ${APP_URL} 沒有回應（先跑 npm run demo）：${e.message}`);
+    console.error(
+      `✗ ${APP_URL} 沒有回應（先跑 npx tsx server/src/index.ts projects/demo）：${e.message}`,
+    );
     process.exit(2);
   }
 
