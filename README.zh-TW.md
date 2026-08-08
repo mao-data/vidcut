@@ -56,13 +56,14 @@ vidcut 是一個 **本機優先的直式短影音（1080×1920）時間軸編輯
 
 ## 快速開始
 
-前置需求：**Node.js 20+**、**ffmpeg**（含 ffprobe）、**Python 3 + Pillow**（`pip3 install pillow`），自動字幕需要 **whisper.cpp**（選裝）。
+前置需求：**Node.js 20+**、**ffmpeg**（含 ffprobe）、**Python 3 + Pillow**（`pip3 install pillow`），自動字幕需要 **whisper.cpp**（選裝）。（server 本身只需要 Node ≥18；下面 build UI 那步實際吃的是 Vite 的下限，**20.19+ 或 22.12+**。）
 
 ```bash
 brew install ffmpeg
-pip3 install pillow        # 字幕／文字 overlay 的字卡光柵管線要靠它——
-                            # 沒裝的話 server 照樣能起，但字幕/overlay 會退回較粗糙的
-                            # DOM 近似預覽，匯出的 burn 模式也燒不進字幕
+pip3 install pillow        # 字幕與文字 overlay 的字卡光柵管線。沒裝的話：
+                            # 字幕照樣寫得進去（預覽會退回較粗糙的 DOM 近似），但專案裡
+                            # 已有字幕時 render 用 subtitles=burn 會直接失敗；新增/修改
+                            # 「文字」overlay（非圖片 overlay）則會被直接拒絕。
 brew install whisper-cpp   # 選裝——自動字幕用
 # 模型放 ~/.cache/whisper.cpp/（例如 ggml-large-v3-turbo-q5_0.bin），
 # 或用 VIDCUT_WHISPER_MODEL 指定路徑

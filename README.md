@@ -56,13 +56,15 @@ One process, one port, four kinds of traffic: static UI, `/media` (native Range 
 
 ## Quick start
 
-Prerequisites: **Node.js 20+**, **ffmpeg** (and ffprobe), **Python 3 + Pillow** (`pip3 install pillow`), optionally **whisper.cpp** for auto captions.
+Prerequisites: **Node.js 20+**, **ffmpeg** (and ffprobe), **Python 3 + Pillow** (`pip3 install pillow`), optionally **whisper.cpp** for auto captions. (The server itself only needs Node ≥18; building the UI below needs Vite's actual floor, **20.19+ or 22.12+**.)
 
 ```bash
 brew install ffmpeg
-pip3 install pillow        # powers the text-card rasterizer for captions & text overlays —
-                            # without it the server still runs, but captions/overlays fall back
-                            # to a rough DOM preview and won't burn into the rendered export
+pip3 install pillow        # text-card rasterizer for captions & text overlays. Without it:
+                            # captions still write fine (the preview falls back to a rough DOM
+                            # approximation), but `render` with subtitles=burn fails outright once
+                            # the project has captions; adding/editing a *text* overlay (not an
+                            # image overlay) is rejected outright.
 brew install whisper-cpp   # optional — auto captions
 # put a model in ~/.cache/whisper.cpp/ (e.g. ggml-large-v3-turbo-q5_0.bin),
 # or point VIDCUT_WHISPER_MODEL at one
