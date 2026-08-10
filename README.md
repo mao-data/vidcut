@@ -4,7 +4,7 @@
 
 **The AI-native video editor — your AI cuts through MCP, you supervise in the browser.**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.base.json)
 [![MCP](https://img.shields.io/badge/MCP-native-8b5cf6.svg)](#connect-your-ai)
 
@@ -169,8 +169,8 @@ Next up (see [`docs/ROADMAP.md`](docs/ROADMAP.md)): detection tools for AI decis
 - [`HANDOFF.md`](HANDOFF.md) — current state, how everything is verified, known trade-offs
 - [`docs/superpowers/specs/`](docs/superpowers/specs/) — design decisions; [`docs/superpowers/plans/`](docs/superpowers/plans/) — implementation plans
 
-Issues and PRs welcome.
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) (contributions require a lightweight CLA).
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0-only](LICENSE). You can use, modify, and self-host vidcut freely; if you offer a modified version as a network service, the AGPL requires you to share your modifications' source with its users.
