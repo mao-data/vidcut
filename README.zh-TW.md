@@ -4,7 +4,7 @@
 
 **AI 原生影片編輯器——AI 走 MCP 剪片，你在瀏覽器裡監修。**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.base.json)
 [![MCP](https://img.shields.io/badge/MCP-native-8b5cf6.svg)](#接上你的-ai)
 
@@ -163,8 +163,8 @@ ui/       @vidcut/ui       React + Vite：時間軸、A/B 播放器、Inspector�
 - [`HANDOFF.md`](HANDOFF.md) —— 目前狀態、每件事怎麼驗證、已知取捨
 - [`docs/superpowers/specs/`](docs/superpowers/specs/) —— 設計定案；[`docs/superpowers/plans/`](docs/superpowers/plans/) —— 實作計畫
 
-歡迎 issue 與 PR。
+歡迎 issue 與 PR——見 [CONTRIBUTING.md](CONTRIBUTING.md)（貢獻需簽署一份輕量 CLA）。
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0-only](LICENSE)。你可以自由使用、修改與自架 vidcut；若你把修改後的版本做成網路服務對外提供，AGPL 要求你向該服務的使用者公開你修改的原始碼。
