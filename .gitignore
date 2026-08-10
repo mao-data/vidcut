@@ -12,3 +12,6 @@ proxies/
 
 # python 匯入 text_card.py 做測試時會留下的位元碼快取
 __pycache__/
+
+# 各 session 的 git worktree（不要提交，也不要被 git add -A 掃進來）
+.claude/worktrees/
