@@ -5,6 +5,7 @@ import {
   normalizeWords,
   textUnits,
   DEFAULT_CAPTION_STYLE,
+  DEFAULT_PAGE_OPTIONS,
   karaokeClip,
   type TranscriptWord,
 } from './captions.js';
@@ -61,6 +62,29 @@ describe('buildCaptionPages', () => {
     });
     expect(pages.length).toBeGreaterThan(1);
     for (const p of pages) expect(p.duration).toBeLessThanOrEqual(1.0 + 0.3);
+  });
+
+  /**
+   * 回歸：MCP 的 auto_caption 是把四個 zod optional 直接組成物件傳進來的
+   * （`{ karaoke, maxGapMs, maxDurationMs, maxUnits }`），呼叫端沒給時值是 undefined
+   * 但 key 存在。物件展開會把 undefined 照樣蓋掉預設值，三個上限全變成
+   * `> undefined`（恆 false），分頁只剩「句末標點」在擋——實測 25 個詞、7.3 秒
+   * 被塞成單頁。`?:` 在型別上就是「可以是 undefined」，所以這是這個函式自己要擋的。
+   */
+  it('applies defaults when the caller passes the keys as undefined', () => {
+    const words = Array.from({ length: 25 }, (_, i) => w(`word${i}`, i * 0.3, i * 0.3 + 0.28));
+    const pages = buildCaptionPages(words, {
+      karaoke: undefined,
+      maxGapMs: undefined,
+      maxDurationMs: undefined,
+      maxUnits: undefined,
+    });
+    expect(pages).toEqual(buildCaptionPages(words));
+    expect(pages.length).toBeGreaterThan(1);
+    for (const p of pages) {
+      expect(p.duration).toBeLessThanOrEqual(DEFAULT_PAGE_OPTIONS.maxDurationMs / 1000 + 0.3);
+      expect(textUnits(p.text)).toBeLessThanOrEqual(DEFAULT_PAGE_OPTIONS.maxUnits);
+    }
   });
 
   it('joins CJK without spaces and latin with spaces', () => {

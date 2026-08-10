@@ -498,3 +498,38 @@ describe('B6 transcribe word truncation', () => {
     expect(s.wordsTruncated ?? false).toBe(false);
   });
 });
+
+/**
+ * 回歸：auto_caption 不帶參數時分頁上限必須生效。
+ *
+ * 這條守的是「工具 handler → buildCaptionPages」那道縫。handler 把四個 zod optional
+ * 直接組成物件（`{ karaoke, maxGapMs, maxDurationMs, maxUnits }`），沒給的時候值是
+ * undefined 但 key 存在；分頁函式從前用物件展開套預設值，undefined 會把預設值蓋掉，
+ * 三個上限全成 `> undefined`＝恆 false，只剩句末標點在斷頁。實測 25 個詞、7.3 秒被
+ * 塞成單頁。captions.test.ts 有對稱的一條守分頁函式本身——**兩條都要有**：那個 bug
+ * 之所以能同時通過兩邊的測試，就是因為函式的測試都傳明確值、工具的測試只跑錯誤路徑。
+ */
+describe('auto_caption 預設參數', () => {
+  it('不帶參數時仍會依 maxDurationMs 預設分頁，不會塞成一頁', async () => {
+    // 25 個無標點的詞、每詞 0.3 秒 → 總長 7.4 秒，遠超單頁 2500ms 預設
+    vi.mocked(transcribeMock).mockResolvedValue({
+      language: 'en',
+      words: Array.from({ length: 25 }, (_, i) => ({
+        text: `word${i}`,
+        start: i * 0.3,
+        end: i * 0.3 + 0.28,
+      })),
+      text: 'no punctuation at all',
+      audioPath: 'derived/mix.wav',
+      jsonPath: 'derived/transcript.json',
+      model: 'test',
+    });
+    const r = await call('auto_caption', {});
+    const s = r.structuredContent as {
+      captionCount: number;
+      captions: Array<{ duration: number }>;
+    };
+    expect(s.captionCount).toBeGreaterThan(1);
+    for (const c of s.captions) expect(c.duration).toBeLessThanOrEqual(2.5 + 0.3);
+  });
+});

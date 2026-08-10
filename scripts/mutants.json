@@ -607,5 +607,13 @@
     "replace": "  if (false) await markFailed(root);",
     "tests": "server/test/tmp-cleanup.test.ts",
     "note": "測試失敗時不寫標記 → 出事現場被清掉、無從查起；tmp-cleanup「失敗保留」那條必須抓到"
+  },
+  {
+    "id": "caption-page-defaults",
+    "file": "shared/src/captions.ts",
+    "find": "  const maxGapMs = options.maxGapMs ?? DEFAULT_PAGE_OPTIONS.maxGapMs;\n  const maxDurationMs = options.maxDurationMs ?? DEFAULT_PAGE_OPTIONS.maxDurationMs;\n  const maxUnits = options.maxUnits ?? DEFAULT_PAGE_OPTIONS.maxUnits;",
+    "replace": "  const { maxGapMs, maxDurationMs, maxUnits } = { ...DEFAULT_PAGE_OPTIONS, ...options };",
+    "tests": "shared/src/captions.test.ts",
+    "note": "改回物件展開套預設值 → 呼叫端傳 undefined 時上限全被清空、25 個詞塞成單頁；分頁預設值那條必須抓到"
   }
 ]

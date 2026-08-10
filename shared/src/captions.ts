@@ -150,7 +150,14 @@ export function buildCaptionPages(
   options: CaptionPageOptions = {},
   style: CaptionStyle = DEFAULT_CAPTION_STYLE,
 ): CaptionItem[] {
-  const { maxGapMs, maxDurationMs, maxUnits } = { ...DEFAULT_PAGE_OPTIONS, ...options };
+  // 逐個 `??` 而不是 `{ ...DEFAULT_PAGE_OPTIONS, ...options }`：物件展開會把「值是
+  // undefined 但 key 存在」照樣蓋上去，預設值當場被清空。MCP 的 auto_caption 正是這樣
+  // 傳的（`{ karaoke, maxGapMs, maxDurationMs, maxUnits }` 直接由 zod optional 組成），
+  // 於是三個上限全變 `> undefined`＝恆 false，分頁只剩「句末標點」在擋——實測 25 個詞、
+  // 7.3 秒被塞成單頁。`?:` 在型別上就是「可以是 undefined」，所以這要在這裡擋。
+  const maxGapMs = options.maxGapMs ?? DEFAULT_PAGE_OPTIONS.maxGapMs;
+  const maxDurationMs = options.maxDurationMs ?? DEFAULT_PAGE_OPTIONS.maxDurationMs;
+  const maxUnits = options.maxUnits ?? DEFAULT_PAGE_OPTIONS.maxUnits;
   const karaoke = options.karaoke !== false;
 
   const clean = words
