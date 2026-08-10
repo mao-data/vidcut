@@ -21,6 +21,7 @@ const DOCS = [
   'HANDOFF.md',
   'README.md',
   'README.zh-TW.md',
+  'CONTRIBUTING.md',
   '.claude/rules/ui-verification.md',
   '.claude/rules/wysiwyg.md',
 ];
@@ -46,7 +47,7 @@ for (const doc of DOCS) {
   // -w 後的 workspace 名只吃合法字元（\w、@、.、/、-）；原本用 \S+ 會吞到反引號與
   // 中文標點——CJK 文字前後沒有空白，`npm run build -w @vidcut/ui`**，否則…` 會被整段
   // 吃進 workspace 名稱，造成明明存在的 script 被誤判成不存在。
-  for (const m of text.matchAll(/npm run ([a-zA-Z:_-]+)(?:\s+-w\s+([\w@./-]+))?/g)) {
+  for (const m of text.matchAll(/npm run ([a-zA-Z0-9:_-]+)(?:\s+-w\s+([\w@./-]+))?/g)) {
     const [, name, ws] = m;
     const dir = ws ? (WORKSPACES[ws] ?? ws) : '.';
     if (!(name in scripts(dir))) {
@@ -61,7 +62,7 @@ for (const doc of DOCS) {
   // no-useless-escape 會抓這個）；類別外那個 `\/`（`\.claude)\/`）仍是必要的，
   // 不跳脫的話會被解析成正則字面量的結束分隔符。
   for (const m of text.matchAll(
-    /`((?:server|ui|shared|scripts|docs|\.claude)\/[A-Za-z0-9_./-]+\.[a-z]{2,4})/g,
+    /`((?:server|ui|shared|scripts|docs|\.claude)\/[A-Za-z0-9_./-]+\.[a-z0-9]{2,4})/g,
   )) {
     if (!existsSync(join(root, m[1]))) problems.push(`${doc}: 引用了不存在的檔案 \`${m[1]}\``);
   }
@@ -76,7 +77,7 @@ for (const doc of DOCS) {
   const ignoredFileRe = new RegExp(
     '`((?:' +
       IGNORED_PREFIXES.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') +
-      ')[A-Za-z0-9_./-]+\\.[a-z]{2,4})`',
+      ')[A-Za-z0-9_./-]+\\.[a-z0-9]{2,4})`',
     'g',
   );
   for (const m of text.matchAll(ignoredFileRe)) {

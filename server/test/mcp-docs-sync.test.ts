@@ -138,6 +138,15 @@ describe('MCP 面的完整性', () => {
  * registerTool——AI 就永遠碰不到這個能力。前例：addClip 做完八輪 TDD 卻沒人能用。
  * 第一、二步漏掉會被 tsc 抓到（commands.ts 的 switch 少 case 編不過），只有第三步
  * 從前沒有任何東西擋。
+ *
+ * ⚠️ 這份表的每一條理由都是自由文字，**沒有任何測試驗證它是真的**——只驗證 key 對得上
+ * 現存的 Command variant（見下面「豁免清單不得列入不存在的 variant」），不驗證理由裡
+ * 講的那個聚合工具（`timeline_op`／`import_media`）實際上真的把這個 op 接上了。全分支
+ * 審查曾實測：把 `deleteBefore` 從 `timeline_op` 的 `z.enum` 與 handler 三元式整條拔掉
+ * （＝這條豁免理由變假、`deleteBefore` 從 MCP 永久觸達不到），這裡的測試照樣全線綠燈，
+ * `tsc`／443 個測試也全綠——沒有任何關卡會叫。詳見 `docs/ROADMAP.md`「MCP 面補完分支」
+ * 一節的待辦。**改動 `timeline_op`／`import_media` 這類聚合工具時，這份表要人工複查**，
+ * 不能只看測試綠燈。
  */
 const MCP_EXEMPT_COMMANDS: Record<string, string> = {
   splitAt: '由 timeline_op 的 op:"split" 觸達',

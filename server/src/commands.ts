@@ -748,8 +748,13 @@ function updateOverlay(
 }
 
 /** 整組替換 overlay 軌：逐一驗證每個 overlay 的 text/imagePath（見 validateOverlayTextCard），
- * 任一項不合格就整批拒絕、文件完全不動——這是 setOverlays 的安全邊界，跟
- * addOverlay/updateOverlay 用同一套規則，不因為是「整組替換」就放寬。 */
+ * 任一項不合格就整批拒絕、文件完全不動。**但這只是 addOverlay 那套規則的一部分**——
+ * setOverlays 沒有驗 addOverlay 另外驗的四件事：①「既無 start 也無 anchor」
+ * ②「anchor.clipId 指向不存在的片段」③「duration <= 0」④「同一批裡 id 重複」。
+ * 四種寫壞的 overlay 目前都會靜默落盤、`overlayWindow()` 回 null，預覽與成品都不顯示，
+ * 而這個工具回的是成功。`mcp.ts` 的 `set_overlays` 工具描述已如實寫出這個落差；
+ * 補齊驗證（`overlayRuleError`）屬行為變更，留在 `docs/ROADMAP.md`「MCP 面補完分支」一節
+ * （DOC-AUDIT 的 F1）給專案擁有者裁決。 */
 function setOverlays(
   store: ProjectStore,
   source: MutationSource,

@@ -62,10 +62,12 @@ export async function loadFontTable(r: PillowRasterizer): Promise<FontEntry[]> {
     // 就是這種），因為那是「你以為有這個字型，其實用不了」。
     else if (existsSync(c.path)) console.warn(`⚠ 字型不可用(已剔除):${c.family} @ ${c.path}`);
   }
-  // 空表不是「少幾個字型」，是**整個字卡功能壞掉**：resolver 會回 undefined，
-  // text_card.py 於是走自己的候選鏈，全滅時掉進 Pillow 內建的點陣字型——沒有 CJK 字符、
-  // 字重描邊都不對。逐個候選的 warn 混在啟動訊息裡很容易被滑過去，所以這裡再說一次，
-  // 而且說清楚後果與解法。匯出那條路會直接失敗（見 render.ts 的 renderCaptionCard）。
+  // 空表不是「少幾個字型」，是**這台機器上 resolver 這條路完全交白卷**（回 undefined）。
+  // 但這不等於匯出一定失敗：text_card.py 的 FONT_CANDIDATES 是這裡的嚴格超集（多三條
+  // 路徑，見上面的檔頭註解），resolver 交白卷之後 text_card.py 仍會走它自己那份更長的
+  // 候選鏈——只有連那份也全滅，才會回報 fontFallback、讓 render 真的中止（見
+  // render.ts 的 fontFallbackError）。逐個候選的 warn 混在啟動訊息裡很容易被滑過去，
+  // 所以這裡再說一次，且說清楚實際後果與解法。
   if (table.length === 0) {
     console.warn('⚠ 字型表是空的——這台機器上一個候選字型都開不了。');
     console.warn('  後果：字幕/文字 overlay 的字卡會用 Pillow 內建點陣字型畫（沒有中日韓字符），');

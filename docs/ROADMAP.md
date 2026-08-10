@@ -385,6 +385,23 @@ TDD 期間逐條記錄、經裁決延後的項目。SDD 過程檔不隨分支保
   ⚠️ `note` 是回給 AI 的執行期輸出，改它屬行為變更，故 Task 8（只動文件）未動——
   只把 `mcp.ts` 那段**程式碼註解**改成上面的正確描述，留下這條給專案擁有者裁決。
 
+- **`MCP_EXEMPT_COMMANDS` 的豁免理由是自由文字，沒有任何測試驗證它是真的**（文件與
+  MCP 一致性稽核分支的全分支審查發現，實測破壞驗證）。`server/test/mcp-docs-sync.test.ts`
+  「Command variant 都能從 MCP 觸達」那組測試只驗證 `MCP_EXEMPT_COMMANDS` 的 key 對得上
+  現存的 `Command['name']`，不驗證理由裡講的聚合工具（`timeline_op`／`import_media`）
+  實際上真的把那個 op 接上了。24 個 Command variant 裡 5 個（21%：`splitAt`／
+  `deleteBefore`／`deleteAfter`／`freezeFrame`／`registerMedia`）落在這個盲區。
+  **實測破壞**：把 `'deleteBefore'` 從 `timeline_op` 的 `z.enum` 與 handler 三元式整條
+  移除（＝該 op 從 MCP 永久觸達不到，正是這道關卡存在要擋的失效），結果 `tsc` exit 0、
+  `mcp-docs-sync.test.ts` 六條全綠、全專案 443 個測試全綠——沒有任何關卡叫。
+  建議修法（兩個方向皆可，擇一或並行）：①對 `timeline_op` 的 `inputSchema`（`op` 的
+  `z.enum`）斷言它恰好等於 `['split', 'deleteBefore', 'deleteAfter', 'freeze']` 這四個
+  值，該工具改動時漏了某個 op 會被結構性抓到；②用 in-memory MCP client 對
+  `timeline_op`／`import_media` 這類聚合工具的每一種豁免 op 各呼叫一次，斷言底層
+  `Command` 真的觸達（等同把現在間接、靠人讀理由字串的信任，換成一次實際呼叫）。
+  這一輪不修（新增測試＝擴大範圍，且現行 5 條豁免理由今天都成立），只在
+  `MCP_EXEMPT_COMMANDS` 上方加了一行純文件註解，提醒改動聚合工具時要人工複查。
+
 ## 上線前必須由人確認
 
 自動化測試涵蓋不到，需要真人與真環境：
