@@ -1,7 +1,7 @@
 # vidcut 上線計劃與可行方向
 
 > **這是前瞻型文件**：描述「可能要做的事」，引用的檔案路徑可能還不存在。
-> 描述「現況」的是 `CLAUDE.md`、`.claude/rules/`、`HANDOFF.md` 與 `README.md`——
+> 描述「現況」的是 `CLAUDE.md`、`.claude/rules/`、`HANDOFF.md`、`README.md` 與 `README.zh-TW.md`——
 > 那幾份的引用由 `scripts/docs-check.mjs` 保證指向真實存在的東西，本檔不納入該檢查。
 
 最後更新 2026-08-07。現況與已驗證範圍見 `HANDOFF.md`；各項設計定案見 `docs/superpowers/specs/`。

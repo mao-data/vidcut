@@ -377,7 +377,7 @@ scripts/mutate.mjs / mutants.json  突變測試與其錨點檢查（--check）
 
 ```bash
 npm test          # 全部（含真 ffmpeg 與真 whisper）；「機器空閒時約 70 秒」是某次實測、未重驗，
-                  # 而且 EVIDENCE.md:1417 記的最近一次全套是 740 條，這個秒數幾乎確定偏低
+                  # 而且 EVIDENCE.md 收尾那張 gauntlet 表記的最近一次全套是 740 條，這個秒數幾乎確定偏低
 npm run typecheck # 三 workspace tsc（乾淨）
 npm run lint      # ESLint —— 目前 exit 0（.claude/** 已排除，見下）
 npm run format:check  # 目前 exit 0；它報的都是真的沒格式化的原始碼，不是雜訊
