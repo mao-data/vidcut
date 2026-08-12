@@ -49,9 +49,13 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   try {
     fonts = await loadFontTable(rasterizer);
   } catch (e: unknown) {
-    console.warn(`⚠ 字卡光柵器無法啟動，字幕/文字 overlay 的字卡功能停用：${(e as Error).message}`);
-    console.warn('  需要 PATH 上有 python3 且已安裝 Pillow（pip3 install pillow）。');
-    console.warn('  server 仍會正常啟動；字幕預覽會退回 DOM 近似顯示。');
+    console.warn(
+      `⚠ Text-card rasterizer unavailable — captions/text overlays lose their cards: ${(e as Error).message}`,
+    );
+    console.warn('  Needs python3 on PATH with Pillow installed (pip3 install pillow).');
+    console.warn(
+      '  The server still starts; caption preview falls back to a rough DOM approximation.',
+    );
   }
   const resolveFont = fontResolver(fonts);
   rasterizer.resolveFontPath = resolveFont;
@@ -62,7 +66,14 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const app = createApp(store, projectDir, uiDist, { fonts, textCards });
   // MCP 需要能讀 req.body（JSON），StreamableHTTP 會自己處理 SSE。
   const server = createServer(app);
-  attachWs(server, { store, editorContext, reviews, projectDir, cardSync, textCards });
+  const wss = attachWs(server, { store, editorContext, reviews, projectDir, cardSync, textCards });
+  // ws 收到 `{ server }` 時會把 http server 的 'error' 轉發到 wss 上。轉發過來的
+  // EADDRINUSE 在 wss 這邊沒有監聽者，Node 就直接丟——這正是從前那十幾行堆疊的來源，
+  // 而且它比下面 Promise 的 reject 早到。listen 期間的錯誤由下面統一回報，這裡只吃掉
+  // 重複的那一份；其餘（執行期真的出事）照樣要看得見。
+  wss.on('error', (e: NodeJS.ErrnoException) => {
+    if (e.code !== 'EADDRINUSE') console.error('⚠ WebSocket server error:', e);
+  });
 
   // baseUrl 在 listen 後才知道實際 port；先用預留位，listen 後補。
   const deps = {
@@ -75,7 +86,28 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   };
   mountMcp(app, deps);
 
-  await new Promise<void>((r) => server.listen(port, '127.0.0.1', r));
+  // listen 的 Promise 必須同時接 'error'。只接 callback 的話 EADDRINUSE 會變成
+  // 「未處理的 error 事件」——Node 直接印十幾行堆疊然後死掉，裡面沒有一個字提到
+  // VIDCUT_PORT。而 port 被占用是這個專案的常態（一個工作區常有好幾台 server）。
+  await new Promise<void>((ok, fail) => {
+    const onError = (e: NodeJS.ErrnoException) => {
+      server.close();
+      fail(
+        e.code === 'EADDRINUSE'
+          ? new Error(
+              `127.0.0.1:${port} is already in use — most likely another vidcut is running. ` +
+                `Stop it, or start on a different port: ` +
+                `VIDCUT_PORT=<port> npx tsx server/src/index.ts <projectDir>`,
+            )
+          : e,
+      );
+    };
+    server.once('error', onError);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', onError); // listen 成功後的 error 交回一般錯誤流程
+      ok();
+    });
+  });
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
   deps.baseUrl = `http://127.0.0.1:${actualPort}`;
@@ -85,9 +117,11 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   // 完全不動，所以只有升級後的第一次會做事）。不 await：不拖慢 listen，失敗只記 warn。
   void refreshTextOverlayCards(textCards, store)
     .then((n) => {
-      if (n > 0) console.log(`字卡光柵器已更新：重新產生 ${n} 個文字 overlay 的字卡`);
+      if (n > 0) console.log(`Rasterizer updated: regenerated cards for ${n} text overlay(s)`);
     })
-    .catch((e: unknown) => console.warn(`⚠ 文字 overlay 字卡重解析失敗：${(e as Error).message}`));
+    .catch((e: unknown) =>
+      console.warn(`⚠ Failed to re-resolve text-overlay cards: ${(e as Error).message}`),
+    );
   return { server, store, editorContext, reviews };
 }
 
@@ -102,12 +136,25 @@ if (isMain) {
   const absDir = resolve(dir);
   // 防呆：路徑打錯時會靜默開一個空專案，很難察覺——明確告知
   if (!existsSync(join(absDir, 'project.json'))) {
-    console.warn(`⚠ ${join(absDir, 'project.json')} 不存在，將建立新的空專案。`);
-    console.warn('  若你想開既有專案，請確認路徑（相對路徑是相對於你執行指令的目錄）。');
+    console.warn(
+      `⚠ ${join(absDir, 'project.json')} does not exist — creating a new empty project.`,
+    );
+    console.warn(
+      '  To open an existing project, check the path (relative paths resolve from your cwd).',
+    );
   }
-  const { server, store } = await startServer(absDir);
+  // 啟動失敗只印 startServer 給的那句話。堆疊對「port 被占用」這種事毫無幫助，
+  // 而它是新手最常撞的第一個坑。
+  let started: StartedServer;
+  try {
+    started = await startServer(absDir);
+  } catch (e: unknown) {
+    console.error(`✗ ${(e as Error).message}`);
+    process.exit(1);
+  }
+  const { server, store } = started;
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : DEFAULT_PORT;
   console.log(`vidcut server on http://127.0.0.1:${port}  (MCP at /mcp)`);
-  console.log(`專案：${absDir}（${store.doc.tracks.video.length} 個片段）`);
+  console.log(`Project: ${absDir} (${store.doc.tracks.video.length} clips)`);
 }

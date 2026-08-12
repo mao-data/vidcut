@@ -24,4 +24,22 @@ describe('startServer 的啟動韌性', () => {
       close?.();
     }
   }, 30_000);
+
+  /**
+   * port 被占用是新手的第一個坑（工作區常態就是好幾個 session 各起一台）。
+   * 從前 listen 的 Promise 只接 callback、不接 'error'，於是 EADDRINUSE 變成
+   * 未處理的 error 事件——使用者看到的是十幾行 Node 堆疊，裡面沒有一個字提到
+   * VIDCUT_PORT。訊息要能直接照做，否則等於沒有訊息。
+   */
+  it('port 被占用時以可操作的訊息 reject，而不是丟未處理的 EADDRINUSE', async () => {
+    const occupied = await startServer(await tmpDir('vidcut-port-a-'), 0);
+    const port = (occupied.server.address() as AddressInfo).port;
+    try {
+      const second = startServer(await tmpDir('vidcut-port-b-'), port);
+      await expect(second).rejects.toThrow(new RegExp(`${port}`));
+      await expect(second).rejects.toThrow(/VIDCUT_PORT/);
+    } finally {
+      occupied.server.close();
+    }
+  }, 30_000);
 });
