@@ -56,19 +56,28 @@ One process, one port, four kinds of traffic: static UI, `/media` (native Range 
 
 ## Quick start
 
-Prerequisites: **Node.js 20+**, **ffmpeg** (and ffprobe), **Python 3 + Pillow** (`pip3 install pillow`), optionally **whisper.cpp** for auto captions. (The server itself only needs Node ≥18; building the UI below needs Vite's actual floor, **20.19+ or 22.12+**.)
+**1. Install prerequisites** — Node.js 20+, ffmpeg (with ffprobe), Python 3 + Pillow. whisper.cpp is optional (auto captions only). (The server itself runs on Node ≥18; the UI build in step 2 needs Vite's floor, **20.19+ or 22.12+**.)
+
+macOS:
 
 ```bash
 brew install ffmpeg
-pip3 install pillow        # text-card rasterizer for captions & text overlays. Without it:
-                            # captions still write fine (the preview falls back to a rough DOM
-                            # approximation), but `render` with subtitles=burn fails outright once
-                            # the project has captions; adding/editing a *text* overlay (not an
-                            # image overlay) is rejected outright.
-brew install whisper-cpp   # optional — auto captions
-# put a model in ~/.cache/whisper.cpp/ (e.g. ggml-large-v3-turbo-q5_0.bin),
-# or point VIDCUT_WHISPER_MODEL at one
+pip3 install pillow
+brew install whisper-cpp   # optional
+```
 
+Debian / Ubuntu:
+
+```bash
+sudo apt install ffmpeg python3-pil fonts-noto-cjk   # fonts-noto-cjk: CJK text cards
+# whisper.cpp (optional): build from https://github.com/ggerganov/whisper.cpp
+```
+
+Windows is untested — the text-card rasterizer spawns `python3` directly, so run vidcut under WSL.
+
+**2. Run it**
+
+```bash
 git clone https://github.com/mao-data/vidcut.git
 cd vidcut
 npm install
@@ -76,13 +85,37 @@ npm run build -w @vidcut/ui   # builds ui/dist, which the server serves — skip
 npm run demo                   # scaffolds the demo project and starts the server
 ```
 
-Open **http://127.0.0.1:3845** — you'll see the timeline and live preview.
+Open **http://127.0.0.1:3845**. **No footage needed to try it** — `npm run demo` synthesizes five vertical clips with ffmpeg (one deliberately silent), a title overlay, and two captions.
 
 > ⚠️ `npm run demo` _regenerates_ `projects/demo` every time. To serve an existing project without touching it:
 >
 > ```bash
 > npx tsx server/src/index.ts projects/demo
 > ```
+
+**3. Auto captions (optional)**
+
+`auto_caption` needs a whisper.cpp model on disk. vidcut looks in `~/.cache/whisper.cpp/`, then the Homebrew `share/whisper.cpp/models` dirs, and picks the most accurate model it finds:
+
+```bash
+mkdir -p ~/.cache/whisper.cpp
+curl -L -o ~/.cache/whisper.cpp/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+```
+
+That file is ~547 MB. Smaller models (`medium`, `small`, `base`, `tiny`) work too — same URL pattern, lower accuracy. Or point `VIDCUT_WHISPER_MODEL` at any `.bin`.
+
+**Why Pillow is not optional:** it rasterizes every text card. Without it captions still write fine (the preview falls back to a rough DOM approximation), but `render` with `subtitles=burn` fails outright once the project has captions, and adding or editing a _text_ overlay (image overlays are unaffected) is rejected outright.
+
+### Troubleshooting
+
+| Symptom                                         | Cause & fix                                                                                                                  |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `:3845` shows 404 / a blank page                | `ui/dist` was never built. Run `npm run build -w @vidcut/ui`.                                                                |
+| `EADDRINUSE` on start                           | Something already holds the port. Stop it, or start on another: `VIDCUT_PORT=3846 npx tsx server/src/index.ts projects/demo` |
+| `auto_caption` fails: "找不到模型"              | No model found in the search dirs — see step 3, or set `VIDCUT_WHISPER_MODEL`.                                               |
+| Captions render as boxes/blanks, or CJK missing | No usable font. The server prints the candidate list at startup; on Linux install `fonts-noto-cjk`.                          |
+| `text card generation failed`                   | Pillow missing or `python3` not on `PATH`. See the Pillow note above.                                                        |
 
 ## Connect your AI
 

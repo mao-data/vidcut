@@ -56,18 +56,28 @@ vidcut 是一個 **本機優先的直式短影音（1080×1920）時間軸編輯
 
 ## 快速開始
 
-前置需求：**Node.js 20+**、**ffmpeg**（含 ffprobe）、**Python 3 + Pillow**（`pip3 install pillow`），自動字幕需要 **whisper.cpp**（選裝）。（server 本身只需要 Node ≥18；下面 build UI 那步實際吃的是 Vite 的下限，**20.19+ 或 22.12+**。）
+**1. 裝前置需求** —— Node.js 20+、ffmpeg（含 ffprobe）、Python 3 + Pillow。whisper.cpp 是選裝的（只有自動字幕用得到）。（server 本身 Node ≥18 就能跑；步驟 2 的 UI build 吃的是 Vite 的下限，**20.19+ 或 22.12+**。）
+
+macOS：
 
 ```bash
 brew install ffmpeg
-pip3 install pillow        # 字幕與文字 overlay 的字卡光柵管線。沒裝的話：
-                            # 字幕照樣寫得進去（預覽會退回較粗糙的 DOM 近似），但專案裡
-                            # 已有字幕時 render 用 subtitles=burn 會直接失敗；新增/修改
-                            # 「文字」overlay（非圖片 overlay）則會被直接拒絕。
-brew install whisper-cpp   # 選裝——自動字幕用
-# 模型放 ~/.cache/whisper.cpp/（例如 ggml-large-v3-turbo-q5_0.bin），
-# 或用 VIDCUT_WHISPER_MODEL 指定路徑
+pip3 install pillow
+brew install whisper-cpp   # 選裝
+```
 
+Debian / Ubuntu：
+
+```bash
+sudo apt install ffmpeg python3-pil fonts-noto-cjk   # fonts-noto-cjk：中日韓字卡要用
+# whisper.cpp（選裝）：從 https://github.com/ggerganov/whisper.cpp 自己 build
+```
+
+Windows 未經測試 —— 字卡光柵器是直接 spawn `python3` 的，請在 WSL 底下跑。
+
+**2. 跑起來**
+
+```bash
 git clone https://github.com/mao-data/vidcut.git
 cd vidcut
 npm install
@@ -75,13 +85,37 @@ npm run build -w @vidcut/ui   # build 出 server 會服務的 ui/dist——沒 b
 npm run demo                   # 建立 demo 專案並啟動 server
 ```
 
-打開 **http://127.0.0.1:3845** 就能看到時間軸與即時預覽。
+打開 **http://127.0.0.1:3845**。**不需要準備任何素材就能試** —— `npm run demo` 會用 ffmpeg 合成五支直式影片（其中一支故意沒有音軌）、一個標題 overlay 和兩條字幕。
 
 > ⚠️ `npm run demo` 每次都會*重新產生* `projects/demo`。要載入既有專案而不動它：
 >
 > ```bash
 > npx tsx server/src/index.ts projects/demo
 > ```
+
+**3. 自動字幕（選用）**
+
+`auto_caption` 需要磁碟上有 whisper.cpp 模型。vidcut 會找 `~/.cache/whisper.cpp/`，接著找 Homebrew 的 `share/whisper.cpp/models` 目錄，並挑出其中最準的那個：
+
+```bash
+mkdir -p ~/.cache/whisper.cpp
+curl -L -o ~/.cache/whisper.cpp/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+```
+
+這個檔約 547 MB。小一點的模型（`medium`／`small`／`base`／`tiny`）也可以，網址規則相同、準確度較低。或用 `VIDCUT_WHISPER_MODEL` 指到任何一個 `.bin`。
+
+**為什麼 Pillow 不是選裝的**：每一張字卡都靠它光柵化。沒裝的話字幕照樣寫得進去（預覽會退回較粗糙的 DOM 近似），但專案裡已經有字幕時，`render` 用 `subtitles=burn` 會直接失敗；新增或修改*文字* overlay 也會被直接拒絕（圖片 overlay 不受影響）。
+
+### 疑難排解
+
+| 症狀                               | 原因與解法                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `:3845` 回 404 或一片空白          | `ui/dist` 沒 build 過。跑 `npm run build -w @vidcut/ui`。                                         |
+| 啟動時 `EADDRINUSE`                | port 被占用了。關掉那個，或換一個起：`VIDCUT_PORT=3846 npx tsx server/src/index.ts projects/demo` |
+| `auto_caption` 說「找不到模型」    | 搜尋路徑裡沒有模型 —— 見步驟 3，或設 `VIDCUT_WHISPER_MODEL`。                                     |
+| 字卡變成方框／空白，或中日韓字不見 | 沒有可用字型。server 啟動時會印出候選清單；Linux 上裝 `fonts-noto-cjk`。                          |
+| `text card generation failed`      | Pillow 沒裝，或 `python3` 不在 `PATH` 上。見上面那段 Pillow 說明。                                |
 
 ## 接上你的 AI
 
