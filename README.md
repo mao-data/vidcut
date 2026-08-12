@@ -87,6 +87,8 @@ npm run demo                   # scaffolds the demo project and starts the serve
 
 Open **http://127.0.0.1:3845**. **No footage needed to try it** — `npm run demo` synthesizes five vertical clips with ffmpeg (one deliberately silent), a title overlay, and two captions.
 
+> **Your own footage goes in through the AI, not the UI.** There is no import button yet (a Media panel is on the [roadmap](docs/ROADMAP.md)) — you point your agent at a folder and it calls `import_media`, which references files in place without copying them. So set up the MCP connection below before you bring your own clips.
+
 > ⚠️ `npm run demo` _regenerates_ `projects/demo` every time. To serve an existing project without touching it:
 >
 > ```bash
@@ -109,13 +111,13 @@ That file is ~547 MB. Smaller models (`medium`, `small`, `base`, `tiny`) work to
 
 ### Troubleshooting
 
-| Symptom                                         | Cause & fix                                                                                                                  |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `:3845` shows 404 / a blank page                | `ui/dist` was never built. Run `npm run build -w @vidcut/ui`.                                                                |
-| `EADDRINUSE` on start                           | Something already holds the port. Stop it, or start on another: `VIDCUT_PORT=3846 npx tsx server/src/index.ts projects/demo` |
-| `auto_caption` fails: "找不到模型"              | No model found in the search dirs — see step 3, or set `VIDCUT_WHISPER_MODEL`.                                               |
-| Captions render as boxes/blanks, or CJK missing | No usable font. The server prints the candidate list at startup; on Linux install `fonts-noto-cjk`.                          |
-| `text card generation failed`                   | Pillow missing or `python3` not on `PATH`. See the Pillow note above.                                                        |
+| Symptom                                               | Cause & fix                                                                                                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `:3845` shows 404 / a blank page                      | `ui/dist` was never built. Run `npm run build -w @vidcut/ui`.                                                                                                       |
+| `✗ 127.0.0.1:3845 is already in use` on start         | Another vidcut is running. Stop it, or start on another port — then open **that** port in the browser: `VIDCUT_PORT=3846 npx tsx server/src/index.ts projects/demo` |
+| `whisper.cpp is not installed, or no model was found` | See step 3, or point `VIDCUT_WHISPER_MODEL` at a `.bin`.                                                                                                            |
+| Captions render as boxes/blanks, or CJK missing       | No usable font. The server prints the candidate list at startup; on Linux install `fonts-noto-cjk`.                                                                 |
+| `text card generation failed`                         | Pillow missing or `python3` not on `PATH`. See the Pillow note above.                                                                                               |
 
 ## Connect your AI
 
@@ -183,6 +185,8 @@ ui/       @vidcut/ui       React + Vite: timeline, A/B player, inspector, panels
 | `npm run verify:wysiwyg`                | renders a real video, screenshots the preview, compares ink bounding boxes — the proof behind "preview = export" |
 
 Note: the server serves `ui/dist` (the build output). After changing UI source, run `npm run build -w @vidcut/ui` — only the `dev:ui` path skips this.
+
+`npm install` currently reports advisories in transitive dependencies (`npm audit` for details; `--omit=dev` narrows it to what actually ships at runtime). They are known, not ignored — `bash scripts/gauntlet.sh` prints the audit on every full run.
 
 ## Known limitations
 

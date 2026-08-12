@@ -359,7 +359,9 @@ async function populateProject() {
   // 是同一個 resolver，取表內存在的 family 才能排除「字型 fallback 不同」這個雜訊源。
   const fonts = await (await fetch(`${BASE}/api/fonts`)).json();
   if (fonts.length === 0)
-    throw new Error('伺服器字型表是空的（python3/Pillow 沒裝？）——沒有字卡就沒得比');
+    throw new Error(
+      'Server font table is empty (python3/Pillow missing?) — no cards, nothing to compare',
+    );
   const family = fonts[0].family;
 
   const imported = await mcp('import_media', { relPath: 'bg.mp4', label: 'bg' });

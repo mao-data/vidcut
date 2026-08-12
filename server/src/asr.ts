@@ -23,10 +23,10 @@ const MODEL_DIRS = [
 const MODEL_RANK = ['large-v3-turbo', 'large-v3', 'large', 'medium', 'small', 'base', 'tiny'];
 
 export const INSTALL_HINT =
-  'whisper.cpp 未安裝或找不到模型。安裝：brew install whisper-cpp；' +
-  '下載模型：curl -L -o ~/.cache/whisper.cpp/ggml-large-v3-turbo-q5_0.bin ' +
-  'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin；' +
-  '或用 VIDCUT_WHISPER_MODEL 指定 .bin 路徑。';
+  'whisper.cpp is not installed, or no model was found. Install: brew install whisper-cpp. ' +
+  'Download a model: curl -L -o ~/.cache/whisper.cpp/ggml-large-v3-turbo-q5_0.bin ' +
+  'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin . ' +
+  'Or point VIDCUT_WHISPER_MODEL at a .bin file.';
 
 /** 找 whisper 執行檔（PATH 上的 whisper-cli / whisper-cpp）。找不到回 null。 */
 export function findWhisperBinary(): string | null {
@@ -125,7 +125,7 @@ export function buildAsrAudioArgs(project: Project, projectDir: string, outWav: 
     mixLabels.push(`[aud${k}]`);
   });
 
-  if (mixLabels.length === 0) throw new Error('asr: 時間軸沒有任何聲音可辨識');
+  if (mixLabels.length === 0) throw new Error('asr: the timeline has no audio to transcribe');
   if (mixLabels.length === 1) fc.push(`${mixLabels[0]}anull[aout]`);
   else {
     fc.push(

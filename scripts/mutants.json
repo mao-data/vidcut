@@ -502,7 +502,7 @@
     "find": "if (missing.length > 0) {",
     "replace": "if (false) {",
     "tests": "server/test/render.test.ts",
-    "note": "缺檔預檢失效，直接把明確錯誤換成 ffmpeg 原始報錯 → /^render: 找不到素材原檔：/ 的斷言必須抓到"
+    "note": "缺檔預檢失效，直接把明確錯誤換成 ffmpeg 原始報錯 → /^render: source media file\\(s\\) not found: / 的斷言必須抓到"
   },
   {
     "id": "render-audio-input-path",
@@ -615,5 +615,13 @@
     "replace": "  const { maxGapMs, maxDurationMs, maxUnits } = { ...DEFAULT_PAGE_OPTIONS, ...options };",
     "tests": "shared/src/captions.test.ts",
     "note": "改回物件展開套預設值 → 呼叫端傳 undefined 時上限全被清空、25 個詞塞成單頁；分頁預設值那條必須抓到"
+  },
+  {
+    "id": "listen-eaddrinuse-hint",
+    "file": "server/src/index.ts",
+    "find": "        e.code === 'EADDRINUSE'",
+    "replace": "        false",
+    "tests": "server/test/index-boot.test.ts",
+    "note": "port 被占用時改丟 Node 原始錯誤 → 訊息裡沒有 VIDCUT_PORT、使用者只看得到堆疊；「可操作訊息」那條必須抓到"
   }
 ]

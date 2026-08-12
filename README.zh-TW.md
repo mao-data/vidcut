@@ -87,6 +87,8 @@ npm run demo                   # 建立 demo 專案並啟動 server
 
 打開 **http://127.0.0.1:3845**。**不需要準備任何素材就能試** —— `npm run demo` 會用 ffmpeg 合成五支直式影片（其中一支故意沒有音軌）、一個標題 overlay 和兩條字幕。
 
+> **自己的素材是走 AI 進來的，不是 UI。** 目前沒有匯入按鈕（Media 面板還在[藍圖](docs/ROADMAP.md)上）—— 你把素材夾告訴 agent，它呼叫 `import_media`，原檔留在原地不複製。所以要放自己的片子之前，先把下面的 MCP 接起來。
+
 > ⚠️ `npm run demo` 每次都會*重新產生* `projects/demo`。要載入既有專案而不動它：
 >
 > ```bash
@@ -109,13 +111,13 @@ curl -L -o ~/.cache/whisper.cpp/ggml-large-v3-turbo-q5_0.bin \
 
 ### 疑難排解
 
-| 症狀                               | 原因與解法                                                                                        |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `:3845` 回 404 或一片空白          | `ui/dist` 沒 build 過。跑 `npm run build -w @vidcut/ui`。                                         |
-| 啟動時 `EADDRINUSE`                | port 被占用了。關掉那個，或換一個起：`VIDCUT_PORT=3846 npx tsx server/src/index.ts projects/demo` |
-| `auto_caption` 說「找不到模型」    | 搜尋路徑裡沒有模型 —— 見步驟 3，或設 `VIDCUT_WHISPER_MODEL`。                                     |
-| 字卡變成方框／空白，或中日韓字不見 | 沒有可用字型。server 啟動時會印出候選清單；Linux 上裝 `fonts-noto-cjk`。                          |
-| `text card generation failed`      | Pillow 沒裝，或 `python3` 不在 `PATH` 上。見上面那段 Pillow 說明。                                |
+| 症狀                                                  | 原因與解法                                                                                                                              |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `:3845` 回 404 或一片空白                             | `ui/dist` 沒 build 過。跑 `npm run build -w @vidcut/ui`。                                                                               |
+| 啟動時 `✗ 127.0.0.1:3845 is already in use`           | 另一台 vidcut 還開著。關掉它，或換個 port 起——然後瀏覽器要開**那個** port：`VIDCUT_PORT=3846 npx tsx server/src/index.ts projects/demo` |
+| `whisper.cpp is not installed, or no model was found` | 搜尋路徑裡沒有模型 —— 見步驟 3，或設 `VIDCUT_WHISPER_MODEL`。（訊息一律英文）                                                           |
+| 字卡變成方框／空白，或中日韓字不見                    | 沒有可用字型。server 啟動時會印出候選清單；Linux 上裝 `fonts-noto-cjk`。                                                                |
+| `text card generation failed`                         | Pillow 沒裝，或 `python3` 不在 `PATH` 上。見上面那段 Pillow 說明。                                                                      |
 
 ## 接上你的 AI
 
@@ -183,6 +185,8 @@ ui/       @vidcut/ui       React + Vite：時間軸、A/B 播放器、Inspector�
 | `npm run verify:wysiwyg`                | 真的 render 一支影片、截預覽畫面、比對墨跡外框——「預覽＝成品」背後的證據 |
 
 注意：server 服務的是 `ui/dist`（build 產物）。改了 UI 原始碼要 `npm run build -w @vidcut/ui`——只有走 `dev:ui` 那條路不用。
+
+`npm install` 目前會報間接相依的安全通告（細節跑 `npm audit`；加 `--omit=dev` 可以縮到真正會出貨到執行期的那些）。這些是已知的、不是被忽略的 —— `bash scripts/gauntlet.sh` 每次完整跑都會把 audit 印出來。
 
 ## 已知限制
 

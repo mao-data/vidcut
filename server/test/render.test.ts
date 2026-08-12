@@ -399,7 +399,7 @@ describe('render (integration)', () => {
     // 所以光比對檔名不能證明「在啟動 ffmpeg 前」就攔下來。這裡額外鎖定 Step 7 加的
     // 訊息前綴，把「有沒有真的做預檢」跟「ffmpeg 原始報錯裡剛好也有檔名」區分開來。
     await expect(render(store, dir, 'test2', { width: 180, height: 320 })).rejects.toThrow(
-      /^render: 找不到素材原檔：/,
+      /^render: source media file\(s\) not found: /,
     );
   }, 60_000);
 
@@ -436,7 +436,7 @@ describe('render (integration)', () => {
     await rm(src); // 原檔被移走／刪除
 
     await expect(render(store, dir, 'test', { width: 180, height: 320 })).rejects.toThrow(
-      /^render: 找不到素材原檔：/,
+      /^render: source media file\(s\) not found: /,
     );
   }, 60_000);
 });

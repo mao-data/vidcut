@@ -584,7 +584,7 @@ export async function render(
     .map((m) => resolveMediaPath(projectDir, m.path))
     .filter((p) => !existsSync(p));
   if (missing.length > 0) {
-    throw new Error(`render: 找不到素材原檔：${missing.join(', ')}`);
+    throw new Error(`render: source media file(s) not found: ${missing.join(', ')}`);
   }
 
   const project: Project = { ...stored, media: await withProbedChannels(stored, projectDir) };

@@ -80,9 +80,9 @@ export async function refreshTextOverlayCards(
         applyCommand(store, 'human', { name: 'updateOverlay', id, patch: { imagePath: next } }),
       );
       if (res.ok) changed++;
-      else console.warn(`⚠ 文字 overlay ${id} 的字卡重新解析被拒：${res.error}`);
+      else console.warn(`⚠ Text overlay ${id}: card re-resolve rejected: ${res.error}`);
     } catch (e: unknown) {
-      console.warn(`⚠ 文字 overlay ${id} 的字卡重新解析失敗：${(e as Error).message}`);
+      console.warn(`⚠ Text overlay ${id}: card re-resolve failed: ${(e as Error).message}`);
     }
   }
   return changed;

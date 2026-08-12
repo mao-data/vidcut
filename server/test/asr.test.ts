@@ -79,7 +79,7 @@ describe('buildAsrAudioArgs', () => {
 
   it('throws a readable error when there is nothing to transcribe', () => {
     const p = createEmptyProject('p', 't');
-    expect(() => buildAsrAudioArgs(p, '/proj', 'o.wav')).toThrow(/沒有任何聲音/);
+    expect(() => buildAsrAudioArgs(p, '/proj', 'o.wav')).toThrow(/no audio to transcribe/);
   });
 
   it('uses an absolute clip media path as-is instead of joining it under projectDir', () => {

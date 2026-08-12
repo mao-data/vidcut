@@ -60,7 +60,7 @@ export async function loadFontTable(r: PillowRasterizer): Promise<FontEntry[]> {
     // 逐個 warn 會在每次啟動洗出一整片雜訊、把真正值得看的訊息淹掉。只有**檔案在、
     // 但 Pillow 開不了**才值得說（權限、格式不支援、字型檔壞了——這台機器的 PingFang.ttc
     // 就是這種），因為那是「你以為有這個字型，其實用不了」。
-    else if (existsSync(c.path)) console.warn(`⚠ 字型不可用(已剔除):${c.family} @ ${c.path}`);
+    else if (existsSync(c.path)) console.warn(`⚠ Font unusable (dropped): ${c.family} @ ${c.path}`);
   }
   // 空表不是「少幾個字型」，是**這台機器上 resolver 這條路完全交白卷**（回 undefined）。
   // 但這不等於匯出一定失敗：text_card.py 的 FONT_CANDIDATES 是這裡的嚴格超集（多三條
@@ -69,11 +69,12 @@ export async function loadFontTable(r: PillowRasterizer): Promise<FontEntry[]> {
   // render.ts 的 fontFallbackError）。逐個候選的 warn 混在啟動訊息裡很容易被滑過去，
   // 所以這裡再說一次，且說清楚實際後果與解法。
   if (table.length === 0) {
-    console.warn('⚠ 字型表是空的——這台機器上一個候選字型都開不了。');
-    console.warn('  後果：字幕/文字 overlay 的字卡會用 Pillow 內建點陣字型畫（沒有中日韓字符），');
-    console.warn('  而 render 會直接中止，不會把看不懂的字燒進成品。');
-    console.warn('  解法：安裝字型（Debian/Ubuntu：apt install fonts-noto-cjk），');
-    console.warn(`  或在 ${'server/src/fonts.ts'} 的 CANDIDATES 補上你機器上的路徑。`);
+    console.warn('⚠ Font table is empty — none of the candidate fonts could be opened here.');
+    console.warn('  Effect: the resolver returns nothing, so text_card.py falls back to its own');
+    console.warn('  (longer) candidate list. render only aborts if that one comes up empty too');
+    console.warn('  — it will not burn unreadable glyphs into the output.');
+    console.warn('  Fix: install fonts (Debian/Ubuntu: apt install fonts-noto-cjk),');
+    console.warn(`  or add your paths to CANDIDATES in ${'server/src/fonts.ts'}.`);
   }
   return table;
 }
