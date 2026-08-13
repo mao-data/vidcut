@@ -65,6 +65,30 @@ overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1
 
 ## Git
 
+### open-core 邊界（動 git 之前先讀這段）
+
+這份 `.git` 同時連著兩個 remote，是**兩條授權不同的線**：
+
+| remote   | repo                                  | 授權          | 內容                                    |
+| -------- | ------------------------------------- | ------------- | --------------------------------------- |
+| `origin` | `mao-data/vidcut`                     | AGPL-3.0-only | 開源線。`main`、`caption-wysiwyg`       |
+| `pro`    | `mao-data/vidcut-pro`（永久 private） | 專有          | 商業線。`cloud-p0` 與 `cloud/` 底下全部 |
+
+- **絕對不要把商業線併進開源線。** 合法方向只有 `main → cloud-p0`（商業線吸收開源
+  改動）。反向一次就完了：push 完成的那一刻物件就進了 GitHub 的物件庫，force-push
+  只是移動 ref，物件仍能用 SHA 直接取回，fork network 還共享物件庫——**發現得再快
+  也救不回來**。這是這個 repo 唯一不可逆的失誤。
+- 守門是 `.githooks/pre-push`（三層 fail-closed：祖先哨兵／內容檢查／名字白名單），
+  由 `package.json` 的 `prepare` 在 `npm install` 時用 `core.hooksPath` 接上。**新機器
+  或重新 clone 之後第一件事就是 `npm install`**，否則閘門不存在，而且不會有任何提示。
+  自檢：`git config core.hooksPath` 應為 `.githooks`。
+- 新的**開源**分支要推 origin，得把名字加進 hook 的 `ALLOWED`（這是刻意的摩擦）。
+  加之前先確認它不含商業內容——前兩層會擋，但別把它們當作可以隨便加的理由。
+- 貢獻者授權見 `CONTRIBUTING.md` 的 CLA：外部貢獻以 AGPL 授權給專案，並額外授權
+  mao-data 用於商業版。**沒有這份 CLA，任何外部 PR 都會變成不能拿進 Pro 的程式碼。**
+
+### 一般規則
+
 - 這個 repo 有自己的 `.git`（GitHub `mao-data/vidcut`），在專案目錄內執行 git。
 - **不要 `git add -A`**：這個工作區常有多個 session 同時進行，全加會把別人改到一半的
   檔案掃進你的 commit。只 stage 你自己動過的路徑。

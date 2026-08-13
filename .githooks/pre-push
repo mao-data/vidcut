@@ -1,0 +1,122 @@
+#!/bin/sh
+# 防推錯保險：商業線不得推上開源 repo（mao-data/vidcut）。
+#
+# 背景：這個 repo 是 open-core——同一份本地 .git 連兩個 remote：
+#   origin → mao-data/vidcut      （開源 AGPL）
+#   pro    → mao-data/vidcut-pro  （商業版，永久 private）
+#
+# 只有一個方向致命：商業程式碼推上 origin。push 完成的那一刻物件就進了 GitHub 的
+# 物件庫，force-push 只是移動 ref——物件變成 unreachable 但**依然能用 SHA 直接取回**
+# （網頁 /commit/<sha>、API、git fetch origin <sha> 都拿得到），GitHub 不保證回收，
+# fork network 還共享物件庫。**發現得再快也救不回來**，所以這裡一律 fail-closed。
+#
+# 三層，各自有洞但洞不重疊：
+#   1 祖先哨兵：擋合併／rebase／推商業分支。 抓不到單檔 cherry-pick。
+#   2 內容檢查：擋 cherry-pick、手貼檔案。   抓不到改過名的檔案。
+#   3 名字白名單：擋歷史被重寫過的商業分支。 抓不到「併進 main」。
+#
+# 舊版只有第 3 層——它問的是「這條分支叫什麼」，不是「裡面有什麼」。所以
+# `git merge cloud-p0 && git push origin main` 會被放行：分支名還是 main。那正是
+# 最可能真的發生的失誤（想拿商業線的修復、AI 反向同步、upstream 設錯的 pull）。
+#
+# 這支檔案**進版控**（`.githooks/`），由 package.json 的 prepare 在 npm install 時
+# 用 `git config core.hooksPath .githooks` 接上。`.git/hooks/` 不會被 clone，換機或
+# 重新 clone 就會靜默失去保護——你會在一個看起來一模一樣的 repo 裡工作，唯一的差別
+# 是閘門不在了。
+#
+# git 呼叫方式：pre-push <remote名> <remote URL>，stdin 每行
+# "<local ref> <local sha> <remote ref> <remote sha>"。
+
+remote_url="$2"
+
+# 只攔開源 repo。注意 vidcut-pro 的 URL 也含 "mao-data/vidcut" 子字串，必須錨定結尾。
+case "$remote_url" in
+*mao-data/vidcut.git | *mao-data/vidcut) ;;
+*) exit 0 ;; # 推去 pro 或其他 remote：不關這個 hook 的事
+esac
+
+# 商業線的分水嶺：LICENSE 改專有那一個 commit。祖先關係是從內容算出來的，改名、
+# 換分支、rebase 都繞不過去。純開源的 clone 裡根本沒有這個物件 → merge-base 回非 0
+# → 這層自動略過，這是對的：那份 clone 本來就沒有商業歷史可洩漏。
+SENTINEL=f5aa8b9729a91bc1a1624354e17b12a45954dbe1
+ALLOWED="main caption-wysiwyg"
+ZERO=0000000000000000000000000000000000000000
+
+# 哨兵物件目前只靠 cloud-p0 可及。萬一哪天 cloud-p0 被刪或搬走，物件被 gc 掉，
+# 第 1 層的 merge-base 會回非 0——**保護會靜默消失**，跟破口二同一類。所以：只要這份
+# clone 設了 pro remote（＝它是雙線 clone、有商業歷史），哨兵不見就直接拒推。
+# 純開源 clone 沒有 pro remote，這裡自然略過。
+if git remote get-url pro >/dev/null 2>&1 &&
+	! git cat-file -e "$SENTINEL^{commit}" 2>/dev/null; then
+	echo "" >&2
+	echo "✋ pre-push 擋下（哨兵遺失）" >&2
+	echo "   這份 clone 有 pro remote（雙線），但哨兵 commit $SENTINEL 不存在。" >&2
+	echo "   第 1 層祖先檢查等於失效——先確認商業歷史還在（git cat-file -e），再推。" >&2
+	exit 1
+fi
+
+fail=0
+refuse() {
+	echo "" >&2
+	echo "✋ pre-push 擋下（$1）" >&2
+	echo "   ref：$2" >&2
+	echo "   $3" >&2
+	fail=1
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	# 刪除遠端 ref（local sha 全零）不算洩漏，放行
+	[ "$local_sha" = "$ZERO" ] && continue
+
+	# ── 第 1 層：祖先哨兵 ──────────────────────────────────────────────
+	if git merge-base --is-ancestor "$SENTINEL" "$local_sha" 2>/dev/null; then
+		refuse "第 1 層 祖先哨兵" "$remote_ref" \
+			"這段歷史繼承自商業線（$SENTINEL「LICENSE 改專有」是它的祖先）。商業線請推 pro：git push pro <branch>"
+		continue
+	fi
+
+	# ── 第 2 層：內容檢查 ──────────────────────────────────────────────
+	# 2a 推上去的樹不得有 cloud/
+	if [ -n "$(git ls-tree -r --name-only "$local_sha" -- cloud 2>/dev/null | head -1)" ]; then
+		refuse "第 2 層 內容（樹）" "$remote_ref" "推上去的樹裡有 cloud/ 底下的檔案。"
+		continue
+	fi
+	# 2b LICENSE 必須是 AGPL——fail-closed：檔案不見、被改、被換都擋。開源 repo 的
+	#    LICENSE 本來就不該變，這個摩擦是刻意的。
+	if ! git show "$local_sha:LICENSE" 2>/dev/null | head -1 | grep -q 'GNU AFFERO GENERAL PUBLIC LICENSE'; then
+		refuse "第 2 層 內容（LICENSE）" "$remote_ref" \
+			"推上去的 LICENSE 首行不是 AGPL 標題（可能是專有授權版，或檔案不存在）。"
+		continue
+	fi
+	# 2c 這次要推的 commit 都不得碰過 cloud/——抓「歷史裡出現過、最終樹又刪掉」的情況
+	if [ "$remote_sha" = "$ZERO" ]; then
+		# 新分支：範圍取「還沒在 origin 上的 commit」。**只排除 origin**——寫成
+		# --remotes 會連 pro 一起排除，商業 commit 就整批從檢查裡消失了。
+		set -- "$local_sha" --not --remotes=origin
+	else
+		set -- "$remote_sha..$local_sha"
+	fi
+	if [ -n "$(git rev-list "$@" -- cloud 2>/dev/null | head -1)" ]; then
+		refuse "第 2 層 內容（歷史）" "$remote_ref" "這次要推的 commit 裡有碰過 cloud/ 的。"
+		continue
+	fi
+
+	# ── 第 3 層：名字白名單 ────────────────────────────────────────────
+	# 只對分支套用；tag 由前兩層把關（舊版完全不看 tag，指向商業 commit 的 tag 會漏）。
+	case "$remote_ref" in
+	refs/heads/*)
+		branch="${remote_ref#refs/heads/}"
+		ok=0
+		for a in $ALLOWED; do
+			[ "$branch" = "$a" ] && ok=1 && break
+		done
+		if [ "$ok" -eq 0 ]; then
+			refuse "第 3 層 白名單" "$remote_ref" \
+				"分支「$branch」不在開源白名單。確定是開源分支？把名字加進 .githooks/pre-push 的 ALLOWED——但先確認它不含商業內容。"
+		fi
+		;;
+	esac
+done
+
+[ "$fail" -ne 0 ] && echo "" >&2
+exit "$fail"
