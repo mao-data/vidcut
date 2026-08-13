@@ -29,6 +29,11 @@ npm run verify:wysiwyg                      # 真 render vs 預覽截圖比對�
 bash scripts/gauntlet.sh                    # 全層驗證一條龍；當下數字以它為準
 ```
 
+- **`gauntlet.sh` 跑的時候不要 commit。** 突變測試那層會照著 `scripts/mutants.json`
+  把產品原始碼**故意改壞**、跑完該隻再還原，所以那十幾分鐘裡工作樹是會抖動的：
+  `git status` 會冒出你沒動過的檔案（實例：`ui/src/player/plan.ts`，被 `player-fade`
+  三隻 mutant 輪流改）。剛好卡在還沒還原時 commit，就會把一段刻意寫壞的程式碼提交
+  進去，而且當下測試是紅的、你未必會注意。等 `GAUNTLET: 全數通過` 印出來再 commit。
 - **改完 UI 原始碼必須 `npm run build -w @vidcut/ui`**，否則 :3845 上跑的還是舊版。
   只有 `npm run dev:ui` 那條路不用 build。
 - **不要用 `npm run demo` 當 verify 腳本的前置**——它會重建 demo 專案。
