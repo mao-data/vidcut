@@ -623,5 +623,13 @@
     "replace": "        false",
     "tests": "server/test/index-boot.test.ts",
     "note": "port 被占用時改丟 Node 原始錯誤 → 訊息裡沒有 VIDCUT_PORT、使用者只看得到堆疊；「可操作訊息」那條必須抓到"
+  },
+  {
+    "id": "demo-title-alpha",
+    "file": "server/src/demo.ts",
+    "find": "    'color=c=black@1.0:size=800x120,format=rgba',",
+    "replace": "    'color=c=black@0.0:size=800x120,format=rgba',",
+    "tests": "server/test/demo.test.ts",
+    "note": "標題卡底色改回全透明 → drawbox 不寫 alpha，整張 title.png 隱形；「不是整張透明」那條必須抓到（只斷言 overlay 軌存在的那條抓不到，這正是原本漏掉的洞）"
   }
 ]
