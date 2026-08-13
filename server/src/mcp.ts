@@ -845,11 +845,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_captions',
     {
       description:
-        '整組替換字幕軌（原有字幕全部被取代；空陣列＝清空）。start 與 tokens 都是' +
-        '時間軸絕對秒數。逐句驗證、**任一句不合格就整批拒絕、文件完全不動**：' +
-        'duration 要 > 0、整句不能落在 t=0 之前、字卡不能超過像素預算' +
-        '（文字太長或 fontSize 太大，錯誤訊息會寫出估到的尺寸）。' +
-        '小修單一句請用 update_caption。',
+        'Replace the whole caption track (every existing caption is replaced; an empty array clears it). start and ' +
+        'tokens are absolute timeline seconds. Every caption is validated and **one bad caption rejects the whole ' +
+        'batch, leaving the document untouched**: duration must be > 0, a caption must not fall entirely before t=0, ' +
+        'and its card must not exceed the pixel budget (text too long or fontSize too large — the error states the ' +
+        'estimated size). To touch a single caption, use update_caption.',
       outputSchema: writeOutput,
       inputSchema: { captions: z.array(captionSchema), ifVersion: z.number().optional() },
     },
@@ -864,17 +864,19 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_caption',
     {
       description:
-        '只改一句字幕（text/start/duration/style/tokens）。小修用這個，別用 set_captions 整組重送。' +
-        'style 提供時整組替換；tokens 給 [] 代表清除逐詞時間戳。' +
-        '⚠️ 有 tokens 的句子改 text 要**同時**送 tokens（清成 [] 或給對得上新文字的一組），' +
-        '只送 text 畫面不會有任何變化（字卡照 tokens 排版，根本不看 text），而且寫入是**成功**的' +
-        '——version 照樣前進、不會回「no-op」，從回覆完全看不出來。見 patch.text 的說明。' +
-        'tokens（逐詞時間戳）存的是時間軸絕對秒數，伺服器只在「整句平移」時自動幫你一起移：' +
-        '只給 start（或給了 start 且 duration 不變）＝整句搬到別的時間點，每個詞的 start/end ' +
-        '平移同樣的差值，不必自己重算。修邊則完全不動詞時間：只給 duration（縮尾巴）、' +
-        '或同時給 start 與 duration 且 duration 跟著變（縮頭：右緣不動、start 往後）——' +
-        '那是在改「這句顯示多久」，不是改「哪個字什麼時候被唸出來」。' +
-        '同一次呼叫若也給了 tokens，則以你給的為準（不再平移）。',
+        'Change one caption only (text/start/duration/style/tokens). Use this for small edits instead of resending ' +
+        'the whole set_captions. style replaces wholesale when provided; tokens: [] clears the per-word timestamps. ' +
+        '⚠️ For a caption that has tokens, changing text requires sending tokens **in the same call** (either [] or a ' +
+        'set that matches the new wording). Sending text alone changes nothing on screen — the card is laid out from ' +
+        'tokens and never looks at text — and the write **succeeds**: the version advances, the reply is not "no-op", ' +
+        'and nothing in it reveals the problem. See the note on patch.text. ' +
+        'tokens (per-word timestamps) hold absolute timeline seconds, and the server shifts them for you only on a ' +
+        'whole-caption move: start alone (or start with duration unchanged) means the caption moves to another point ' +
+        "in time, and every word's start/end shifts by the same delta — no need to recompute them. Trimming leaves " +
+        'word times completely alone: duration alone (shorten the tail), or start and duration together with duration ' +
+        'changing (shorten the head: the right edge stays, start moves later). That is editing "how long this caption ' +
+        'is shown", not "when each word is spoken". ' +
+        'If the same call also supplies tokens, yours win and no shifting is applied.',
       outputSchema: writeOutput,
       inputSchema: {
         id: z.string(),
@@ -884,11 +886,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
               .string()
               .optional()
               .describe(
-                '⚠️ 這句**有 tokens 時，只改 text 畫面不會有任何變化**：字卡是照 tokens 排版的' +
-                  '（有 tokens 就完全不看 text）。文字確實會寫進文件、version 也會前進，' +
-                  '所以回覆跟真的改到東西一模一樣（不是「no-op」、也不報錯），只有畫面不動。' +
-                  '改字請一併送 `tokens: []` 清掉舊的詞邊界——它們本來就對不上新文字了；' +
-                  '要保留逐詞高亮就自己給一組對得上新文字的 tokens。',
+                '⚠️ **When this caption has tokens, changing text alone changes nothing on screen**: the card is laid ' +
+                  'out from tokens and ignores text entirely. The text really is written to the document and the ' +
+                  'version really does advance, so the reply is indistinguishable from a real edit (not "no-op", no ' +
+                  'error) — only the picture stays put. When changing the wording, also send `tokens: []` to clear ' +
+                  'the old word boundaries, which no longer match the new text; to keep the per-word highlight, ' +
+                  'supply a set of tokens that matches it.',
               ),
             start: z.number().optional(),
             duration: z.number().optional(),
@@ -907,8 +910,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_overlay',
     {
       description:
-        '只改一張疊圖（start/anchor/duration/position/text）。start 與 anchor 互斥：給哪個就轉成哪種定位。' +
-        '文字 overlay 改字/樣式就送新 text（伺服器重新產卡並更新 imagePath，不必也不該自己給 imagePath）。',
+        'Change one overlay only (start/anchor/duration/position/text). start and anchor are mutually exclusive here: ' +
+        'whichever you send is the positioning it switches to. ' +
+        "To change a text overlay's wording or style, send new text (the server re-rasterizes the card and updates " +
+        'imagePath — you neither need to nor should set imagePath yourself).',
       outputSchema: writeOutput,
       inputSchema: {
         id: z.string(),
@@ -923,18 +928,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
               .describe(
                 // 這段必須跟上面 overlaySchema 的 position describe 講同一件事——
                 // 它是 update_overlay 自己內嵌的一份，改了那邊沒改這邊，AI 讀到的就是舊語意。
-                '整份換掉（沒有單欄位 patch 語意）。x=水平中心、y=上緣（不對稱）。' +
-                  'x/y 不限定 0–1：可以部分掛在畫布外（y 為負＝掛在上緣外），超出的部分' +
-                  '成品與預覽都會被裁掉、行為一致。' +
-                  'scale=倍率繞上緣中點縮放，成品與預覽一致；限 0–10，負值會被拒' +
-                  '（預覽是鏡像、成品整張不合成），scale=0 兩邊都是看不見。',
+                'Replaced wholesale (there is no per-field patch semantics here). x is the horizontal centre, y is ' +
+                  'the top edge — they are not symmetric. x/y are not limited to 0–1: an overlay may hang partly off ' +
+                  'the canvas (negative y = off the top edge), and the part that hangs off is clipped identically in ' +
+                  'both the export and the preview. scale is a multiplier about the top-centre point, identical in ' +
+                  'export and preview; it is limited to 0–10 and negative values are rejected (the preview would ' +
+                  'mirror while the export would drop the image entirely); scale=0 is invisible in both.',
               ),
             text: overlayTextSchema
               .optional()
               .describe(
-                '改文字內容/樣式：伺服器會重新產卡並更新 imagePath。只能用在本來就是文字 overlay ' +
-                  '（建立時就帶 text）的項目；對純圖 overlay 送 text 會被拒絕（不會把它轉成文字卡、' +
-                  '不會覆蓋它的 imagePath），真要轉型請 remove_overlay + add_overlay。',
+                'Change the wording or style: the server re-rasterizes the card and updates imagePath. Only valid ' +
+                  'on an item that was already a text overlay (created with text); sending text to an image overlay ' +
+                  'is rejected — it will not be converted into a text card and its imagePath is not overwritten. ' +
+                  'To convert one, remove_overlay then add_overlay.',
               ),
           })
           .strict(),
@@ -959,13 +966,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'add_overlay',
     {
       description:
-        '新增單張疊圖（其他 overlay 不動）。text 與 imagePath 恰好給一個：文字類 overlay 帶 text ' +
-        '（伺服器自動產字卡並維護 imagePath，不要自己給）；純圖 overlay 給實際 imagePath。' +
-        '會驗：id 不能與現有 overlay 重複、start 與 anchor **至少要給一個**、' +
-        'anchor.clipId 要指向現存片段、duration > 0 或 null（＝到片尾）。' +
-        '⚠️ start 與 anchor 兩個都給**不會報錯**，但 anchor 會蓋過 start、' +
-        'start 靜默失效——三條路裡只有 update_overlay 會擋下這種組合。' +
-        '錨定（anchor）的 overlay 會跟著片段走，絕對 start 則不會。',
+        'Add a single overlay (the others are untouched). Give exactly one of text and imagePath: a text overlay ' +
+        'carries text (the server rasterizes the card and maintains imagePath — do not set it yourself); an image ' +
+        'overlay gives a real imagePath. ' +
+        'Checked here: the id must not collide with an existing overlay, **at least one** of start and anchor must be ' +
+        'given, anchor.clipId must point at an existing clip, and duration must be > 0 or null (= until the end). ' +
+        '⚠️ Giving both start and anchor is **not an error**, but anchor overrides start and start silently does ' +
+        'nothing — of the three paths only update_overlay blocks that combination. ' +
+        'An anchored overlay follows its clip; one positioned by absolute start does not.',
       outputSchema: writeOutput,
       inputSchema: { overlay: overlaySchema, ifVersion: z.number().optional() },
     },
