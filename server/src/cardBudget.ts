@@ -236,8 +236,9 @@ export function cardRequestError(req: CardRequest): string | null {
       `text card too large: at most ${est.lines} line(s) at fontSize ${size} → ` +
       `${Math.floor(req.width)}×${est.height} ≈ ${(est.pixels / 1e6).toFixed(1)} Mpx, ` +
       `limit ${MAX_CARD_PIXELS / 1e6} Mpx. ` +
-      '（行數是**最壞情況**上界：伺服器這側量不到字寬，只能用「每個字元最寬 ' +
-      `${MAX_ADVANCE_EM} em」去估——實際畫出來通常少很多。請縮短文字或縮小 fontSize。）`
+      '(the line count is a **worst-case** upper bound: this side cannot measure glyph widths, so it estimates ' +
+      `with "every character at most ${MAX_ADVANCE_EM} em" — real wrapping is usually much smaller. ` +
+      'Shorten the text or reduce fontSize.)'
     );
   }
   return null;

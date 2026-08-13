@@ -71,14 +71,14 @@ export async function buildDemoProject(dir: string): Promise<void> {
     d.tracks.captions = [
       {
         id: nanoid(6),
-        text: '第一段字幕',
+        text: 'First caption',
         start: 1,
         duration: 3,
         style: { fontFamily: 'sans-serif', fontSize: 64, fill: '#fff', stroke: '#000', y: 0.78 },
       },
       {
         id: nanoid(6),
-        text: '第二段字幕',
+        text: 'Second caption',
         start: 6,
         duration: 4,
         style: { fontFamily: 'sans-serif', fontSize: 64, fill: '#ff0', stroke: '#000', y: 0.78 },

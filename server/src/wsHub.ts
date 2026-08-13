@@ -102,7 +102,7 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
             send(ws, {
               type: 'commandError',
               reqId,
-              error: `字卡產生失敗：${(e as Error).message}`,
+              error: `text card generation failed: ${(e as Error).message}`,
             });
           }
         };
@@ -123,7 +123,10 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
       } else if (msg.type === 'setCover') {
         if (projectDir) {
           extractCover(store, projectDir, msg.time).catch((e: unknown) => {
-            send(ws, { type: 'commandError', error: `封面產生失敗：${(e as Error).message}` });
+            send(ws, {
+              type: 'commandError',
+              error: `cover generation failed: ${(e as Error).message}`,
+            });
           });
         }
       }

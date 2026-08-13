@@ -232,7 +232,7 @@ describe('Timeline drags', () => {
     expect(sent).toHaveLength(1);
     const cmd = sent[0] as Extract<Command, { name: 'addOverlay' }>;
     expect(cmd.name).toBe('addOverlay');
-    expect(cmd.overlay.text).toMatchObject({ text: '新文字' });
+    expect(cmd.overlay.text).toMatchObject({ text: 'New text' });
     expect(cmd.overlay.start).toBe(2);
     expect(useSelection.getState().selected).toEqual({ kind: 'overlay', id: cmd.overlay.id });
   });

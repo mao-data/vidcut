@@ -99,10 +99,10 @@ export function fontFallbackError(stdout: string, capId: string): string | null 
   }
   if (!geo?.fontFallback) return null;
   return (
-    `caption ${capId}: 找不到任何可用的字型，字卡只能用 Pillow 內建的點陣字型畫` +
-    `（沒有中日韓字符、字級與描邊都不對）。與其把看不懂的字燒進成品，這裡直接中止。` +
-    `請安裝一套字型（Debian/Ubuntu：apt install fonts-noto-cjk），或在 ` +
-    `server/scripts/text_card.py 的 FONT_CANDIDATES 補上你機器上的路徑。`
+    `caption ${capId}: no usable font was found, so the card can only be drawn with Pillow's built-in bitmap font ` +
+    '(no CJK glyphs; size and stroke both wrong). Rather than burn unreadable text into the output, this aborts. ' +
+    "Install a font (Debian/Ubuntu: apt install fonts-noto-cjk), or add your machine's paths to FONT_CANDIDATES " +
+    'in server/scripts/text_card.py.'
   );
 }
 
@@ -248,8 +248,8 @@ const STAMP_RE = /^[A-Za-z0-9._-]{1,64}$/;
 export function assertSafeStamp(stamp: string): void {
   if (!STAMP_RE.test(stamp) || stamp === '.' || stamp === '..') {
     throw new Error(
-      `render: stamp「${stamp}」不合法——只能用英數與 . _ -（最多 64 字），` +
-        '因為它會直接變成 output/<stamp>.mp4 的檔名。',
+      `render: stamp "${stamp}" is not valid — alphanumerics and . _ - only (64 chars max), ` +
+        'because it becomes the file name in output/<stamp>.mp4.',
     );
   }
 }
@@ -624,8 +624,8 @@ export async function render(
     const expected = captions.reduce((n, c) => n + Math.max(1, c.tokens?.length ?? 1), 0);
     if (expected > MAX_CAPTION_CARDS) {
       throw new Error(
-        `字卡數 ${expected} 超過上限 ${MAX_CAPTION_CARDS}（逐詞高亮＝一詞一張卡）。` +
-          '請減少字幕數、關掉 karaoke（auto_caption 的 karaoke:false），或分段渲染。',
+        `${expected} text cards exceeds the limit of ${MAX_CAPTION_CARDS} (per-word highlight = one card per word). ` +
+          'Use fewer captions, turn karaoke off (karaoke:false on auto_caption), or render in sections.',
       );
     }
     await mkdir(join(projectDir, 'derived', 'captions'), { recursive: true });
