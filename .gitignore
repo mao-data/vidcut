@@ -15,3 +15,8 @@ __pycache__/
 
 # 各 session 的 git worktree（不要提交，也不要被 git add -A 掃進來）
 .claude/worktrees/
+
+# Impeccable 設計流程的過程檔（決策示意圖、問答 log、review 截圖、hook 快取）。
+# 只擋根目錄這一份；**開頭的斜線是必要的** —— 寫成 `.impeccable/` 會連
+# `site/.impeccable/design.json`（DESIGN.md 的 sidecar，屬於成品）一起擋掉。
+/.impeccable/

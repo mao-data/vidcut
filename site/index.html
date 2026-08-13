@@ -1,0 +1,1785 @@
+<!doctype html>
+<html lang="en">
+  <!--
+THESIS: The landing page is the director's storyboard of one real edit session — the AI
+drafts every shot in graphite, the human's red pencil has the last word. It refuses the
+category default (dark hero, glow, floating screenshot, feature-card grid).
+OWN-WORLD: Dot-grid paper #ede8dc, graphite ink #26231d, red-pencil override #c0392b,
+highlighter #f3d13d, approval-stamp green #2a7a45, non-photo blue #8fb0c9 for technical
+margins. Jost caps for production type, Caveat for handwriting, mono for timecode.
+Washi tape, hand-drawn frames, stamps.
+STORY: A visitor sees an edit session drafted frame by frame, understands "AI edits over
+MCP, I supervise live, nothing renders unapproved", trusts the honest-limits pencil notes,
+then stars mao-data/vidcut.
+FIRST VIEWPORT: Binder header; H1 "The AI drafts every shot. You mark it up." with red
+underline; five 9:16 storyboard frames (SC.01–05 import→cut→caption→review→render)
+sketching in, red annotations between, scrub playhead beneath; circled star CTA left,
+mcp-add margin note right.
+FORM: Storyboard mark-up world — IMPECCABLE'S PICK, rank 1 of 7, seed 7debaa67, code-led.
+Signature interaction: one playhead scrubs the whole session (sketch reveal, karaoke
+highlight, stamp landing). FINISH: unreviewed and undocumented is unfinished; this build
+ends with the finish review, the verdict, and DESIGN.md
+-->
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>vidcut — the AI drafts every shot. You mark it up.</title>
+    <meta
+      name="description"
+      content="vidcut is a local-first timeline editor for vertical short video. Your AI agent edits over MCP — you supervise every change live in the browser, and nothing renders until you approve."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Caveat:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --paper: #ede8dc;
+        --paper-2: #f7f3e9;
+        --ink: #26231d;
+        --graphite: #4a463c;
+        --faint: #635c4b;
+        --red: #c0392b;
+        --red-deep: #a02a1e;
+        --hl: #f3d13d;
+        --stamp: #2a7a45;
+        --blue: #8fb0c9;
+        --tape: rgba(214, 192, 122, 0.55);
+        --frame-w: 168px;
+        --frame-h: 268px;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background:
+          radial-gradient(rgba(38, 35, 29, 0.075) 1px, transparent 1.2px) 0 0 / 24px 24px,
+          radial-gradient(1200px 600px at 50% -10%, rgba(255, 255, 252, 0.65), transparent 70%),
+          var(--paper);
+        color: var(--ink);
+        font-family: 'Jost', 'Helvetica Neue', sans-serif;
+        font-size: 17px;
+        line-height: 1.55;
+        overflow-x: hidden;
+      }
+      ::selection {
+        background: var(--hl);
+        color: var(--ink);
+      }
+      :focus-visible {
+        outline: 2px dashed var(--red);
+        outline-offset: 3px;
+        border-radius: 2px;
+      }
+      ::-webkit-scrollbar {
+        width: 11px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #b9b2a0;
+        border-radius: 6px;
+        border: 3px solid var(--paper);
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .hand {
+        font-family: 'Caveat', cursive;
+      }
+      .mono {
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .cjk {
+        font-family: 'Noto Sans TC', 'PingFang TC', sans-serif;
+      }
+
+      a {
+        color: inherit;
+        text-underline-offset: 4px;
+        text-decoration-thickness: 1.5px;
+      }
+      a:hover {
+        color: var(--red);
+      }
+
+      /* ---------- binder header ---------- */
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 26px clamp(24px, 5vw, 72px) 0;
+      }
+      .logotype {
+        font-weight: 700;
+        font-size: 27px;
+        letter-spacing: 0.02em;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .logotype svg {
+        display: block;
+      }
+      nav {
+        display: flex;
+        gap: clamp(14px, 2.5vw, 30px);
+        align-items: center;
+        font-weight: 500;
+        font-size: 15.5px;
+      }
+      nav a {
+        text-decoration: none;
+      }
+      nav a.gh {
+        border: 2px solid var(--ink);
+        border-radius: 3px;
+        padding: 7px 15px;
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        transition:
+          transform 0.15s cubic-bezier(0.2, 1.4, 0.4, 1),
+          background 0.15s ease;
+        background: var(--paper-2);
+        box-shadow: 0 2px 6px rgba(38, 35, 29, 0.14);
+      }
+      nav a.gh:hover {
+        transform: translateY(-2px) rotate(-0.5deg);
+        color: var(--ink);
+        background: #fff;
+      }
+
+      /* ---------- hero ---------- */
+      .hero {
+        padding: clamp(20px, 3.4vh, 36px) clamp(24px, 5vw, 72px) 0;
+        max-width: 1340px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: clamp(38px, 5.4vw, 74px);
+        font-weight: 700;
+        line-height: 1.04;
+        letter-spacing: -0.015em;
+        max-width: 20ch;
+        text-wrap: balance;
+      }
+      h1 .you {
+        position: relative;
+        white-space: nowrap;
+        color: var(--red);
+      }
+      h1 .you svg {
+        position: absolute;
+        left: -2%;
+        bottom: -0.18em;
+        width: 104%;
+        height: 0.34em;
+        overflow: visible;
+      }
+      .lede {
+        margin-top: 14px;
+        font-size: clamp(16px, 1.5vw, 19px);
+        max-width: 68ch;
+        color: var(--graphite);
+      }
+      .lede b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      /* ---------- storyboard ---------- */
+      .board {
+        margin-top: clamp(20px, 3vh, 30px);
+        position: relative;
+      }
+      .frames {
+        display: flex;
+        gap: clamp(18px, 2.6vw, 40px);
+        align-items: flex-start;
+        overflow-x: auto;
+        padding: 14px 4px 6px;
+        scroll-snap-type: x proximity;
+        scrollbar-width: none;
+      }
+      .frames::-webkit-scrollbar {
+        display: none;
+      }
+      .shot {
+        flex: none;
+        width: var(--frame-w);
+        scroll-snap-align: center;
+        position: relative;
+      }
+      .shot .sc {
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        font-weight: 600;
+        color: var(--graphite);
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .shot .sc > span {
+        white-space: nowrap;
+      }
+      .shot .sc .t {
+        color: var(--faint);
+        font-weight: 400;
+        letter-spacing: 0;
+        font-size: 11px;
+      }
+      .frame {
+        width: var(--frame-w);
+        height: var(--frame-h);
+        background: var(--paper-2);
+        border-radius: 4px;
+        position: relative;
+        box-shadow:
+          0 3px 14px rgba(38, 35, 29, 0.16),
+          0 1px 3px rgba(38, 35, 29, 0.12);
+      }
+      .frame > svg.border-sk {
+        position: absolute;
+        inset: -5px;
+        width: calc(100% + 10px);
+        height: calc(100% + 10px);
+        overflow: visible;
+      }
+      .frame .inner {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        border-radius: 4px;
+      }
+      .sk path,
+      .sk line,
+      .sk circle,
+      .sk rect,
+      .sk ellipse,
+      .sk polyline {
+        fill: none;
+        stroke: var(--graphite);
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      /* graphite: displace every sketch stroke with paper-tooth turbulence */
+      svg.sk {
+        filter: url(#pencil);
+      }
+      .sk .heavy {
+        stroke: var(--ink);
+        stroke-width: 2.6;
+      }
+      .sk .lite {
+        stroke: var(--faint);
+        stroke-width: 1.4;
+      }
+      .sk .blue {
+        stroke: var(--blue);
+      }
+      .sk .redln {
+        stroke: var(--red);
+      }
+      /* stroke reveal driven by --r (0..1) set per-frame from the playhead */
+      .reveal path,
+      .reveal line,
+      .reveal circle,
+      .reveal rect,
+      .reveal ellipse,
+      .reveal polyline {
+        stroke-dasharray: 1;
+        stroke-dashoffset: calc(1 - var(--r, 1));
+      }
+      .shot .note {
+        margin-top: 8px;
+        font-size: 19px;
+        line-height: 1.12;
+        color: var(--red);
+        transform: rotate(-1.6deg);
+        opacity: calc(var(--n, 1));
+        transition: opacity 0.3s ease;
+        min-height: 2em;
+      }
+      .shot:nth-child(even) .note {
+        transform: rotate(1.1deg);
+      }
+      .note .who {
+        color: var(--faint);
+        font-size: 17px;
+      }
+      .tapes {
+        position: absolute;
+        top: -12px;
+        left: 50%;
+        transform: translateX(-50%) rotate(-2deg);
+        width: 74px;
+        height: 22px;
+        background: var(--tape);
+        box-shadow: 0 1px 2px rgba(38, 35, 29, 0.1);
+      }
+      .shot:nth-child(3) .tapes {
+        transform: translateX(-58%) rotate(1.5deg);
+      }
+
+      /* caption card inside SC.03 */
+      .capcard {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        bottom: 44px;
+        text-align: center;
+      }
+      .capcard .line {
+        font-weight: 700;
+        font-size: 21px;
+        letter-spacing: 0.04em;
+        color: var(--ink);
+        text-shadow: 0 1px 0 #fff;
+      }
+      .capcard .w {
+        transition:
+          color 0.12s linear,
+          background 0.12s linear;
+        padding: 0 1px;
+        border-radius: 2px;
+      }
+      .capcard .w.on {
+        color: var(--red-deep);
+        background: var(--hl);
+      }
+
+      /* stamp inside SC.04 */
+      .stamp {
+        position: absolute;
+        right: 8px;
+        top: 12px;
+        color: var(--stamp);
+        border: 3px solid var(--stamp);
+        border-radius: 5px;
+        padding: 4px 9px 2px;
+        font-weight: 700;
+        font-size: 15px;
+        letter-spacing: 0.14em;
+        line-height: 1.15;
+        text-align: center;
+        transform: rotate(9deg) scale(var(--s, 1));
+        opacity: var(--so, 0.92);
+        mix-blend-mode: multiply;
+      }
+      .stamp small {
+        display: block;
+        font-size: 8.5px;
+        letter-spacing: 0.28em;
+        font-weight: 600;
+      }
+
+      /* arrows between shots */
+      .shot .arr {
+        position: absolute;
+        top: calc(var(--frame-h) / 2 + 10px);
+        right: calc(-1 * clamp(18px, 2.6vw, 40px) + 2px);
+        width: clamp(14px, 2vw, 34px);
+        overflow: visible;
+      }
+
+      /* playhead scrub */
+      .scrub {
+        margin: 16px 4px 0;
+        position: relative;
+        max-width: 1080px;
+      }
+      .scrub .rail {
+        height: 3px;
+        background: repeating-linear-gradient(90deg, var(--graphite) 0 10px, transparent 10px 16px);
+        border-radius: 2px;
+        opacity: 0.55;
+      }
+      .scrub input[type='range'] {
+        position: absolute;
+        inset: -16px 0;
+        width: 100%;
+        height: 36px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: transparent;
+        cursor: ew-resize;
+      }
+      .scrub input[type='range']::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 20px;
+        height: 34px;
+        background:
+          linear-gradient(180deg, var(--red) 0 12px, transparent 12px) center top / 8px 12px
+            no-repeat,
+          linear-gradient(var(--red), var(--red)) center / 2.5px 100% no-repeat;
+        cursor: ew-resize;
+      }
+      .scrub input[type='range']::-moz-range-thumb {
+        width: 20px;
+        height: 34px;
+        border: none;
+        border-radius: 0;
+        background:
+          linear-gradient(180deg, var(--red) 0 12px, transparent 12px) center top / 8px 12px
+            no-repeat,
+          linear-gradient(var(--red), var(--red)) center / 2.5px 100% no-repeat;
+        cursor: ew-resize;
+      }
+      .scrub .hint {
+        position: absolute;
+        right: 0;
+        top: 12px;
+        font-size: 18px;
+        color: var(--graphite);
+        transform: rotate(-1deg);
+      }
+
+      /* hero CTAs */
+      .ctarow {
+        display: flex;
+        align-items: center;
+        gap: clamp(22px, 4vw, 52px);
+        flex-wrap: wrap;
+        margin: 22px 4px 0;
+      }
+      .star-cta {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 700;
+        font-size: 21px;
+        text-decoration: none;
+        padding: 16px 30px;
+        transition: transform 0.15s cubic-bezier(0.2, 1.4, 0.4, 1);
+      }
+      .star-cta:hover {
+        transform: rotate(-1deg) scale(1.03);
+        color: var(--ink);
+      }
+      .star-cta svg.ring {
+        position: absolute;
+        inset: -6px -10px;
+        width: calc(100% + 20px);
+        height: calc(100% + 12px);
+        overflow: visible;
+      }
+      .star-cta .star {
+        color: var(--red);
+      }
+      .margin-note {
+        font-size: 15px;
+        color: var(--graphite);
+        max-width: 46ch;
+      }
+      .margin-note .hand {
+        font-size: 21px;
+        color: var(--red);
+        display: block;
+        transform: rotate(-1.2deg);
+      }
+      .margin-note code {
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 13px;
+        background: var(--paper-2);
+        border: 1px solid rgba(38, 35, 29, 0.18);
+        border-radius: 3px;
+        padding: 3px 8px;
+        display: inline-block;
+        margin-top: 6px;
+      }
+
+      /* ---------- sections ---------- */
+      section {
+        padding: clamp(64px, 11vh, 130px) clamp(24px, 5vw, 72px) 0;
+        max-width: 1340px;
+        margin: 0 auto;
+      }
+      h2 {
+        font-size: clamp(30px, 3.4vw, 46px);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        line-height: 1.1;
+        max-width: 24ch;
+        text-wrap: balance;
+      }
+      h2 .red {
+        color: var(--red);
+      }
+      .sect-lede {
+        margin-top: 14px;
+        max-width: 60ch;
+        color: var(--graphite);
+      }
+
+      /* review loop */
+      .loop {
+        display: flex;
+        gap: clamp(28px, 5vw, 80px);
+        margin-top: 44px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+      .loop-frame {
+        flex: none;
+        position: relative;
+      }
+      .loop-frame .frame {
+        width: 240px;
+        height: 416px;
+      }
+      .loop-steps {
+        flex: 1;
+        min-width: 280px;
+        max-width: 560px;
+      }
+      .loop-steps li {
+        list-style: none;
+        display: flex;
+        gap: 16px;
+        padding: 14px 0;
+        border-bottom: 1.5px dashed rgba(38, 35, 29, 0.22);
+      }
+      .loop-steps li:last-child {
+        border-bottom: none;
+      }
+      .loop-steps .k {
+        flex: none;
+        width: 118px;
+        font-size: 12.5px;
+        letter-spacing: 0.16em;
+        font-weight: 600;
+        color: var(--graphite);
+        padding-top: 4px;
+      }
+      .loop-steps .k.you {
+        color: var(--red);
+      }
+      .loop-steps p {
+        color: var(--graphite);
+        font-size: 16px;
+      }
+      .loop-steps p b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .loop-steps .mono {
+        font-size: 13.5px;
+        background: var(--paper-2);
+        border: 1px solid rgba(38, 35, 29, 0.15);
+        border-radius: 3px;
+        padding: 1px 7px;
+      }
+      .bigstamp {
+        position: absolute;
+        bottom: 26px;
+        left: -18px;
+        transform: rotate(-8deg);
+        border: 4px solid var(--stamp);
+        color: var(--stamp);
+        border-radius: 6px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        font-size: 21px;
+        padding: 8px 16px 6px;
+        text-align: center;
+        mix-blend-mode: multiply;
+        background: rgba(247, 243, 233, 0.4);
+      }
+      .bigstamp small {
+        display: block;
+        font-size: 9.5px;
+        letter-spacing: 0.3em;
+      }
+      .loop-frame {
+        margin-right: 200px;
+      }
+      .redpen {
+        position: absolute;
+        top: 56px;
+        right: -216px;
+        width: 190px;
+        color: var(--red);
+        font-size: 21px;
+        line-height: 1.15;
+        transform: rotate(2deg);
+      }
+      .redpen svg {
+        overflow: visible;
+        display: block;
+        margin-bottom: 2px;
+      }
+
+      /* real editor */
+      .taped {
+        margin-top: 48px;
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+      }
+      .taped img {
+        max-width: 100%;
+        display: block;
+        border-radius: 3px;
+        box-shadow:
+          0 10px 34px rgba(38, 35, 29, 0.28),
+          0 2px 8px rgba(38, 35, 29, 0.18);
+        transform: rotate(-0.5deg);
+      }
+      .taped .tp {
+        position: absolute;
+        width: 108px;
+        height: 30px;
+        background: var(--tape);
+        box-shadow: 0 1px 3px rgba(38, 35, 29, 0.12);
+      }
+      .taped .tp.tl {
+        top: -14px;
+        left: 36px;
+        transform: rotate(-5deg);
+      }
+      .taped .tp.br {
+        bottom: -13px;
+        right: 44px;
+        transform: rotate(4deg);
+      }
+      .callouts {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .co {
+        position: absolute;
+        color: var(--red-deep);
+        font-size: 19px;
+        line-height: 1.12;
+        max-width: 200px;
+      }
+      .co .hand {
+        display: inline-block;
+        background: var(--paper-2);
+        padding: 5px 12px 6px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        transform: rotate(-1.5deg);
+        border-radius: 2px;
+        position: relative;
+      }
+      .co .hand::before {
+        content: '';
+        position: absolute;
+        top: -8px;
+        left: 20px;
+        width: 46px;
+        height: 15px;
+        background: var(--tape);
+        transform: rotate(-3deg);
+      }
+      .co svg {
+        display: block;
+        overflow: visible;
+      }
+      .shot-caption {
+        margin-top: 22px;
+        font-size: 15px;
+        color: var(--graphite);
+        max-width: 70ch;
+      }
+      .shot-caption b {
+        color: var(--ink);
+      }
+
+      /* shot list — MCP tools */
+      .shotlist {
+        margin-top: 44px;
+        background: var(--paper-2);
+        border-radius: 5px;
+        padding: clamp(24px, 3.4vw, 44px);
+        box-shadow: 0 3px 16px rgba(38, 35, 29, 0.13);
+        position: relative;
+      }
+      .shotlist::before {
+        content: '';
+        position: absolute;
+        top: -11px;
+        left: 50%;
+        transform: translateX(-50%) rotate(-1.5deg);
+        width: 132px;
+        height: 26px;
+        background: var(--tape);
+      }
+      .shotlist h3 {
+        font-size: 13.5px;
+        letter-spacing: 0.26em;
+        font-weight: 600;
+        color: var(--graphite);
+        border-bottom: 2px solid var(--ink);
+        padding-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .toolcols {
+        columns: 3;
+        column-gap: 44px;
+        margin-top: 18px;
+      }
+      .tgroup {
+        break-inside: avoid;
+        margin-bottom: 18px;
+      }
+      .tgroup .g {
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        font-weight: 600;
+        color: var(--red);
+        margin-bottom: 5px;
+      }
+      .tgroup ul {
+        list-style: none;
+      }
+      .tgroup li {
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 13px;
+        color: var(--graphite);
+        padding: 2.5px 0;
+        border-bottom: 1px dotted rgba(38, 35, 29, 0.16);
+        display: flex;
+        justify-content: space-between;
+      }
+      .tgroup li em {
+        font-style: normal;
+        color: var(--faint);
+        font-size: 11px;
+      }
+      /* karaoke specimen */
+      .specimen {
+        display: flex;
+        align-items: center;
+        gap: clamp(24px, 4vw, 60px);
+        flex-wrap: wrap;
+        margin-top: 40px;
+      }
+      .specimen .line2 {
+        font-weight: 700;
+        font-size: clamp(36px, 4.6vw, 58px);
+        letter-spacing: 0.02em;
+      }
+      .specimen .line2 .w {
+        padding: 0 2px;
+        border-radius: 3px;
+      }
+      .specimen .line2 .w.on {
+        color: var(--red-deep);
+        background: var(--hl);
+      }
+      .specimen .expl {
+        max-width: 44ch;
+        color: var(--graphite);
+        font-size: 15.5px;
+      }
+      .specimen .expl .hand {
+        color: var(--red);
+        font-size: 21px;
+      }
+
+      /* limits */
+      .limits {
+        margin-top: 40px;
+        max-width: 760px;
+      }
+      .limits li {
+        list-style: none;
+        display: flex;
+        gap: 18px;
+        padding: 16px 0;
+        border-bottom: 1.5px dashed rgba(38, 35, 29, 0.22);
+        color: var(--graphite);
+      }
+      .limits li:last-child {
+        border-bottom: none;
+      }
+      .limits .bullet {
+        flex: none;
+        width: 26px;
+        padding-top: 3px;
+      }
+      .limits b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .limits .hand {
+        color: var(--graphite);
+        font-size: 20px;
+      }
+
+      /* call sheet */
+      .callsheet {
+        margin-top: 44px;
+        max-width: 860px;
+        counter-reset: step;
+      }
+      .cs-step {
+        display: flex;
+        gap: 22px;
+        padding: 20px 0;
+        border-bottom: 1.5px solid rgba(38, 35, 29, 0.16);
+      }
+      .cs-step:last-child {
+        border-bottom: none;
+      }
+      .cs-step .n {
+        flex: none;
+        width: 44px;
+        height: 44px;
+        border: 2.5px solid var(--ink);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 19px;
+        transform: rotate(-3deg);
+        background: var(--paper-2);
+      }
+      .cs-step .body {
+        flex: 1;
+        min-width: 0;
+      }
+      .cs-step .what {
+        font-weight: 600;
+        font-size: 17px;
+      }
+      .cs-step .why {
+        font-size: 14.5px;
+        color: var(--graphite);
+        margin-top: 2px;
+      }
+      .cs-step pre {
+        margin-top: 14px;
+        background: #2b271d;
+        color: #efe9d8;
+        font-family: 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 13.5px;
+        line-height: 1.75;
+        padding: 14px 18px;
+        border-radius: 4px;
+        overflow-x: auto;
+        box-shadow:
+          inset 0 0 0 1px rgba(237, 232, 220, 0.07),
+          0 4px 14px rgba(38, 35, 29, 0.28);
+        position: relative;
+        transform: rotate(-0.35deg);
+      }
+      .cs-step:nth-child(even) pre {
+        transform: rotate(0.3deg);
+      }
+      .cs-step pre::before {
+        content: '';
+        position: absolute;
+        top: -10px;
+        left: 26px;
+        width: 84px;
+        height: 20px;
+        background: var(--tape);
+        transform: rotate(-2.5deg);
+        box-shadow: 0 1px 2px rgba(38, 35, 29, 0.12);
+      }
+      .cs-step:nth-child(even) pre::before {
+        left: auto;
+        right: 30px;
+        transform: rotate(2deg);
+      }
+      .cs-step pre .c {
+        color: #aca283;
+      }
+      .cs-step pre .p {
+        color: #e8b04c;
+      }
+
+      /* footer close */
+      .close {
+        text-align: center;
+        padding-bottom: clamp(70px, 10vh, 120px);
+      }
+      .close h2 {
+        margin: 0 auto;
+      }
+      .close .star-cta {
+        margin-top: 34px;
+        font-size: 24px;
+      }
+      .close .fine {
+        margin-top: 44px;
+        font-size: 14px;
+        color: var(--faint);
+        line-height: 2;
+      }
+      .close .fine a {
+        color: var(--graphite);
+      }
+      .close .hand.credo {
+        display: block;
+        margin-top: 26px;
+        font-size: 23px;
+        color: var(--graphite);
+        transform: rotate(-1deg);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+          animation: none !important;
+        }
+        html {
+          scroll-behavior: auto;
+        }
+      }
+      @media (max-width: 900px) {
+        .loop-frame {
+          margin-right: 0;
+        }
+        .redpen {
+          position: static;
+          transform: none;
+          margin-top: 14px;
+          width: auto;
+        }
+        .toolcols {
+          columns: 2;
+        }
+      }
+      @media (max-width: 640px) {
+        :root {
+          --frame-w: 158px;
+          --frame-h: 274px;
+        }
+        .frames {
+          padding-bottom: 16px;
+        }
+        .toolcols {
+          columns: 1;
+        }
+        .loop-frame {
+          margin: 0 auto;
+        }
+        header {
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        .scrub .hint {
+          position: static;
+          display: block;
+          margin-top: 14px;
+        }
+        .callouts {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <filter id="pencil" x="-4%" y="-4%" width="108%" height="108%">
+        <feTurbulence
+          type="fractalNoise"
+          baseFrequency="0.055"
+          numOctaves="3"
+          seed="7"
+          result="n"
+        />
+        <feDisplacementMap
+          in="SourceGraphic"
+          in2="n"
+          scale="2.6"
+          xChannelSelector="R"
+          yChannelSelector="G"
+        />
+      </filter>
+    </svg>
+
+    <header>
+      <a class="logotype" href="#">
+        <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true" class="sk">
+          <circle cx="7" cy="18.5" r="3.4" />
+          <circle cx="17.5" cy="18.5" r="3.4" />
+          <path class="heavy" d="M8.8 15.8 L21 3.4 M15.8 15.9 L3.6 3.4" />
+        </svg>
+        vidcut
+      </a>
+      <nav>
+        <a href="#howto">Quick start</a>
+        <a href="https://github.com/mao-data/vidcut/blob/main/README.zh-TW.md" lang="zh-Hant"
+          >繁體中文</a
+        >
+        <a class="gh" href="https://github.com/mao-data/vidcut">
+          <svg width="17" height="17" viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
+          GitHub
+        </a>
+      </nav>
+    </header>
+
+    <div class="hero">
+      <h1>
+        The AI drafts every shot.<br /><span class="you"
+          >You mark it up.<svg viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true">
+            <path
+              d="M3 9 C60 4, 140 12, 297 6"
+              fill="none"
+              stroke="#c0392b"
+              stroke-width="4.5"
+              stroke-linecap="round"
+            /></svg
+        ></span>
+      </h1>
+      <p class="lede">
+        vidcut is a <b>local-first timeline editor</b> for vertical short video. Your agent edits
+        over MCP — import, cut, caption, mix — and every change lands <b>live in your browser</b>,
+        where your red pen has the last word.
+      </p>
+
+      <div class="board">
+        <div class="frames" id="frames">
+          <div class="shot" data-step="0">
+            <div class="sc"><span>SC.01 · IMPORT</span><span class="t mono">0 copies</span></div>
+            <div class="frame">
+              <div class="tapes"></div>
+              <svg
+                class="border-sk sk"
+                viewBox="0 0 186 316"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <path
+                  class="heavy"
+                  d="M4 6 C 60 3, 130 5, 182 4 L 183 311 C 120 313, 60 311, 3 312 Z"
+                />
+              </svg>
+              <div class="inner">
+                <svg
+                  class="sk reveal rv"
+                  width="120"
+                  height="200"
+                  viewBox="0 0 120 200"
+                  aria-hidden="true"
+                >
+                  <rect x="12" y="30" width="66" height="96" rx="4" pathLength="1" />
+                  <rect x="24" y="18" width="66" height="96" rx="4" pathLength="1" />
+                  <rect x="36" y="6" width="66" height="96" rx="4" class="heavy" pathLength="1" />
+                  <path class="lite" d="M46 26 h46 M46 44 h46 M46 62 h46" pathLength="1" />
+                  <path class="blue" d="M60 118 v40" pathLength="1" />
+                  <path class="blue" d="M50 148 l10 12 l10 -12" pathLength="1" />
+                  <path d="M28 178 h64" class="lite" pathLength="1" />
+                  <path d="M20 190 h80" class="lite" pathLength="1" />
+                </svg>
+              </div>
+            </div>
+            <p class="note hand">
+              5 files referenced in place, nothing copied <span class="who">—AI</span>
+            </p>
+            <svg class="arr sk" viewBox="0 0 34 12" aria-hidden="true">
+              <path class="redln" d="M1 6 h28 m-7 -5 l8 5 l-8 5" />
+            </svg>
+          </div>
+
+          <div class="shot" data-step="1">
+            <div class="sc"><span>SC.02 · CUT</span><span class="t mono">47.2s→19.8s</span></div>
+            <div class="frame">
+              <svg
+                class="border-sk sk"
+                viewBox="0 0 186 316"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <path
+                  class="heavy"
+                  d="M3 4 C 70 6, 120 3, 183 6 L 182 312 C 110 310, 70 313, 4 311 Z"
+                />
+              </svg>
+              <div class="inner">
+                <svg
+                  class="sk reveal rv"
+                  width="130"
+                  height="210"
+                  viewBox="0 0 130 210"
+                  aria-hidden="true"
+                >
+                  <rect x="10" y="24" width="110" height="34" rx="3" pathLength="1" />
+                  <path
+                    class="lite"
+                    d="M26 24 v34 M42 24 v34 M58 24 v34 M74 24 v34 M90 24 v34 M106 24 v34"
+                    pathLength="1"
+                  />
+                  <rect x="10" y="80" width="110" height="34" rx="3" pathLength="1" />
+                  <path class="lite" d="M30 80 v34 M66 80 v34 M100 80 v34" pathLength="1" />
+                  <path class="redln" d="M64 10 v130" stroke-dasharray="5 5" pathLength="1" />
+                  <circle class="redln" cx="56" cy="158" r="7" pathLength="1" />
+                  <circle class="redln" cx="76" cy="158" r="7" pathLength="1" />
+                  <path class="redln heavy" d="M61 152 L88 122 M71 152 L44 122" pathLength="1" />
+                  <path class="lite" d="M18 190 h94" pathLength="1" />
+                  <path
+                    class="blue"
+                    d="M18 200 c 16 -8, 24 8, 40 0 c 16 -8, 24 8, 38 0 c 8 -4, 12 4, 16 0"
+                    pathLength="1"
+                  />
+                </svg>
+              </div>
+            </div>
+            <p class="note hand">tighter here ↑ keep the jump <span class="who">—you</span></p>
+            <svg class="arr sk" viewBox="0 0 34 12" aria-hidden="true">
+              <path class="redln" d="M1 6 h28 m-7 -5 l8 5 l-8 5" />
+            </svg>
+          </div>
+
+          <div class="shot" data-step="2">
+            <div class="sc"><span>SC.03 · CAPTION</span><span class="t mono">karaoke</span></div>
+            <div class="frame">
+              <div class="tapes"></div>
+              <svg
+                class="border-sk sk"
+                viewBox="0 0 186 316"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <path
+                  class="heavy"
+                  d="M5 5 C 55 7, 135 3, 181 5 L 183 313 C 125 311, 55 314, 4 310 Z"
+                />
+              </svg>
+              <div class="inner">
+                <svg
+                  class="sk reveal rv"
+                  width="130"
+                  height="210"
+                  viewBox="0 0 130 210"
+                  aria-hidden="true"
+                >
+                  <path class="lite" d="M22 18 c 20 14, 66 14, 86 0" pathLength="1" />
+                  <ellipse class="lite" cx="65" cy="52" rx="30" ry="24" pathLength="1" />
+                  <path class="lite" d="M42 40 l-8 -12 M88 40 l8 -12" pathLength="1" />
+                  <path d="M30 96 c 24 10, 46 10, 70 0" pathLength="1" />
+                  <path class="blue" d="M14 130 h102 M14 142 h72" pathLength="1" />
+                </svg>
+                <div class="capcard">
+                  <div class="line" id="kara1">
+                    <span class="w">CAT</span> <span class="w">TAKES</span>
+                    <span class="w">OFF</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="note hand">
+              word-by-word highlight, timed by whisper <span class="who">—AI</span>
+            </p>
+            <svg class="arr sk" viewBox="0 0 34 12" aria-hidden="true">
+              <path class="redln" d="M1 6 h28 m-7 -5 l8 5 l-8 5" />
+            </svg>
+          </div>
+
+          <div class="shot" data-step="3">
+            <div class="sc"><span>SC.04 · REVIEW</span><span class="t mono">paused</span></div>
+            <div class="frame">
+              <svg
+                class="border-sk sk"
+                viewBox="0 0 186 316"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <path
+                  class="heavy"
+                  d="M4 7 C 66 3, 126 7, 182 3 L 181 310 C 116 313, 66 309, 5 313 Z"
+                />
+              </svg>
+              <div class="inner">
+                <svg
+                  class="sk reveal rv"
+                  width="130"
+                  height="210"
+                  viewBox="0 0 130 210"
+                  aria-hidden="true"
+                >
+                  <path
+                    class="heavy"
+                    d="M20 84 C 40 58, 90 58, 110 84 C 90 110, 40 110, 20 84 Z"
+                    pathLength="1"
+                  />
+                  <circle class="heavy" cx="65" cy="84" r="13" pathLength="1" />
+                  <circle class="lite" cx="65" cy="84" r="5" pathLength="1" />
+                  <path class="redln" d="M50 140 v28 M66 140 v28" stroke-width="5" pathLength="1" />
+                  <path class="lite" d="M28 190 h74" pathLength="1" />
+                </svg>
+              </div>
+              <div class="stamp" id="stamp">OK<small>APPROVED</small></div>
+            </div>
+            <p class="note hand">
+              writes pause till my stamp — not a black box <span class="who">—you</span>
+            </p>
+            <svg class="arr sk" viewBox="0 0 34 12" aria-hidden="true">
+              <path class="redln" d="M1 6 h28 m-7 -5 l8 5 l-8 5" />
+            </svg>
+          </div>
+
+          <div class="shot" data-step="4">
+            <div class="sc"><span>SC.05 · RENDER</span><span class="t mono">1080×1920</span></div>
+            <div class="frame">
+              <div class="tapes"></div>
+              <svg
+                class="border-sk sk"
+                viewBox="0 0 186 316"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <path
+                  class="heavy"
+                  d="M6 4 C 70 7, 116 2, 180 6 L 183 312 C 130 309, 60 314, 3 311 Z"
+                />
+              </svg>
+              <div class="inner">
+                <svg
+                  class="sk reveal rv"
+                  width="130"
+                  height="210"
+                  viewBox="0 0 130 210"
+                  aria-hidden="true"
+                >
+                  <rect class="heavy" x="34" y="20" width="62" height="110" rx="7" pathLength="1" />
+                  <path class="lite" d="M56 28 h18" pathLength="1" />
+                  <path class="blue" d="M40 150 h50" pathLength="1" />
+                  <path class="blue" d="M40 150 l0 -6 M90 150 l0 -6" pathLength="1" />
+                  <path d="M44 168 h42 M44 180 h58 M44 192 h30" class="lite" pathLength="1" />
+                  <path class="redln" d="M52 62 l10 12 l20 -24" stroke-width="3" pathLength="1" />
+                </svg>
+              </div>
+            </div>
+            <p class="note hand">
+              captions &amp; overlays: preview = export, byte for byte <span class="who">—AI</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="scrub">
+          <div class="rail"></div>
+          <input
+            type="range"
+            id="playhead"
+            min="0"
+            max="1000"
+            value="0"
+            aria-label="Scrub the edit session storyboard"
+          />
+          <span class="hint hand">← drag the playhead — this row is a timeline</span>
+        </div>
+      </div>
+
+      <div class="ctarow">
+        <a class="star-cta" href="https://github.com/mao-data/vidcut">
+          <svg class="ring" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true">
+            <path
+              d="M18 32 C 14 10, 90 4, 150 7 C 210 10, 236 20, 232 36 C 228 54, 150 62, 84 58 C 30 55, 10 48, 20 28"
+              fill="none"
+              stroke="#c0392b"
+              stroke-width="3"
+              stroke-linecap="round"
+            />
+          </svg>
+          <svg class="star" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 2.5 l2.9 6.1 6.6 .8 -4.9 4.6 1.3 6.5 -5.9 -3.3 -5.9 3.3 1.3 -6.5 -4.9 -4.6 6.6 -.8 z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linejoin="round"
+            />
+          </svg>
+          Star mao-data/vidcut
+        </a>
+        <p class="margin-note">
+          <span class="hand">already running Claude Code? one line:</span>
+          <code>claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp</code>
+        </p>
+      </div>
+    </div>
+
+    <section id="loop">
+      <h2>Nothing renders without <span class="red">your initials.</span></h2>
+      <p class="sect-lede">
+        This is not a prompt-to-video generator. It is one shared timeline, edited by two hands —
+        and the human hand outranks the machine.
+      </p>
+      <div class="loop">
+        <div class="loop-frame">
+          <div class="frame">
+            <svg
+              class="border-sk sk"
+              viewBox="0 0 250 426"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path
+                class="heavy"
+                d="M5 6 C 80 3, 170 7, 245 4 L 246 421 C 170 423, 80 420, 4 422 Z"
+              />
+            </svg>
+            <div class="inner">
+              <svg class="sk" width="180" height="300" viewBox="0 0 180 300" aria-hidden="true">
+                <rect x="16" y="18" width="148" height="42" rx="3" />
+                <path class="lite" d="M38 18 v42 M60 18 v42 M104 18 v42 M126 18 v42 M148 18 v42" />
+                <rect x="16" y="74" width="148" height="26" rx="3" class="blue" />
+                <path
+                  class="blue lite"
+                  d="M24 87 c 14 -8, 20 8, 34 0 c 14 -8, 20 8, 34 0 c 14 -8, 20 8, 34 0 c 8 -5, 12 5, 22 0"
+                />
+                <rect x="52" y="114" width="76" height="18" rx="3" class="lite" />
+                <path class="redln" d="M128 123 h30 m-6 -5 l7 5 l-7 5" />
+                <path d="M30 176 c 30 12, 90 12, 120 0" />
+                <path class="lite" d="M20 210 h140 M20 224 h96" />
+                <path class="redln" d="M46 248 c 24 -14, 64 -14, 88 0" stroke-dasharray="4 5" />
+              </svg>
+            </div>
+            <div class="bigstamp">HUMAN OK<small>REQUIRED</small></div>
+          </div>
+          <div class="redpen">
+            <svg width="70" height="26" viewBox="0 0 70 26" class="sk" aria-hidden="true">
+              <path class="redln" d="M66 4 C 40 22, 24 22, 4 14 m8 -6 l-9 6 l10 4" />
+            </svg>
+            swap No.2 first, soften the duck<br /><span style="font-size: 16px; color: var(--faint)"
+              >— annotation, read back by the agent</span
+            >
+          </div>
+        </div>
+        <ul class="loop-steps">
+          <li>
+            <span class="k">THE AGENT</span>
+            <p>
+              Edits through <b>31 MCP tools</b> — every operation runs the same validated command
+              path a human edit does. No side doors into the project file.
+            </p>
+          </li>
+          <li>
+            <span class="k">THE BROWSER</span>
+            <p>
+              Streams each change over WebSocket the moment it happens. You watch the timeline move,
+              <b>drag anything</b> the AI got wrong, fix a trim, nudge a caption.
+            </p>
+          </li>
+          <li>
+            <span class="k you">YOUR CALL</span>
+            <p>
+              When the agent calls <span class="mono">request_review</span>, <b>writes pause</b>.
+              Approve, or send it back with a note — the agent reads your feedback with
+              <span class="mono">get_feedback</span> and keeps working.
+            </p>
+          </li>
+          <li>
+            <span class="k">ON RECORD</span>
+            <p>
+              Every step lands in the activity log with <b>undo / redo</b>. A wrong take is one
+              keystroke away from gone — for the AI's edits and for yours.
+            </p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="editor">
+      <h2>The actual editor. <span class="red">One process, your machine.</span></h2>
+      <p class="sect-lede">
+        A single Node process on <span class="mono">127.0.0.1:3845</span> serves the UI, the media,
+        the MCP endpoint and the live socket. Your footage is referenced in place — never uploaded,
+        never copied.
+      </p>
+      <div class="taped">
+        <span class="tp tl"></span><span class="tp br"></span>
+        <img
+          src="assets/editor.png"
+          width="1600"
+          alt="The vidcut editor: a vertical corgi video with the karaoke caption “definitely time for my walk”, a captions list panel, a caption inspector with timing and style fields, and a timeline with filmstrip, waveform and caption chips."
+          loading="lazy"
+        />
+        <div class="callouts" aria-hidden="true">
+          <div class="co" style="top: 47%; right: 4%; text-align: right">
+            <span class="hand">captions list —<br />double-click to fix a word</span
+            ><svg width="52" height="30" viewBox="0 0 52 30" style="margin-left: auto">
+              <path
+                d="M6 26 C 22 20, 36 12, 46 4 m-9 1 l10 -2 l-2 10"
+                fill="none"
+                stroke="#c0392b"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+          <div class="co" style="bottom: 25%; left: 22%">
+            <span class="hand">whisper-timed karaoke,<br />word by word</span
+            ><svg width="46" height="32" viewBox="0 0 46 32" style="margin-left: 96px">
+              <path
+                d="M8 28 C 18 18, 26 12, 38 4 m-9 0 l10 -1 l-3 10"
+                fill="none"
+                stroke="#c0392b"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+          <div class="co" style="bottom: 4%; left: 31%">
+            <span class="hand">captions ride their own track —<br />drag, trim, snap</span
+            ><svg width="46" height="30" viewBox="0 0 46 30">
+              <path
+                d="M40 26 C 28 18, 18 10, 8 4 m9 -1 l-10 1 l3 10"
+                fill="none"
+                stroke="#c0392b"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+        </div>
+      </div>
+      <p class="shot-caption">
+        <b>Seen above, as shipped:</b> per-word karaoke captions with a live captions list; an
+        inspector that edits timing, size and position down to the decimal; filmstrip and waveform
+        on every clip; captions riding their own timeline track. Export runs 720p to 4K with burn /
+        embed / sidecar subtitles.
+      </p>
+    </section>
+
+    <section id="tools">
+      <h2>The shot list: <span class="red">31 tools</span>, one honest contract.</h2>
+      <p class="sect-lede">
+        Everything the agent can do is a named MCP tool with validation in one command layer. If it
+        isn't on this list, the AI can't do it — and everything on this list, you can undo.
+      </p>
+      <div class="shotlist">
+        <h3><span>PRODUCTION · TOOL MANIFEST</span><span class="mono">31 / 31</span></h3>
+        <div class="toolcols">
+          <div class="tgroup">
+            <div class="g">READ &amp; CONTEXT</div>
+            <ul>
+              <li>get_project</li>
+              <li>get_history</li>
+              <li>get_feedback</li>
+              <li>get_editor_context <em>selection</em></li>
+              <li>get_frame <em>see t</em></li>
+              <li>list_source</li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">MEDIA</div>
+            <ul>
+              <li>import_media <em>0-copy</em></li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">TIMELINE</div>
+            <ul>
+              <li>set_timeline</li>
+              <li>add_clip</li>
+              <li>update_clip</li>
+              <li>reorder_clips</li>
+              <li>remove_clip</li>
+              <li>timeline_op <em>split…</em></li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">CAPTIONS</div>
+            <ul>
+              <li>transcribe <em>per-word</em></li>
+              <li>auto_caption</li>
+              <li>set_captions</li>
+              <li>update_caption</li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">OVERLAYS</div>
+            <ul>
+              <li>add_overlay</li>
+              <li>update_overlay</li>
+              <li>remove_overlay</li>
+              <li>set_overlays</li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">AUDIO</div>
+            <ul>
+              <li>extract_audio</li>
+              <li>set_audio <em>ducking</em></li>
+              <li>update_audio</li>
+              <li>remove_audio</li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">CANVAS &amp; OUTPUT</div>
+            <ul>
+              <li>set_canvas_fit <em>blur</em></li>
+              <li>set_cover</li>
+              <li>render</li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">HISTORY</div>
+            <ul>
+              <li>undo</li>
+              <li>redo</li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">HUMAN-IN-THE-LOOP</div>
+            <ul>
+              <li>request_review <em>blocks</em></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="specimen">
+        <div class="line2" id="kara2">
+          <span class="w">CAT</span> <span class="w">TAKES</span> <span class="w">OFF</span>
+        </div>
+        <p class="expl">
+          <span class="hand">CJK is not an afterthought —</span> captions wrap
+          character-by-character in Chinese, word-by-word in Latin, and leading punctuation never
+          starts a line. Karaoke highlights ride whisper's per-word timestamps.
+        </p>
+      </div>
+    </section>
+
+    <section id="limits">
+      <h2>Known limits, <span class="red">in pencil.</span></h2>
+      <p class="sect-lede">
+        Honesty first — the README says this too, and the repo's EVIDENCE.md pins every verification
+        number to a commit.
+      </p>
+      <ul class="limits">
+        <li>
+          <span class="bullet"
+            ><svg width="22" height="22" viewBox="0 0 22 22" class="sk">
+              <path d="M3 14 L14 3 l5 5 L8 19 l-6 1 z M12 5 l5 5" /></svg
+          ></span>
+          <div>
+            <b>Karaoke preview strokes look slightly thick.</b> The exported file is correct — one
+            card per word, drawn once. Non-karaoke captions and all overlays are byte-identical
+            between preview and export, guarded by a pixel-level regression test.
+          </div>
+        </li>
+        <li>
+          <span class="bullet"
+            ><svg width="22" height="22" viewBox="0 0 22 22" class="sk">
+              <path d="M3 14 L14 3 l5 5 L8 19 l-6 1 z M12 5 l5 5" /></svg
+          ></span>
+          <div>
+            <b>Very short audio (~4s or less)</b> gets less reliable per-word timestamps — that's
+            whisper's nature; vidcut normalizes but precision drops.
+          </div>
+        </li>
+        <li>
+          <span class="bullet"
+            ><svg width="22" height="22" viewBox="0 0 22 22" class="sk">
+              <path d="M3 14 L14 3 l5 5 L8 19 l-6 1 z M12 5 l5 5" /></svg
+          ></span>
+          <div>
+            <b>Single project, single user, localhost only</b> — by design, for now.
+            <span class="hand">it's your editing desk, not a cloud.</span>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+    <section id="howto">
+      <h2>Call sheet: <span class="red">rolling in four steps.</span></h2>
+      <p class="sect-lede">
+        No account, no upload, no key. Node 20+, ffmpeg and Python 3 + Pillow do the work;
+        whisper.cpp is optional, for auto-captions.
+      </p>
+      <div class="callsheet">
+        <div class="cs-step">
+          <span class="n">1</span>
+          <div class="body">
+            <div class="what">Install the prerequisites</div>
+            <div class="why">
+              macOS shown — Debian/Ubuntu lines are in the README. Windows runs under WSL.
+            </div>
+            <pre><span class="p">brew</span> install ffmpeg
+<span class="p">pip3</span> install pillow
+<span class="p">brew</span> install whisper-cpp   <span class="c"># optional — auto-captions only</span></pre>
+          </div>
+        </div>
+        <div class="cs-step">
+          <span class="n">2</span>
+          <div class="body">
+            <div class="what">Clone, build, run the demo</div>
+            <div class="why">
+              The demo generates its own footage — you can try everything before touching your own
+              files.
+            </div>
+            <pre><span class="p">git</span> clone https://github.com/mao-data/vidcut.git &amp;&amp; <span class="p">cd</span> vidcut
+<span class="p">npm</span> install
+<span class="p">npm</span> run build -w @vidcut/ui
+<span class="p">npm</span> run demo</pre>
+          </div>
+        </div>
+        <div class="cs-step">
+          <span class="n">3</span>
+          <div class="body">
+            <div class="what">Open the editor</div>
+            <div class="why">One process, four kinds of traffic: UI, media, MCP, live socket.</div>
+            <pre><span class="p">open</span> http://127.0.0.1:3845</pre>
+          </div>
+        </div>
+        <div class="cs-step">
+          <span class="n">4</span>
+          <div class="body">
+            <div class="what">Hand your agent the other chair</div>
+            <div class="why">
+              Works with Claude Code or any MCP client. Then just talk: “cut the best 20 seconds,
+              caption it karaoke-style, duck the BGM under the voiceover, and show me before you
+              render.”
+            </div>
+            <pre><span class="p">claude</span> mcp add --transport http vidcut http://127.0.0.1:3845/mcp</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="close">
+      <h2>Free as in <span class="red">final cut.</span></h2>
+      <a class="star-cta" href="https://github.com/mao-data/vidcut">
+        <svg class="ring" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true">
+          <path
+            d="M18 32 C 14 10, 90 4, 150 7 C 210 10, 236 20, 232 36 C 228 54, 150 62, 84 58 C 30 55, 10 48, 20 28"
+            fill="none"
+            stroke="#c0392b"
+            stroke-width="3"
+            stroke-linecap="round"
+          />
+        </svg>
+        <svg class="star" width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 2.5 l2.9 6.1 6.6 .8 -4.9 4.6 1.3 6.5 -5.9 -3.3 -5.9 3.3 1.3 -6.5 -4.9 -4.6 6.6 -.8 z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Star mao-data/vidcut
+      </a>
+      <span class="hand credo">every claim on this page is checkable in the repo.</span>
+      <p class="fine">
+        AGPL-3.0-only — use it, modify it, self-host it; serve a modified version as a network
+        service and you share your changes.<br />
+        <a href="https://github.com/mao-data/vidcut">GitHub</a> ·
+        <a href="https://github.com/mao-data/vidcut/blob/main/README.zh-TW.md" lang="zh-Hant"
+          >繁體中文 README</a
+        >
+        · <a href="https://github.com/mao-data/vidcut/blob/main/EVIDENCE.md">EVIDENCE.md</a> ·
+        <a href="https://github.com/mao-data/vidcut/blob/main/CONTRIBUTING.md">Contributing</a>
+      </p>
+    </section>
+
+    <script>
+      (function () {
+        var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var shots = Array.prototype.slice.call(document.querySelectorAll('.shot'));
+        var playhead = document.getElementById('playhead');
+        var stamp = document.getElementById('stamp');
+        var kara1 = document.querySelectorAll('#kara1 .w');
+        var kara2 = document.querySelectorAll('#kara2 .w');
+        var N = shots.length;
+
+        function apply(p) {
+          /* p in 0..1 across the whole session */
+          shots.forEach(function (shot, i) {
+            var local = Math.max(0, Math.min(1, p * N - i));
+            shot.querySelectorAll('.rv').forEach(function (svg) {
+              svg.style.setProperty('--r', local.toFixed(3));
+            });
+            shot.style.setProperty('--n', local > 0.85 ? 1 : 0);
+          });
+          /* karaoke inside SC.03 follows its local progress */
+          var capLocal = Math.max(0, Math.min(1, p * N - 2));
+          kara1.forEach(function (w, i) {
+            w.classList.toggle(
+              'on',
+              (capLocal > 0.35 + i * 0.2 && capLocal < 0.55 + i * 0.2) ||
+                (capLocal >= 1 && i === kara1.length - 1),
+            );
+          });
+          /* stamp lands near the end of SC.04 */
+          var revLocal = Math.max(0, Math.min(1, p * N - 3));
+          if (stamp) {
+            var landed = revLocal > 0.75;
+            stamp.style.setProperty('--s', landed ? 1 : 1.9);
+            stamp.style.setProperty('--so', landed ? 0.92 : 0);
+            stamp.style.transition = reduced
+              ? 'none'
+              : 'transform .28s cubic-bezier(.2,1.6,.4,1), opacity .12s linear';
+          }
+        }
+
+        if (reduced) {
+          apply(1);
+          playhead.value = 1000;
+        } else {
+          /* one authored moment: the session draws itself in once, then hands the playhead over */
+          var t0 = null,
+            DUR = 5200,
+            userTook = false;
+          function tick(ts) {
+            if (userTook) return;
+            if (!t0) t0 = ts;
+            var p = Math.min(1, (ts - t0) / DUR);
+            var eased = 1 - Math.pow(1 - p, 2.2);
+            apply(eased);
+            playhead.value = Math.round(eased * 1000);
+            if (p < 1) requestAnimationFrame(tick);
+          }
+          requestAnimationFrame(tick);
+          playhead.addEventListener(
+            'input',
+            function () {
+              userTook = true;
+            },
+            { once: true },
+          );
+        }
+        playhead.addEventListener('input', function () {
+          apply(playhead.value / 1000);
+        });
+
+        /* specimen karaoke: gentle loop, independent, skipped under reduced motion */
+        if (!reduced && kara2.length) {
+          var ki = -1;
+          setInterval(function () {
+            ki = (ki + 1) % (kara2.length + 2); /* two beats of rest */
+            kara2.forEach(function (w, i) {
+              w.classList.toggle('on', i === ki);
+            });
+          }, 640);
+        } else {
+          kara2.forEach(function (w) {
+            w.classList.add('on');
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,442 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-13T00:00:00+08:00",
+  "title": "Design System: vidcut Landing Page",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Drafting Paper",
+        "canonical": "#ede8dc",
+        "tonalRamp": [
+          "oklch(20% 0.015 95)",
+          "oklch(32% 0.02 95)",
+          "oklch(45% 0.025 95)",
+          "oklch(58% 0.028 95)",
+          "oklch(70% 0.028 95)",
+          "oklch(80% 0.026 95)",
+          "oklch(88% 0.022 95)",
+          "oklch(94% 0.016 95)"
+        ]
+      },
+      "paper-card": {
+        "role": "neutral",
+        "displayName": "Index-Card Paper",
+        "canonical": "#f7f3e9",
+        "tonalRamp": [
+          "oklch(22% 0.012 92)",
+          "oklch(34% 0.016 92)",
+          "oklch(47% 0.02 92)",
+          "oklch(60% 0.022 92)",
+          "oklch(72% 0.022 92)",
+          "oklch(82% 0.02 92)",
+          "oklch(90% 0.016 92)",
+          "oklch(96% 0.012 92)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Graphite Ink",
+        "canonical": "#26231d",
+        "tonalRamp": [
+          "oklch(15% 0.012 95)",
+          "oklch(24% 0.014 95)",
+          "oklch(34% 0.016 95)",
+          "oklch(45% 0.018 95)",
+          "oklch(57% 0.018 95)",
+          "oklch(70% 0.016 95)",
+          "oklch(83% 0.012 95)",
+          "oklch(94% 0.008 95)"
+        ]
+      },
+      "graphite": {
+        "role": "neutral",
+        "displayName": "Pencil Graphite",
+        "canonical": "#4a463c",
+        "tonalRamp": [
+          "oklch(15% 0.014 100)",
+          "oklch(25% 0.016 100)",
+          "oklch(36% 0.018 100)",
+          "oklch(47% 0.02 100)",
+          "oklch(58% 0.02 100)",
+          "oklch(70% 0.018 100)",
+          "oklch(82% 0.014 100)",
+          "oklch(93% 0.01 100)"
+        ]
+      },
+      "graphite-faint": {
+        "role": "neutral",
+        "displayName": "Faint Graphite",
+        "canonical": "#635c4b",
+        "tonalRamp": [
+          "oklch(16% 0.018 100)",
+          "oklch(26% 0.022 100)",
+          "oklch(37% 0.026 100)",
+          "oklch(48% 0.028 100)",
+          "oklch(59% 0.028 100)",
+          "oklch(70% 0.025 100)",
+          "oklch(82% 0.02 100)",
+          "oklch(93% 0.013 100)"
+        ]
+      },
+      "red-pencil": {
+        "role": "primary",
+        "displayName": "Red Pencil",
+        "canonical": "#c0392b",
+        "tonalRamp": [
+          "oklch(20% 0.09 28)",
+          "oklch(30% 0.13 28)",
+          "oklch(40% 0.16 28)",
+          "oklch(50% 0.17 28)",
+          "oklch(60% 0.16 28)",
+          "oklch(72% 0.12 28)",
+          "oklch(84% 0.07 28)",
+          "oklch(94% 0.03 28)"
+        ]
+      },
+      "red-pencil-deep": {
+        "role": "primary",
+        "displayName": "Pressed Red Pencil",
+        "canonical": "#a02a1e",
+        "tonalRamp": [
+          "oklch(18% 0.09 30)",
+          "oklch(28% 0.13 30)",
+          "oklch(38% 0.15 30)",
+          "oklch(48% 0.16 30)",
+          "oklch(58% 0.15 30)",
+          "oklch(70% 0.12 30)",
+          "oklch(83% 0.07 30)",
+          "oklch(93% 0.03 30)"
+        ]
+      },
+      "highlighter": {
+        "role": "secondary",
+        "displayName": "Highlighter Yellow",
+        "canonical": "#f3d13d",
+        "tonalRamp": [
+          "oklch(24% 0.06 95)",
+          "oklch(37% 0.09 95)",
+          "oklch(50% 0.12 95)",
+          "oklch(62% 0.14 95)",
+          "oklch(74% 0.15 95)",
+          "oklch(84% 0.15 95)",
+          "oklch(90% 0.12 95)",
+          "oklch(96% 0.06 95)"
+        ]
+      },
+      "stamp-green": {
+        "role": "secondary",
+        "displayName": "Approval-Stamp Green",
+        "canonical": "#2a7a45",
+        "tonalRamp": [
+          "oklch(18% 0.06 152)",
+          "oklch(28% 0.08 152)",
+          "oklch(38% 0.1 152)",
+          "oklch(49% 0.11 152)",
+          "oklch(60% 0.11 152)",
+          "oklch(72% 0.1 152)",
+          "oklch(84% 0.07 152)",
+          "oklch(94% 0.04 152)"
+        ]
+      },
+      "non-photo-blue": {
+        "role": "tertiary",
+        "displayName": "Non-Photo Blue",
+        "canonical": "#8fb0c9",
+        "tonalRamp": [
+          "oklch(20% 0.04 240)",
+          "oklch(31% 0.05 240)",
+          "oklch(43% 0.06 240)",
+          "oklch(55% 0.06 240)",
+          "oklch(66% 0.06 240)",
+          "oklch(76% 0.05 240)",
+          "oklch(86% 0.04 240)",
+          "oklch(95% 0.02 240)"
+        ]
+      },
+      "washi-tape": {
+        "role": "tertiary",
+        "displayName": "Washi Tape",
+        "canonical": "rgba(214, 192, 122, .55)",
+        "tonalRamp": [
+          "oklch(22% 0.05 95)",
+          "oklch(34% 0.07 95)",
+          "oklch(46% 0.09 95)",
+          "oklch(58% 0.1 95)",
+          "oklch(70% 0.1 95)",
+          "oklch(80% 0.09 95)",
+          "oklch(88% 0.07 95)",
+          "oklch(95% 0.04 95)"
+        ]
+      },
+      "code-slate": {
+        "role": "neutral",
+        "displayName": "Terminal Slate",
+        "canonical": "#2b271d",
+        "tonalRamp": [
+          "oklch(14% 0.014 95)",
+          "oklch(23% 0.016 95)",
+          "oklch(33% 0.018 95)",
+          "oklch(44% 0.02 95)",
+          "oklch(56% 0.02 95)",
+          "oklch(69% 0.018 95)",
+          "oklch(82% 0.014 95)",
+          "oklch(93% 0.01 95)"
+        ]
+      },
+      "code-paper": {
+        "role": "neutral",
+        "displayName": "Terminal Paper Text",
+        "canonical": "#efe9d8",
+        "tonalRamp": [
+          "oklch(22% 0.014 92)",
+          "oklch(34% 0.018 92)",
+          "oklch(47% 0.022 92)",
+          "oklch(60% 0.025 92)",
+          "oklch(72% 0.025 92)",
+          "oklch(82% 0.022 92)",
+          "oklch(90% 0.018 92)",
+          "oklch(95% 0.014 92)"
+        ]
+      },
+      "code-amber": {
+        "role": "tertiary",
+        "displayName": "Command Amber",
+        "canonical": "#e8b04c",
+        "tonalRamp": [
+          "oklch(24% 0.06 78)",
+          "oklch(36% 0.09 78)",
+          "oklch(48% 0.11 78)",
+          "oklch(60% 0.13 78)",
+          "oklch(72% 0.13 78)",
+          "oklch(81% 0.12 78)",
+          "oklch(89% 0.09 78)",
+          "oklch(95% 0.05 78)"
+        ]
+      },
+      "code-comment": {
+        "role": "neutral",
+        "displayName": "Terminal Comment",
+        "canonical": "#aca283",
+        "tonalRamp": [
+          "oklch(20% 0.03 100)",
+          "oklch(31% 0.04 100)",
+          "oklch(43% 0.05 100)",
+          "oklch(55% 0.055 100)",
+          "oklch(66% 0.055 100)",
+          "oklch(76% 0.05 100)",
+          "oklch(86% 0.04 100)",
+          "oklch(94% 0.025 100)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "H1 only; balanced wrap, red span carries a hand-drawn SVG underline."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section H2s; one red-pencil phrase each, max-width 24ch."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default copy; ledes 60-68ch in graphite with ink <b> emphasis."
+      },
+      "label": {
+        "displayName": "Production Label",
+        "purpose": "Uppercase letterspaced slates: scene slugs, loop-step roles, tool-group headers (.12em-.26em)."
+      },
+      "annotation": {
+        "displayName": "Red-Pencil Annotation",
+        "purpose": "Caveat handwriting over/beside print, 18-23px, rotated ±1-2deg, red or graphite."
+      },
+      "mono": {
+        "displayName": "Timecode Mono",
+        "purpose": "Timecodes (tabular-nums), MCP tool names, shell commands, code chips."
+      },
+      "karaoke-specimen": {
+        "displayName": "Karaoke Caption Specimen",
+        "purpose": "Karaoke caption demos in Jost 700 uppercase (English page); the zh-TW variant uses Noto Sans TC 900, lang=zh-Hant."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-rest",
+        "value": "0 3px 14px rgba(38,35,29,.16), 0 1px 3px rgba(38,35,29,.12)",
+        "purpose": "Storyboard frames and paper cards at rest."
+      },
+      {
+        "name": "card-rest-light",
+        "value": "0 3px 16px rgba(38,35,29,.13)",
+        "purpose": "The shot-list manifest card."
+      },
+      {
+        "name": "heavy-object",
+        "value": "0 10px 34px rgba(38,35,29,.28), 0 2px 8px rgba(38,35,29,.18)",
+        "purpose": "The taped editor screenshot — the heaviest object on the desk."
+      },
+      {
+        "name": "chip-lift",
+        "value": "0 2px 6px rgba(38,35,29,.14)",
+        "purpose": "Bordered GitHub nav button."
+      },
+      {
+        "name": "tape-contact",
+        "value": "0 1px 2px rgba(38,35,29,.1)",
+        "purpose": "Washi tape strips touching paper."
+      },
+      {
+        "name": "terminal-inset",
+        "value": "inset 0 0 0 1px rgba(237,232,220,.07), 0 4px 14px rgba(38,35,29,.28)",
+        "purpose": "Terminal code blocks: paper-colored inner ring instead of a border, plus desk shadow."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-springy",
+        "value": "cubic-bezier(.2,1.4,.4,1)",
+        "purpose": "Hover nudges (translate/rotate/scale) on buttons and CTAs, .15s."
+      },
+      {
+        "name": "ease-stamp",
+        "value": "cubic-bezier(.2,1.6,.4,1)",
+        "purpose": "Approval stamp landing: scale 1.9 to 1 with overshoot, .28s."
+      },
+      {
+        "name": "draw-in",
+        "value": "5200ms, eased 1-(1-p)^2.2",
+        "purpose": "One authored moment on load: the session sketches itself in once, then the playhead is handed to the visitor. prefers-reduced-motion gets the finished state statically."
+      },
+      {
+        "name": "karaoke-flip",
+        "value": "color/background .12s linear",
+        "purpose": "Word-by-word highlighter flip in caption specimens."
+      }
+    ],
+    "breakpoints": [
+      { "name": "tablet", "value": "900px" },
+      { "name": "mobile", "value": "640px" }
+    ],
+    "filters": [
+      {
+        "name": "pencil",
+        "value": "feTurbulence type=fractalNoise baseFrequency=0.055 numOctaves=3 seed=7 + feDisplacementMap scale=2.6",
+        "purpose": "Every illustrated SVG stroke passes through this paper-tooth displacement; no crisp vectors."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "GitHub Button",
+      "kind": "button",
+      "refersTo": "button-github",
+      "description": "Bordered paper chip in the nav; hover is a physical nudge, not a color swap.",
+      "html": "<a class=\"ds-btn-gh\" href=\"#\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z\"/></svg>GitHub</a>",
+      "css": ".ds-btn-gh { display: inline-flex; gap: 8px; align-items: center; font-family: 'Jost', 'Helvetica Neue', sans-serif; font-weight: 500; font-size: 15.5px; color: #26231d; text-decoration: none; border: 2px solid #26231d; border-radius: 3px; padding: 7px 15px; background: #f7f3e9; box-shadow: 0 2px 6px rgba(38,35,29,.14); transition: transform .15s cubic-bezier(.2,1.4,.4,1), background .15s ease; } .ds-btn-gh:hover { transform: translateY(-2px) rotate(-.5deg); background: #fff; } .ds-btn-gh:focus-visible { outline: 2px dashed #c0392b; outline-offset: 3px; border-radius: 2px; }"
+    },
+    {
+      "name": "Star CTA",
+      "kind": "button",
+      "refersTo": "cta-star",
+      "description": "Primary call to action: bold text circled by a hand-drawn red pencil ring, no box.",
+      "html": "<a class=\"ds-star-cta\" href=\"#\"><svg class=\"ds-ring\" viewBox=\"0 0 240 64\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><path d=\"M18 32 C 14 10, 90 4, 150 7 C 210 10, 236 20, 232 36 C 228 54, 150 62, 84 58 C 30 55, 10 48, 20 28\" fill=\"none\" stroke=\"#c0392b\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg><svg class=\"ds-star\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 2.5 l2.9 6.1 6.6 .8 -4.9 4.6 1.3 6.5 -5.9 -3.3 -5.9 3.3 1.3 -6.5 -4.9 -4.6 6.6 -.8 z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"/></svg>Star mao-data/vidcut</a>",
+      "css": ".ds-star-cta { position: relative; display: inline-flex; align-items: center; gap: 12px; font-family: 'Jost', 'Helvetica Neue', sans-serif; font-weight: 700; font-size: 21px; color: #26231d; text-decoration: none; padding: 16px 30px; transition: transform .15s cubic-bezier(.2,1.4,.4,1); } .ds-star-cta .ds-ring { position: absolute; inset: -6px -10px; width: calc(100% + 20px); height: calc(100% + 12px); overflow: visible; } .ds-star-cta .ds-star { color: #c0392b; } .ds-star-cta:hover { transform: rotate(-1deg) scale(1.03); } .ds-star-cta:focus-visible { outline: 2px dashed #c0392b; outline-offset: 3px; }"
+    },
+    {
+      "name": "Storyboard Frame",
+      "kind": "card",
+      "refersTo": "frame-card",
+      "description": "9:16 paper card with wobbly sketched border, washi tape, scene slug + timecode, red annotation beneath.",
+      "html": "<div class=\"ds-shot\"><div class=\"ds-sc\"><span>SC.01 · IMPORT</span><span class=\"ds-t\">0 copies</span></div><div class=\"ds-frame\"><span class=\"ds-tape\"></span><svg class=\"ds-border\" viewBox=\"0 0 186 316\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><path d=\"M4 6 C 60 3, 130 5, 182 4 L 183 311 C 120 313, 60 311, 3 312 Z\" fill=\"none\" stroke=\"#26231d\" stroke-width=\"2.6\" stroke-linecap=\"round\"/></svg></div><p class=\"ds-note\">5 files referenced in place, nothing copied <span class=\"ds-who\">—AI</span></p></div>",
+      "css": ".ds-shot { width: 168px; font-family: 'Jost', 'Helvetica Neue', sans-serif; } .ds-sc { font-size: 11px; letter-spacing: .12em; font-weight: 600; color: #4a463c; text-transform: uppercase; display: flex; justify-content: space-between; margin-bottom: 8px; } .ds-sc .ds-t { font-family: 'SF Mono', Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; color: #635c4b; font-weight: 400; letter-spacing: 0; } .ds-frame { width: 168px; height: 268px; background: #f7f3e9; border-radius: 4px; position: relative; box-shadow: 0 3px 14px rgba(38,35,29,.16), 0 1px 3px rgba(38,35,29,.12); } .ds-border { position: absolute; inset: -5px; width: calc(100% + 10px); height: calc(100% + 10px); overflow: visible; } .ds-tape { position: absolute; top: -12px; left: 50%; transform: translateX(-50%) rotate(-2deg); width: 74px; height: 22px; background: rgba(214,192,122,.55); box-shadow: 0 1px 2px rgba(38,35,29,.1); } .ds-note { margin-top: 8px; font-family: 'Caveat', cursive; font-size: 19px; line-height: 1.12; color: #c0392b; transform: rotate(-1.6deg); } .ds-note .ds-who { color: #635c4b; font-size: 17px; }"
+    },
+    {
+      "name": "Approval Stamp",
+      "kind": "custom",
+      "refersTo": "stamp-approved",
+      "description": "Rubber stamp marking human approval; rotated, bordered, multiply-blended. Green appears nowhere else.",
+      "html": "<span class=\"ds-stamp\">HUMAN OK<small>REQUIRED</small></span>",
+      "css": ".ds-stamp { display: inline-block; font-family: 'Jost', 'Helvetica Neue', sans-serif; color: #2a7a45; border: 4px solid #2a7a45; border-radius: 6px; font-weight: 700; letter-spacing: .18em; font-size: 21px; padding: 8px 16px 6px; text-align: center; transform: rotate(-8deg); mix-blend-mode: multiply; background: rgba(247,243,233,.4); } .ds-stamp small { display: block; font-size: 9.5px; letter-spacing: .3em; font-weight: 600; }"
+    },
+    {
+      "name": "Karaoke Caption Specimen",
+      "kind": "custom",
+      "description": "Karaoke caption line in Jost 700 uppercase (English page; the zh-TW variant uses Noto Sans TC 900 with lang=zh-Hant); the spoken word gets a highlighter swipe and pressed-red ink.",
+      "html": "<div class=\"ds-kara\"><span class=\"ds-w\">CAT</span> <span class=\"ds-w ds-on\">TAKES</span> <span class=\"ds-w\">OFF</span></div>",
+      "css": ".ds-kara { font-family: 'Jost', 'Helvetica Neue', sans-serif; font-weight: 700; font-size: 44px; letter-spacing: .02em; color: #26231d; } .ds-kara .ds-w { padding: 0 2px; border-radius: 3px; transition: color .12s linear, background .12s linear; } .ds-kara .ds-on { color: #a02a1e; background: #f3d13d; }"
+    },
+    {
+      "name": "Terminal Code Block",
+      "kind": "custom",
+      "refersTo": "code-block",
+      "description": "The only dark surface: a taped-down terminal snippet, slightly tilted, amber commands.",
+      "html": "<pre class=\"ds-term\"><span class=\"ds-p\">claude</span> mcp add --transport http vidcut http://127.0.0.1:3845/mcp <span class=\"ds-c\"># one line</span></pre>",
+      "css": ".ds-term { background: #2b271d; color: #efe9d8; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; line-height: 1.75; padding: 14px 18px; border-radius: 4px; overflow-x: auto; box-shadow: inset 0 0 0 1px rgba(237,232,220,.07), 0 4px 14px rgba(38,35,29,.28); position: relative; transform: rotate(-.35deg); margin-top: 12px; } .ds-term::before { content: ''; position: absolute; top: -10px; left: 26px; width: 84px; height: 20px; background: rgba(214,192,122,.55); transform: rotate(-2.5deg); box-shadow: 0 1px 2px rgba(38,35,29,.12); } .ds-term .ds-p { color: #e8b04c; } .ds-term .ds-c { color: #aca283; }"
+    },
+    {
+      "name": "Inline Code Chip",
+      "kind": "chip",
+      "refersTo": "code-chip",
+      "description": "Mono command chip on paper-card with a faint ink border.",
+      "html": "<code class=\"ds-chip\">request_review</code>",
+      "css": ".ds-chip { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; color: #26231d; background: #f7f3e9; border: 1px solid rgba(38,35,29,.18); border-radius: 3px; padding: 3px 8px; display: inline-block; }"
+    },
+    {
+      "name": "Playhead Scrub",
+      "kind": "custom",
+      "description": "Signature interaction: dashed graphite rail + red-pencil playhead thumb; its value drives the storyboard reveal.",
+      "html": "<div class=\"ds-scrub\"><div class=\"ds-rail\"></div><input type=\"range\" min=\"0\" max=\"1000\" value=\"400\" aria-label=\"Scrub the storyboard\"></div>",
+      "css": ".ds-scrub { position: relative; width: 320px; height: 36px; } .ds-scrub .ds-rail { position: absolute; top: 16px; left: 0; right: 0; height: 3px; background: repeating-linear-gradient(90deg, #4a463c 0 10px, transparent 10px 16px); border-radius: 2px; opacity: .55; } .ds-scrub input[type=range] { position: absolute; inset: 0; width: 100%; height: 36px; -webkit-appearance: none; appearance: none; background: transparent; cursor: ew-resize; } .ds-scrub input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 34px; background: linear-gradient(180deg, #c0392b 0 12px, transparent 12px) center top / 8px 12px no-repeat, linear-gradient(#c0392b, #c0392b) center / 2.5px 100% no-repeat; cursor: ew-resize; } .ds-scrub input[type=range]::-moz-range-thumb { width: 20px; height: 34px; border: none; border-radius: 0; background: linear-gradient(180deg, #c0392b 0 12px, transparent 12px) center top / 8px 12px no-repeat, linear-gradient(#c0392b, #c0392b) center / 2.5px 100% no-repeat; cursor: ew-resize; } .ds-scrub input[type=range]:focus-visible { outline: 2px dashed #c0392b; outline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Director's Storyboard",
+    "overview": "The page is one real edit session drafted on paper: the AI's work appears as graphite pencil sketches on dot-grid drafting paper, and the human's authority appears as red-pencil mark-up over them. Every surface is a physical desk object — taped-down frames, approval stamps, washi tape, a hand-drawn playhead — and the whole hero is literally a timeline the visitor can scrub. The world deliberately refuses the AI-tool category defaults: no dark hero, no glow, no floating screenshot chrome, no feature-card grid. Density is editorial and generous — one column of desk objects with wide gutters — but the objects themselves are busy with hand detail: sketch strokes displaced by a paper-tooth SVG turbulence filter, small rotations everywhere, dashed rules, dotted leaders. Warmth comes from the paper; authority comes from the red pencil; trust comes from technical margins in non-photo blue and mono timecode.",
+    "keyCharacteristics": [
+      "Warm dot-grid paper ground (#ede8dc) with brighter paper cards (#f7f3e9) laid on top",
+      "Graphite sketch illustration: SVG strokes through the #pencil fractal-noise displacement filter, never crisp vectors",
+      "Red pencil (#c0392b) as the annotation layer: Caveat handwriting, underlines, arrows, circled CTAs, the playhead, focus rings",
+      "Nothing sits perfectly straight — tape, stamps, notes, code blocks all carry a small rotation",
+      "One signature interaction: a single playhead scrubs the entire storyboard (sketch reveal, karaoke highlight, stamp landing); reduced motion gets the finished state"
+    ],
+    "rules": [
+      {
+        "name": "The Two-Hands Rule",
+        "body": "Graphite draws the draft; red draws the judgment. Content and illustration are ink/graphite; anything in red is annotation, emphasis, or interaction — and red is stroked or handwritten, never a filled panel.",
+        "section": "colors"
+      },
+      {
+        "name": "The One-Pigment-One-Job Rule",
+        "body": "Highlighter marks the spoken word, green stamps approval, blue stays in the technical margins. None of the three ever migrates into general UI accent duty.",
+        "section": "colors"
+      },
+      {
+        "name": "The Pen-Over-Print Rule",
+        "body": "Handwriting always sits above and beside printed type at a larger size than the label scale it annotates; it never replaces headings, body copy, or interactive labels.",
+        "section": "typography"
+      },
+      {
+        "name": "The Ink Shadow Rule",
+        "body": "All shadows are tinted with the ink color (rgba(38,35,29,α)); depth reads as paper stacking, and hover 'lift' is a translate/rotate of the object, not a bigger shadow.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do run every illustrated stroke through the #pencil filter (feTurbulence 0.055/seed 7 + displacement 2.6) with round linecaps and the heavy/default/lite (2.6/2/1.4) weight tiers.",
+      "Do give every hand-placed object a small rotation and alternate the sign across siblings; keep print (headings, body, lists) square.",
+      "Do keep red as drawing and writing — strokes, underlines, handwriting, the playhead — and give each supporting pigment only its diegetic job (highlighter=spoken word, green=approval, blue=technical margin, tape=fastening).",
+      "Do tint every shadow with ink (rgba(38,35,29,α)) and express hover as a physical nudge (translate/rotate/scale with cubic-bezier(.2,1.4,.4,1)).",
+      "Do drive motion from the playhead (or a single authored draw-in) and ship the finished, fully-drawn state under prefers-reduced-motion: reduce.",
+      "Do set karaoke specimens in Jost 700 uppercase on the English page; the zh-TW variant sets them in Noto Sans TC 900 with lang=\"zh-Hant\"."
+    ],
+    "donts": [
+      "Don't use the category defaults this world was built against: dark heroes, glows/gradients-as-decoration, floating browser-chrome screenshots, or feature-card grids. The only dark surface is a taped-down terminal block.",
+      "Don't draw crisp vector illustration or straight <rect> borders around frames; borders are wobbly filtered paths.",
+      "Don't use pure black — ink is #26231d — or pure-black shadows on paper surfaces.",
+      "Don't use radii above 7px on paper objects (circles are reserved for call-sheet step numbers).",
+      "Don't fill panels or buttons with Red Pencil; red is never a background.",
+      "Don't import the editor UI's dark violet theme (ui/src/theme.css) into this page, or this paper world into the editor."
+    ]
+  }
+}
