@@ -122,8 +122,8 @@ function projectSummary(store: ProjectStore) {
 
 /** 所有寫入類工具的共同輸出。changed:false ＝ 命令合法但沒有任何欄位改變。 */
 const writeOutput = {
-  version: z.number().describe('寫入後的版本號'),
-  changed: z.boolean().optional().describe('false ＝ no-op，一個欄位都沒改到'),
+  version: z.number().describe('version after the write'),
+  changed: z.boolean().optional().describe('false = no-op; not a single field changed'),
 };
 
 /** 會動到主軌片段的工具：多回一份「這次弄斷了哪些錨點」。 */
@@ -131,7 +131,9 @@ const clipTrackOutput = {
   ...writeOutput,
   orphanedOverlays: z
     .array(z.string())
-    .describe('anchor 指向已不存在 clip 的 overlay id；它們在預覽與成品都不會顯示'),
+    .describe(
+      'ids of overlays whose anchor points at a clip that no longer exists; they show up in neither the preview nor the export',
+    ),
 };
 
 /** ProbeInfo 的完整鏡像——少一個欄位 client 就會拒收（見上面第 2 點）。 */
@@ -143,10 +145,10 @@ const probeOutput = z
     fps: z.number(),
     hasAudio: z.boolean(),
     rotation: z.number(),
-    hasVideo: z.boolean().optional().describe('false ＝ 純音訊素材'),
+    hasVideo: z.boolean().optional().describe('false = audio-only media'),
     audioChannels: z.number().optional(),
   })
-  .describe('ffprobe 結果');
+  .describe('ffprobe result');
 
 const historyEntryOutput = z.object({
   version: z.number(),
@@ -195,13 +197,16 @@ const overlayTextSchema = z
       .max(CARD_LIMITS.maxWidthFracMax)
       .optional()
       .describe(
-        '自動換行寬度，相對畫布寬的分數（0.1–1），預設 0.9。' +
-          '文字超過這個寬度會**自動折行**：中文逐字折、英數在空白處折（不會切進單字中間）、' +
-          '字串裡真的 \\n 一律強制換行；單一超長不可斷字串（如網址）會逐字硬切。' +
-          '調小＝更窄更多行，卡片會變高（卡片一律畫布全寬，高度隨行數長）。' +
-          '⚠️ 行數會吃字卡的像素預算，而伺服器這側量不到字寬，只能取上界估算' +
-          '（「每個字元各佔一行」與「每個字元最寬 3 em」兩者取較緊的那個）——' +
-          '所以很長的文字可能被拒絕（錯誤訊息會告訴你估到的尺寸），縮短文字或縮小 fontSize 即可。',
+        'Auto-wrap width, as a fraction of the canvas width (0.1–1); default 0.9. ' +
+          'Text past this width **wraps automatically**: CJK breaks per character, Latin breaks at spaces (never ' +
+          'inside a word), and a literal \\n in the string always forces a break; a single unbreakable run (a URL, ' +
+          'say) is hard-split per character. ' +
+          'Smaller = narrower and more lines, so the card gets taller (a card is always full canvas width; its ' +
+          'height grows with the line count). ' +
+          "⚠️ Line count feeds the card's pixel budget, and this side cannot measure glyph widths, so it can only " +
+          'take an upper bound (the tighter of "every character on its own line" and "every character at most 3 em ' +
+          'wide") — which means very long text may be rejected (the error states the estimated size); shorten the ' +
+          'text or reduce fontSize.',
       ),
   })
   .strict();
@@ -212,13 +217,16 @@ const overlaySchema = z
     imagePath: z
       .string()
       .optional()
-      .describe('純圖 overlay 專用：外部腳本產好的 PNG 路徑。文字 overlay 不要給（見 text）。'),
+      .describe(
+        'image overlays only: the path of a PNG produced elsewhere. Do not set it for text overlays (see text).',
+      ),
     text: overlayTextSchema
       .optional()
       .describe(
-        '可編輯文字 overlay：伺服器自動產字卡並填 imagePath，之後改字直接送新 text。' +
-          'text 與 imagePath 恰好給一個：給 text 就別給 imagePath（會被伺服器算出的路徑取代），' +
-          '給 imagePath 就是純圖 overlay（外部腳本產的 PNG，文字不可編輯）。',
+        'An editable text overlay: the server rasterizes the card and fills in imagePath, and later wording changes ' +
+          'are just a new text. Give exactly one of text and imagePath — with text, omit imagePath (anything you ' +
+          'send is replaced by the path the server computes); with imagePath it is an image overlay (a PNG produced ' +
+          'elsewhere, whose text is not editable).',
       ),
     anchor: z.object({ clipId: z.string(), offset: z.number() }).optional(),
     start: z.number().optional(),
@@ -226,15 +234,17 @@ const overlaySchema = z
     position: z
       .object({ x: z.number(), y: z.number(), scale: z.number() })
       .describe(
-        '相對畫布。注意不對稱：x 是圖片「水平中心」、y 是圖片「上緣」。' +
-          '滿版直式圖要用 {x:0.5, y:0, scale:1}（y:0.5 會把圖推到下半場外）。' +
-          'x/y 不限定 0–1：可以部分掛在畫布外（y 為負＝掛在上緣外），超出的部分成品與' +
-          '預覽都會被裁掉、行為一致；只驗有限性不驗範圍，設更極端的值會讓元素完全看不見。' +
-          '人在 UI 拖曳時夾制在「中心留在畫布內」＝每邊最多露一半。' +
-          'scale 是倍率（1＝圖片原生尺寸），繞著「上緣中點」縮放：x/y 錨點不動，' +
-          '成品與預覽都會照這個倍率縮（2026-08-04 起渲染端真的實作了，之前只有預覽吃）。' +
-          'scale 限 0–10：負值會被拒（預覽是鏡像、成品整張不合成，是真的預覽≠成品），' +
-          '過大值會在 ffmpeg 端炸記憶體。scale=0 仍可用（兩邊都是看不見）。',
+        "Relative to the canvas. Note the asymmetry: x is the image's **horizontal centre**, y is its **top edge**. " +
+          'A full-bleed vertical image wants {x:0.5, y:0, scale:1} (y:0.5 would push it off the bottom half). ' +
+          'x/y are not limited to 0–1: an overlay may hang partly off the canvas (negative y = off the top edge), ' +
+          'and the part that hangs off is clipped identically in export and preview. Only finiteness is validated, ' +
+          'not range, so extreme values simply make the element invisible. ' +
+          'Dragging in the UI is clamped to "the centre stays on canvas" = at most half off each side. ' +
+          "scale is a multiplier (1 = the image's native size) applied about the top-centre point, so the x/y anchor " +
+          'stays put, and export and preview scale identically. ' +
+          'scale is limited to 0–10: negative values are rejected (the preview would mirror while the export would ' +
+          'drop the image entirely — a real preview-vs-export split), and huge values blow up memory in ffmpeg. ' +
+          'scale=0 is still accepted (invisible in both).',
       ),
   })
   .strict()
@@ -249,15 +259,15 @@ const overlaySchema = z
           code: z.ZodIssueCode.custom,
           path: ['imagePath'],
           message:
-            '文字 overlay 不要給 imagePath——伺服器產完字卡會自己填。' +
-            '（舊介面要求傳空字串佔位，現已改為整個省略。）',
+            'Do not set imagePath on a text overlay — the server fills it in after rasterizing the card. ' +
+            '(The old interface wanted an empty-string placeholder; now omit the field entirely.)',
         });
     } else if (o.imagePath === undefined || o.imagePath === '') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['imagePath'],
         message:
-          '要嘛給 text（文字 overlay，伺服器產卡），要嘛給非空的 imagePath（純圖 overlay）。',
+          'Give either text (a text overlay, rasterized by the server) or a non-empty imagePath (an image overlay).',
       });
     }
   });
@@ -279,12 +289,19 @@ const captionStyleSchema = z.object({
   fill: z.string(),
   stroke: z.string().optional(),
   y: z.number(),
-  highlight: z.string().optional().describe('逐詞高亮色（有 tokens 時，已唸到的詞用這色）'),
+  highlight: z
+    .string()
+    .optional()
+    .describe(
+      'per-word highlight colour: with tokens present, words already spoken are drawn in it',
+    ),
 });
 
 const captionTokensSchema = z
   .array(z.object({ text: z.string(), start: z.number(), end: z.number() }))
-  .describe('逐詞時間戳（時間軸絕對秒數）。有值時渲染會做 karaoke 逐詞高亮。');
+  .describe(
+    'per-word timestamps in absolute timeline seconds. When present, rendering does the karaoke per-word highlight.',
+  );
 
 const captionSchema = z
   .object({
@@ -305,9 +322,20 @@ const audioSchema = z
     in: z.number(),
     duration: z.number(),
     volume: z.number().min(0).max(2),
-    fadeIn: z.number().min(0).optional().describe('淡入秒數，不能超過這一項的 duration'),
-    fadeOut: z.number().min(0).optional().describe('淡出秒數，不能超過這一項的 duration'),
-    ducking: z.boolean().optional().describe('true ＝ 這一項播放期間把影片原聲壓到四分之一'),
+    fadeIn: z
+      .number()
+      .min(0)
+      .optional()
+      .describe("fade-in seconds; must not exceed this item's duration"),
+    fadeOut: z
+      .number()
+      .min(0)
+      .optional()
+      .describe("fade-out seconds; must not exceed this item's duration"),
+    ducking: z
+      .boolean()
+      .optional()
+      .describe("true = duck the video's own audio to a quarter while this item plays"),
     label: z.string().optional(),
   })
   .strict();
@@ -317,8 +345,9 @@ const timelineClipSchema = z.object({
     .string()
     .optional()
     .describe(
-      '帶上既有的 clipId ＝「這還是同一個片段」，錨定在它上面的 overlay 因此不會斷；' +
-        '省略＝新片段，伺服器給新 id。整組重排時想保住錨點就把原本的 id 帶回來。',
+      'Passing an existing clipId means "this is still the same clip", so overlays anchored to it do not break; ' +
+        'omitting it means a new clip and the server assigns a new id. When reordering the whole track, pass the ' +
+        'original ids back to keep the anchors.',
     ),
   mediaId: z.string(),
   in: z.number(),
