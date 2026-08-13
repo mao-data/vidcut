@@ -35,24 +35,46 @@ case "$remote_url" in
 *) exit 0 ;; # 推去 pro 或其他 remote：不關這個 hook 的事
 esac
 
-# 商業線的分水嶺：LICENSE 改專有那一個 commit。祖先關係是從內容算出來的，改名、
-# 換分支、rebase 都繞不過去。純開源的 clone 裡根本沒有這個物件 → merge-base 回非 0
-# → 這層自動略過，這是對的：那份 clone 本來就沒有商業歷史可洩漏。
-SENTINEL=f5aa8b9729a91bc1a1624354e17b12a45954dbe1
+# 商業線的哨兵。祖先關係是從內容算出來的，改名、換分支、rebase 都繞不過去。
+# 純開源的 clone 裡根本沒有這些物件 → merge-base 回非 0 → 這層自動略過，這是對的：
+# 那份 clone 本來就沒有商業歷史可洩漏。
+#
+# 兩個哨兵，語意不同，都留著：
+#   PRO_ROOT     商業線的第一個 commit（textLayout 排版純函數）。它支配整條商業線，
+#                包含**字幕能力**：Skia 光柵器、彩色 emoji、typewriter、進退場動畫、
+#                樣式 preset、shadow/background/letterSpacing。
+#   LICENSE_CUT  LICENSE 改專有那一個 commit。授權分家點。
+#
+# 為什麼光有 LICENSE_CUT 不夠：字幕能力那批 commit **全部早於**授權翻轉，所以它們
+# 不是 LICENSE_CUT 的後代；它們也一行都沒碰過 `cloud/`，當時 LICENSE 還是 AGPL。
+# 也就是說第 1、2 層都看不到，而 `git merge <skia> && git push origin main` 的分支名
+# 還是 main、第 3 層也放行——**三層全漏**。PRO_ROOT 是 LICENSE_CUT 的祖先，涵蓋範圍
+# 完全包住它，而且實測不是 main / caption-wysiwyg / mcp-audit-fixes / origin/main
+# 的祖先，所以零誤擋。
+#
+# ⚠️ 哨兵擋的是**歷史繼承**。有人在 main 上從頭重寫一套 Skia 光柵器（不是搬，是重新
+# 實作），沒有任何 commit 會是哨兵的後代，三層全過。這無解——沒有 hook 能分辨重新
+# 實作與原創。那條線的唯一控制是 CLAUDE.md 的「open-core 邊界」，不是這支檔案。
+PRO_ROOT=fc87f9ce1c9e215654dac3495d55629afb1ed5ee
+LICENSE_CUT=f5aa8b9729a91bc1a1624354e17b12a45954dbe1
+SENTINELS="$PRO_ROOT $LICENSE_CUT"
 ALLOWED="main caption-wysiwyg"
 ZERO=0000000000000000000000000000000000000000
 
-# 哨兵物件目前只靠 cloud-p0 可及。萬一哪天 cloud-p0 被刪或搬走，物件被 gc 掉，
-# 第 1 層的 merge-base 會回非 0——**保護會靜默消失**，跟破口二同一類。所以：只要這份
-# clone 設了 pro remote（＝它是雙線 clone、有商業歷史），哨兵不見就直接拒推。
+# 哨兵物件只靠 cloud-p0 可及。萬一哪天 cloud-p0 被刪或搬走，物件被 gc 掉，第 1 層的
+# merge-base 會回非 0——**保護會靜默消失**，跟「hook 不進版控」同一類。所以：只要這份
+# clone 設了 pro remote（＝它是雙線 clone、有商業歷史），任何一個哨兵不見就直接拒推。
 # 純開源 clone 沒有 pro remote，這裡自然略過。
-if git remote get-url pro >/dev/null 2>&1 &&
-	! git cat-file -e "$SENTINEL^{commit}" 2>/dev/null; then
-	echo "" >&2
-	echo "✋ pre-push 擋下（哨兵遺失）" >&2
-	echo "   這份 clone 有 pro remote（雙線），但哨兵 commit $SENTINEL 不存在。" >&2
-	echo "   第 1 層祖先檢查等於失效——先確認商業歷史還在（git cat-file -e），再推。" >&2
-	exit 1
+if git remote get-url pro >/dev/null 2>&1; then
+	for s in $SENTINELS; do
+		if ! git cat-file -e "$s^{commit}" 2>/dev/null; then
+			echo "" >&2
+			echo "✋ pre-push 擋下（哨兵遺失）" >&2
+			echo "   這份 clone 有 pro remote（雙線），但哨兵 commit $s 不存在。" >&2
+			echo "   第 1 層祖先檢查等於失效——先確認商業歷史還在（git cat-file -e），再推。" >&2
+			exit 1
+		fi
+	done
 fi
 
 fail=0
@@ -69,9 +91,16 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 	[ "$local_sha" = "$ZERO" ] && continue
 
 	# ── 第 1 層：祖先哨兵 ──────────────────────────────────────────────
-	if git merge-base --is-ancestor "$SENTINEL" "$local_sha" 2>/dev/null; then
+	hit=''
+	for s in $SENTINELS; do
+		if git merge-base --is-ancestor "$s" "$local_sha" 2>/dev/null; then
+			hit="$s"
+			break
+		fi
+	done
+	if [ -n "$hit" ]; then
 		refuse "第 1 層 祖先哨兵" "$remote_ref" \
-			"這段歷史繼承自商業線（$SENTINEL「LICENSE 改專有」是它的祖先）。商業線請推 pro：git push pro <branch>"
+			"這段歷史繼承自商業線（哨兵 $hit 是它的祖先）。商業線請推 pro：git push pro <branch>"
 		continue
 	fi
 

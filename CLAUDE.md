@@ -69,10 +69,23 @@ overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1
 
 這份 `.git` 同時連著兩個 remote，是**兩條授權不同的線**：
 
-| remote   | repo                                  | 授權          | 內容                                    |
-| -------- | ------------------------------------- | ------------- | --------------------------------------- |
-| `origin` | `mao-data/vidcut`                     | AGPL-3.0-only | 開源線。`main`、`caption-wysiwyg`       |
-| `pro`    | `mao-data/vidcut-pro`（永久 private） | 專有          | 商業線。`cloud-p0` 與 `cloud/` 底下全部 |
+| remote   | repo                                  | 授權          | 內容                              |
+| -------- | ------------------------------------- | ------------- | --------------------------------- |
+| `origin` | `mao-data/vidcut`                     | AGPL-3.0-only | 開源線。`main`、`caption-wysiwyg` |
+| `pro`    | `mao-data/vidcut-pro`（永久 private） | 專有          | 商業線。`cloud-p0`                |
+
+**Pro 賣的是「雲端 ＋ 字幕能力」。** 商業線不只有 `cloud/`，還包含整組進階字幕能力：
+
+| 只在 Pro                                          | 開源版（`main`）現況                      |
+| ------------------------------------------------- | ----------------------------------------- |
+| Skia 光柵器（`@napi-rs/canvas`）                  | Pillow（`text_card.py`，spawn `python3`） |
+| 彩色 emoji（獨立字型鏈、ZWJ／膚色／國旗聚合）     | 無                                        |
+| typewriter 逐字揭示                               | 無                                        |
+| 字幕進退場動畫（in/out motion）                   | 無                                        |
+| 樣式 preset ×5、shadow／background／letterSpacing | 無                                        |
+
+**這是產品決策，不是待辦。** 不要「順手把 Skia 補進開源版」——那一步不可逆（AGPL ＋
+公開 repo），而且直接送掉 Pro 的差異化。開源版的字幕**就是停在 Pillow 這一代**。
 
 - **絕對不要把商業線併進開源線。** 合法方向只有 `main → cloud-p0`（商業線吸收開源
   改動）。反向一次就完了：push 完成的那一刻物件就進了 GitHub 的物件庫，force-push
@@ -82,6 +95,10 @@ overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1
   由 `package.json` 的 `prepare` 在 `npm install` 時用 `core.hooksPath` 接上。**新機器
   或重新 clone 之後第一件事就是 `npm install`**，否則閘門不存在，而且不會有任何提示。
   自檢：`git config core.hooksPath` 應為 `.githooks`。
+- **hook 擋得住「搬」，擋不住「重寫」。** 祖先哨兵靠的是歷史繼承——合併、rebase、
+  cherry-pick 都會留下祖先關係，所以擋得到。但在 `main` 上**從頭重新實作**一套 Skia
+  光柵器，沒有任何 commit 是哨兵的後代，三層全過。這無解，沒有 hook 能分辨重新實作
+  與原創。所以上面那張 Pro 能力表就是那條線的唯一控制，**它不是參考資料，是閘門**。
 - 新的**開源**分支要推 origin，得把名字加進 hook 的 `ALLOWED`（這是刻意的摩擦）。
   加之前先確認它不含商業內容——前兩層會擋，但別把它們當作可以隨便加的理由。
 - 貢獻者授權見 `CONTRIBUTING.md` 的 CLA：外部貢獻以 AGPL 授權給專案，並額外授權
