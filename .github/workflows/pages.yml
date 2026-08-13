@@ -1,0 +1,45 @@
+# 把 site/ 發布到 GitHub Pages。
+#
+# 為什麼需要這支 workflow：Pages 的「分支」模式只提供 / 與 /docs 兩個目錄選項，
+# 選不到 site/。選 / 會把整個 repo（含 projects/ 的素材、內部文件）當成網站對外
+# 提供，所以改用 Actions 模式——由這支腳本指定「只有 site/ 這一包是網站」。
+#
+# 前置（只需做一次）：GitHub repo → Settings → Pages → Source 選 "GitHub Actions"。
+# 沒設定的話 deploy 那步會失敗，錯誤訊息會直接告訴你這件事。
+name: Deploy site to Pages
+
+on:
+  push:
+    branches: [main]
+    # 只有網站檔案變動才部署；改 server/ 或 ui/ 不會觸發。
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  # 需要手動重跑時，Actions 分頁上會有 "Run workflow" 按鈕。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時只跑一個部署；新的 push 進來時不中斷進行中的那次（讓它把線上狀態收乾淨）。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          # 這一行就是「網站根目錄是哪裡」的答案——site/index.html 會成為首頁。
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
