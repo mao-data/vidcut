@@ -119,7 +119,7 @@ describe('MCP 面的完整性', () => {
   });
 
   it('instructions 說明了純音訊素材的軌道限制', () => {
-    expect(client.getInstructions() ?? '').toMatch(/純音訊/);
+    expect(client.getInstructions() ?? '').toMatch(/audio-only/i);
   });
 
   it('instructions 提到的工具名都真的註冊了（防止描述留在文件裡、實作已移除）', async () => {

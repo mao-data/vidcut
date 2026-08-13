@@ -424,46 +424,55 @@ export function createMcpServer(deps: McpDeps): McpServer {
     { name: 'vidcut', version: '0.1.0' },
     {
       instructions:
-        'vidcut 直式短影音時間軸編輯器（1080×1920）。典型流程：' +
-        'list_source 看素材夾裡有什麼（dir 為絕對路徑，imported 標示已匯入者）→ ' +
-        'import_media 逐支匯入（可直接引用專案外的絕對路徑，零複製）→ ' +
-        'set_timeline 初次排片，或 add_clip 逐支接到主軌尾端（不動既有片段）→ ' +
-        'timeline_op 粗剪（split/deleteBefore/deleteAfter/freeze）→ ' +
-        'set_overlays / set_captions 上字（講話類影片直接用 auto_caption 自動上字幕＋逐詞高亮）→ ' +
-        'set_audio 放旁白或 BGM（ducking 會自動壓低原聲）→ ' +
-        'request_review 請使用者在瀏覽器確認 → 依 get_feedback 的人類調整修改 → render 輸出。' +
-        '純音訊素材（mp3/wav…）只能上音訊軌，add_clip 與 set_timeline 會擋下它。' +
-        '想把某片段的原聲抽出來單獨調音量/淡化，用 extract_audio（片段轉靜音，聲音變成獨立音訊項）。' +
-        'render 的 subtitles 預設 burn（字幕燒進畫面）；要讓觀眾自己開關就用 embed，' +
-        '要上傳到會自動翻譯字幕的平台就用 sidecar（另存 .srt），burn 以外畫面都乾淨。' +
-        '橫向素材放進直式畫布時用 set_canvas_fit blur 比黑邊好看。' +
-        '疊圖分兩種，text 與 imagePath 恰好給一個：文字類用 add_overlay/update_overlay/set_overlays 帶 ' +
-        'text（伺服器自動產字卡並維護 imagePath，不要自己給，之後改字直接送新 text）；' +
-        '純圖 overlay 自己給 imagePath、不給 text（外部腳本產的 PNG，文字不可編輯）——' +
-        '對純圖 overlay 送 update_overlay + text 會被拒絕（不會偷偷把它換成文字卡），' +
-        '真要轉型請 remove_overlay + add_overlay。' +
-        'set_timeline 會給每個片段**新的 clipId**，錨定在舊片段上的 overlay 因此會斷' +
-        '（回覆會列出是哪幾個；斷掉的在預覽與成品都不顯示）——要保住錨點就把原本的 id' +
-        '一起帶進 clips，只是想加片段到尾端請用 add_clip，只是想調順序請用 reorder_clips' +
-        '（order 給完整的 clipId 排列，不換 clipId 本身，不影響錨點）。timeline_op 的' +
-        ' deleteBefore/deleteAfter 同理，而且它**只動主軌**：字幕與音訊用的是絕對時間，' +
-        '畫面左移後它們會失步，要自己補 update_caption / update_audio。remove_clip 移除' +
-        '單一片段時錨點會斷跟 deleteBefore/deleteAfter 一樣，回覆同樣會列出是哪幾個 overlay。' +
-        'update_caption 整句平移（duration 不變只改 start）時，該句的 tokens' +
-        '（逐詞時間戳＝時間軸絕對秒數）會自動一起平移；修邊（改 duration）則不動詞時間。' +
-        '文字 overlay 與字幕都會**自動換行**：預設折在畫布寬的 90%（文字 overlay 可用 maxWidth 調），' +
-        '中文逐字折、英數在空白處折、字串裡的 \\n 強制換行——不必自己算要斷在哪。' +
-        '文字太長或字級太大導致字卡超過像素預算時，寫入會被拒絕（錯誤訊息會寫出估到的尺寸；' +
-        '行數取的是上界估算，實際折出來通常少很多）。' +
-        'get_editor_context 可讀使用者當前選取與 playhead（他說「這段」時用得到）；' +
-        'get_frame 可看某時刻的畫面（回覆內嵌 JPEG）；transcribe 可取逐字稿（詞時間戳＝時間軸秒數）來選段或自己排字幕。' +
-        '小修單一項目用細粒度工具（update_clip / update_caption / update_overlay / add_overlay / remove_overlay / remove_audio），' +
-        '不要整組重送 set_*。寫入前可帶 ifVersion 避免蓋掉使用者剛做的修改；' +
-        '審核進行中寫入會被拒（import_media、set_cover 與 render 也一樣，它們同樣是寫入）；' +
-        '而且被退回時，自送審以來的變更會被整批回滾。' +
-        '寫入回「no-op」代表命令合法但沒有任何欄位真的改變——通常是送的值跟現況相同。' +
-        'update_clip / update_caption / update_overlay / update_audio 的 patch 是嚴格比對的，' +
-        '欄位名填錯會直接回 schema 錯誤，不會變成 no-op。',
+        'vidcut is a timeline editor for vertical short video (1080×1920). Typical flow: ' +
+        'list_source to see what is in a footage folder (dir must be absolute; imported flags what is already in) → ' +
+        'import_media one file at a time (absolute paths outside the project are fine — nothing is copied) → ' +
+        'set_timeline for the initial cut, or add_clip to append to the end of the main track (leaves existing clips alone) → ' +
+        'timeline_op for rough cutting (split/deleteBefore/deleteAfter/freeze) → ' +
+        'set_overlays / set_captions for text (for talking-head footage just use auto_caption: captions plus per-word highlight in one call) → ' +
+        'set_audio for voiceover or BGM (ducking lowers the original audio automatically) → ' +
+        'request_review to have the user confirm in the browser → adjust per get_feedback → render.' +
+        'Audio-only media (mp3/wav…) can only go on the audio track; add_clip and set_timeline reject it.' +
+        "To pull one clip's own audio out and adjust its volume/fades separately, use extract_audio " +
+        '(the clip is muted and its sound becomes a standalone audio item).' +
+        "render's subtitles defaults to burn (captions burned into the picture); use embed to let viewers toggle them, " +
+        'or sidecar (a separate .srt) for platforms that auto-translate subtitles — every mode except burn leaves the picture clean.' +
+        'For landscape footage on a vertical canvas, set_canvas_fit blur looks better than black bars.' +
+        'There are two kinds of overlay, and text and imagePath are mutually exclusive — give exactly one: ' +
+        'for text overlays use add_overlay/update_overlay/set_overlays with text (the server rasterizes the card and ' +
+        'maintains imagePath for you — do not set it yourself; to change the wording just send new text); ' +
+        'for image overlays give imagePath and no text (a PNG produced elsewhere; its text is not editable) — ' +
+        'sending update_overlay + text to an image overlay is rejected (it will not silently become a text card); ' +
+        'to convert one, remove_overlay then add_overlay.' +
+        'set_timeline assigns a **new clipId** to every clip, so overlays anchored to the old clips break ' +
+        '(the reply lists which ones; broken anchors show up in neither the preview nor the export) — to keep the ' +
+        'anchors, pass the original ids back in clips. To only append, use add_clip; to only change the order, use ' +
+        'reorder_clips (order takes the full clipId permutation, keeps the ids themselves, and does not touch anchors). ' +
+        "timeline_op's deleteBefore/deleteAfter behave the same way, and they **only move the main track**: captions " +
+        'and audio use absolute time, so once the picture shifts left they fall out of sync — fix them yourself with ' +
+        'update_caption / update_audio. remove_clip breaks anchors exactly like deleteBefore/deleteAfter, and its ' +
+        'reply lists the affected overlays too.' +
+        "When update_caption shifts a whole caption (start changes, duration does not), that caption's tokens " +
+        '(per-word timestamps, in absolute timeline seconds) shift with it; trimming (changing duration) leaves the ' +
+        'word times alone.' +
+        'Text overlays and captions **wrap automatically**: by default at 90% of the canvas width (text overlays can ' +
+        'tune this with maxWidth), CJK breaks per character, Latin breaks at spaces, and a literal \\n in the string ' +
+        'forces a break — you do not have to work out where to break.' +
+        'If the text is long enough or the font large enough that the card would exceed the pixel budget, the write is ' +
+        'rejected (the error states the estimated size; the line count is an upper bound, so real wrapping is usually ' +
+        'much smaller).' +
+        'get_editor_context reads the user\'s current selection and playhead (useful when they say "this bit"); ' +
+        'get_frame shows the canvas at a given time (the reply embeds a JPEG); transcribe returns the transcript ' +
+        '(word timestamps are timeline seconds) for picking segments or laying out captions yourself.' +
+        'For small edits use the fine-grained tools (update_clip / update_caption / update_overlay / add_overlay / ' +
+        'remove_overlay / remove_audio) rather than resending a whole set_*. ' +
+        'Pass ifVersion on writes to avoid clobbering an edit the user just made; ' +
+        'writes are rejected while a review is in progress (import_media, set_cover and render included — they are ' +
+        'writes too), and if the review is rejected, every change made since it was requested is rolled back in one go.' +
+        'A write that replies "no-op" means the command was valid but no field actually changed — usually the values ' +
+        'sent match the current state.' +
+        'The patch for update_clip / update_caption / update_overlay / update_audio is matched strictly: a misspelled ' +
+        'field name returns a schema error rather than becoming a no-op.',
     },
   );
 
@@ -472,24 +481,24 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'get_project',
     {
       description:
-        '取得專案裁剪總覽（clips/captions/media/version/review）；full:true 回完整 JSON。' +
-        '⚠️ 精簡模式的 overlays 與 audio 是**數量**（數字）不是陣列——要 overlay/音訊項的' +
-        'id、位置、錨點請用 full:true。',
+        'Trimmed overview of the project (clips/captions/media/version/review); full:true returns the whole JSON. ' +
+        '⚠️ In the trimmed form, overlays and audio are **counts** (numbers), not arrays — for overlay/audio-item ' +
+        'ids, positions or anchors, use full:true.',
       outputSchema: {
         version: z.number(),
         // 兩種形狀共用一個宣告：full:true 回 doc，否則回裁剪總覽。
         // zod 是 strip 不是 strict，所以「多回的欄位」不會讓驗證失敗；
         // 這裡列的是**保證有**的部分。
-        doc: z.unknown().optional().describe('full:true 時的完整專案 JSON'),
+        doc: z.unknown().optional().describe('the full project JSON, when full:true'),
         name: z.string().optional(),
         canvas: z.unknown().optional(),
-        total: z.number().optional().describe('全片長（秒）'),
+        total: z.number().optional().describe('total duration in seconds'),
         review: z.unknown().nullable().optional(),
         media: z.array(z.unknown()).optional(),
         clips: z.array(z.unknown()).optional(),
-        overlays: z.number().optional().describe('overlay **數量**，不是陣列'),
+        overlays: z.number().optional().describe('**count** of overlays, not an array'),
         captions: z.array(z.unknown()).optional(),
-        audio: z.number().optional().describe('音訊項**數量**，不是陣列'),
+        audio: z.number().optional().describe('**count** of audio items, not an array'),
       },
       inputSchema: { full: z.boolean().optional() },
       annotations: { readOnlyHint: true },
@@ -512,10 +521,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'get_history',
     {
       description:
-        '最近的變更記錄（version/label/source/ts）。limit 預設 30、最多 200（＝歷史保留上限）。',
+        'Recent change log (version/label/source/ts). limit defaults to 30, max 200 (the history retention cap).',
       outputSchema: { history: z.array(historyEntryOutput) },
       inputSchema: {
-        limit: z.number().int().min(0).max(200).optional().describe('回傳最近幾筆，預設 30'),
+        limit: z
+          .number()
+          .int()
+          .min(0)
+          .max(200)
+          .optional()
+          .describe('how many recent entries; default 30'),
       },
       annotations: { readOnlyHint: true },
     },
@@ -537,7 +552,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'get_feedback',
     {
-      description: '自指定 version 以來的人類變更摘要（AI 讀回使用者的調整）。',
+      description:
+        'Summary of human changes since the given version — how the AI reads back what the user adjusted.',
       outputSchema: {
         sinceVersion: z.number(),
         currentVersion: z.number(),
@@ -561,7 +577,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'get_editor_context',
     {
-      description: '人在 UI 的當前選取、playhead 位置、拖選時間範圍。',
+      description:
+        "The user's current selection in the UI, playhead position, and dragged time range.",
       outputSchema: {
         selection: z
           .object({ kind: z.enum(['clip', 'overlay', 'caption', 'audio']), id: z.string() })
@@ -585,13 +602,17 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'get_frame',
     {
       description:
-        '抽出指定時間點的畫面 JPEG（AI 的「眼睛」）。只有片段畫面——不合成 overlay/字幕/blur 背景；' +
-        '要驗證這些請 render 或請使用者看 UI 預覽。' +
-        '不改專案狀態，但會在 derived/frames/ 寫一張 JPEG（每次呼叫都重抽一次，不是快取）。' +
-        'time 會被夾在 [0, 全片長] 內；主軌是空的時候回錯誤。',
+        "Extract the frame at a given time as JPEG — the AI's eyes. Clip picture only: overlays, captions and the " +
+        'blur background are NOT composited in; to check those, render or ask the user to look at the UI preview. ' +
+        'Does not change project state, but does write a JPEG under derived/frames/ (re-extracted on every call, ' +
+        'not cached). time is clamped to [0, total duration]; returns an error when the main track is empty.',
       outputSchema: {
-        url: z.string().describe('本機 client 可直接開；遠端 client 請用回覆裡內嵌的 JPEG'),
-        path: z.string().describe('相對專案資料夾'),
+        url: z
+          .string()
+          .describe(
+            'openable directly by a local client; remote clients should use the embedded JPEG',
+          ),
+        path: z.string().describe('relative to the project folder'),
       },
       inputSchema: { time: z.number() },
       annotations: { readOnlyHint: true },
@@ -612,12 +633,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'list_source',
     {
       description:
-        '列出素材夾內可匯入的檔案（不遞迴、排除隱藏檔、只回白名單副檔名）。' +
-        'dir 為絕對路徑。imported 標示該檔是否已在本專案的 doc.media 裡。' +
-        `超過 ${MAX_FILES_INLINE} 筆只內嵌前段並標 truncated。`,
+        'List importable files in a footage folder (no recursion, hidden files excluded, whitelisted extensions only). ' +
+        "dir must be absolute. imported flags whether the file is already in this project's doc.media. " +
+        `Above ${MAX_FILES_INLINE} entries only the first are embedded, with truncated set.`,
       outputSchema: {
         dir: z.string(),
-        total: z.number().describe('符合條件的檔案總數（可能多於 files 的長度）'),
+        total: z.number().describe('total matching files (may exceed the length of files)'),
         files: z.array(
           z.object({
             name: z.string(),
@@ -639,7 +660,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         return result(
           { dir, files, total: all.files.length, ...(truncated ? { truncated: true } : {}) },
           `${all.files.length} file(s) in ${dir}` +
-            (truncated ? `，僅內嵌前 ${MAX_FILES_INLINE} 筆` : ''),
+            (truncated ? `, only the first ${MAX_FILES_INLINE} embedded` : ''),
         );
       } catch (e) {
         return err(`list_source failed: ${(e as Error).message}`);
@@ -651,14 +672,18 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'import_media',
     {
       description:
-        '登記素材檔並產生衍生檔（proxy/filmstrip/peaks）。relPath 可為專案內相對路徑，' +
-        '也可為專案外的絕對路徑（零複製引用，原檔留在原地）。純音訊（mp3/wav…）可直接' +
-        '匯入，跳過 proxy/filmstrip 只產 peaks，僅供音訊軌（set_audio）使用。回 mediaId。',
+        'Register a media file and build its derivatives (proxy/filmstrip/peaks). relPath may be relative to the ' +
+        'project, or an absolute path outside it (referenced in place — nothing is copied). Audio-only files ' +
+        '(mp3/wav…) can be imported directly: proxy/filmstrip are skipped, only peaks are built, and they are usable ' +
+        'on the audio track (set_audio) only. Returns a mediaId.',
       outputSchema: {
         mediaId: z.string(),
         probe: probeOutput,
-        alreadyImported: z.boolean().optional().describe('true ＝ 這支檔早就匯入過，沿用既有 id'),
-        version: z.number().optional().describe('真的新增時才有'),
+        alreadyImported: z
+          .boolean()
+          .optional()
+          .describe('true = this file was already imported; the existing id is reused'),
+        version: z.number().optional().describe('present only when something was actually added'),
       },
       inputSchema: {
         relPath: z.string(),
@@ -680,7 +705,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
           const m = store.doc.media.find((x) => x.id === prepared.existingId)!;
           return result(
             { mediaId: m.id, probe: m.probe, alreadyImported: true },
-            `${relPath} 已經匯入過了，沿用 ${m.id}（${m.probe.duration.toFixed(1)}s）`,
+            `${relPath} was already imported; reusing ${m.id} (${m.probe.duration.toFixed(1)}s)`,
           );
         }
         const w = aiWrite(store, { name: 'registerMedia', asset: prepared.asset }, ifVersion);
@@ -700,14 +725,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_timeline',
     {
       description:
-        '整組設定影片主軌（初次排片）。clips 依序為播放順序。' +
-        '⚠️ 每個項目都會拿到**新的 clipId**，所以錨定在舊片段上的 overlay（anchor.clipId）' +
-        '會斷掉——斷掉的 overlay 在預覽與成品裡都不會顯示，回覆會列出是哪幾個。' +
-        '要保住錨點就在項目裡帶上原本的 id（可用 get_project 取得）；' +
-        '只是想加片段到尾端請用 add_clip，它不動既有片段。' +
-        '逐項驗證、**任一項不合格就整批拒絕、文件完全不動**：mediaId 要存在、' +
-        '純音訊素材會被擋（放 BGM／旁白請用 set_audio）、in >= 0 且 duration > 0、' +
-        'in+duration 不能超出素材長度、volume 在 0–2、自己帶的 id 不能重複。',
+        'Set the whole video main track (the initial cut). clips are in playback order. ' +
+        '⚠️ Every item gets a **new clipId**, so overlays anchored to the old clips (anchor.clipId) break — ' +
+        'a broken overlay shows up in neither the preview nor the export, and the reply lists which ones. ' +
+        'To keep the anchors, include the original id on each item (get_project gives you them); ' +
+        'to only append, use add_clip, which leaves existing clips alone. ' +
+        'Every item is validated and **one bad item rejects the whole batch, leaving the document untouched**: ' +
+        'mediaId must exist, audio-only media is refused (use set_audio for BGM/voiceover), in >= 0 and duration > 0, ' +
+        'in+duration must not exceed the source length, volume within 0–2, and ids you supply must not repeat.',
       outputSchema: clipTrackOutput,
       inputSchema: { clips: z.array(timelineClipSchema), ifVersion: z.number().optional() },
     },
@@ -719,8 +744,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'add_clip',
     {
       description:
-        '把已匯入的素材接到主軌尾端（不動既有片段，適合逐支加片）。' +
-        '純音訊素材會被拒——放 BGM／旁白請用 set_audio。回新 clip 的 clipId。',
+        'Append already-imported media to the end of the main track (existing clips are untouched — good for adding ' +
+        'one file at a time). Audio-only media is rejected: use set_audio for BGM/voiceover. Returns the new clipId.',
       outputSchema: { clipId: z.string(), version: z.number() },
       inputSchema: {
         mediaId: z.string(),
@@ -745,11 +770,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_clip',
     {
       description:
-        '修改單一片段的 in/duration/volume/label（不動它在主軌上的順序）。' +
-        '邊界拿「改完之後的樣子」驗：in >= 0、duration >= 0.1 秒、' +
-        'in+duration 不能超過素材長度、volume 在 0–2。' +
-        '⚠️ duration 一改，主軌是磁性的，後面所有片段都會跟著位移，而字幕與音訊用絕對時間、' +
-        '不會跟著移——要自己補 update_caption / update_audio。',
+        "Change one clip's in/duration/volume/label (its position in the main track is untouched). " +
+        'Bounds are checked against the **post-patch** shape: in >= 0, duration >= 0.1s, in+duration must not exceed ' +
+        'the source length, volume within 0–2. ' +
+        '⚠️ The main track is magnetic, so changing duration shifts every clip after it, while captions and audio use ' +
+        'absolute time and do NOT move with it — fix them yourself with update_caption / update_audio.',
       outputSchema: writeOutput,
       inputSchema: {
         clipId: z.string(),
@@ -764,7 +789,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'reorder_clips',
     {
-      description: '重排主軌片段（order 為 clipId 的排列）。',
+      description: 'Reorder the main-track clips (order is a permutation of clipIds).',
       outputSchema: writeOutput,
       inputSchema: { order: z.array(z.string()), ifVersion: z.number().optional() },
     },
@@ -776,9 +801,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'remove_clip',
     {
       description:
-        '移除單一片段（磁性主軌自動閉合，後面的片段整段左移）。' +
-        '錨定在它上面的 overlay 會斷，回覆會列出是哪幾個；字幕與音訊用絕對時間、' +
-        '不會跟著左移，要自己補 update_caption / update_audio。',
+        'Remove one clip (the magnetic main track closes the gap, so every later clip shifts left). ' +
+        'Overlays anchored to it break and the reply lists which ones; captions and audio use absolute time and do ' +
+        'NOT shift left with the picture — fix them yourself with update_caption / update_audio.',
       outputSchema: clipTrackOutput,
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
@@ -790,15 +815,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_overlays',
     {
       description:
-        '整組替換 overlay 軌（原有 overlay 全部被取代；空陣列＝清空）。' +
-        '每個項目 text 與 imagePath 恰好給一個：帶 text 的自動產字卡並填 ' +
-        'imagePath（不要自己給）；純圖項目給實際 imagePath。' +
-        '每項還要滿足：start 與 anchor 至少要給一個、anchor.clipId 指向現存片段、' +
-        'duration > 0 或 null（＝到片尾）、id 不重複。' +
-        '⚠️ **這四條在整組替換這條路上不會被擋下來**（add_overlay 才會驗）——' +
-        '寫錯不會報錯，只是那張圖在預覽與成品都不顯示。逐張新增請用 add_overlay。' +
-        '兩個都給時 anchor 會蓋過 start，這條路與 add_overlay 都不擋，只有 update_overlay 會擋。' +
-        '字卡超過像素預算則會整批拒絕。',
+        'Replace the whole overlay track (every existing overlay is replaced; an empty array clears it). ' +
+        'Each item must give exactly one of text and imagePath: items with text get a card rasterized and ' +
+        'imagePath filled in automatically (do not set it yourself); image-only items give a real imagePath. ' +
+        'Each item is also meant to satisfy: at least one of start and anchor, anchor.clipId pointing at an existing ' +
+        'clip, duration > 0 or null (= until the end), and non-repeating ids. ' +
+        '⚠️ **Those four are NOT enforced on this whole-track-replace path** (add_overlay is where they are checked) — ' +
+        'a bad item reports no error, it simply never appears in the preview or the export. Add overlays one at a ' +
+        'time with add_overlay to get the checks. ' +
+        'When both are given, anchor overrides start; neither this path nor add_overlay blocks that — only ' +
+        'update_overlay does. A card over the pixel budget does reject the whole batch.',
       outputSchema: writeOutput,
       inputSchema: { overlays: z.array(overlaySchema), ifVersion: z.number().optional() },
     },
