@@ -46,6 +46,10 @@ step "文件引用（斷言型文件不得指向不存在或被忽略的東西�
 node scripts/docs-check.mjs 2>&1 | sed 's/^/   /'
 node scripts/docs-check.mjs >/dev/null 2>&1; check $?
 
+step "使用者面字串（產品原始碼不得有中文字串字面值；註解不算）"
+node scripts/i18n-check.mjs 2>&1 | sed 's/^/   /'
+node scripts/i18n-check.mjs >/dev/null 2>&1; check $?
+
 step "依賴稽核 (npm audit --omit=dev 為執行期；全量含 dev)"
 npm audit --audit-level=high 2>&1 | tail -3 | sed 's/^/   /'
 
