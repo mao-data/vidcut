@@ -390,7 +390,7 @@ function writeResultText(r: {
 }): string {
   if (!r.ok) return `error: ${r.error}`;
   return r.changed === false
-    ? `ok (no-op: 命令合法但沒有任何欄位改變), version=${r.version}`
+    ? `ok (no-op: the command was valid but no field changed), version=${r.version}`
     : `ok, version=${r.version}`;
 }
 
@@ -440,9 +440,9 @@ function clipTrackReply(
   if (orphaned.length === 0) return result(structured, writeResultText(r));
   return result(
     structured,
-    `${writeResultText(r)}\n⚠️ ${orphaned.length} 個 overlay 的 anchor 指向已不存在的 clip：` +
-      `${orphaned.join(', ')}——它們在預覽與成品裡都不會顯示。` +
-      '請用 update_overlay 換成新的 anchor，或改用絕對 start。',
+    `${writeResultText(r)}\n⚠️ ${orphaned.length} overlay(s) anchor to a clip that no longer exists: ` +
+      `${orphaned.join(', ')} — they show up in neither the preview nor the export. ` +
+      'Point them at a new anchor with update_overlay, or switch them to an absolute start.',
   );
 }
 
@@ -1022,7 +1022,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'remove_overlay',
     {
-      description: '移除一張疊圖。',
+      description: 'Remove one overlay.',
       outputSchema: writeOutput,
       inputSchema: { id: z.string(), ifVersion: z.number().optional() },
     },
@@ -1033,7 +1033,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
   server.registerTool(
     'remove_audio',
     {
-      description: '移除一個音訊項。',
+      description: 'Remove one audio item.',
       outputSchema: writeOutput,
       inputSchema: { id: z.string(), ifVersion: z.number().optional() },
     },
@@ -1044,15 +1044,15 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'undo',
     {
       description:
-        '撤回最近 N 筆編輯（游標式：連續呼叫一路往回退）。' +
-        '**只有動到軌道與畫布的變更可撤回**——渲染、審核、封面（set_cover）與匯入素材' +
-        '（import_media）都不進 undo 堆疊，撤不掉。可撤的不足 N 筆時撤到沒有為止；' +
-        '一筆都沒有才回錯誤。' +
-        '⚠️ undo 堆疊是**人與 AI 共用的一份**——你撤掉的可能是使用者剛剛做的調整。' +
-        '不確定就先 get_history 看最近幾筆的 source。',
+        'Undo the last N edits (cursor-style: call it repeatedly to keep walking back). ' +
+        '**Only changes to the tracks and the canvas are undoable** — rendering, reviews, the cover (set_cover) and ' +
+        'importing media (import_media) never enter the undo stack and cannot be undone. If fewer than N are ' +
+        'available it undoes what there is; only an empty stack is an error. ' +
+        '⚠️ The undo stack is **shared between the human and the AI** — what you undo may be an adjustment the user ' +
+        'just made. When unsure, check the source of the recent entries with get_history first.',
       outputSchema: writeOutput,
       inputSchema: {
-        steps: z.number().int().min(1).optional().describe('撤回幾筆，預設 1'),
+        steps: z.number().int().min(1).optional().describe('how many edits to undo; default 1'),
         ifVersion: z.number().optional(),
       },
     },
@@ -1063,11 +1063,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'redo',
     {
       description:
-        '重做最近 N 筆被撤回的編輯（undo 的反向）。新的編輯會清空可重做的內容。' +
-        '堆疊與人共用，注意事項同 undo。',
+        'Redo the last N undone edits (the inverse of undo). Making a new edit clears what could be redone. ' +
+        'The stack is shared with the human — same caveat as undo.',
       outputSchema: writeOutput,
       inputSchema: {
-        steps: z.number().int().min(1).optional().describe('重做幾筆，預設 1'),
+        steps: z.number().int().min(1).optional().describe('how many edits to redo; default 1'),
         ifVersion: z.number().optional(),
       },
     },
@@ -1080,32 +1080,38 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'transcribe',
     {
       description:
-        '對整條時間軸的聲音跑語音辨識（whisper.cpp），回傳逐詞時間戳。' +
-        '時間是時間軸絕對秒數，可直接當字幕時間用，不必換算來源時間。' +
-        '⚠️ 餵給辨識的**不是**成品混音：為了最大辨識度，片段音量、音訊項音量、淡入淡出與 ' +
-        'ducking 一律被忽略——被靜音的片段（含 extract_audio 之後的原片段）裡的台詞照樣會辨識出來。' +
-        '定格片段與無音軌素材以靜音佔位，所以時間對得上。時間軸完全沒有聲音時會失敗。' +
-        '**不改專案狀態**，但會跑一次全時間軸混音（ffmpeg）再跑 whisper——分鐘級的操作，' +
-        '而且會寫 derived/asr.wav 與 derived/asr.json（後者的路徑就是回傳的 jsonPath）。' +
-        `要直接上字幕請用 auto_caption。逐詞結果超過 ${MAX_WORDS_INLINE} 詞、` +
-        `或整份逐字稿超過 ${MAX_TEXT_INLINE} 字時只內嵌前段並標 truncated，全量在 jsonPath。`,
+        'Run speech recognition (whisper.cpp) over the whole timeline and return per-word timestamps. ' +
+        'Times are absolute timeline seconds, usable directly as caption times — no source-time conversion needed. ' +
+        '⚠️ What is fed to recognition is **not** the final mix: for maximum accuracy, clip volume, audio-item volume, ' +
+        'fades and ducking are all ignored — dialogue inside a muted clip (including the original clip after ' +
+        'extract_audio) is still transcribed. Frozen clips and media without an audio track are padded with silence, ' +
+        'so the times still line up. It fails when the timeline has no audio at all. ' +
+        '**Does not change project state**, but it does mix the whole timeline (ffmpeg) and then run whisper — a ' +
+        'minutes-long operation — and it writes derived/asr.wav and derived/asr.json (the latter is the jsonPath it ' +
+        'returns). ' +
+        `To go straight to captions, use auto_caption. Above ${MAX_WORDS_INLINE} words, ` +
+        `or a transcript longer than ${MAX_TEXT_INLINE} characters, only the start is embedded and truncated is set; ` +
+        'the full result is at jsonPath.',
       outputSchema: {
         language: z.string(),
-        wordCount: z.number().describe('全部的詞數（可能多於 words 的長度）'),
-        words: z.array(transcriptWordOutput).describe('時間是時間軸絕對秒數'),
+        wordCount: z.number().describe('total number of words (may exceed the length of words)'),
+        words: z.array(transcriptWordOutput).describe('times are absolute timeline seconds'),
         wordsTruncated: z.boolean().optional(),
         text: z.string(),
         textTruncated: z.boolean().optional(),
-        jsonPath: z.string().describe('全量結果的檔案路徑，相對專案資料夾'),
+        jsonPath: z.string().describe('path of the full result, relative to the project folder'),
       },
       inputSchema: {
         language: z
           .string()
           .optional()
-          .describe("'auto'（預設）或語言碼，如 zh / en / ja。指定語言通常比自動偵測準"),
+          .describe(
+            "'auto' (the default) or a language code such as zh / en / ja. Naming the language is usually more accurate than auto-detection",
+          ),
       },
-      // 刻意**不標** readOnlyHint：host 會拿它來免權限提示，而這支要跑分鐘級的 ffmpeg
-      // ＋ whisper 並寫檔。「不改專案狀態」不等於「便宜且無副作用」。
+      // Deliberately **no** readOnlyHint: hosts use it to skip permission prompts, and this one runs minutes of
+      // ffmpeg + whisper and writes files. "Does not change project state" is not the same as "cheap and free of
+      // side effects".
     },
     async ({ language }) => {
       const r = await transcribe(store.doc, projectDir, { language });
@@ -1121,8 +1127,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
           ...(textTruncated ? { textTruncated: true } : {}),
           jsonPath: r.jsonPath,
         },
-        `逐字稿：${r.words.length} 個詞（語言 ${r.language}）` +
-          (truncated || textTruncated ? `，內嵌已截斷，全量見 ${r.jsonPath}` : '') +
+        `transcript: ${r.words.length} words (language ${r.language})` +
+          (truncated || textTruncated
+            ? `, embedded copy truncated; full result at ${r.jsonPath}`
+            : '') +
           `\n${r.text.slice(0, 400)}`,
       );
     },
@@ -1132,17 +1140,20 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'auto_caption',
     {
       description:
-        '一鍵自動字幕：辨識 → 分頁 → 寫入字幕軌（整組替換，原有字幕全部被取代）。' +
-        '辨識跟 transcribe 走同一條路——分鐘級的 ffmpeg＋whisper，同樣會寫 derived/asr.wav ' +
-        '與 derived/asr.json，同樣忽略音量與 ducking。' +
-        'karaoke 預設開啟（逐詞高亮，渲染時一個詞一張字卡）。' +
-        '想自己控制斷句就改用 transcribe + set_captions。' +
-        `超過 ${MAX_CAPTIONS_INLINE} 句時回覆只內嵌前段並標 captionsTruncated` +
-        '（寫入成功的話全量在文件裡，get_project 讀得到）。',
+        'One-shot auto captions: recognize → paginate → write the caption track (a whole-track replace; every ' +
+        'existing caption is replaced). ' +
+        'Recognition takes the same path as transcribe — minutes of ffmpeg + whisper, the same derived/asr.wav and ' +
+        'derived/asr.json, and the same disregard for volume and ducking. ' +
+        'karaoke is on by default (per-word highlight; rendering emits one card per word). ' +
+        'To control the sentence splitting yourself, use transcribe + set_captions instead. ' +
+        `Above ${MAX_CAPTIONS_INLINE} captions the reply embeds only the start and sets captionsTruncated ` +
+        '(when the write succeeded the full set is in the document, readable via get_project).',
       outputSchema: {
         language: z.string(),
         wordCount: z.number(),
-        captionCount: z.number().describe('產出的字幕總數（可能多於 captions 的長度）'),
+        captionCount: z
+          .number()
+          .describe('total captions produced (may exceed the length of captions)'),
         captions: z.array(
           z.object({
             id: z.string(),
@@ -1156,14 +1167,25 @@ export function createMcpServer(deps: McpDeps): McpServer {
         captionsTruncated: z.boolean().optional(),
         write: z
           .object({ version: z.number().optional(), error: z.string().optional() })
-          .describe('寫入結果。有 error 就代表字幕沒進文件（回覆同時會標 isError）'),
+          .describe(
+            'the write result. An error here means the captions did not reach the document (the reply is also flagged isError)',
+          ),
       },
       inputSchema: {
         language: z.string().optional(),
-        karaoke: z.boolean().optional().describe('逐詞高亮，預設 true'),
-        maxGapMs: z.number().optional().describe('詞間停頓超過此值換頁（預設 400）'),
-        maxDurationMs: z.number().optional().describe('單頁最長毫秒（預設 2500）'),
-        maxUnits: z.number().optional().describe('單頁寬度上限，中文字計 2（預設 24）'),
+        karaoke: z.boolean().optional().describe('per-word highlight; default true'),
+        maxGapMs: z
+          .number()
+          .optional()
+          .describe('break to a new caption when the gap between words exceeds this (default 400)'),
+        maxDurationMs: z
+          .number()
+          .optional()
+          .describe('max milliseconds per caption (default 2500)'),
+        maxUnits: z
+          .number()
+          .optional()
+          .describe('max width per caption; a CJK character counts as 2 (default 24)'),
         style: z
           .object({
             fontFamily: z.string().optional(),
@@ -1174,7 +1196,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
             highlight: z.string().optional(),
           })
           .optional()
-          .describe('覆寫字幕樣式；省略的欄位用預設'),
+          .describe('override the caption style; omitted fields keep their defaults'),
         ifVersion: z.number().optional(),
       },
     },
@@ -1201,7 +1223,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         ...(capTruncated ? { captionsTruncated: true } : {}),
         write: write.ok ? { version: write.version } : { error: write.error },
       };
-      const summary = `${writeResultText(write)}｜自動字幕 ${captions.length} 句 / ${r.words.length} 詞（${r.language}）`;
+      const summary = `${writeResultText(write)} | auto-caption: ${captions.length} captions / ${r.words.length} words (${r.language})`;
       // 寫入失敗要標 isError（見 errResult）。captions 照樣回去——辨識已經花掉了，
       // 呼叫端拿它去 set_captions 就不必重跑。
       return write.ok ? result(payload, summary) : errResult(payload, summary);
@@ -1213,19 +1235,21 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'timeline_op',
     {
       description:
-        '在時間軸某個時間點做粗剪動作：split（切開）、deleteBefore（刪除該時間之前的畫面）、' +
-        'deleteAfter（刪除之後）、freeze（插入定格幀）。只影響影片主軌，磁性軌自動閉合縫隙。' +
-        '⚠️ **只動主軌**的代價：字幕與音訊用的是時間軸絕對秒數，deleteBefore 之後畫面整個' +
-        '往左移，字幕/音訊卻留在原地——會失步，要自己補 update_caption / update_audio。' +
-        '（與 CapCut 同語意，不是 bug。）另外整段片段消失時，錨定在它上面的 overlay 會斷，' +
-        '回覆會列出是哪幾個。' +
-        'split 的切點必須嚴格落在片段內部，切完兩側各至少 0.1 秒，太靠邊會被拒；' +
-        'freeze 插進去的定格片段是**無聲**的（會佔掉時間軸長度，後面的畫面整段右移）。',
+        'Rough-cut at a point on the timeline: split, deleteBefore (drop the picture before that time), ' +
+        'deleteAfter (drop what follows), or freeze (insert a freeze-frame). Only the video main track is affected, ' +
+        'and the magnetic track closes the gap. ' +
+        '⚠️ The price of touching **only the main track**: captions and audio use absolute timeline seconds, so after ' +
+        'a deleteBefore the picture shifts left while they stay put — they fall out of sync and you must fix them ' +
+        'with update_caption / update_audio. (Same semantics as CapCut; not a bug.) Also, when a whole clip ' +
+        'disappears, overlays anchored to it break and the reply lists which ones. ' +
+        "split's cut point must fall strictly inside a clip, leaving at least 0.1s on each side — too close to an " +
+        'edge is rejected. A freeze inserts a **silent** frozen clip (it occupies timeline length, so everything ' +
+        'after it shifts right).',
       outputSchema: clipTrackOutput,
       inputSchema: {
         op: z.enum(['split', 'deleteBefore', 'deleteAfter', 'freeze']),
-        time: z.number().describe('時間軸絕對秒數'),
-        duration: z.number().optional().describe('freeze 的定格長度，預設 3 秒'),
+        time: z.number().describe('absolute timeline seconds'),
+        duration: z.number().optional().describe('length of the freeze; default 3 seconds'),
         ifVersion: z.number().optional(),
       },
     },
@@ -1248,9 +1272,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'extract_audio',
     {
       description:
-        '把片段的聲音抽成獨立音訊項（片段音量歸零），之後可單獨調音量/淡化/刪除。' +
-        '抽出的音訊項用**時間軸絕對時間**，不跟隨原片段搬動——之後重排或刪片段，' +
-        '聲音會留在原處，要自己補 update_audio。素材沒有音軌時會被拒。',
+        "Extract a clip's audio into a standalone audio item (the clip's own volume goes to zero), so it can be " +
+        'adjusted, faded or deleted on its own. ' +
+        'The extracted item uses **absolute timeline time** and does not follow the original clip — reorder or delete ' +
+        'clips later and the sound stays where it was, so fix it yourself with update_audio. ' +
+        'Rejected when the media has no audio track.',
       outputSchema: writeOutput,
       inputSchema: { clipId: z.string(), ifVersion: z.number().optional() },
     },
@@ -1262,12 +1288,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_audio',
     {
       description:
-        '整組設定音訊軌（放旁白/BGM；原有音訊項全部被取代，空陣列＝清空音訊軌）。' +
-        'start 為時間軸絕對秒數；ducking 會在該項播放期間把影片原聲壓到四分之一。' +
-        '逐項驗證、**任一項不合格就整批拒絕、文件完全不動**：mediaId 要存在、' +
-        'start 與 in 要 >= 0、duration 要 > 0、volume 在 0–2、' +
-        'fadeIn/fadeOut 不能超過 duration、in+duration 不能超過素材長度。' +
-        '小修單一項請用 update_audio。',
+        'Set the whole audio track (voiceover/BGM; every existing audio item is replaced, an empty array clears the ' +
+        "track). start is absolute timeline seconds; ducking lowers the video's own audio to a quarter while that " +
+        'item plays. ' +
+        'Every item is validated and **one bad item rejects the whole batch, leaving the document untouched**: ' +
+        'mediaId must exist, start and in must be >= 0, duration must be > 0, volume within 0–2, fadeIn/fadeOut must ' +
+        'not exceed duration, and in+duration must not exceed the source length. ' +
+        'To touch a single item, use update_audio.',
       outputSchema: writeOutput,
       inputSchema: { audio: z.array(audioSchema), ifVersion: z.number().optional() },
     },
@@ -1279,10 +1306,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_audio',
     {
       description:
-        '調整單一音訊項（音量、淡入淡出、時間、ducking）。' +
-        '規則是拿「**改完之後的樣子**」去驗，不是只驗你送的欄位——' +
-        '例如只縮短 duration，卻讓既有的 fadeOut 超出新的 duration，這次呼叫就會被拒。' +
-        '邊界同 set_audio。',
+        'Adjust one audio item (volume, fades, timing, ducking). ' +
+        'The rules are checked against the **post-patch** shape, not just the fields you sent — shortening duration ' +
+        'alone, in a way that leaves an existing fadeOut longer than the new duration, is rejected. ' +
+        'Bounds are the same as set_audio.',
       outputSchema: writeOutput,
       inputSchema: {
         id: z.string(),
@@ -1311,7 +1338,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_canvas_fit',
     {
       description:
-        '素材未填滿畫布時的處理：contain=黑邊、blur=模糊放大填充（把橫向素材放進 9:16 時建議用 blur）。',
+        'What to do when the media does not fill the canvas: contain = black bars, blur = a blurred, scaled-up fill ' +
+        '(blur is the better look for landscape footage on a 9:16 canvas).',
       outputSchema: writeOutput,
       inputSchema: { fit: z.enum(['contain', 'blur']), ifVersion: z.number().optional() },
     },
@@ -1323,11 +1351,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'set_cover',
     {
       description:
-        '設定封面圖：成品檔案還在時從成品抽該時間點的畫面（含 overlay 與字幕），' +
-        '否則退回從來源素材抽（就只有片段畫面）。固定寫到 output/cover.jpg，' +
-        '每次呼叫覆蓋同一個檔。回覆內嵌 JPEG，URL 與路徑在 structured 裡。',
+        'Set the cover image: when a rendered file is still around, the frame at that time is taken from the export ' +
+        '(overlays and captions included); otherwise it falls back to the source media (clip picture only). ' +
+        'Always written to output/cover.jpg, overwriting the same file on every call. ' +
+        'The reply embeds the JPEG; the URL and path are in the structured content.',
       outputSchema: {
-        coverPath: z.string().describe('相對專案資料夾'),
+        coverPath: z.string().describe('relative to the project folder'),
         url: z.string(),
         version: z.number(),
       },
@@ -1356,16 +1385,19 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'request_review',
     {
       description:
-        '請使用者在瀏覽器 UI 審核目前的時間軸，阻塞直到核准/退回/逾時（預設 15 分鐘）。' +
-        '回傳 outcome 與審核期間的人類變更。' +
-        '⚠️ outcome 是 rejected 時，**自本次呼叫以來的變更會被整批回滾**' +
-        '（回到送審當下的版本），不是只回一句「被退回」。' +
-        '審核期間你的所有寫入都會被拒，只有使用者能改；核准/退回之後才恢復。' +
-        '前一輪還沒結束就再呼叫一次，會把前一輪以 timeout 收掉。',
+        'Ask the user to review the current timeline in the browser UI. Blocks until approved / rejected / timed out ' +
+        '(15 minutes by default), and returns the outcome plus whatever the human changed during the review. ' +
+        '⚠️ When the outcome is rejected, **every change made since this call is rolled back in one go** (back to the ' +
+        'version as it was when the review was requested) — it is not merely a "rejected" answer. ' +
+        'While the review is open every write of yours is refused and only the user can edit; writes resume once it ' +
+        'is approved or rejected. ' +
+        'Calling it again before the previous round finishes closes that round as a timeout.',
       outputSchema: {
         outcome: z.enum(['approved', 'rejected', 'approved_with_notes', 'timeout']),
         note: z.string().optional(),
-        humanChanges: z.array(historyEntryOutput).describe('審核期間人做的變更'),
+        humanChanges: z
+          .array(historyEntryOutput)
+          .describe('changes the human made during the review'),
         version: z.number(),
       },
       inputSchema: { summary: z.string(), focus: z.array(z.string()).optional() },
@@ -1407,22 +1439,26 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'render',
     {
       description:
-        '從專案輸出成品 mp4（1080×1920，重新編碼）。回傳輸出路徑與 URL。' +
-        'subtitles 預設 burn＝字幕燒進畫面（一律走 Pillow 產的 PNG 字卡，跟預覽同一張圖；' +
-        '逐詞高亮＝一個詞一張字卡，字幕很多時渲染會變慢）。' +
-        "想讓觀眾自己開關字幕就用 'embed'（soft track，回傳 subtitlesEmbedded）；" +
-        "要上傳到會自動翻譯字幕的平台就用 'sidecar'（另存 .srt，回傳 subtitlePath）。" +
-        'burn 以外的模式畫面都是乾淨的——soft track 疊上燒錄會讓觀眾看到兩排字。' +
-        '⚠️ render 本身也是寫入：審核進行中會被拒，而且它會把渲染狀態寫進專案，' +
-        '**版本號會前進**——手上的 ifVersion 在 render 之後就過期了，要重讀。' +
-        '主軌是空的會失敗；burn 模式的字卡總數（逐詞高亮＝一詞一張）超過 600 張時' +
-        '整支拒絕渲染，改用 karaoke:false 重跑 auto_caption 或分段渲染。',
+        'Render the project to a final mp4 (1080×1920, re-encoded). Returns the output path and URL. ' +
+        'subtitles defaults to burn: captions are burned into the picture, always via the Pillow-rasterized PNG card ' +
+        '— the same image the preview uses (with the per-word highlight that means one card per word, so many ' +
+        'captions make rendering slower). ' +
+        "Use 'embed' to let viewers toggle subtitles themselves (a soft track; subtitlesEmbedded is returned), or " +
+        "'sidecar' for platforms that auto-translate subtitles (a separate .srt; subtitlePath is returned). " +
+        'Every mode except burn leaves the picture clean — a soft track on top of burned-in captions shows the viewer ' +
+        'two rows of text. ' +
+        '⚠️ render is itself a write: it is refused while a review is in progress, and it records the render state in ' +
+        'the project, so **the version advances** — an ifVersion you were holding is stale after a render and must be ' +
+        're-read. ' +
+        'It fails when the main track is empty; and in burn mode, more than 600 cards in total (per-word highlight ' +
+        'means one card per word) rejects the whole render — re-run auto_caption with karaoke:false, or render in ' +
+        'sections.',
       outputSchema: {
-        output: z.string().describe('成品路徑，相對專案資料夾'),
+        output: z.string().describe('path of the rendered file, relative to the project folder'),
         url: z.string(),
         captionsBurned: z.boolean(),
         subtitles: z.enum(['burn', 'off', 'sidecar', 'embed']),
-        subtitlePath: z.string().optional().describe('sidecar 模式才有'),
+        subtitlePath: z.string().optional().describe('present in sidecar mode only'),
         subtitlesEmbedded: z.boolean(),
       },
       inputSchema: {
@@ -1431,15 +1467,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
           .regex(/^[A-Za-z0-9._-]{1,64}$/)
           .optional()
           .describe(
-            '輸出檔名（成品是 output/<stamp>.mp4），預設 render_<version>。' +
-              '只能用英數與 . _ -，因為它就是檔名——不是路徑，不能有 / 或 ..。',
+            'Output file name (the result is output/<stamp>.mp4); defaults to render_<version>. ' +
+              'Alphanumerics and . _ - only, because it *is* the file name — not a path, so no / and no ..',
           ),
         subtitles: z
           .enum(['burn', 'off', 'sidecar', 'embed'])
           .optional()
           .describe(
-            '字幕處理：burn=燒進畫面（預設）／off=不放／sidecar=另存 .srt／embed=內嵌 soft track。' +
-              'burn 以外都不燒。字幕軌是空的時候 sidecar/embed 不會產生任何字幕檔或字幕軌。',
+            'How subtitles are handled: burn = burned into the picture (default) / off = none / sidecar = a separate ' +
+              '.srt / embed = an embedded soft track. Nothing is burned in except in burn mode. When the caption ' +
+              'track is empty, sidecar/embed produce no subtitle file and no subtitle track.',
           ),
         // 尺寸的上下界與「奇數會被進位」都要講明：h264 的 yuv420p 不吃奇數維度，
         // 而只給單邊時另一邊是依畫布比例推算的（推算值本來就會取偶數）。
@@ -1449,17 +1486,24 @@ export function createMcpServer(deps: McpDeps): McpServer {
           .min(16)
           .max(7680)
           .optional()
-          .describe('輸出寬（預設用專案畫布 1080）。奇數會自動進位到偶數（h264 不吃奇數維度）'),
+          .describe(
+            'output width (defaults to the project canvas, 1080). An odd value is rounded up to even, because h264 does not accept odd dimensions',
+          ),
         height: z
           .number()
           .int()
           .min(16)
           .max(7680)
           .optional()
-          .describe('輸出高（預設 1920）。只給單邊時另一邊依畫布比例推算，同樣取偶數'),
+          .describe(
+            'output height (default 1920). When only one side is given, the other is derived from the canvas aspect ratio and is likewise made even',
+          ),
         fps: z.number().positive().max(240).optional(),
-        crf: z.number().min(0).max(51).optional().describe('品質，越小越好，預設 20'),
-        videoBitrate: z.string().optional().describe("如 '10M'；給了就用位元率模式"),
+        crf: z.number().min(0).max(51).optional().describe('quality; lower is better, default 20'),
+        videoBitrate: z
+          .string()
+          .optional()
+          .describe("e.g. '10M'; supplying it switches to bitrate mode"),
         codec: z.enum(['h264', 'hevc']).optional(),
       },
       annotations: { title: 'Render final video' },
