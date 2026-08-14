@@ -100,6 +100,8 @@ components:
 # Design System: vidcut Landing Page
 
 > **Scope.** This system governs only the static landing page under `site/`. The vidcut editor UI has its own incumbent system (`ui/src/theme.css`, a dark violet editor world) which this file does not describe and must not be merged with.
+>
+> **Sanctioned exception — the embassy (user-approved 2026-08-14).** The editor's **Agent Presence** elements — and only those — carry this paper world into the dark editor: a taped paper strip in the header and an index card in the Inspector, per `docs/superpowers/specs/2026-08-14-agent-presence-design.md`. Rationale: the AI _is_ this page's storyboard annotator, and its presence in the editor is the one piece of paper in the dark room. The exception is bounded: those two objects, these tokens and rules, no further spread.
 
 ## Overview
 
@@ -249,4 +251,4 @@ A dashed graphite rail (repeating-linear-gradient ticks) with an invisible full-
 - **Don't** use pure black — ink is #26231d — or pure-black shadows on paper surfaces.
 - **Don't** use radii above 7px on paper objects (circles are reserved for call-sheet step numbers).
 - **Don't** fill panels or buttons with Red Pencil; red is never a background.
-- **Don't** import the editor UI's dark violet theme (`ui/src/theme.css`) into this page, or this paper world into the editor.
+- **Don't** import the editor UI's dark violet theme (`ui/src/theme.css`) into this page, or this paper world into the editor — with one user-approved exception: the editor's Agent Presence elements (header paper strip + Inspector index card) are the paper world's sole embassy there; see the Scope note and `docs/superpowers/specs/2026-08-14-agent-presence-design.md`.
