@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # vidcut 驗證關卡的單一進入點——EVIDENCE.md 引用的每個數字都由這支腳本產生。
-# 用法：scripts/gauntlet.sh [--fast]   （--fast 跳過需要 ffmpeg 的整合測試與突變）
+# 用法：scripts/gauntlet.sh [--fast]   （--fast 只跳過突變測試那一層，其餘全跑）
+#
+# 註：`--fast` **不會**跳過需要 ffmpeg 的整合測試——`npm test` 那層一律照跑，真 ffmpeg
+# 與真 whisper 都會動。這行以前寫成「跳過整合測試與突變」，與程式碼不符（下面只有
+# 突變那段被 FAST 擋住）；照著那句話判斷「--fast 沒碰到 ffmpeg 路徑」會得到錯的結論。
+#
+# ⚠️ 突變測試那層會照著 mutants.json 把產品原始碼故意改壞、跑完該隻再還原，中途工作樹
+# 會抖動。這個工作區常有多個 session 並行——**別人在同一個工作樹工作時不要跑完整版**，
+# 他們剛好在還原前 commit 就會提交到你的突變體。要跑就開一個獨立 worktree（記得在裡面
+# npm install，否則 @vidcut/shared 會 symlink 到主 repo 當前分支，數字量錯對象）。
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
