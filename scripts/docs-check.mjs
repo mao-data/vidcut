@@ -85,9 +85,59 @@ for (const doc of DOCS) {
   }
 }
 
+// 4. 反向完整性：每個產品原始檔都必須被 HANDOFF.md 的檔案職責敘述「覆蓋」。
+// 前三項驗「寫了的東西存在嗎」，這項驗「存在的東西寫了嗎」——2026-08 實例：
+// `ui/src/shortcuts.ts` 新增後沒人補 HANDOFF，前三項照樣全綠。
+// 覆蓋的定義（兩者其一，皆 100% 可判定）：
+//   a. 檔名 basename 出現在 HANDOFF 全文（如 `shortcuts.ts`）
+//   b. 某個祖先目錄以「路徑+斜線」形式被提及（如 `ui/src/stores/`——HANDOFF 以
+//      目錄為單位描述一組檔案是合法寫法）
+// 已知限制：basename 比對是全文字串包含，同名異目錄檔（如兩處 sync.ts）會互相
+// 誤覆蓋——這讓本檢查「偏向漏報、絕不誤報」，符合零誤報硬要求。
+{
+  const { readdirSync } = await import('node:fs');
+  const handoffText = readFileSync(join(root, 'HANDOFF.md'), 'utf8');
+  const SRC_ROOTS = ['ui/src', 'server/src', 'shared/src'];
+  const SRC_EXT = /\.(ts|tsx|css|py)$/;
+  const SKIP = /(\.test\.|\.d\.ts$)/;
+  const walk = (dir) =>
+    readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) => {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) return e.name === 'node_modules' ? [] : walk(rel);
+      return [rel];
+    });
+  // 目錄提及必須是「以斜線收尾的獨立路徑」（`ui/src/stores/` 後接空白/反引號等），
+  // 不能只是更長路徑的前綴——不然 `ui/src/theme.css` 的存在就讓 `ui/src/` 覆蓋一切，
+  // 檢查變空包彈（首版真的犯了這個錯，突變驗證抓到的）。
+  const dirMentioned = (dir) =>
+    new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/(?![A-Za-z0-9_.-])').test(
+      handoffText,
+    );
+  const covered = (rel) => {
+    if (handoffText.includes(rel.slice(rel.lastIndexOf('/') + 1))) return true;
+    const parts = rel.split('/');
+    for (let i = parts.length - 1; i > 1; i--) {
+      if (dirMentioned(parts.slice(0, i).join('/'))) return true;
+    }
+    return false;
+  };
+  for (const top of SRC_ROOTS) {
+    for (const rel of walk(top)) {
+      if (!SRC_EXT.test(rel) || SKIP.test(rel) || rel.includes('/test/')) continue;
+      if (!covered(rel)) {
+        problems.push(
+          `HANDOFF.md: 原始檔 \`${rel}\` 沒有被檔案職責敘述覆蓋——新增檔案時要補一行職責（或其所屬目錄的整組敘述）`,
+        );
+      }
+    }
+  }
+}
+
 if (problems.length) {
   console.log(`文件引用檢查：${problems.length} 個問題`);
   for (const p of problems) console.log(`  ${p}`);
   process.exit(1);
 }
-console.log(`文件引用檢查：${DOCS.length} 份斷言型文件的引用都指向真實存在的東西`);
+console.log(
+  `文件引用檢查：${DOCS.length} 份斷言型文件的引用都指向真實存在的東西，原始檔皆被 HANDOFF 覆蓋`,
+);

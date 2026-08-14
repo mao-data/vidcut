@@ -1,0 +1,2288 @@
+{
+  "instructions": "vidcut is a timeline editor for vertical short video (1080×1920). Typical flow: list_source to see what is in a footage folder (dir must be absolute; imported flags what is already in) → import_media one file at a time (absolute paths outside the project are fine — nothing is copied) → set_timeline for the initial cut, or add_clip to append to the end of the main track (leaves existing clips alone) → timeline_op for rough cutting (split/deleteBefore/deleteAfter/freeze) → set_overlays / set_captions for text (for talking-head footage just use auto_caption: captions plus per-word highlight in one call) → set_audio for voiceover or BGM (ducking lowers the original audio automatically) → request_review to have the user confirm in the browser → adjust per get_feedback → render.Audio-only media (mp3/wav…) can only go on the audio track; add_clip and set_timeline reject it.To pull one clip's own audio out and adjust its volume/fades separately, use extract_audio (the clip is muted and its sound becomes a standalone audio item).render's subtitles defaults to burn (captions burned into the picture); use embed to let viewers toggle them, or sidecar (a separate .srt) for platforms that auto-translate subtitles — every mode except burn leaves the picture clean.For landscape footage on a vertical canvas, set_canvas_fit blur looks better than black bars.There are two kinds of overlay, and text and imagePath are mutually exclusive — give exactly one: for text overlays use add_overlay/update_overlay/set_overlays with text (the server rasterizes the card and maintains imagePath for you — do not set it yourself; to change the wording just send new text); for image overlays give imagePath and no text (a PNG produced elsewhere; its text is not editable) — sending update_overlay + text to an image overlay is rejected (it will not silently become a text card); to convert one, remove_overlay then add_overlay.set_timeline assigns a **new clipId** to every clip, so overlays anchored to the old clips break (the reply lists which ones; broken anchors show up in neither the preview nor the export) — to keep the anchors, pass the original ids back in clips. To only append, use add_clip; to only change the order, use reorder_clips (order takes the full clipId permutation, keeps the ids themselves, and does not touch anchors). timeline_op's deleteBefore/deleteAfter behave the same way, and they **only move the main track**: captions and audio use absolute time, so once the picture shifts left they fall out of sync — fix them yourself with update_caption / update_audio. remove_clip breaks anchors exactly like deleteBefore/deleteAfter, and its reply lists the affected overlays too.When update_caption shifts a whole caption (start changes, duration does not), that caption's tokens (per-word timestamps, in absolute timeline seconds) shift with it; trimming (changing duration) leaves the word times alone.Text overlays and captions **wrap automatically**: by default at 90% of the canvas width (text overlays can tune this with maxWidth), CJK breaks per character, Latin breaks at spaces, and a literal \\n in the string forces a break — you do not have to work out where to break.If the text is long enough or the font large enough that the card would exceed the pixel budget, the write is rejected (the error states the estimated size; the line count is an upper bound, so real wrapping is usually much smaller).get_editor_context reads the user's current selection and playhead (useful when they say \"this bit\"); get_frame shows the canvas at a given time (the reply embeds a JPEG); transcribe returns the transcript (word timestamps are timeline seconds) for picking segments or laying out captions yourself.For small edits use the fine-grained tools (update_clip / update_caption / update_overlay / add_overlay / remove_overlay / remove_audio) rather than resending a whole set_*. Pass ifVersion on writes to avoid clobbering an edit the user just made; writes are rejected while a review is in progress (import_media, set_cover and render included — they are writes too), and if the review is rejected, every change made since it was requested is rolled back in one go.A write that replies \"no-op\" means the command was valid but no field actually changed — usually the values sent match the current state.The patch for update_clip / update_caption / update_overlay / update_audio is matched strictly: a misspelled field name returns a schema error rather than becoming a no-op.",
+  "tools": [
+    {
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Trimmed overview of the project (clips/captions/media/version/review); full:true returns the whole JSON. ⚠️ In the trimmed form, overlays and audio are **counts** (numbers), not arrays — for overlay/audio-item ids, positions or anchors, use full:true.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "full": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_project",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "audio": {
+            "description": "**count** of audio items, not an array",
+            "type": "number"
+          },
+          "canvas": {},
+          "captions": {
+            "items": {},
+            "type": "array"
+          },
+          "clips": {
+            "items": {},
+            "type": "array"
+          },
+          "doc": {
+            "description": "the full project JSON, when full:true"
+          },
+          "media": {
+            "items": {},
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "overlays": {
+            "description": "**count** of overlays, not an array",
+            "type": "number"
+          },
+          "review": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total": {
+            "description": "total duration in seconds",
+            "type": "number"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Recent change log (version/label/source/ts). limit defaults to 30, max 200 (the history retention cap).",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "description": "how many recent entries; default 30",
+            "maximum": 200,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_history",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "history": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "source": {
+                  "enum": [
+                    "ai",
+                    "human"
+                  ],
+                  "type": "string"
+                },
+                "ts": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "version",
+                "label",
+                "source",
+                "ts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "history"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Summary of human changes since the given version — how the AI reads back what the user adjusted.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "sinceVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "sinceVersion"
+        ],
+        "type": "object"
+      },
+      "name": "get_feedback",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "currentVersion": {
+            "type": "number"
+          },
+          "humanChanges": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "ts": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "version",
+                "label",
+                "ts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sinceVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "sinceVersion",
+          "currentVersion",
+          "humanChanges"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "The user's current selection in the UI, playhead position, and dragged time range.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_editor_context",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "playhead": {
+            "type": "number"
+          },
+          "range": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "end": {
+                    "type": "number"
+                  },
+                  "start": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "selection": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "clip",
+                      "overlay",
+                      "caption",
+                      "audio"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "selection",
+          "playhead",
+          "range"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Extract the frame at a given time as JPEG — the AI's eyes. Clip picture only: overlays, captions and the blur background are NOT composited in; to check those, render or ask the user to look at the UI preview. Does not change project state, but does write a JPEG under derived/frames/ (re-extracted on every call, not cached). time is clamped to [0, total duration]; returns an error when the main track is empty.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "time": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "time"
+        ],
+        "type": "object"
+      },
+      "name": "get_frame",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "relative to the project folder",
+            "type": "string"
+          },
+          "url": {
+            "description": "openable directly by a local client; remote clients should use the embedded JPEG",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "path"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "List importable files in a footage folder (no recursion, hidden files excluded, whitelisted extensions only). dir must be absolute. imported flags whether the file is already in this project's doc.media. Above 200 entries only the first are embedded, with truncated set.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "dir": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dir"
+        ],
+        "type": "object"
+      },
+      "name": "list_source",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "dir": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "imported": {
+                  "type": "boolean"
+                },
+                "mtime": {
+                  "description": "epoch ms",
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "name",
+                "size",
+                "mtime",
+                "imported"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "total": {
+            "description": "total matching files (may exceed the length of files)",
+            "type": "number"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dir",
+          "total",
+          "files"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Register a media file and build its derivatives (proxy/filmstrip/peaks). relPath may be relative to the project, or an absolute path outside it (referenced in place — nothing is copied). Audio-only files (mp3/wav…) can be imported directly: proxy/filmstrip are skipped, only peaks are built, and they are usable on the audio track (set_audio) only. Returns a mediaId.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "ifVersion": {
+            "type": "number"
+          },
+          "label": {
+            "type": "string"
+          },
+          "meta": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "relPath": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "relPath"
+        ],
+        "type": "object"
+      },
+      "name": "import_media",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "alreadyImported": {
+            "description": "true = this file was already imported; the existing id is reused",
+            "type": "boolean"
+          },
+          "mediaId": {
+            "type": "string"
+          },
+          "probe": {
+            "additionalProperties": false,
+            "description": "ffprobe result",
+            "properties": {
+              "audioChannels": {
+                "type": "number"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "fps": {
+                "type": "number"
+              },
+              "hasAudio": {
+                "type": "boolean"
+              },
+              "hasVideo": {
+                "description": "false = audio-only media",
+                "type": "boolean"
+              },
+              "height": {
+                "type": "number"
+              },
+              "rotation": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "duration",
+              "width",
+              "height",
+              "fps",
+              "hasAudio",
+              "rotation"
+            ],
+            "type": "object"
+          },
+          "version": {
+            "description": "present only when something was actually added",
+            "type": "number"
+          }
+        },
+        "required": [
+          "mediaId",
+          "probe"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Set the whole video main track (the initial cut). clips are in playback order. ⚠️ Every item gets a **new clipId**, so overlays anchored to the old clips (anchor.clipId) break — a broken overlay shows up in neither the preview nor the export, and the reply lists which ones. To keep the anchors, include the original id on each item (get_project gives you them); to only append, use add_clip, which leaves existing clips alone. Every item is validated and **one bad item rejects the whole batch, leaving the document untouched**: mediaId must exist, audio-only media is refused (use set_audio for BGM/voiceover), in >= 0 and duration > 0, in+duration must not exceed the source length, volume within 0–2, and ids you supply must not repeat.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "clips": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "duration": {
+                  "type": "number"
+                },
+                "id": {
+                  "description": "Passing an existing clipId means \"this is still the same clip\", so overlays anchored to it do not break; omitting it means a new clip and the server assigns a new id. When reordering the whole track, pass the original ids back to keep the anchors.",
+                  "type": "string"
+                },
+                "in": {
+                  "type": "number"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "mediaId": {
+                  "type": "string"
+                },
+                "meta": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "volume": {
+                  "maximum": 2,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "mediaId",
+                "in",
+                "duration"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "ifVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "clips"
+        ],
+        "type": "object"
+      },
+      "name": "set_timeline",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "orphanedOverlays": {
+            "description": "ids of overlays whose anchor points at a clip that no longer exists; they show up in neither the preview nor the export",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version",
+          "orphanedOverlays"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Append already-imported media to the end of the main track (existing clips are untouched — good for adding one file at a time). Audio-only media is rejected: use set_audio for BGM/voiceover. Returns the new clipId.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "duration": {
+            "type": "number"
+          },
+          "ifVersion": {
+            "type": "number"
+          },
+          "in": {
+            "type": "number"
+          },
+          "label": {
+            "type": "string"
+          },
+          "mediaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mediaId",
+          "in",
+          "duration"
+        ],
+        "type": "object"
+      },
+      "name": "add_clip",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "clipId",
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Change one clip's in/duration/volume/label (its position in the main track is untouched). Bounds are checked against the **post-patch** shape: in >= 0, duration >= 0.1s, in+duration must not exceed the source length, volume within 0–2. ⚠️ The main track is magnetic, so changing duration shifts every clip after it, while captions and audio use absolute time and do NOT move with it — fix them yourself with update_caption / update_audio.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          },
+          "patch": {
+            "additionalProperties": false,
+            "properties": {
+              "duration": {
+                "type": "number"
+              },
+              "in": {
+                "type": "number"
+              },
+              "label": {
+                "type": "string"
+              },
+              "volume": {
+                "maximum": 2,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "clipId",
+          "patch"
+        ],
+        "type": "object"
+      },
+      "name": "update_clip",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Reorder the main-track clips (order is a permutation of clipIds).",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "ifVersion": {
+            "type": "number"
+          },
+          "order": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "name": "reorder_clips",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Remove one clip (the magnetic main track closes the gap, so every later clip shifts left). Overlays anchored to it break and the reply lists which ones; captions and audio use absolute time and do NOT shift left with the picture — fix them yourself with update_caption / update_audio.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "clipId"
+        ],
+        "type": "object"
+      },
+      "name": "remove_clip",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "orphanedOverlays": {
+            "description": "ids of overlays whose anchor points at a clip that no longer exists; they show up in neither the preview nor the export",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version",
+          "orphanedOverlays"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Replace the whole overlay track (every existing overlay is replaced; an empty array clears it). Each item must give exactly one of text and imagePath: items with text get a card rasterized and imagePath filled in automatically (do not set it yourself); image-only items give a real imagePath. Each item is also meant to satisfy: at least one of start and anchor, anchor.clipId pointing at an existing clip, duration > 0 or null (= until the end), and non-repeating ids. ⚠️ **Those four are NOT enforced on this whole-track-replace path** (add_overlay is where they are checked) — a bad item reports no error, it simply never appears in the preview or the export. Add overlays one at a time with add_overlay to get the checks. When both are given, anchor overrides start; neither this path nor add_overlay blocks that — only update_overlay does. A card over the pixel budget does reject the whole batch.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "ifVersion": {
+            "type": "number"
+          },
+          "overlays": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "anchor": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clipId": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "clipId",
+                    "offset"
+                  ],
+                  "type": "object"
+                },
+                "duration": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "imagePath": {
+                  "description": "image overlays only: the path of a PNG produced elsewhere. Do not set it for text overlays (see text).",
+                  "type": "string"
+                },
+                "position": {
+                  "additionalProperties": false,
+                  "description": "Relative to the canvas. Note the asymmetry: x is the image's **horizontal centre**, y is its **top edge**. A full-bleed vertical image wants {x:0.5, y:0, scale:1} (y:0.5 would push it off the bottom half). x/y are not limited to 0–1: an overlay may hang partly off the canvas (negative y = off the top edge), and the part that hangs off is clipped identically in export and preview. Only finiteness is validated, not range, so extreme values simply make the element invisible. Dragging in the UI is clamped to \"the centre stays on canvas\" = at most half off each side. scale is a multiplier (1 = the image's native size) applied about the top-centre point, so the x/y anchor stays put, and export and preview scale identically. scale is limited to 0–10: negative values are rejected (the preview would mirror while the export would drop the image entirely — a real preview-vs-export split), and huge values blow up memory in ffmpeg. scale=0 is still accepted (invisible in both).",
+                  "properties": {
+                    "scale": {
+                      "type": "number"
+                    },
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "scale"
+                  ],
+                  "type": "object"
+                },
+                "start": {
+                  "type": "number"
+                },
+                "text": {
+                  "additionalProperties": false,
+                  "description": "An editable text overlay: the server rasterizes the card and fills in imagePath, and later wording changes are just a new text. Give exactly one of text and imagePath — with text, omit imagePath (anything you send is replaced by the path the server computes); with imagePath it is an image overlay (a PNG produced elsewhere, whose text is not editable).",
+                  "properties": {
+                    "fill": {
+                      "type": "string"
+                    },
+                    "fontFamily": {
+                      "type": "string"
+                    },
+                    "fontSize": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 512,
+                      "type": "number"
+                    },
+                    "maxWidth": {
+                      "description": "Auto-wrap width, as a fraction of the canvas width (0.1–1); default 0.9. Text past this width **wraps automatically**: CJK breaks per character, Latin breaks at spaces (never inside a word), and a literal \\n in the string always forces a break; a single unbreakable run (a URL, say) is hard-split per character. Smaller = narrower and more lines, so the card gets taller (a card is always full canvas width; its height grows with the line count). ⚠️ Line count feeds the card's pixel budget, and this side cannot measure glyph widths, so it can only take an upper bound (the tighter of \"every character on its own line\" and \"every character at most 3 em wide\") — which means very long text may be rejected (the error states the estimated size); shorten the text or reduce fontSize.",
+                      "maximum": 1,
+                      "minimum": 0.1,
+                      "type": "number"
+                    },
+                    "stroke": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "fontFamily",
+                    "fontSize",
+                    "fill"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "id",
+                "duration",
+                "position"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "overlays"
+        ],
+        "type": "object"
+      },
+      "name": "set_overlays",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Replace the whole caption track (every existing caption is replaced; an empty array clears it). start and tokens are absolute timeline seconds. Every caption is validated and **one bad caption rejects the whole batch, leaving the document untouched**: duration must be > 0, a caption must not fall entirely before t=0, and its card must not exceed the pixel budget (text too long or fontSize too large — the error states the estimated size). To touch a single caption, use update_caption.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "captions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "duration": {
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "number"
+                },
+                "style": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fill": {
+                      "type": "string"
+                    },
+                    "fontFamily": {
+                      "type": "string"
+                    },
+                    "fontSize": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 512,
+                      "type": "number"
+                    },
+                    "highlight": {
+                      "description": "per-word highlight colour: with tokens present, words already spoken are drawn in it",
+                      "type": "string"
+                    },
+                    "stroke": {
+                      "type": "string"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "fontFamily",
+                    "fontSize",
+                    "fill",
+                    "y"
+                  ],
+                  "type": "object"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "tokens": {
+                  "description": "per-word timestamps in absolute timeline seconds. When present, rendering does the karaoke per-word highlight.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "end": {
+                        "type": "number"
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "start",
+                      "end"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "id",
+                "text",
+                "start",
+                "duration",
+                "style"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "ifVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "captions"
+        ],
+        "type": "object"
+      },
+      "name": "set_captions",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Change one caption only (text/start/duration/style/tokens). Use this for small edits instead of resending the whole set_captions. style replaces wholesale when provided; tokens: [] clears the per-word timestamps. ⚠️ For a caption that has tokens, changing text requires sending tokens **in the same call** (either [] or a set that matches the new wording). Sending text alone changes nothing on screen — the card is laid out from tokens and never looks at text — and the write **succeeds**: the version advances, the reply is not \"no-op\", and nothing in it reveals the problem. See the note on patch.text. tokens (per-word timestamps) hold absolute timeline seconds, and the server shifts them for you only on a whole-caption move: start alone (or start with duration unchanged) means the caption moves to another point in time, and every word's start/end shifts by the same delta — no need to recompute them. Trimming leaves word times completely alone: duration alone (shorten the tail), or start and duration together with duration changing (shorten the head: the right edge stays, start moves later). That is editing \"how long this caption is shown\", not \"when each word is spoken\". If the same call also supplies tokens, yours win and no shifting is applied.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          },
+          "patch": {
+            "additionalProperties": false,
+            "properties": {
+              "duration": {
+                "type": "number"
+              },
+              "start": {
+                "type": "number"
+              },
+              "style": {
+                "additionalProperties": false,
+                "properties": {
+                  "fill": {
+                    "type": "string"
+                  },
+                  "fontFamily": {
+                    "type": "string"
+                  },
+                  "fontSize": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 512,
+                    "type": "number"
+                  },
+                  "highlight": {
+                    "description": "per-word highlight colour: with tokens present, words already spoken are drawn in it",
+                    "type": "string"
+                  },
+                  "stroke": {
+                    "type": "string"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "fontFamily",
+                  "fontSize",
+                  "fill",
+                  "y"
+                ],
+                "type": "object"
+              },
+              "text": {
+                "description": "⚠️ **When this caption has tokens, changing text alone changes nothing on screen**: the card is laid out from tokens and ignores text entirely. The text really is written to the document and the version really does advance, so the reply is indistinguishable from a real edit (not \"no-op\", no error) — only the picture stays put. When changing the wording, also send `tokens: []` to clear the old word boundaries, which no longer match the new text; to keep the per-word highlight, supply a set of tokens that matches it.",
+                "type": "string"
+              },
+              "tokens": {
+                "description": "per-word timestamps in absolute timeline seconds. When present, rendering does the karaoke per-word highlight.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "end": {
+                      "type": "number"
+                    },
+                    "start": {
+                      "type": "number"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "start",
+                    "end"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "patch"
+        ],
+        "type": "object"
+      },
+      "name": "update_caption",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Change one overlay only (start/anchor/duration/position/text). start and anchor are mutually exclusive here: whichever you send is the positioning it switches to. To change a text overlay's wording or style, send new text (the server re-rasterizes the card and updates imagePath — you neither need to nor should set imagePath yourself).",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          },
+          "patch": {
+            "additionalProperties": false,
+            "properties": {
+              "anchor": {
+                "additionalProperties": false,
+                "properties": {
+                  "clipId": {
+                    "type": "string"
+                  },
+                  "offset": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "clipId",
+                  "offset"
+                ],
+                "type": "object"
+              },
+              "duration": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "position": {
+                "additionalProperties": false,
+                "description": "Replaced wholesale (there is no per-field patch semantics here). x is the horizontal centre, y is the top edge — they are not symmetric. x/y are not limited to 0–1: an overlay may hang partly off the canvas (negative y = off the top edge), and the part that hangs off is clipped identically in both the export and the preview. scale is a multiplier about the top-centre point, identical in export and preview; it is limited to 0–10 and negative values are rejected (the preview would mirror while the export would drop the image entirely); scale=0 is invisible in both.",
+                "properties": {
+                  "scale": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "scale"
+                ],
+                "type": "object"
+              },
+              "start": {
+                "type": "number"
+              },
+              "text": {
+                "additionalProperties": false,
+                "description": "Change the wording or style: the server re-rasterizes the card and updates imagePath. Only valid on an item that was already a text overlay (created with text); sending text to an image overlay is rejected — it will not be converted into a text card and its imagePath is not overwritten. To convert one, remove_overlay then add_overlay.",
+                "properties": {
+                  "fill": {
+                    "type": "string"
+                  },
+                  "fontFamily": {
+                    "type": "string"
+                  },
+                  "fontSize": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 512,
+                    "type": "number"
+                  },
+                  "maxWidth": {
+                    "description": "Auto-wrap width, as a fraction of the canvas width (0.1–1); default 0.9. Text past this width **wraps automatically**: CJK breaks per character, Latin breaks at spaces (never inside a word), and a literal \\n in the string always forces a break; a single unbreakable run (a URL, say) is hard-split per character. Smaller = narrower and more lines, so the card gets taller (a card is always full canvas width; its height grows with the line count). ⚠️ Line count feeds the card's pixel budget, and this side cannot measure glyph widths, so it can only take an upper bound (the tighter of \"every character on its own line\" and \"every character at most 3 em wide\") — which means very long text may be rejected (the error states the estimated size); shorten the text or reduce fontSize.",
+                    "maximum": 1,
+                    "minimum": 0.1,
+                    "type": "number"
+                  },
+                  "stroke": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text",
+                  "fontFamily",
+                  "fontSize",
+                  "fill"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "patch"
+        ],
+        "type": "object"
+      },
+      "name": "update_overlay",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Add a single overlay (the others are untouched). Give exactly one of text and imagePath: a text overlay carries text (the server rasterizes the card and maintains imagePath — do not set it yourself); an image overlay gives a real imagePath. Checked here: the id must not collide with an existing overlay, **at least one** of start and anchor must be given, anchor.clipId must point at an existing clip, and duration must be > 0 or null (= until the end). ⚠️ Giving both start and anchor is **not an error**, but anchor overrides start and start silently does nothing — of the three paths only update_overlay blocks that combination. An anchored overlay follows its clip; one positioned by absolute start does not.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "ifVersion": {
+            "type": "number"
+          },
+          "overlay": {
+            "additionalProperties": false,
+            "properties": {
+              "anchor": {
+                "additionalProperties": false,
+                "properties": {
+                  "clipId": {
+                    "type": "string"
+                  },
+                  "offset": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "clipId",
+                  "offset"
+                ],
+                "type": "object"
+              },
+              "duration": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "imagePath": {
+                "description": "image overlays only: the path of a PNG produced elsewhere. Do not set it for text overlays (see text).",
+                "type": "string"
+              },
+              "position": {
+                "additionalProperties": false,
+                "description": "Relative to the canvas. Note the asymmetry: x is the image's **horizontal centre**, y is its **top edge**. A full-bleed vertical image wants {x:0.5, y:0, scale:1} (y:0.5 would push it off the bottom half). x/y are not limited to 0–1: an overlay may hang partly off the canvas (negative y = off the top edge), and the part that hangs off is clipped identically in export and preview. Only finiteness is validated, not range, so extreme values simply make the element invisible. Dragging in the UI is clamped to \"the centre stays on canvas\" = at most half off each side. scale is a multiplier (1 = the image's native size) applied about the top-centre point, so the x/y anchor stays put, and export and preview scale identically. scale is limited to 0–10: negative values are rejected (the preview would mirror while the export would drop the image entirely — a real preview-vs-export split), and huge values blow up memory in ffmpeg. scale=0 is still accepted (invisible in both).",
+                "properties": {
+                  "scale": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "scale"
+                ],
+                "type": "object"
+              },
+              "start": {
+                "type": "number"
+              },
+              "text": {
+                "additionalProperties": false,
+                "description": "An editable text overlay: the server rasterizes the card and fills in imagePath, and later wording changes are just a new text. Give exactly one of text and imagePath — with text, omit imagePath (anything you send is replaced by the path the server computes); with imagePath it is an image overlay (a PNG produced elsewhere, whose text is not editable).",
+                "properties": {
+                  "fill": {
+                    "type": "string"
+                  },
+                  "fontFamily": {
+                    "type": "string"
+                  },
+                  "fontSize": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 512,
+                    "type": "number"
+                  },
+                  "maxWidth": {
+                    "description": "Auto-wrap width, as a fraction of the canvas width (0.1–1); default 0.9. Text past this width **wraps automatically**: CJK breaks per character, Latin breaks at spaces (never inside a word), and a literal \\n in the string always forces a break; a single unbreakable run (a URL, say) is hard-split per character. Smaller = narrower and more lines, so the card gets taller (a card is always full canvas width; its height grows with the line count). ⚠️ Line count feeds the card's pixel budget, and this side cannot measure glyph widths, so it can only take an upper bound (the tighter of \"every character on its own line\" and \"every character at most 3 em wide\") — which means very long text may be rejected (the error states the estimated size); shorten the text or reduce fontSize.",
+                    "maximum": 1,
+                    "minimum": 0.1,
+                    "type": "number"
+                  },
+                  "stroke": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text",
+                  "fontFamily",
+                  "fontSize",
+                  "fill"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "id",
+              "duration",
+              "position"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "overlay"
+        ],
+        "type": "object"
+      },
+      "name": "add_overlay",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Remove one overlay.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "remove_overlay",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Remove one audio item.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "remove_audio",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Undo the last N edits (cursor-style: call it repeatedly to keep walking back). **Only changes to the tracks and the canvas are undoable** — rendering, reviews, the cover (set_cover) and importing media (import_media) never enter the undo stack and cannot be undone. If fewer than N are available it undoes what there is; only an empty stack is an error. ⚠️ The undo stack is **shared between the human and the AI** — what you undo may be an adjustment the user just made. When unsure, check the source of the recent entries with get_history first.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "ifVersion": {
+            "type": "number"
+          },
+          "steps": {
+            "description": "how many edits to undo; default 1",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "undo",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Redo the last N undone edits (the inverse of undo). Making a new edit clears what could be redone. The stack is shared with the human — same caveat as undo.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "ifVersion": {
+            "type": "number"
+          },
+          "steps": {
+            "description": "how many edits to redo; default 1",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "redo",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Run speech recognition (whisper.cpp) over the whole timeline and return per-word timestamps. Times are absolute timeline seconds, usable directly as caption times — no source-time conversion needed. ⚠️ What is fed to recognition is **not** the final mix: for maximum accuracy, clip volume, audio-item volume, fades and ducking are all ignored — dialogue inside a muted clip (including the original clip after extract_audio) is still transcribed. Frozen clips and media without an audio track are padded with silence, so the times still line up. It fails when the timeline has no audio at all. **Does not change project state**, but it does mix the whole timeline (ffmpeg) and then run whisper — a minutes-long operation — and it writes derived/asr.wav and derived/asr.json (the latter is the jsonPath it returns). To go straight to captions, use auto_caption. Above 1000 words, or a transcript longer than 6000 characters, only the start is embedded and truncated is set; the full result is at jsonPath.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "language": {
+            "description": "'auto' (the default) or a language code such as zh / en / ja. Naming the language is usually more accurate than auto-detection",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "transcribe",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "jsonPath": {
+            "description": "path of the full result, relative to the project folder",
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "textTruncated": {
+            "type": "boolean"
+          },
+          "wordCount": {
+            "description": "total number of words (may exceed the length of words)",
+            "type": "number"
+          },
+          "words": {
+            "description": "times are absolute timeline seconds",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "end": {
+                  "type": "number"
+                },
+                "start": {
+                  "type": "number"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "wordsTruncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "language",
+          "wordCount",
+          "words",
+          "text",
+          "jsonPath"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "One-shot auto captions: recognize → paginate → write the caption track (a whole-track replace; every existing caption is replaced). Recognition takes the same path as transcribe — minutes of ffmpeg + whisper, the same derived/asr.wav and derived/asr.json, and the same disregard for volume and ducking. karaoke is on by default (per-word highlight; rendering emits one card per word). To control the sentence splitting yourself, use transcribe + set_captions instead. Above 100 captions the reply embeds only the start and sets captionsTruncated (when the write succeeded the full set is in the document, readable via get_project).",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "ifVersion": {
+            "type": "number"
+          },
+          "karaoke": {
+            "description": "per-word highlight; default true",
+            "type": "boolean"
+          },
+          "language": {
+            "type": "string"
+          },
+          "maxDurationMs": {
+            "description": "max milliseconds per caption (default 2500)",
+            "type": "number"
+          },
+          "maxGapMs": {
+            "description": "break to a new caption when the gap between words exceeds this (default 400)",
+            "type": "number"
+          },
+          "maxUnits": {
+            "description": "max width per caption; a CJK character counts as 2 (default 24)",
+            "type": "number"
+          },
+          "style": {
+            "additionalProperties": false,
+            "description": "override the caption style; omitted fields keep their defaults",
+            "properties": {
+              "fill": {
+                "type": "string"
+              },
+              "fontFamily": {
+                "type": "string"
+              },
+              "fontSize": {
+                "exclusiveMinimum": 0,
+                "maximum": 512,
+                "type": "number"
+              },
+              "highlight": {
+                "type": "string"
+              },
+              "stroke": {
+                "type": "string"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "name": "auto_caption",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "captionCount": {
+            "description": "total captions produced (may exceed the length of captions)",
+            "type": "number"
+          },
+          "captions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "duration": {
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "number"
+                },
+                "style": {},
+                "text": {
+                  "type": "string"
+                },
+                "tokens": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "end": {
+                        "type": "number"
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "start",
+                      "end"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "id",
+                "text",
+                "start",
+                "duration"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "captionsTruncated": {
+            "type": "boolean"
+          },
+          "language": {
+            "type": "string"
+          },
+          "wordCount": {
+            "type": "number"
+          },
+          "write": {
+            "additionalProperties": false,
+            "description": "the write result. An error here means the captions did not reach the document (the reply is also flagged isError)",
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "version": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "language",
+          "wordCount",
+          "captionCount",
+          "captions",
+          "write"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Rough-cut at a point on the timeline: split, deleteBefore (drop the picture before that time), deleteAfter (drop what follows), or freeze (insert a freeze-frame). Only the video main track is affected, and the magnetic track closes the gap. ⚠️ The price of touching **only the main track**: captions and audio use absolute timeline seconds, so after a deleteBefore the picture shifts left while they stay put — they fall out of sync and you must fix them with update_caption / update_audio. (Same semantics as CapCut; not a bug.) Also, when a whole clip disappears, overlays anchored to it break and the reply lists which ones. split's cut point must fall strictly inside a clip, leaving at least 0.1s on each side — too close to an edge is rejected. A freeze inserts a **silent** frozen clip (it occupies timeline length, so everything after it shifts right).",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "duration": {
+            "description": "length of the freeze; default 3 seconds",
+            "type": "number"
+          },
+          "ifVersion": {
+            "type": "number"
+          },
+          "op": {
+            "enum": [
+              "split",
+              "deleteBefore",
+              "deleteAfter",
+              "freeze"
+            ],
+            "type": "string"
+          },
+          "time": {
+            "description": "absolute timeline seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "op",
+          "time"
+        ],
+        "type": "object"
+      },
+      "name": "timeline_op",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "orphanedOverlays": {
+            "description": "ids of overlays whose anchor points at a clip that no longer exists; they show up in neither the preview nor the export",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version",
+          "orphanedOverlays"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Extract a clip's audio into a standalone audio item (the clip's own volume goes to zero), so it can be adjusted, faded or deleted on its own. The extracted item uses **absolute timeline time** and does not follow the original clip — reorder or delete clips later and the sound stays where it was, so fix it yourself with update_audio. Rejected when the media has no audio track.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "clipId": {
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "clipId"
+        ],
+        "type": "object"
+      },
+      "name": "extract_audio",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Set the whole audio track (voiceover/BGM; every existing audio item is replaced, an empty array clears the track). start is absolute timeline seconds; ducking lowers the video's own audio to a quarter while that item plays. Every item is validated and **one bad item rejects the whole batch, leaving the document untouched**: mediaId must exist, start and in must be >= 0, duration must be > 0, volume within 0–2, fadeIn/fadeOut must not exceed duration, and in+duration must not exceed the source length. To touch a single item, use update_audio.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "audio": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "ducking": {
+                  "description": "true = duck the video's own audio to a quarter while this item plays",
+                  "type": "boolean"
+                },
+                "duration": {
+                  "type": "number"
+                },
+                "fadeIn": {
+                  "description": "fade-in seconds; must not exceed this item's duration",
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "fadeOut": {
+                  "description": "fade-out seconds; must not exceed this item's duration",
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "in": {
+                  "type": "number"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "mediaId": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "number"
+                },
+                "volume": {
+                  "maximum": 2,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "mediaId",
+                "start",
+                "in",
+                "duration",
+                "volume"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "ifVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "audio"
+        ],
+        "type": "object"
+      },
+      "name": "set_audio",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Adjust one audio item (volume, fades, timing, ducking). The rules are checked against the **post-patch** shape, not just the fields you sent — shortening duration alone, in a way that leaves an existing fadeOut longer than the new duration, is rejected. Bounds are the same as set_audio.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          },
+          "patch": {
+            "additionalProperties": false,
+            "properties": {
+              "ducking": {
+                "type": "boolean"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "fadeIn": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "fadeOut": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "in": {
+                "type": "number"
+              },
+              "start": {
+                "type": "number"
+              },
+              "volume": {
+                "maximum": 2,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "patch"
+        ],
+        "type": "object"
+      },
+      "name": "update_audio",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "What to do when the media does not fill the canvas: contain = black bars, blur = a blurred, scaled-up fill (blur is the better look for landscape footage on a 9:16 canvas).",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "fit": {
+            "enum": [
+              "contain",
+              "blur"
+            ],
+            "type": "string"
+          },
+          "ifVersion": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "fit"
+        ],
+        "type": "object"
+      },
+      "name": "set_canvas_fit",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "false = no-op; not a single field changed",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "version after the write",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "description": "Set the cover image: when a rendered file is still around, the frame at that time is taken from the export (overlays and captions included); otherwise it falls back to the source media (clip picture only). Always written to output/cover.jpg, overwriting the same file on every call. The reply embeds the JPEG; the URL and path are in the structured content.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "ifVersion": {
+            "type": "number"
+          },
+          "time": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "time"
+        ],
+        "type": "object"
+      },
+      "name": "set_cover",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "coverPath": {
+            "description": "relative to the project folder",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "coverPath",
+          "url",
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "title": "Request human review"
+      },
+      "description": "Ask the user to review the current timeline in the browser UI. Blocks until approved / rejected / timed out (15 minutes by default), and returns the outcome plus whatever the human changed during the review. ⚠️ When the outcome is rejected, **every change made since this call is rolled back in one go** (back to the version as it was when the review was requested) — it is not merely a \"rejected\" answer. While the review is open every write of yours is refused and only the user can edit; writes resume once it is approved or rejected. Calling it again before the previous round finishes closes that round as a timeout.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "focus": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "type": "object"
+      },
+      "name": "request_review",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "humanChanges": {
+            "description": "changes the human made during the review",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "source": {
+                  "enum": [
+                    "ai",
+                    "human"
+                  ],
+                  "type": "string"
+                },
+                "ts": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "version",
+                "label",
+                "source",
+                "ts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "note": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "approved",
+              "rejected",
+              "approved_with_notes",
+              "timeout"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "outcome",
+          "humanChanges",
+          "version"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "title": "Render final video"
+      },
+      "description": "Render the project to a final mp4 (1080×1920, re-encoded). Returns the output path and URL. subtitles defaults to burn: captions are burned into the picture, always via the Pillow-rasterized PNG card — the same image the preview uses (with the per-word highlight that means one card per word, so many captions make rendering slower). Use 'embed' to let viewers toggle subtitles themselves (a soft track; subtitlesEmbedded is returned), or 'sidecar' for platforms that auto-translate subtitles (a separate .srt; subtitlePath is returned). Every mode except burn leaves the picture clean — a soft track on top of burned-in captions shows the viewer two rows of text. ⚠️ render is itself a write: it is refused while a review is in progress, and it records the render state in the project, so **the version advances** — an ifVersion you were holding is stale after a render and must be re-read. It fails when the main track is empty; and in burn mode, more than 600 cards in total (per-word highlight means one card per word) rejects the whole render — re-run auto_caption with karaoke:false, or render in sections.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "codec": {
+            "enum": [
+              "h264",
+              "hevc"
+            ],
+            "type": "string"
+          },
+          "crf": {
+            "description": "quality; lower is better, default 20",
+            "maximum": 51,
+            "minimum": 0,
+            "type": "number"
+          },
+          "fps": {
+            "exclusiveMinimum": 0,
+            "maximum": 240,
+            "type": "number"
+          },
+          "height": {
+            "description": "output height (default 1920). When only one side is given, the other is derived from the canvas aspect ratio and is likewise made even",
+            "maximum": 7680,
+            "minimum": 16,
+            "type": "integer"
+          },
+          "stamp": {
+            "description": "Output file name (the result is output/<stamp>.mp4); defaults to render_<version>. Alphanumerics and . _ - only, because it *is* the file name — not a path, so no / and no ..",
+            "pattern": "^[A-Za-z0-9._-]{1,64}$",
+            "type": "string"
+          },
+          "subtitles": {
+            "description": "How subtitles are handled: burn = burned into the picture (default) / off = none / sidecar = a separate .srt / embed = an embedded soft track. Nothing is burned in except in burn mode. When the caption track is empty, sidecar/embed produce no subtitle file and no subtitle track.",
+            "enum": [
+              "burn",
+              "off",
+              "sidecar",
+              "embed"
+            ],
+            "type": "string"
+          },
+          "videoBitrate": {
+            "description": "e.g. '10M'; supplying it switches to bitrate mode",
+            "type": "string"
+          },
+          "width": {
+            "description": "output width (defaults to the project canvas, 1080). An odd value is rounded up to even, because h264 does not accept odd dimensions",
+            "maximum": 7680,
+            "minimum": 16,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "render",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "captionsBurned": {
+            "type": "boolean"
+          },
+          "output": {
+            "description": "path of the rendered file, relative to the project folder",
+            "type": "string"
+          },
+          "subtitlePath": {
+            "description": "present in sidecar mode only",
+            "type": "string"
+          },
+          "subtitles": {
+            "enum": [
+              "burn",
+              "off",
+              "sidecar",
+              "embed"
+            ],
+            "type": "string"
+          },
+          "subtitlesEmbedded": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output",
+          "url",
+          "captionsBurned",
+          "subtitles",
+          "subtitlesEmbedded"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

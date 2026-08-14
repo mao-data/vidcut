@@ -62,6 +62,9 @@ overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1
 - **改了工具行為或語意，必須同步更新 `server/src/mcp.ts` 的工具描述與 instructions。**
   MCP 描述是 AI 使用者唯一的文件，過期描述會直接害它踩坑
   （前例：get_frame 描述殘留 roadmap 字句，AI 因此誤判 overlay 沒設定成功）。
+  機械閘門：`server/test/mcp-surface-snapshot.test.ts` 把整個工具面鎖進 snapshot，
+  改 mcp.ts 測試必紅——先讀 diff 確認新描述屬實，再 `-u` 更新；它擋「忘了看」，
+  語意對不對仍靠人。commit 前的完整文件審查流程用 `docs-sync-review` skill。
 
 ## Git
 

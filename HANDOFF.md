@@ -330,6 +330,11 @@ server/src/app.ts         Express app：`/api/project`（debug）、`GET /api/so
 server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render
 server/src/index.ts       startServer + CLI
 ui/src/theme.css          設計系統：token + 原生控件樣式 + 佈局 class ★
+ui/src/main.tsx           React 入口（createRoot）
+ui/src/App.tsx            版面外殼：三欄 grid＋header、全域鍵盤快捷鍵 handler、伺服器字型
+                          @font-face 注入（id 防 StrictMode 雙掛載）、錯誤 Toast、面板收合鈕
+ui/src/shortcuts.ts       快捷鍵單一來源表（描述 App.tsx onKey 的實況＋Timeline 的 Ctrl+wheel；
+                          Inspector 的 ShortcutHelp 彈出層由它生成——改 handler 必須同步此表）
 ui/src/motion.ts          GSAP 進入點（useGSAP + reduced-motion 判斷）
 ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）
 ui/src/stores/editDraft.ts 打字中的本地字幕草稿（text + previewHash）：不進 history、不碰 doc、不經 sendCommand
@@ -356,9 +361,20 @@ server/test/setup.ts         每個測試檔的 afterAll：只做「這檔有失
 server/test/fixtures.ts      makeVideo 等真素材產生器（測試走真 ffmpeg）
 server/test/mcp-docs-sync.test.ts  鐵則第三步的執行面守衛：工具面完整性 + Command variant 觸達性
                              （型別強制的 COMMAND_VARIANT_MAP，variant 增刪改名 tsc 會先失敗）
-scripts/docs-check.mjs       斷言型文件的引用完整性檢查（反引號路徑存在、文件提到的 npm
-                             script 真的存在、不引用被 .gitignore 的路徑）；秒級、零依賴，
-                             gauntlet.sh 的一關
+server/test/mcp-surface-snapshot.test.ts  MCP 工具面 snapshot 閘門：31 個工具的 name／description／
+                             inputSchema／outputSchema／annotations＋server instructions 經真 MCP 協定
+                             （InMemoryTransport + listTools）鎖進 `server/test/__snapshots__/mcp-surface.snap.json`；
+                             改 mcp.ts 必紅，**先讀 diff 確認描述屬實**再 `-u` 更新
+                             （擋「忘了看」，擋不住「看了亂改」——語意仍靠人）
+scripts/docs-check.mjs       斷言型文件檢查，四項：反引號路徑存在、文件提到的 npm script 真的
+                             存在、不引用被 .gitignore 的路徑、以及反向完整性——ui/server/shared
+                             的每個原始檔都要被 HANDOFF 檔案職責敘述覆蓋（檔名或所屬目錄被提及；
+                             新增檔案沒補文件會紅）；秒級、零依賴，gauntlet.sh 的一關
+scripts/docs-hook.mjs        PostToolUse 提醒器：編輯 mcp.ts／新增未追蹤原始檔／動 README 時
+                             注入文件同步提醒。佈線在專案 `.claude/settings.json`（進 git）與
+                             工作區根 .claude/settings.json（machine-local，換機要重佈）
+.claude/skills/docs-sync-review/  commit 前的文件同步審查 skill：變更分類 → 文件矩陣逐份過目 →
+                             逐文件「已更新／查過無需改」帶證據結論 → 機械收尾
 scripts/mutate.mjs / mutants.json  突變測試與其錨點檢查（--check）
 ```
 

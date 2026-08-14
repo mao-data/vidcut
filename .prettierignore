@@ -7,3 +7,9 @@ _skill_extracted
 # 不濾掉的話 format:check 會隨「此刻剛好有沒有人開著 worktree」時紅時綠，
 # 而那些 [warn] 沒有一個是你能修的。eslint.config.js 的 ignores 已經先擋掉這一段了。
 .claude
+
+# vitest 的 file snapshot（server/test/__snapshots__/mcp-surface.snap.json）。
+# 格式的擁有者是 vitest 不是 prettier，兩邊會打架：prettier 會把 `"canvas": {}` 這種
+# 空物件收成一行（實測 86701 → 82345 bytes），下一次 `-u` 又原樣寫回去，於是
+# `format` 與 `format:check` 永遠互相拆台。這是產物、不是手寫原始碼，不該進 prettier。
+**/__snapshots__/
