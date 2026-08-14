@@ -2,8 +2,9 @@ import { memo, useEffect, useRef, type PointerEvent } from 'react';
 import { Snowflake } from 'lucide-react';
 import type { Project, VideoClip } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
-import { drawWaveform, CLIP_WAVE } from './waveform.js';
+import { drawWaveform, clipWave } from './waveform.js';
 import { useWaveform } from './usePeaks.js';
+import { useTheme } from '../stores/theme.js';
 
 /** 主軌列高（上：filmstrip／下：波形帶） */
 export const ROW_H = 64;
@@ -43,6 +44,8 @@ export const ClipBlock = memo(function ClipBlock({
   const media = p.media.find((m) => m.id === clip.mediaId);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const peaks = useWaveform(clip.frozen ? undefined : media?.peaksPath);
+  // canvas 不吃 CSS 變數：主題換了要自己重畫（只當依賴用，值本身由 clipWave() 查表）
+  const theme = useTheme((s) => s.theme);
   const w = timeToPx(clip.duration, pps);
   /** 下緣波形帶高度（約 40%，定案於 spec §3） */
   const bandH = Math.round(ROW_H * 0.4);
@@ -50,8 +53,8 @@ export const ClipBlock = memo(function ClipBlock({
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !peaks) return;
-    drawWaveform(cv, peaks, { from: clip.in, duration: clip.duration, ...CLIP_WAVE });
-  }, [peaks, clip.in, clip.duration, w]);
+    drawWaveform(cv, peaks, { from: clip.in, duration: clip.duration, ...clipWave() });
+  }, [peaks, clip.in, clip.duration, w, theme]);
 
   const filmstrip = media?.filmstripPath ? `/media/${media.filmstripPath}` : undefined;
   const filmH = ROW_H - bandH;

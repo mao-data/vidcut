@@ -1,5 +1,22 @@
 import type { PeaksFile } from '@vidcut/shared';
 
+/**
+ * canvas 沒有 CSS 變數，所以波形顏色一定要在 JS 手上拿到一個字串。
+ * 單一真值來源留在 `theme.css`（`--wave-*`），這裡只負責查表。
+ *
+ * 第二個參數是**僅 jsdom 回退**：測試環境沒有樣式表，`getComputedStyle` 對
+ * 每個自訂屬性都回空字串。回退值＝`theme.css` `:root` 的同名 token，
+ * 兩邊要一起改（有 mutant 守著「回退永遠生效＝查表失效」這個退化）。
+ *
+ * ⚠️ 唯一的字面差異是 alpha 的尾零：CSS 端 prettier 會把 `0.30` 正規化成 `0.3`
+ * （試過寫 `0.30`，`format:check` 直接紅），JS 這邊保留原本的 `0.30`。
+ * 兩者 parse 出來是同一個顏色，canvas 輸出逐像素相同。
+ */
+function cssVar(name: string, fallback: string): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v === '' ? fallback : v;
+}
+
 export interface WaveformOpts {
   /** 來源內起點（秒） */
   from: number;
@@ -62,19 +79,26 @@ export function drawWaveform(cv: HTMLCanvasElement, pf: PeaksFile, opts: Wavefor
     fill(pf.peaks, opts.rmsColor);
   }
   if (opts.midline !== false) {
-    ctx.fillStyle = 'rgba(230, 231, 240, 0.18)';
+    ctx.fillStyle = cssVar('--wave-midline', 'rgba(230, 231, 240, 0.18)');
     ctx.fillRect(0, mid - 0.5, W, 1);
   }
 }
 
-/** 影片片段波形帶配色（紫系） */
-export const CLIP_WAVE = {
-  peakColor: 'rgba(167, 139, 250, 0.30)',
-  rmsColor: 'rgba(196, 181, 253, 0.85)',
-} as const;
+/**
+ * 影片片段波形帶配色（暗版是紫系）。
+ * 是**函數**不是常數：主題可以在執行期切換，值必須每次繪製時重查。
+ */
+export function clipWave(): { peakColor: string; rmsColor: string } {
+  return {
+    peakColor: cssVar('--wave-clip-peak', 'rgba(167, 139, 250, 0.30)'),
+    rmsColor: cssVar('--wave-clip-rms', 'rgba(196, 181, 253, 0.85)'),
+  };
+}
 
-/** 音訊軌配色（青系） */
-export const AUDIO_WAVE = {
-  peakColor: 'rgba(14, 165, 233, 0.30)',
-  rmsColor: 'rgba(125, 211, 252, 0.85)',
-} as const;
+/** 音訊軌配色（暗版是青系）。理由同 clipWave。 */
+export function audioWave(): { peakColor: string; rmsColor: string } {
+  return {
+    peakColor: cssVar('--wave-audio-peak', 'rgba(14, 165, 233, 0.30)'),
+    rmsColor: cssVar('--wave-audio-rms', 'rgba(125, 211, 252, 0.85)'),
+  };
+}

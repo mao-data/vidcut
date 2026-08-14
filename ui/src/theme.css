@@ -109,6 +109,53 @@
   --r-panel: 10px;
   --r-card: 9px;
   --r-ctl: 7px;
+
+  /* ---- canvas 波形（timeline/waveform.ts 查表用，spec §4）----
+   * canvas 沒有 CSS 變數，所以這五個值是 JS 透過 getComputedStyle 讀走的。
+   * 它們是**新增**的 token：值取自 waveform.ts 原本的 JS 常數，所以暗版的
+   * 畫素輸出完全不變（唯一差異是 prettier 把 alpha `0.30` 正規化成 `0.3`，
+   * parse 出來同一個顏色）。waveform.ts 裡還留著同樣的值當 **jsdom 回退**
+   * （測試環境沒有樣式表）——改這裡要連那邊一起改。 */
+  --wave-clip-peak: rgba(167, 139, 250, 0.3);
+  --wave-clip-rms: rgba(196, 181, 253, 0.85);
+  --wave-audio-peak: rgba(14, 165, 233, 0.3);
+  --wave-audio-rms: rgba(125, 211, 252, 0.85);
+  --wave-midline: rgba(230, 231, 240, 0.18);
+}
+
+/* ============================================================
+ * 主題 B：分鏡紙桌面（spec `2026-08-14-dual-theme-design.md` §3）
+ *
+ * ⚠️ **這一塊全部是佔位值，階段 ③ 會全面重調——不要以現在的樣子評判亮版。**
+ * 階段 ② 的工作是「基建」：讓雙值化、查表、切換器這條線通起來，並且證明
+ * **暗版一個像素都沒動**。配色的 craft 是下一階段的事。
+ *
+ * 只覆寫「底／面／文字／線」這幾組基礎 token。沒覆寫的（accent 族、audio 族、
+ * tint 族、圓角）自然繼承上面的暗版值——佔位階段這是可接受的，階段 ③ 會逐項
+ * 決定（例如紅鉛筆 `--ap-red` 要不要接管 accent 的哪些用途）。
+ *
+ * **`--bg-stage` 是硬性例外**：亮版下預覽 stage 周圍仍是深色襯底
+ * （spec §3「貼在紙上的深色相紙」）。淺色環境會干擾影片顏色判斷，
+ * 這條規則跨主題成立，不是「暗版剛好比較暗」。
+ * ============================================================ */
+[data-theme='paper'] {
+  /* 底：DESIGN.md 的「Paper」階（landing page 頁面底） */
+  --bg: #ede8dc;
+  /* 面板：抬起來的紙卡（DESIGN.md「Paper Card」） */
+  --panel: #f7f3e9;
+  /* stage 例外——見上面的硬性規則。刻意維持深色，不是漏改。 */
+  --bg-stage: #26231d;
+  --text-1: #26231d;
+  --text-2: #4a463c;
+  --text-3: #635c4b;
+  --line: rgba(38, 35, 29, 0.18);
+  --line-strong: rgba(38, 35, 29, 0.28);
+  /* 波形：spec §3 的 non-photo blue 刻度式（同樣是佔位級） */
+  --wave-clip-peak: rgba(96, 130, 160, 0.35);
+  --wave-clip-rms: rgba(58, 92, 124, 0.85);
+  --wave-audio-peak: rgba(96, 130, 160, 0.35);
+  --wave-audio-rms: rgba(58, 92, 124, 0.85);
+  --wave-midline: rgba(38, 35, 29, 0.18);
 }
 
 /* ============================================================

@@ -2,8 +2,9 @@ import { memo, useEffect, useRef, type PointerEvent } from 'react';
 import { Volume1 } from 'lucide-react';
 import type { AudioItem, Project } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
-import { drawWaveform, AUDIO_WAVE } from './waveform.js';
+import { drawWaveform, audioWave } from './waveform.js';
 import { useWaveform } from './usePeaks.js';
+import { useTheme } from '../stores/theme.js';
 
 /** 音訊軌列高 */
 export const AUDIO_ROW_H = 30;
@@ -31,12 +32,14 @@ export const AudioChip = memo(function AudioChip({
   const peaks = useWaveform(media?.peaksPath);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const w = timeToPx(a.duration, pps);
+  // 理由同 ClipBlock：canvas 不吃 CSS 變數，主題換了要自己重畫
+  const theme = useTheme((s) => s.theme);
 
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !peaks) return;
-    drawWaveform(cv, peaks, { from: a.in, duration: a.duration, midline: false, ...AUDIO_WAVE });
-  }, [peaks, a.in, a.duration, w]);
+    drawWaveform(cv, peaks, { from: a.in, duration: a.duration, midline: false, ...audioWave() });
+  }, [peaks, a.in, a.duration, w, theme]);
 
   return (
     <div

@@ -66,6 +66,22 @@
   `aria-pressed`/label 齊備。
 - 驗收:預設(暗)下全部 verify 腳本與截圖 diff 零變化——基建不許改任何像素。
 
+> **階段 ② 實作定案(2026-08-14 修訂,以實作為準)**:
+>
+> - **切換器位置定案:Inspector 的 Shortcuts 彈出層尾端**(`.seg` 鈕、`Paper theme`
+>   標籤、`aria-pressed`)。選這裡正是「零視覺變化」的要求使然——彈出層預設關著,
+>   主畫面一個像素都不動。階段 ③ 亮版成品後可再議是否升格 header 常駐。
+> - **`dark` 不設 `data-theme` 屬性(是移除,不是 `data-theme="dark"`)**——保證預設
+>   DOM 與基建前逐位元組相同,這是零變化驗收的機制本身。
+> - **canvas 查表走 CSS 變數**:波形五色收進 `:root` 的 `--wave-*` token,
+>   `waveform.ts` 於 draw 時 `getComputedStyle` 讀取(jsdom 無樣式表時回退暗版
+>   字面值);顏色真值從此只有 theme.css 一份。切換重畫靠 ClipBlock/AudioChip 的
+>   draw effect 依賴 theme store 值。
+> - **`0.30`→`0.3`**:prettier 強制正規化 CSS alpha 尾零,故 token 寫 `0.3`、JS 回退
+>   字面值保留 `0.30`,兩者解析為同一顏色(雙側註解已記)。
+> - paper 佔位塊比 §2 列表多蓋了 `--line-strong`(否則紙底上片段描邊繼承暗版白
+>   14% 透明會隱形)。佔位品質,階段 ③ 全面重調。
+
 ## 5. 工序與驗收
 
 | 階段         | 內容                                                           | 驗收                                                           |

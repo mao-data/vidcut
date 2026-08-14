@@ -366,7 +366,7 @@ ui/src/App.tsx            版面外殼：三欄 grid＋header、全域鍵盤快�
 ui/src/shortcuts.ts       快捷鍵單一來源表（描述 App.tsx onKey 的實況＋Timeline 的 Ctrl+wheel；
                           Inspector 的 ShortcutHelp 彈出層由它生成——改 handler 必須同步此表）
 ui/src/motion.ts          GSAP 進入點（useGSAP + reduced-motion 判斷）
-ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）/ agent（見下）
+ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）/ agent（見下）/ theme（dark|paper 雙主題：localStorage `vidcutTheme` > prefers-color-scheme；dark 時**移除** html 的 data-theme 屬性以保證預設 DOM 不變，paper 時設 `data-theme="paper"` 觸發 theme.css 覆寫塊；模組載入即套用防首繪閃爍；波形 canvas 色由 timeline/waveform.ts 讀 `--wave-*` token 查表，ClipBlock/AudioChip 的 draw effect 依賴 theme 值故切換即重畫；切換器藏在 Inspector 的 Shortcuts 彈出層）
 ui/src/stores/agent.ts    AI 存在感的狀態機（零視覺）：進行中工具呼叫集合（callId → tool/startedAt）、
                           三態純函數 agentPhase（offline/idle/working）、最新一筆 currentCall、
                           session 統計 sessionCounts。斷線由 project.setConnected(false) 清空

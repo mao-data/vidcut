@@ -83,6 +83,13 @@ paths: ["ui/**", "scripts/**"]
   沒下這道時實測：讀 rect 到截圖之間版面被面板動畫挪走，墨跡座標整整偏 18 畫布 px，
   看起來像一個不存在的「預覽≠成品」落差（`preview-vs-export.mjs` 因此加了
   「截圖後複驗 rect 沒變」的保險——版面在動就當場失敗）。
+- **`chrome --headless=new --screenshot` 連拍同一個 build 也不逐像素重現**——實測同
+  build 兩張 diff 3 萬像素級，全集中在右面板文字/按鈕邊緣的反鋸齒（p95 通道差 30），
+  拿它做「改動前後零變化」比對必然假陽性。要做像素級比對得走 CDP：
+  `prefers-reduced-motion` 模擬＋注入 `*{transition:none!important;animation:none!important}`
+  ＋等 `document.fonts.ready` ＋落定延遲，實測殘餘噪聲可壓到 7 像素，且集中在
+  playhead 漸層豎線的邊緣（每次載入有次像素抖動，與被測改動無關）——比對時把這個
+  已知殘差當噪聲底，不要追零。
 - **`Page.captureScreenshot` 的 `clip` 會先對齊整數 CSS px 再乘 `scale`**——要求 1080 寬
   可能拿回 1078。一律用「實得影像尺寸 ÷ 實際送出的 clip 尺寸」回推換算，否則帶一個隨
   視窗尺寸浮動的系統性偏差。

@@ -1611,3 +1611,49 @@ PASS;突變錨點 112/112;**突變測試 111/111 killed+1 等價對照如預期�
 hover 態 `#2b2519` 未經對比實算(非文字底);`--card #272d49` 未入亮度樓梯(記
 到階段 ②);accent 疊加族仍為 139,92,246 色相(刻意保留,見 spec §2);顏色外觀
 無自動化守著,同階段 3 的既有限定。
+
+## 補記:雙主題階段 ②——token 雙值化基建+canvas 查表+切換器(2026-08-14)
+
+Spec:`docs/superpowers/specs/2026-08-14-dual-theme-design.md` §4+其階段 ② 實作定案
+修訂區塊。**最高驗收:預設(暗版)視覺零變化**——基建不許改任何像素。
+
+**行為→測試對映**:初始化優先序(localStorage `vidcutTheme` > prefers-color-scheme
+
+> dark,壞值忽略、無 matchMedia 不爆)、模組載入即套用、setTheme 持久化、
+> **dark 移除 data-theme 屬性/paper 設置**、冪等、往返 →
+> `ui/src/stores/theme.test.ts`(14 測);CSS 變數查表取值/trim/空值回退字面值、
+> 中線色三態 → `ui/src/timeline/waveform.test.ts`(7 測);主題切換觸發
+> ClipBlock/AudioChip 重畫 → `ui/src/timeline/waveform.redraw.test.tsx`(2 測);
+> 切換器 aria-pressed 雙態、點擊切換+寫 localStorage、英文標籤 →
+> `ui/src/panels/themeToggle.test.tsx`(5 測)。既有斷言零修改
+> (`git diff --stat` 測試路徑為空,redraw 測試的 RED 以拔依賴法驗證後還原)。
+
+**零視覺變化的機械證明(不是目測)**:(1) `:root` 區塊與 HEAD 版剝除純新增的
+`--wave-*` 後 3644 字元逐位元組相同;(2) dark 態不設任何屬性,預設 DOM 與基建前
+相同;(3) 像素級:發現 `--headless=new --screenshot` 同 build 連拍即有 3 萬像素級
+反鋸齒噪聲(不能當比對工具,教訓已入 `.claude/rules/ui-verification.md`),改用
+CDP 決定性截圖(reduced-motion+transition kill+fonts.ready),同 build 噪聲底
+7 像素(playhead 邊緣次像素抖動);git stash 往返實測 **HEAD build vs 本包 build
+diff=7 像素、bbox 與噪聲底完全一致=零變化成立**。
+
+**gauntlet(source:0aad8a8+本階段工作樹,單次乾淨全跑)**:856 passed
+(shared 46/server 465/ui 345,+28);UI 覆蓋率 91.48% statements;隨機順序×2
+PASS;突變錨點 117/117;**116/116 killed+1 等價對照如預期存活**(5 隻新 mutant:
+theme-init-priority/theme-dark-attr/wave-lookup-fallback/wave-redraw-dep/
+theme-toggle-aria,逐隻先手動驗證擊殺);其餘各層全 PASS;零新增依賴。
+
+**真瀏覽器驗收(主 session)**:paper 模式實截圖確認切換生效(紙底/亮面板/
+**stage 依 §3 硬性規則維持深色襯底**/波形查表換色);verify:panels ✓、
+verify:canvas ✓(demo 缺 overlay 為既有共用狀態問題,MCP 臨時補跑完即拆)、
+verify:wysiwyg 六 case ✓(最大差 1.0px/容差 4)——反目標「wysiwyg 不受影響」守住。
+
+**過程發現(如實記)**:(1) spec 原文「逐字元照抄」波形常數在 CSS 側不可滿足——
+prettier 強制 `0.30`→`0.3`(實測寫 0.30 會讓 format:check 紅),色值等價,雙側
+註解已記;(2) paper 佔位塊比 spec §2 多蓋 `--line-strong`(紙底上片段描邊繼承
+暗版白 14% 透明會隱形);(3) 波形 fallback 測試在舊常數下天然綠(RED 只有 5/7),
+守護靠 wave-lookup-fallback mutant 而非 RED。
+
+**已知限制(如實記)**:paper 佔位值未經 craft 與對比驗算(階段 ③ 全面重調,
+spec 佔位橫幅已聲明勿以此評判亮版);切換器藏在 Shortcuts 彈出層,可發現性低
+(刻意——零視覺變化優先,階段 ③ 再議升格);7 像素 playhead 噪聲殘差未歸零
+(與主題無關的既有抖動,壓到零需凍結 playhead 渲染,不在本階段範圍)。

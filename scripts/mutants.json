@@ -895,5 +895,45 @@
     "replace": "    set({ rightOpen: !get().rightOpen });",
     "tests": "ui/src/stores/view.test.ts",
     "note": "openRight 變成 toggle → 右欄開著時點紙條反而關掉；冪等斷言必須抓到"
+  },
+  {
+    "id": "theme-init-priority",
+    "file": "ui/src/stores/theme.ts",
+    "find": "  if (stored === 'dark' || stored === 'paper') return stored;\n  if (window.matchMedia?.('(prefers-color-scheme: light)')?.matches) return 'paper';",
+    "replace": "  if (window.matchMedia?.('(prefers-color-scheme: light)')?.matches) return 'paper';\n  if (stored === 'dark' || stored === 'paper') return stored;",
+    "tests": "ui/src/stores/theme.test.ts",
+    "note": "初始化優先序反轉（系統偏好蓋過 localStorage）→ 使用者明確選過暗版、系統是亮的就每次開都被打回亮版；優先序斷言必須抓到"
+  },
+  {
+    "id": "theme-dark-attr",
+    "file": "ui/src/stores/theme.ts",
+    "find": "  if (t === 'paper') el.setAttribute('data-theme', 'paper');\n  else el.removeAttribute('data-theme');",
+    "replace": "  el.setAttribute('data-theme', t);",
+    "tests": "ui/src/stores/theme.test.ts",
+    "note": "dark 時不移除屬性而是設 data-theme=\"dark\" → 預設 DOM 不再與此功能存在前相同（階段 ② 的最高驗收標準）；屬性移除斷言必須抓到"
+  },
+  {
+    "id": "wave-lookup-fallback",
+    "file": "ui/src/timeline/waveform.ts",
+    "find": "  return v === '' ? fallback : v;",
+    "replace": "  return fallback;",
+    "tests": "ui/src/timeline/waveform.test.ts",
+    "note": "查表永遠走回退字面值＝查表失效 → 切到亮版波形仍是暗版紫、而且不會有任何錯誤；CSS 變數取值斷言必須抓到"
+  },
+  {
+    "id": "wave-redraw-dep",
+    "file": "ui/src/timeline/ClipBlock.tsx",
+    "find": "  }, [peaks, clip.in, clip.duration, w, theme]);",
+    "replace": "  }, [peaks, clip.in, clip.duration, w]);",
+    "tests": "ui/src/timeline/waveform.redraw.test.tsx",
+    "note": "useEffect 依賴漏 theme → 主題切換後 canvas 不重畫（CSS 變數換了 canvas 不會自己跟）；重畫斷言必須抓到"
+  },
+  {
+    "id": "theme-toggle-aria",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "        aria-pressed={on}",
+    "replace": "        aria-pressed={false}",
+    "tests": "ui/src/panels/themeToggle.test.tsx",
+    "note": "aria-pressed 恆 false → 讀屏幕使用者永遠不知道目前是哪個主題；a11y 斷言必須抓到"
   }
 ]
