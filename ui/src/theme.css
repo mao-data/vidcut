@@ -40,6 +40,56 @@
   --r-ctl: 7px;
 }
 
+/* ============================================================
+ * 紙上分鏡世界的「大使館」
+ * spec: docs/superpowers/specs/2026-08-14-agent-presence-design.md §2 / §3.5
+ *
+ * 深色編輯器維持原樣；**只有 AI 存在感相關的元素是紙**——landing page
+ * (`site/index.html`) 那個用鉛筆打草稿的分鏡師在編輯器裡的駐點。
+ * 紙物件僅限 spec 明列的兩件（header 紙條、Inspector 索引卡），不得擴散。
+ *
+ * 值全部取自 `site/DESIGN.md`，一個都不發明。`--ap-` 前綴把大使館的 token
+ * 跟編輯器本體（上面那組深色 token）隔開——兩套色系不共用、也不互相 fallback。
+ *
+ * One-Pigment / Two-Hands 規則（DESIGN.md）：
+ *   - `--ap-red` 只做筆畫、手寫與 focus ring，**絕不當底色**。
+ *   - 綠 stamp（核可專用）與 highlighter 不出現在編輯器裡。
+ * ============================================================ */
+:root {
+  /* 紙面：抬起來的紙物件底色（DESIGN.md「Paper Card」） */
+  --ap-paper: #f7f3e9;
+  /* 墨：標題、粗體、重筆畫（DESIGN.md「Ink」；純黑是禁止的） */
+  --ap-ink: #26231d;
+  /* 石墨：內文/次要文字、預設筆畫（DESIGN.md「Graphite」） */
+  --ap-graphite: #4a463c;
+  /* 淡石墨：時間碼、署名、細筆畫（DESIGN.md「Graphite Faint」） */
+  --ap-faint: #635c4b;
+  /* 紅鉛筆：註記層。只做筆畫/手寫/focus，絕不當底色（One-Pigment 規則） */
+  --ap-red: #c0392b;
+  /* 和紙膠帶：半透明、永遠微轉、帶 1px ink 色陰影 */
+  --ap-tape: rgba(214, 192, 122, 0.55);
+  /* 彈簧 easing：hover 的物理輕推與形態變化（DESIGN.md 通用 ease） */
+  --ap-spring: cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+/* Jost —— 紙世界的印刷層（label caps / 手寫以外的一切）。
+ * 這是 **variable font**（wght 軸 100–900），Google css2 對 `wght@500;600`
+ * 回同一個 URL，所以單一檔案涵蓋 500–600 兩級（實證：instancer 取 500 與 600
+ * 的字面墨水面積 1760892 → 2059719，600 確實比 500 粗約 17%）。
+ * 授權 OFL（與 AGPL 相容），全文在 `ui/src/fonts/OFL-Jost.txt`。
+ *
+ * 路徑刻意用**相對路徑**讓 vite 打包成 hashed asset：放 `ui/public/fonts/` 會
+ * 產出 `/fonts/*` 靜態路徑，跟 server 既有的字卡字型 `/fonts/:id` 路由相撞
+ * （dev 模式 vite proxy 也整段代理 `/fonts` 給 server）。見 spec §3.5 的修訂註。
+ * 零 npm 依賴、不打 CDN——本機優先是產品承諾。 */
+@font-face {
+  font-family: 'Jost';
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+  src: url('./fonts/Jost-var.woff2') format('woff2');
+}
+
 /**
  * 間距階梯（07-30 spec：一律走 4 的倍數；2 是唯一的半階，用在 chip 內緣這種
  * 只有 20–26px 高、放 4 就撐開的地方）：
@@ -242,6 +292,164 @@ input[type='range'] {
 }
 a {
   color: #a5b4fc;
+}
+
+/* ============================================================
+ * AgentStrip —— header 的膠帶紙條（大使館物件 #1）
+ * spec §3.3 / §3.5、元件在 `ui/src/AgentStrip.tsx`
+ *
+ * 它是 `<button>`（可點：切 Activity 分頁 + 展開右欄），所以上面那組
+ * 原生 button 接管樣式全部要覆蓋掉——紙不是深色玻璃控件。
+ *
+ * **高度預算**：header 是 `padding: 8px 16px`，內容列高由最高的項目（ExportMenu
+ * 的 button：12px 字 + 6px 上下內距 + 1px 框 ≈ 28px）決定。紙條算下來
+ * 16px 圈 + 5px 上下內距 = 26px < 28px，所以**接手不會把 header 撐高**。
+ * 動 padding/字級/圈尺寸之前先重算這筆帳。
+ * ============================================================ */
+.ap-strip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  background: var(--ap-paper);
+  color: var(--ap-ink);
+  /* DESIGN.md 的紙角：3px（chips/buttons 級）。7px 以上圓角是禁止的 */
+  border: none;
+  border-radius: 3px;
+  /* 左內距略小於右：左上角壓著膠帶，視覺重心要往右讓一點 */
+  padding: 5px 14px 5px 12px;
+  /* header 空間窄，微轉收斂到 -0.6deg（demo 是 -1deg）：紙條比 demo 裡的短，
+     同樣角度下右端會多翹起來，貼著 Export 鈕看得出歪。夠歪到像貼上去的，
+     又不會讓上下緣吃掉高度預算。 */
+  transform: rotate(-0.6deg);
+  /* 影全部是 ink 色、小而軟（DESIGN.md：不用純黑陰影） */
+  box-shadow:
+    0 2px 6px rgba(38, 35, 29, 0.35),
+    0 1px 2px rgba(38, 35, 29, 0.25);
+  /* 形態變化（working 時伸長）走彈簧 */
+  transition: padding 0.25s var(--ap-spring);
+  cursor: pointer;
+}
+/* hover = 物理輕推（translate/rotate），**不加大陰影**（DESIGN.md 的 Do） */
+.ap-strip:hover:not(:disabled) {
+  background: var(--ap-paper);
+  border: none;
+  transform: rotate(-0.6deg) translateY(-2px);
+}
+.ap-strip:active:not(:disabled) {
+  transform: rotate(-0.6deg) translateY(0);
+}
+/* focus：DESIGN.md 的「Focus (all)」——2px dashed 紅鉛筆 + 3px offset。
+   紅只做筆畫，這裡是外框線不是底色，符合 One-Pigment 規則。 */
+.ap-strip:focus-visible {
+  outline: 2px dashed var(--ap-red);
+  outline-offset: 3px;
+}
+/* 和紙膠帶：左上角壓住紙條的一小條，微轉 + 1px ink 色陰影 */
+.ap-strip::before {
+  content: '';
+  position: absolute;
+  left: -9px;
+  top: -6px;
+  width: 26px;
+  height: 13px;
+  background: var(--ap-tape);
+  transform: rotate(-4deg);
+  border-radius: 1px;
+  box-shadow: 0 1px 2px rgba(38, 35, 29, 0.12);
+}
+/* 離線：整張紙褪色（不是換色）——紙還在，只是沒人在用 */
+.ap-strip.offline {
+  filter: saturate(0.55) brightness(0.92);
+}
+.ap-strip .ap-cap {
+  /* label caps：Jost 600 / 0.16em（DESIGN.md 的 slate label 規格） */
+  font-family:
+    'Jost',
+    -apple-system,
+    'Helvetica Neue',
+    sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ap-graphite);
+  line-height: 1;
+}
+.ap-strip.offline .ap-cap {
+  color: var(--ap-faint);
+}
+/* working 時浮現的工具名與經過秒數：mono + tabular-nums，
+   秒數每秒換一次數字，等寬才不會讓紙條左右抖動 */
+.ap-strip .ap-tool,
+.ap-strip .ap-secs {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.ap-strip .ap-tool {
+  font-size: 12px;
+  color: var(--ap-ink);
+}
+.ap-strip .ap-secs {
+  font-size: 11px;
+  color: var(--ap-faint);
+}
+/* filter defs 容器：0×0 但 inline-flex 的 gap 仍會算它一格，要拿掉 */
+.ap-strip .ap-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+/* 手繪圈。stroke 全部過 #pencil 濁度濾鏡 + round linecap（DESIGN.md 的 Do） */
+.ap-ring {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.ap-ring path {
+  fill: none;
+  stroke: var(--ap-graphite);
+  /* DESIGN.md 的權重階：heavy 2.6 / default 2 / lite 1.4 */
+  stroke-width: 2;
+  stroke-linecap: round;
+  filter: url(#ap-pencil);
+}
+/* offline：淡石墨虛線圈（線是斷的＝沒接上） */
+.ap-ring.dashed path {
+  stroke: var(--ap-faint);
+  stroke-dasharray: 0.12 0.08;
+  stroke-width: 1.4;
+}
+/* working：圈一遍一遍重畫自己。pathLength=1 讓 dasharray/offset 用比例算，
+   1 = 整圈，offset 從 1（全隱）走到 0（畫滿）。 */
+.ap-ring.drawing path {
+  stroke-dasharray: 1;
+  animation: ap-ring-draw 1.6s var(--ap-spring) infinite;
+}
+@keyframes ap-ring-draw {
+  0% {
+    stroke-dashoffset: 1;
+  }
+  /* 62% 就畫滿，剩下的時間停在完成態當作換氣——不然循環的接縫會像在抽搐 */
+  62% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+/* reduced-motion：圈的重畫必須停下來，且要停在**完成態**（dasharray 拿掉，
+   不是停在某個 offset 上變成半截弧）。檔尾那條全域規則已經
+   `animation: none !important`，這裡補的是「回到畫滿」那半。
+   ⚠️ 秒數文字每秒更新**不受這裡限制**——那是資訊更新不是動效，
+   reduced-motion 的使用者一樣需要知道跑了多久。 */
+@media (prefers-reduced-motion: reduce) {
+  .ap-ring.drawing path {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
 }
 
 /* ---- 佈局積木 ---- */

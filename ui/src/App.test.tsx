@@ -54,13 +54,18 @@ describe('App', () => {
     expect(container.textContent).toContain('demo');
   });
 
-  it('shows connection state', () => {
+  // 舊斷言是 'Offline' → 'Connected'（header 的 ● 那組文字）。**經核准的規格變更**
+  // （spec 2026-08-14-agent-presence-design §3.3）：那兩行已被 AgentStrip 紙條取代，
+  // 連線與否變成紙條三態裡的一態。文字因此改成 'No agent' → 'Agent ready'。
+  // 這條測的仍然是同一件事：header 有沒有把連線狀態誠實地顯示出來。
+  // 紙條自己的完整三態/點擊/a11y 契約在 `ui/src/AgentStrip.test.tsx`。
+  it('shows connection state in the header strip', () => {
     const { container } = render(<App />);
-    expect(container.textContent).toContain('Offline');
+    expect(container.textContent).toContain('No agent');
     act(() => {
       seedProject();
     });
-    expect(container.textContent).toContain('Connected');
+    expect(container.textContent).toContain('Agent ready');
   });
 
   it('collapses and expands the side panels', () => {
@@ -85,6 +90,25 @@ describe('App', () => {
     act(() => {
       fireEvent.click(getByText('Activity'));
     });
+    expect(container.textContent).toContain('No changes yet');
+  });
+
+  // 紙條的 onOpenActivity 是 App 傳進去的 setTab——這條驗的是**接線**
+  // （紙條自己的點擊契約在 AgentStrip.test.tsx，那裡的 callback 是 vi.fn()，
+  // 證不了 App 真的接到分頁狀態上）。
+  it('clicking the header agent strip opens the activity tab and expands the right panel', () => {
+    seedProject();
+    const { container } = render(<App />);
+    act(() => {
+      useView.getState().toggleRight(); // 先收起來
+    });
+    expect(useView.getState().rightOpen).toBe(false);
+    expect(container.textContent).not.toContain('No changes yet');
+
+    act(() => {
+      fireEvent.click(container.querySelector('.ap-strip')!);
+    });
+    expect(useView.getState().rightOpen).toBe(true);
     expect(container.textContent).toContain('No changes yet');
   });
 

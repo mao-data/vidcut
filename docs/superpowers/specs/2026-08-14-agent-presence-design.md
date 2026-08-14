@@ -90,9 +90,13 @@ vidcut 的核心迴路是「AI 剪、人監修」,但 UI 只呈現**過去式**:
 | 動效   | `cubic-bezier(.2,1.4,.4,1)` 彈簧;一律過 `motionOK()`(`ui/src/motion.ts`);reduced-motion=完成態瞬切                                               |
 | 不用   | 綠 stamp(One-Pigment:核可專用,留給未來 review)、highlighter、紅底、7px 以上圓角                                                                  |
 
-字型資產:Jost/Caveat woff2(皆 OFL 授權,與 AGPL 相容)放 `ui/public/fonts/`
-(目錄現不存在,vite 慣例會打進 `ui/dist`),`@font-face` 進 theme.css;
+字型資產:Jost/Caveat woff2(皆 OFL 授權,與 AGPL 相容),`@font-face` 進 theme.css;
 **零 npm 依賴、不打 CDN**(本機優先是產品承諾)。
+
+> **修訂(2026-08-14,階段 3 開工前)**:原定 `ui/public/fonts/` 會產出
+> `/fonts/*` 靜態路徑,與 server 既有的字卡字型 `/fonts` 路由相撞(dev 模式
+> vite proxy 也整段代理 `/fonts` 給 server)。改放 **`ui/src/fonts/`**,由
+> theme.css 相對路徑引用、vite 打包成 hashed asset——不佔任何路由。
 
 ## 4. 反目標(明確不做)
 

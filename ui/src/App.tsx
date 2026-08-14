@@ -14,6 +14,7 @@ import { CaptionList } from './panels/CaptionList.js';
 import { ReviewBar } from './panels/ReviewBar.js';
 import { ExportMenu } from './panels/ExportMenu.js';
 import { PanelResizer } from './PanelResizer.js';
+import { AgentStrip } from './AgentStrip.js';
 import { sendCommand, sendContext } from './ws.js';
 
 function Toast() {
@@ -59,7 +60,6 @@ function Toast() {
 
 export function App() {
   const doc = useProject((s) => s.doc);
-  const connected = useProject((s) => s.connected);
   const leftOpen = useView((s) => s.leftOpen);
   const rightOpen = useView((s) => s.rightOpen);
   const leftWidth = useView((s) => s.leftWidth);
@@ -237,10 +237,9 @@ export function App() {
         <span className="tag">
           v{__APP_VERSION__} · {doc?.name ?? '—'}
         </span>
-        <span className="tag" style={{ marginLeft: 'auto' }}>
-          <span style={{ color: connected ? 'var(--ok)' : 'var(--danger)' }}>●</span>{' '}
-          {connected ? 'Connected' : 'Offline'}
-        </span>
+        {/* 紙條取代了原本的「● Connected / Offline」：連線與否只是它三態中的一態
+            （offline），另外兩態（idle / working）是這裡以前完全看不到的東西。 */}
+        <AgentStrip onOpenActivity={() => setTab('activity')} />
         <ExportMenu />
       </header>
 

@@ -47,6 +47,12 @@ interface ViewState {
   toggleSnap: () => void;
   toggleLeft: () => void;
   toggleRight: () => void;
+  /**
+   * 冪等地展開右欄（AgentStrip 點擊要「切到 Activity 並看得到它」，
+   * 用 toggleRight 的話本來就開著會被關掉）。已經開著時不 set，
+   * 避免無謂的 state 通知。
+   */
+  openRight: () => void;
   /** Shift+Z：整條塞進容器 */
   fit: (totalSeconds: number, containerWidth: number) => void;
 }
@@ -73,5 +79,8 @@ export const useView = create<ViewState>((set, get) => ({
   toggleSnap: () => set({ snapEnabled: !get().snapEnabled }),
   toggleLeft: () => set({ leftOpen: !get().leftOpen }),
   toggleRight: () => set({ rightOpen: !get().rightOpen }),
+  openRight: () => {
+    if (!get().rightOpen) set({ rightOpen: true });
+  },
   fit: (totalSeconds, containerWidth) => set({ pxPerSecond: fitPps(totalSeconds, containerWidth) }),
 }));

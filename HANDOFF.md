@@ -348,6 +348,17 @@ ui/src/stores/agent.ts    AI 存在感的狀態機（零視覺）：進行中工
 ui/src/stores/editDraft.ts 打字中的本地字幕草稿（text + previewHash）：不進 history、不碰 doc、不經 sendCommand
 ui/src/fx/                aiPatches（一輪 AI 編輯的 JSON patch → 哪些光暈/哪些進場/捲到哪，純函數）+ scroll（捲動目標計算）
 ui/src/PanelResizer.tsx   左右面板寬度拖曳把手；數學在 ui/src/panelResize.ts（純函數）
+ui/src/AgentStrip.tsx     header 的膠帶紙條（AI 存在感的視覺面，spec §3.3）：讀 stores/agent
+                          的三態顯示 NO AGENT／AGENT READY／WORKING+工具名+經過秒數；
+                          取代原本 header 的「● Connected/Offline」。經過秒數是元件層
+                          setInterval（store 只存 startedAt），只在 working 掛。點擊切
+                          Activity 分頁（callback 由 App 傳入）+ useView.openRight()。
+                          formatElapsed 是可測的純函數；樣式在 theme.css 的 .ap-strip 區
+ui/src/fonts/             紙世界的字型資產（Jost-var.woff2 + OFL 授權全文）。**放 src 不放
+                          public**：public 會產出 /fonts/* 靜態路徑，撞 server 的字卡字型
+                          /fonts/:id 路由（dev 模式 vite proxy 也整段代理）。theme.css 用
+                          相對路徑 @font-face 引用，vite 打包成 hashed asset，不佔路由。
+                          Jost 是 variable font（wght 100–900），單檔涵蓋 500–600 兩級
 ui/src/ws.ts              WS client：命令/脈絡/審核/渲染 送出 + 重連
 ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎，量 stage 寬算 1080 座標空間縮放係數 + 畫布拖曳事件處理）+ CaptionLayer（見下）+ dragLayer（見下）+ sync（見下）
 ui/src/player/sync.ts     播放中媒體元素的時鐘同步策略：小漂移調 playbackRate 追趕（不中斷、無雜音），大漂移（≥0.25s）才硬 seek

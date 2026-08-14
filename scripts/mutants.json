@@ -783,5 +783,117 @@
     "replace": "      return 'ok';",
     "tests": "ui/src/stores/project.test.ts",
     "note": "agentActivity 收到卻不路由 → 訊號進不了 store；N6 的路由斷言必須抓到"
+  },
+  {
+    "id": "strip-phase-offline",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "  const label = phase === 'offline' ? 'No agent' : working ? 'Working' : 'Agent ready';",
+    "replace": "  const label = working ? 'Working' : 'Agent ready';",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "offline 態顯示 AGENT READY → 沒接上卻說準備好了；三態文字斷言必須抓到"
+  },
+  {
+    "id": "strip-phase-working",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "  const working = phase === 'working' && call !== null;",
+    "replace": "  const working = false;",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "working 態退化成 idle → 工具名/秒數/重畫圈全部不出現；本棒的主要價值；必須抓到"
+  },
+  {
+    "id": "strip-offline-class",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "      className={`ap-strip${phase === 'offline' ? ' offline' : ''}`}",
+    "replace": "      className=\"ap-strip\"",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "離線紙條不再褪色 → 三態視覺分不出來；offline class 斷言必須抓到"
+  },
+  {
+    "id": "strip-ring-dashed",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "        className={`ap-ring${phase === 'offline' ? ' dashed' : ''}${working ? ' drawing' : ''}`}",
+    "replace": "        className={`ap-ring${working ? ' drawing' : ''}`}",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "offline 的圈變成實線（= idle 的樣子）→ 手繪圈不再分態；dashed 斷言必須抓到"
+  },
+  {
+    "id": "strip-elapsed-pad",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;",
+    "replace": "  return `${mm}:${ss}`;",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "秒數不補零 → 7 秒顯示 0:7 而非 00:07，欄寬每秒跳；格式斷言必須抓到"
+  },
+  {
+    "id": "strip-elapsed-clamp",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "  const total = Math.max(0, Math.floor(ms / 1000));",
+    "replace": "  const total = Math.floor(ms / 1000);",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "負數不夾 → 時鐘回撥時顯示 -1:-5 這種東西；負數斷言必須抓到"
+  },
+  {
+    "id": "strip-elapsed-minutes",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "  const mm = Math.floor(total / 60);",
+    "replace": "  const mm = Math.floor(total / 60) % 60;",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "超過一小時分鐘歸零 → transcribe 跑 61 分顯示 01:00（看起來剛開始）；必須抓到"
+  },
+  {
+    "id": "strip-tick",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "    const t = setInterval(() => setNow(Date.now()), 1000);",
+    "replace": "    const t = setInterval(() => {}, 1000);",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "秒數凍結在掛載那一刻 → 紙條看起來死了（working 的重點就是活著）；必須抓到"
+  },
+  {
+    "id": "strip-tick-only-working",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "    if (!working) return;",
+    "replace": "",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "idle/offline 也每秒 setState → 整天空轉重繪；「interval 只在 working 掛」必須抓到"
+  },
+  {
+    "id": "strip-click-openright",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "        useView.getState().openRight();",
+    "replace": "",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "點了切分頁但右欄仍收合 → 使用者什麼都沒看到；點擊斷言必須抓到"
+  },
+  {
+    "id": "strip-click-callback",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "        onOpenActivity();",
+    "replace": "",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "點了不切到 Activity 分頁 → 展開的是字幕面板；callback 斷言必須抓到"
+  },
+  {
+    "id": "strip-current-call",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "          <span className=\"ap-tool\">{call.tool}</span>",
+    "replace": "          <span className=\"ap-tool\">{'working'}</span>",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "工具名寫死 → 看不出 AI 在做什麼（Vyra 對標的那件事）；最新一筆斷言必須抓到"
+  },
+  {
+    "id": "strip-aria-live",
+    "file": "ui/src/AgentStrip.tsx",
+    "find": "      aria-live=\"polite\"",
+    "replace": "",
+    "tests": "ui/src/AgentStrip.test.tsx",
+    "note": "狀態變化不播報 → 讀屏幕使用者永遠不知道 AI 開始/結束；a11y 斷言必須抓到"
+  },
+  {
+    "id": "view-openright-idempotent",
+    "file": "ui/src/stores/view.ts",
+    "find": "    if (!get().rightOpen) set({ rightOpen: true });",
+    "replace": "    set({ rightOpen: !get().rightOpen });",
+    "tests": "ui/src/stores/view.test.ts",
+    "note": "openRight 變成 toggle → 右欄開著時點紙條反而關掉；冪等斷言必須抓到"
   }
 ]

@@ -1544,3 +1544,32 @@ end」+「錯誤訊息完整透傳」;(2) 拋棄式突變揪出一隻存活:集�
 **已知限制**:payload 無工具參數(未來 Vyra 式文案要擴);經過秒數由元件層算
 (store 只存 startedAt,避免每秒重繪全樹);callId 跨 server 重啟歸零(斷線已清
 空集合故不撞;熱重載架構才需複合 id)。
+
+## 補記:Agent Presence 階段 3——header 紙條 AgentStrip(2026-08-14)
+
+Spec §3.3+§3.5(含字型路徑修訂註)。紙上分鏡世界的第一件編輯器實體。
+
+**行為→測試對映**:三態渲染(offline 優先於殘留 working)、formatElapsed 補零/
+負值夾制/超時累加、interval 只在 working 掛且卸載即清、點擊→callback+openRight
+冪等、aria(status/polite/裝飾 svg aria-hidden)、連發取最新一筆 →
+`ui/src/AgentStrip.test.tsx`(23 測)+`ui/src/stores/view.test.ts`(4 測)+
+`App.test.tsx` 接線測試(+1)。斷言更新僅 1 條(Connected/Offline 文字→紙條三態
+文案,經核准的規格變更,強度未弱化)。
+
+**gauntlet(source:2f4688a+本階段工作樹,單次乾淨全跑)**:826 passed
+(shared 46/server 465/ui 315,+28);覆蓋率 89.74%;隨機順序×2 PASS;錨點
+112/112;**111/111 killed+1 等價對照如預期存活**(14 隻新 mutant:strip-phase-_、
+strip-elapsed-_、strip-tick*、strip-click-*、strip-ring-dashed、strip-offline-class、
+strip-current-call、strip-aria-live、view-openright-idempotent);其餘各層全 PASS。
+
+**真瀏覽器驗收(主 session)**:`npm run build -w @vidcut/ui` 後 `verify:panels`
+全綠;:3845 實截圖確認紙條上線(AGENT READY、膠帶、手繪圈,與 Export 鈕同列
+不撐版);header 高度子代理以 CDP 實測四情境皆 45px。variable font 雙路實證
+(fontTools 墨水面積 +17%、瀏覽器 document.fonts.check + 寬度差)。
+
+**已知限制(如實記)**:working 態動畫未在真 app 截圖驗到(需 MCP 呼叫正好在飛;
+由元件測試+使用者核准的互動 demo 覆蓋);prefers-reduced-motion 只在 CSS 層確認
+(全域 kill 含 animation,圈另設完成態),未做 CDP emulate 實測;顏色/微轉/濾鏡
+外觀無自動化守著(jsdom 測不到,刻意不寫恆真的 toHaveStyle)。設計 hook 兩條
+發現(--ap-spring 彈簧、紙條 padding 過渡)經查為核准設計,已登記 sanctioned
+exception 附理由。
