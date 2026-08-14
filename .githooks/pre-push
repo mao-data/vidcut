@@ -58,7 +58,9 @@ esac
 PRO_ROOT=fc87f9ce1c9e215654dac3495d55629afb1ed5ee
 LICENSE_CUT=f5aa8b9729a91bc1a1624354e17b12a45954dbe1
 SENTINELS="$PRO_ROOT $LICENSE_CUT"
-ALLOWED="main caption-wysiwyg"
+# 允許推上開源 repo 的分支。目前只有 main——`caption-wysiwyg` 已完全併入 main、
+# 本地與遠端的 ref 都刪了，留在白名單上等於留一條沒人走但開著的路。
+ALLOWED="main"
 ZERO=0000000000000000000000000000000000000000
 
 # 哨兵物件只靠 cloud-p0 可及。萬一哪天 cloud-p0 被刪或搬走，物件被 gc 掉，第 1 層的
