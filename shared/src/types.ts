@@ -375,7 +375,13 @@ export type WsServerMsg =
   /** 渲染進度旁路（暫態，不進版本/歷史/undo） */
   | { type: 'renderProgress'; progress: number }
   /** 字幕卡 id→hash 對照（僅字幕；文字 overlay 走 doc.imagePath，不需要對照表） */
-  | { type: 'textCards'; entries: Array<{ id: string; hash: string }> };
+  | { type: 'textCards'; entries: Array<{ id: string; hash: string }> }
+  /**
+   * AI 工具呼叫的進行中訊號（暫態旁路，**不是 Command**：不動 doc、不進版本/歷史/undo）。
+   * server 端由 mcp.ts 的 registerTool 包裝層在 handler 進入/離開（含拋錯）時發射，
+   * `callId` 是全域遞增序號，start 與其配對的 end 共用同一個值。
+   */
+  | { type: 'agentActivity'; phase: 'start' | 'end'; tool: string; callId: string };
 
 export type WsClientMsg =
   | { type: 'resync' }

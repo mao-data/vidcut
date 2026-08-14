@@ -23,6 +23,7 @@ import { renderCoverImage, render } from './render.js';
 import { listSource } from './sourceFolder.js';
 import { resolveTextCommand } from './textOverlays.js';
 import { CARD_LIMITS } from './cardBudget.js';
+import { emitAgentActivity, nextCallId } from './agentActivity.js';
 
 export interface McpDeps {
   store: ProjectStore;
@@ -504,6 +505,43 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'field name returns a schema error rather than becoming a no-op.',
     },
   );
+
+  /**
+   * ── AI 進行中訊號的攔截層（spec 2026-08-14 agent-presence §3.1）─────────────────
+   *
+   * 把 `server.registerTool` 換掉，讓底下**每一個** registerTool 呼叫都自動走這裡：
+   * handler 進入前廣播 start、離開後廣播 end。31 個工具一次涵蓋，不必逐一改 handler
+   * （逐一改的版本就是「新增工具的人一定會忘記加」的那種設計）。
+   *
+   * 三條硬性約束：
+   *
+   * 1. **只攔執行，絕不碰工具面。** `name` 與 `config`（description / inputSchema /
+   *    outputSchema / annotations）原封不動往下傳，被包起來的只有 callback。
+   *    `server/test/mcp-surface-snapshot.test.ts` 逐位元組守著這件事——它紅了就是
+   *    這層漏出去了，**不准 `-u`**。
+   * 2. **`finally` 而不是「回傳後才發」。** handler 拋錯時 end 一樣要發出去，否則
+   *    一次失敗的 transcribe 會讓 UI 永遠卡在 working（server 沒死、ws 沒斷，
+   *    那條天然自癒的路走不到）。例外照原樣往外拋，這層不吞、不改。
+   * 3. **回傳值原樣透傳。** 這層對結果零介入。
+   *
+   * `callId` 由 `agentActivity.ts` 的模組級計數器發——`mountMcp` 每個 HTTP 請求
+   * 都 createMcpServer 一次，計數器綁在這個 closure 上會每請求歸零。
+   */
+  const registerTool = server.registerTool.bind(server) as typeof server.registerTool;
+  server.registerTool = ((
+    name: string,
+    config: Parameters<typeof registerTool>[1],
+    cb: (...args: unknown[]) => unknown,
+  ) =>
+    registerTool(name, config, (async (...args: unknown[]) => {
+      const callId = nextCallId();
+      emitAgentActivity({ phase: 'start', tool: name, callId });
+      try {
+        return await cb(...args);
+      } finally {
+        emitAgentActivity({ phase: 'end', tool: name, callId });
+      }
+    }) as Parameters<typeof registerTool>[2])) as typeof server.registerTool;
 
   // ---- 讀取 ----
   server.registerTool(

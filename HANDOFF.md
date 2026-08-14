@@ -308,7 +308,9 @@ server/src/commands.ts    applyCommand：人機共用的驗證過的編輯命令
 server/src/aiWrite.ts     AI 寫入守衛（審核中擋 + ifVersion 過期偵測）→ commands
 server/src/reviews.ts     ReviewManager：request_review 的核心（阻塞/核准/退回回滾/逾時）
 server/src/editorContext.ts 人的選取/playhead（給 get_editor_context）
-server/src/mcp.ts         MCP 工具註冊 + /mcp 掛載（工具清單以本檔為準）★
+server/src/mcp.ts         MCP 工具註冊 + /mcp 掛載（工具清單以本檔為準）；createMcpServer 內把
+                          registerTool 換成包裝版，每個 handler 進入/離開（含拋錯，用 finally）
+                          發 agentActivity——**只攔執行，工具面逐位元組不變**（snapshot 守著）★
 server/src/paths.ts       resolveMediaPath：素材路徑語意（相對＝專案內／絕對＝零複製外部引用）★
 server/src/sourceFolder.ts scanSourceFolder：素材夾掃描（白名單副檔名、排除隱藏檔、不遞迴）
 server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）；ingestMedia 接受絕對路徑；
@@ -327,7 +329,10 @@ server/src/frame.ts       抽幀給 AI「看」
 server/src/demo.ts        `npm run demo` 的 demo 專案產生器（5 支 lavfi 直式影片、其一無音軌 + 標題 overlay + 2 條種子字幕）——⚠️ 會覆寫既有 projects/demo
 server/src/app.ts         Express app：`/api/project`（debug）、`GET /api/source?dir=`（素材夾掃描）、
                           `POST /api/import`（零複製匯入，逐支序列處理）、`POST /assets`（UI 上傳）、`/media/*`
-server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render
+server/src/agentActivity.ts AI 工具呼叫的進行中旁路：agentActivityBus（EventEmitter，型態同
+                          renderProgressBus）+ 模組級遞增 callId。**不是 Command**——不動 doc、
+                          不進版本/歷史/undo。發射點是 mcp.ts 的 registerTool 包裝層
+server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render/agentActivity
 server/src/index.ts       startServer + CLI
 ui/src/theme.css          設計系統：token + 原生控件樣式 + 佈局 class ★
 ui/src/main.tsx           React 入口（createRoot）
@@ -336,7 +341,10 @@ ui/src/App.tsx            版面外殼：三欄 grid＋header、全域鍵盤快�
 ui/src/shortcuts.ts       快捷鍵單一來源表（描述 App.tsx onKey 的實況＋Timeline 的 Ctrl+wheel；
                           Inspector 的 ShortcutHelp 彈出層由它生成——改 handler 必須同步此表）
 ui/src/motion.ts          GSAP 進入點（useGSAP + reduced-motion 判斷）
-ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）
+ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）/ agent（見下）
+ui/src/stores/agent.ts    AI 存在感的狀態機（零視覺）：進行中工具呼叫集合（callId → tool/startedAt）、
+                          三態純函數 agentPhase（offline/idle/working）、最新一筆 currentCall、
+                          session 統計 sessionCounts。斷線由 project.setConnected(false) 清空
 ui/src/stores/editDraft.ts 打字中的本地字幕草稿（text + previewHash）：不進 history、不碰 doc、不經 sendCommand
 ui/src/fx/                aiPatches（一輪 AI 編輯的 JSON patch → 哪些光暈/哪些進場/捲到哪，純函數）+ scroll（捲動目標計算）
 ui/src/PanelResizer.tsx   左右面板寬度拖曳把手；數學在 ui/src/panelResize.ts（純函數）

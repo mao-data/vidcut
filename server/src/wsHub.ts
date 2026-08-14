@@ -9,6 +9,7 @@ import type { TextCardService } from './textCards.js';
 import { applyCommand } from './commands.js';
 import { resolveTextCommand } from './textOverlays.js';
 import { extractCover, render, renderProgressBus } from './render.js';
+import { agentActivityBus, type AgentActivityEvent } from './agentActivity.js';
 
 const HISTORY_IN_FULL = 50;
 
@@ -51,6 +52,18 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
 
   renderProgressBus.on('progress', (progress: number) => {
     const msg: WsServerMsg = { type: 'renderProgress', progress };
+    for (const client of wss.clients) send(client, msg);
+  });
+
+  // AI 工具呼叫的進行中訊號（同 renderProgress 的旁路型態：暫態、不進版本/歷史/undo）。
+  // 發射點在 mcp.ts 的 registerTool 包裝層，這裡只負責轉成 WS 訊息廣播。
+  agentActivityBus.on('activity', (e: AgentActivityEvent) => {
+    const msg: WsServerMsg = {
+      type: 'agentActivity',
+      phase: e.phase,
+      tool: e.tool,
+      callId: e.callId,
+    };
     for (const client of wss.clients) send(client, msg);
   });
 

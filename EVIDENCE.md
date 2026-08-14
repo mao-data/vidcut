@@ -1512,3 +1512,35 @@ AI／人。純顯示層，不新增 command、不碰 MCP、不動任何既有互
 - **視覺呈現（間距、顏色、好不好看）測不出來**——由實機截圖人工確認，本節不宣稱涵蓋。
 - `entries` 超過 200 筆的截斷是 activity store 既有邏輯，非本次範圍。
 - 覆蓋率數字只針對 `Inspector.tsx`（`--coverage.include` 限定），不是全 UI 重跑。
+
+## 補記:Agent Presence 階段 2——agentActivity 訊號管線(2026-08-14)
+
+Spec:`docs/superpowers/specs/2026-08-14-agent-presence-design.md` §3.1+§3.2。零視覺變更。
+
+**行為→測試對映**:start/end 配對(含拋錯走 finally)、callId 模組級遞增(跨
+server 實例決定性——mountMcp 每請求 new 一台,closure 計數器會歸零撞號)、
+bus→wsHub 端到端廣播 → `server/test/agent-activity.test.ts`(10 測);store 集合
+增刪、三態推導、斷線清空、無主 end 容錯、sessionCounts → `ui/src/stores/agent.test.ts`
+(21 測);訊息路由早期 return(N6:落到 patch 分支會誤判 resync)與斷線清空
+→ `ui/src/stores/project.test.ts`(+2 測)。
+
+**gauntlet(source:3350399+本階段工作樹,單次乾淨全跑)**:全測試 798 passed
+(shared 46/server 465/ui 287,+33);UI 覆蓋率 89.55% statements;隨機順序×2 PASS;
+突變錨點 98/98;**突變測試 97/97 killed+1 等價對照隻如預期存活**(12 隻新 mutant:
+agentact-finally/-start/-seq/-wshub、agent-store-end/-offline/-latest/-nocalls/
+-counts/-clear-ref、agent-disconnect-clear、agent-msg-route);型別/lint/格式/文件
+引用/中文字串/秘密掃描全 PASS;audit 5 個既有 dev 依賴漏洞(本階段零新增依賴)。
+
+**硬性驗收**:`server/test/mcp-surface-snapshot.test.ts` 9 測全綠,snapshot 檔
+`git diff` 為空——registerTool 攔截層未讓工具面移動一個位元組,全程未用 `-u`。
+
+**過程發現(如實記)**:(1) RED 期發現 MCP SDK 會把 handler 例外轉成
+`{isError:true}` 回覆,原 `rejects.toThrow()` 斷言是錯的——改為釘「finally 仍發
+end」+「錯誤訊息完整透傳」;(2) 拋棄式突變揪出一隻存活:集合已空時 clear() 仍
+換 reference(zustand v5 下每次斷線重連讓全部訂閱者重繪),補斷言後 killed,並
+收為永久 mutant agent-store-clear-ref;(3) `startServer` 開機的字型 probe 在本機
+吃數十秒,該測試 timeout 調至 120s。
+
+**已知限制**:payload 無工具參數(未來 Vyra 式文案要擴);經過秒數由元件層算
+(store 只存 startedAt,避免每秒重繪全樹);callId 跨 server 重啟歸零(斷線已清
+空集合故不撞;熱重載架構才需複合 id)。

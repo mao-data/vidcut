@@ -687,5 +687,101 @@
     "replace": "<div className=\"tag\" />",
     "tests": "ui/src/panels/panels.test.tsx",
     "note": "空狀態文字消失 → B5 必須抓到"
+  },
+  {
+    "id": "agentact-finally",
+    "file": "server/src/mcp.ts",
+    "find": "      } finally {\n        emitAgentActivity({ phase: 'end', tool: name, callId });\n      }",
+    "replace": "      } finally {\n        void callId;\n      }",
+    "tests": "server/test/agent-activity.test.ts",
+    "note": "handler 離開時不發 end → UI 永遠卡在 working；B3/B4 斷言必須抓到"
+  },
+  {
+    "id": "agentact-start",
+    "file": "server/src/mcp.ts",
+    "find": "      emitAgentActivity({ phase: 'start', tool: name, callId });",
+    "replace": "",
+    "tests": "server/test/agent-activity.test.ts",
+    "note": "handler 進入時不發 start → 進行中狀態永遠不亮；B2 必須抓到"
+  },
+  {
+    "id": "agentact-seq",
+    "file": "server/src/agentActivity.ts",
+    "find": "  seq += 1;\n  return String(seq);",
+    "replace": "  return String(seq + 1);",
+    "tests": "server/test/agent-activity.test.ts",
+    "note": "callId 不遞增（永遠 '1'）→ 並發呼叫互相覆蓋；B6 必須抓到"
+  },
+  {
+    "id": "agentact-wshub",
+    "file": "server/src/wsHub.ts",
+    "find": "  agentActivityBus.on('activity', (e: AgentActivityEvent) => {",
+    "replace": "  agentActivityBus.on('never', (e: AgentActivityEvent) => {",
+    "tests": "server/test/agent-activity.test.ts",
+    "note": "wsHub 不轉播 agentActivity → 訊號到不了 UI；B8 必須抓到"
+  },
+  {
+    "id": "agent-store-end",
+    "file": "ui/src/stores/agent.ts",
+    "find": "    if (!(msg.callId in calls)) return;",
+    "replace": "    return;",
+    "tests": "ui/src/stores/agent.test.ts",
+    "note": "end 不移除 callId → 卡假忙碌；B10/N1 必須抓到"
+  },
+  {
+    "id": "agent-store-offline",
+    "file": "ui/src/stores/agent.ts",
+    "find": "  if (!connected) return 'offline';",
+    "replace": "",
+    "tests": "ui/src/stores/agent.test.ts",
+    "note": "三態不看連線 → offline 消失；B11 必須抓到"
+  },
+  {
+    "id": "agent-store-latest",
+    "file": "ui/src/stores/agent.ts",
+    "find": "  return calls[ids[ids.length - 1]];",
+    "replace": "  return calls[ids[0]];",
+    "tests": "ui/src/stores/agent.test.ts",
+    "note": "顯示最舊而非最新的呼叫 → B12 必須抓到"
+  },
+  {
+    "id": "agent-store-nocalls",
+    "file": "ui/src/stores/agent.ts",
+    "find": "    set({ calls: Object.keys(next).length === 0 ? NO_CALLS : next });",
+    "replace": "    set({ calls: next });",
+    "tests": "ui/src/stores/agent.test.ts",
+    "note": "清空後回新 {} 而非模組級常數 → zustand v5 selector 鐵則失守；必須抓到"
+  },
+  {
+    "id": "agent-store-clear-ref",
+    "file": "ui/src/stores/agent.ts",
+    "find": "    if (get().calls !== NO_CALLS) set({ calls: NO_CALLS });",
+    "replace": "    set({ calls: {} });",
+    "tests": "ui/src/stores/agent.test.ts",
+    "note": "本來就空還換 reference → 每次斷線重連都讓訂閱者重繪；必須抓到"
+  },
+  {
+    "id": "agent-store-counts",
+    "file": "ui/src/stores/agent.ts",
+    "find": "    else human += 1;",
+    "replace": "    else ai += 1;",
+    "tests": "ui/src/stores/agent.test.ts",
+    "note": "人的變更被算成 AI → session 讀數說謊；B14 必須抓到"
+  },
+  {
+    "id": "agent-disconnect-clear",
+    "file": "ui/src/stores/project.ts",
+    "find": "    if (!b) useAgent.getState().clear();",
+    "replace": "",
+    "tests": "ui/src/stores/project.test.ts",
+    "note": "斷線不清空進行中集合 → 卡假忙碌；B13/N3 必須抓到"
+  },
+  {
+    "id": "agent-msg-route",
+    "file": "ui/src/stores/project.ts",
+    "find": "      useAgent.getState().apply(msg);\n      return 'ok';",
+    "replace": "      return 'ok';",
+    "tests": "ui/src/stores/project.test.ts",
+    "note": "agentActivity 收到卻不路由 → 訊號進不了 store；N6 的路由斷言必須抓到"
   }
 ]
