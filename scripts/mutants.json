@@ -631,5 +631,61 @@
     "replace": "    'color=c=black@0.0:size=800x120,format=rgba',",
     "tests": "server/test/demo.test.ts",
     "note": "標題卡底色改回全透明 → drawbox 不寫 alpha，整張 title.png 隱形；「不是整張透明」那條必須抓到（只斷言 overlay 軌存在的那條抓不到，這正是原本漏掉的洞）"
+  },
+  {
+    "id": "inspector-agent-block",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "        <AgentStatus />\n",
+    "replace": "",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "AI 區塊整塊不渲染 → B1..B7 必須抓到"
+  },
+  {
+    "id": "inspector-agent-connected",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "{connected ? 'Agent connected' : 'No agent'}",
+    "replace": "{connected ? \"No agent\" : \"Agent connected\"}",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "連線狀態反轉 → B2 必須抓到"
+  },
+  {
+    "id": "inspector-agent-hint-always",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "{!connected && (",
+    "replace": "{true && (",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "離線指令連線時也顯示 → B4 必須抓到"
+  },
+  {
+    "id": "inspector-agent-order",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "const recent = [...entries].reverse().slice(0, 3);",
+    "replace": "const recent = [...entries].slice(0, 3);",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "不反轉＝顯示最舊三筆 → B6 的順序斷言必須抓到"
+  },
+  {
+    "id": "inspector-agent-count",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": ".reverse().slice(0, 3)",
+    "replace": ".reverse().slice(0, 5)",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "取五筆而非三筆 → B6 必須抓到"
+  },
+  {
+    "id": "inspector-agent-source",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "{e.source === 'ai' ? 'AI' : 'you'}",
+    "replace": "{'AI'}",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "來源標示恆為 AI → B7 必須抓到"
+  },
+  {
+    "id": "inspector-agent-empty",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "<div className=\"tag\">No edits yet.</div>",
+    "replace": "<div className=\"tag\" />",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "空狀態文字消失 → B5 必須抓到"
   }
 ]

@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, act, fireEvent } from '@testing-library/react';
-import type { Command, ReviewOutcome } from '@vidcut/shared';
+import type { Command, MutationSource, ReviewOutcome } from '@vidcut/shared';
 import { Inspector } from './Inspector.js';
 import { CaptionList } from './CaptionList.js';
 import { ExportMenu } from './ExportMenu.js';
 import { ReviewBar } from './ReviewBar.js';
 import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
+import { useProject } from '../stores/project.js';
+import { useActivity } from '../stores/activity.js';
 import * as ws from '../ws.js';
 import { demoProject, seedProject, resetStores } from '../test/fixtures.js';
 
@@ -61,6 +63,94 @@ describe('Inspector', () => {
     seedProject();
     const { container } = render(<Inspector />);
     expect(container.textContent).toContain('Select a clip');
+  });
+
+  /**
+   * 未選取時的 AI 區塊。這片面板是唯一「閒著也會被看到」的區域，所以它顯示的是
+   * 產品的核心迴路狀態（agent 在不在、剛做了什麼），而不只是「請選一個東西」。
+   */
+  describe('agent status (nothing selected)', () => {
+    /** 灌一批歷史；version 遞增代表由舊到新。 */
+    function seedHistory(n: number, source: MutationSource = 'ai') {
+      useActivity.setState({
+        entries: Array.from({ length: n }, (_, i) => ({
+          version: i + 1,
+          label: `edit ${i + 1}`,
+          source,
+          ts: new Date(1700000000000 + i * 1000).toISOString(),
+        })),
+      });
+    }
+
+    it('B1/B2: shows the agent block, connected when the socket is up', () => {
+      seedProject(); // seedProject 會 setConnected(true)
+      const { container } = render(<Inspector />);
+      expect(container.textContent).toContain('AI agent');
+      expect(container.textContent).toContain('Agent connected');
+      expect(container.textContent).not.toContain('No agent');
+    });
+
+    it('B2/B3: offline shows "No agent" plus the command that reconnects it', () => {
+      seedProject();
+      act(() => useProject.getState().setConnected(false));
+      const { container } = render(<Inspector />);
+      expect(container.textContent).toContain('No agent');
+      expect(container.textContent).not.toContain('Agent connected');
+      // 離線時給的是「怎麼接回來」，不是只宣告狀態
+      expect(container.textContent).toContain('claude mcp add --transport http vidcut');
+    });
+
+    it('B4: the reconnect command is hidden while connected', () => {
+      seedProject();
+      const { container } = render(<Inspector />);
+      expect(container.textContent).not.toContain('claude mcp add');
+    });
+
+    it('B5: says so when there is no history yet', () => {
+      seedProject();
+      const { container } = render(<Inspector />);
+      expect(container.textContent).toContain('No edits yet.');
+    });
+
+    it('B6: lists only the three most recent edits, newest first', () => {
+      seedProject();
+      seedHistory(5);
+      const { container } = render(<Inspector />);
+      const text = container.textContent ?? '';
+      expect(text).not.toContain('No edits yet.');
+      for (const v of [5, 4, 3]) expect(text).toContain(`edit ${v}`);
+      // 只有三筆：第 4 新與第 5 新不得出現
+      for (const v of [2, 1]) expect(text).not.toContain(`edit ${v}`);
+      // 最新在最前：獨立 oracle，不是靠上面的 toContain 推論
+      expect(text.indexOf('edit 5')).toBeLessThan(text.indexOf('edit 4'));
+      expect(text.indexOf('edit 4')).toBeLessThan(text.indexOf('edit 3'));
+    });
+
+    it('B7: attributes each edit to the AI or to you', () => {
+      seedProject();
+      useActivity.setState({
+        entries: [
+          { version: 1, label: 'ai did this', source: 'ai', ts: '2026-01-01T00:00:00.000Z' },
+          { version: 2, label: 'you did this', source: 'human', ts: '2026-01-01T00:00:01.000Z' },
+        ],
+      });
+      const { container } = render(<Inspector />);
+      const rows = Array.from(container.querySelectorAll('div')).filter((d) =>
+        d.textContent?.startsWith('AI'),
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      const text = container.textContent ?? '';
+      expect(text).toContain('AIai did this');
+      expect(text).toContain('youyou did this');
+    });
+
+    it('N2: the agent block is not shown once something is selected', () => {
+      seedProject();
+      useSelection.getState().select({ kind: 'clip', id: 'c1' });
+      const { container } = render(<Inspector />);
+      expect(container.textContent).not.toContain('AI agent');
+      expect(container.textContent).not.toContain('No edits yet.');
+    });
   });
 
   it('edits a clip: label, in, duration, volume', () => {

@@ -8,6 +8,7 @@ type AudioPatch = Partial<
 import { useProject } from '../stores/project.js';
 import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
+import { useActivity } from '../stores/activity.js';
 import { sendCommand } from '../ws.js';
 
 function num(e: ChangeEvent<HTMLInputElement>): number {
@@ -75,6 +76,86 @@ function ShortcutHelp() {
   );
 }
 
+/**
+ * 沒有選取時，這片面板是唯一「閒著也會被看到」的區域。原本只有一句
+ * 「Select a clip…」在描述系統狀態，而使用者此刻真正需要知道的是這個產品的
+ * 核心迴路：AI 在不在、它剛做了什麼。連線狀態原本只是右上角 12px 的小綠點。
+ */
+function AgentStatus() {
+  const connected = useProject((s) => s.connected);
+  const entries = useActivity((s) => s.entries);
+  const recent = [...entries].reverse().slice(0, 3);
+  return (
+    <div style={{ padding: 12, borderBottom: '1px solid var(--line)' }}>
+      <div className="panel-head" style={{ marginBottom: 8 }}>
+        AI agent
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, fontSize: 12.5 }}>
+        <span style={{ color: connected ? 'var(--ok)' : 'var(--danger)', fontSize: 10 }}>●</span>
+        <span style={{ color: 'var(--text-1)' }}>{connected ? 'Agent connected' : 'No agent'}</span>
+      </div>
+      {!connected && (
+        // 離線時給的是「怎麼接回來」，不是「你離線了」。
+        <code
+          style={{
+            display: 'block',
+            marginTop: 8,
+            padding: '6px 8px',
+            borderRadius: 'var(--r-ctl)',
+            background: 'rgba(0,0,0,0.28)',
+            border: '1px solid var(--line)',
+            color: 'var(--text-2)',
+            fontSize: 10.5,
+            lineHeight: 1.5,
+            wordBreak: 'break-all',
+          }}
+        >
+          claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
+        </code>
+      )}
+      <div style={{ marginTop: 10 }}>
+        {recent.length === 0 ? (
+          <div className="tag">No edits yet.</div>
+        ) : (
+          recent.map((e) => (
+            <div
+              key={e.version}
+              style={{
+                display: 'flex',
+                gap: 6,
+                alignItems: 'baseline',
+                padding: '2px 0',
+                fontSize: 11.5,
+              }}
+            >
+              {/* AI 紫、人藍：與 Activity 面板同一條分色規則 */}
+              <span
+                style={{
+                  flex: 'none',
+                  width: 26,
+                  color: e.source === 'ai' ? '#c4b5fd' : 'var(--audio-bright)',
+                }}
+              >
+                {e.source === 'ai' ? 'AI' : 'you'}
+              </span>
+              <span
+                style={{
+                  color: 'var(--text-2)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {e.label}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Inspector() {
   const doc = useProject((s) => s.doc);
   const selected = useSelection((s) => s.selected);
@@ -82,6 +163,7 @@ export function Inspector() {
   if (!selected) {
     return (
       <div className="form">
+        <AgentStatus />
         <CanvasFitRow />
         <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 12 }}>
           Select a clip / caption / overlay / audio to edit

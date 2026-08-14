@@ -1425,3 +1425,90 @@ node scripts/mutate.mjs >/dev/null 2>&1; check $?          # ← 同一關卡跑
 | 秘密掃描               | PASS                                                                                                |
 | 突變測試               | **75 killed + 1 equivalent control**（`store-corrupt-load`）＝`scripts/mutants.json` 全部 **76 隻** |
 | 總結                   | `GAUNTLET: 全數通過`                                                                                |
+
+---
+
+# 補記：Inspector 未選取狀態的 AI 區塊（2026-08-13）
+
+依 old-coder 流程。**Tier 2**。範圍：`ui/src/panels/Inspector.tsx` 未選取時新增
+`AgentStatus`（+82 行），顯示 agent 連線狀態、離線時的重連指令、最近三筆變更並標示
+AI／人。純顯示層，不新增 command、不碰 MCP、不動任何既有互動。
+
+**Spec approval：已取得**（使用者核准 SPEC 的 B1–B7 與 N1–N6 之後才開工）。
+**RED 的降級如實記載**：實作在 SPEC 之前就寫好了（來自同一輪對話的 UI 診斷），
+所以無法用「先看測試失敗」的原始形式。改以**變異優先**取代：先寫測試看綠，再逐一
+破壞實作確認每條會轉紅（下表 7 隻，全部收進 `scripts/mutants.json` 可重跑）。
+這比正規 RED 弱一級，信心層級如實下修。
+
+## 行為 → 測試對映
+
+全部在 `ui/src/panels/panels.test.tsx` 的 `describe('agent status (nothing selected)')`。
+
+| 行為                                     | 測試                                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| B1/B2 顯示 AI 區塊、連線時顯示 connected | `B1/B2: shows the agent block, connected when the socket is up`       |
+| B2/B3 離線顯示 No agent＋重連指令        | `B2/B3: offline shows "No agent" plus the command that reconnects it` |
+| B4 連線時不顯示重連指令                  | `B4: the reconnect command is hidden while connected`                 |
+| B5 無歷史時的空狀態                      | `B5: says so when there is no history yet`                            |
+| B6 只列最近三筆、最新在最前              | `B6: lists only the three most recent edits, newest first`            |
+| B7 標示變更來源（AI／you）               | `B7: attributes each edit to the AI or to you`                        |
+| N2 有選取時不顯示 AI 區塊                | `N2: the agent block is not shown once something is selected`         |
+| N1 既有空狀態文字仍在                    | 既有 `prompts for a selection when nothing is selected`（續綠）       |
+| N3 冷載入不白屏                          | 既有 `panels-smoke.test.tsx`（續綠）                                  |
+| N4 真瀏覽器面板／畫布行為不變            | `verify:panels`、`verify:canvas`（見下）                              |
+| N5 不新增相依                            | `git diff` 對四份 package.json＋lock 皆為空                           |
+| N6 Activity 面板既有行為不變             | `panels.test.tsx` 的 Activity 段（續綠）                              |
+
+## 本功能的 7 隻 mutants（全滅）
+
+`node scripts/mutate.mjs <id>` 可逐隻重現。
+
+| id                            | 改了什麼             | 被誰殺                |
+| ----------------------------- | -------------------- | --------------------- |
+| `inspector-agent-block`       | 整塊不渲染           | B1–B7（5 條同時轉紅） |
+| `inspector-agent-connected`   | 連線狀態反轉         | B1/B2、B2/B3          |
+| `inspector-agent-hint-always` | 連線時也顯示重連指令 | B4                    |
+| `inspector-agent-order`       | 不反轉＝顯示最舊三筆 | B6（順序斷言）        |
+| `inspector-agent-count`       | 取五筆而非三筆       | B6                    |
+| `inspector-agent-source`      | 來源標示恆為 AI      | B7                    |
+| `inspector-agent-empty`       | 空狀態文字消失       | B5                    |
+
+## GAUNTLET（最後一次程式碼修改後的單一乾淨執行）
+
+| 關卡               | 結果                                                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 版本               | node v22.18.0／tsc 5.9.3／vitest 3.2.7／source `94ac894`                                                                                                                          |
+| 全測試套件         | **755 passed**（shared 46／server 446／ui 263），0 failed                                                                                                                         |
+| 型別檢查（tsc ×3） | PASS                                                                                                                                                                              |
+| Lint               | PASS                                                                                                                                                                              |
+| 格式               | 本次改動的四個檔案 PASS（`docs/research/…` 那筆紅是別的 session 的檔案，非本次）                                                                                                  |
+| **變更行覆蓋率**   | **AgentStatus（79–161 行）未覆蓋語句 0 條＝100%**；檔案整體 85.43% 為既有基準                                                                                                     |
+| 隨機順序           | ui 全套在 files＋tests 兩層都打亂下，seed 1337／42／7 皆 **263 passed**                                                                                                           |
+| 突變錨點           | **86/86** mutants 的 `find` 都恰好命中一次                                                                                                                                        |
+| 突變測試（本功能） | **7/7 killed**（上表），由 `scripts/mutate.mjs` 引擎逐隻實跑，工作樹以 git diff 驗證還原                                                                                          |
+| 依賴稽核           | **零新增依賴**（四份 package.json 與 lock 皆無 diff）                                                                                                                             |
+| 秘密掃描           | PASS（diff 內無命中）                                                                                                                                                             |
+| 真實執行           | 正式 build 由真 server 服務（:3901，demo 副本）：DOM `AI agent`／畫面渲染 `AI AGENT`（`.panel-head` 的 uppercase）、`Agent connected`、`No edits yet.` 皆在，連線時不顯示重連指令 |
+
+## 過程中的發現與處理（如實記載）
+
+1. **`resetStores()` 沒有清 `useActivity`** —— 加了清理，但**實測證明它目前不可達**：
+   每個測試都走 `seedProject()`，而 `applyServerMsg({type:'full'})` 會
+   `useActivity.seed(msg.history)`（`stores/project.ts`），history 是空陣列等於已清乾淨。
+   刻意寫了一支決定性探針（A 灌歷史→B 斷言乾淨），拿掉清理後**照樣全綠**；
+   `--sequence.shuffle.tests` 五個 seed 也殺不掉。**沒有謊稱它是有效防護**：程式碼留著
+   （不經 seedProject 直接操作 store 的測試會需要它），但註解與本節都寫明它無 mutant
+   守著、改動不會有測試轉紅。
+2. **一次工具誤用**：`--sequence.shuffle` 與 `--sequence.shuffle.tests` 同時傳會讓 vitest
+   的 CLI 解析崩潰（`Cannot create property 'tests' on boolean 'true'`），輸出被吞、
+   exit 1。**那不是測試失敗**；改用 `--sequence.shuffle.files --sequence.shuffle.tests`
+   後三個 seed 全綠。記在這裡免得下一個人把它讀成回歸。
+3. **真實執行時 `innerText` 找不到 `AI agent`** —— 因為 `.panel-head` 有
+   `text-transform: uppercase`，畫面上是 `AI AGENT`。測試斷言的是 `textContent`
+   （不受 CSS 影響）故仍正確；已在真瀏覽器上分別確認 DOM 值與渲染值。
+
+## 已知限制
+
+- **視覺呈現（間距、顏色、好不好看）測不出來**——由實機截圖人工確認，本節不宣稱涵蓋。
+- `entries` 超過 200 筆的截斷是 activity store 既有邏輯，非本次範圍。
+- 覆蓋率數字只針對 `Inspector.tsx`（`--coverage.include` 限定），不是全 UI 重跑。

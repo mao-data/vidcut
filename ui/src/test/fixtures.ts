@@ -4,6 +4,7 @@ import { useProject } from '../stores/project.js';
 import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
 import { useView } from '../stores/view.js';
+import { useActivity } from '../stores/activity.js';
 import { __resetCaptionGeoCacheForTests } from '../player/CaptionLayer.js';
 
 /**
@@ -103,6 +104,14 @@ export function resetStores(): void {
   useSelection.setState({ selected: null });
   usePlayback.setState({ time: 0, playing: false, total: 0 });
   useView.setState({ pxPerSecond: 40, snapEnabled: false, leftOpen: true, rightOpen: true });
+  // activity 是模組級狀態，Inspector 的 AI 區塊與 Activity 面板都讀它。
+  // ⚠️ 這行目前「不可達」：實務上每個測試都會走 seedProject()，而
+  // applyServerMsg({type:'full'}) 會 `useActivity.seed(msg.history)`（見
+  // stores/project.ts），history 是空陣列，等於已經清乾淨了——實測拿掉這行，
+  // 連刻意排出污染順序的探針都照樣綠。留著是防禦性的：任何不經 seedProject
+  // 直接操作 store 的測試就沒有那層間接清理。**沒有 mutant 守著它**，改動
+  // 這裡不會有測試轉紅。
+  useActivity.setState({ entries: [] });
   localStorage.clear();
   // CaptionLayer 的 geometry fetch 快取是模組級的，不會隨 store 重置——不清的話，
   // 一個測試檔裡不同 case 重用同一個 text-card hash 會讓後面的測試靜靜地讀到前一個
