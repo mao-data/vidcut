@@ -183,7 +183,7 @@ export function ExportMenu() {
             right: 0,
             height: 3,
             zIndex: 60,
-            background: 'rgba(255,255,255,0.06)',
+            background: 'var(--tint-06)',
             pointerEvents: 'none',
           }}
         >

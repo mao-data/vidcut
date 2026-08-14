@@ -1573,3 +1573,41 @@ strip-current-call、strip-aria-live、view-openright-idempotent);其餘各層�
 外觀無自動化守著(jsdom 測不到,刻意不寫恆真的 toHaveStyle)。設計 hook 兩條
 發現(--ap-spring 彈簧、紙條 padding 過渡)經查為核准設計,已登記 sanctioned
 exception 附理由。
+
+## 補記:雙主題階段 ①——暗房調和+AgentStrip 琥珀終端換裝(2026-08-14)
+
+Spec:`docs/superpowers/specs/2026-08-14-dual-theme-design.md` §2(暗房調和)+
+`2026-08-14-agent-presence-design.md` §2/§3.3/§3.5 修訂區塊(大使館識別=「那隻
+手」,載體隨主題;暗版載體=琥珀終端紙條)。配色為使用者逐輪定案:working/idle
+用 D3 琥珀終端、offline 用 C 舊黃銅灰圈。
+
+**行為→測試對映**:換裝**零行為變更**——三態推導、interval、點擊、aria 的既有
+23 測全數原樣通過(斷言未動);新增 2 測釘歪框結構(SVG pathLength=1 手繪框存在
+且 aria-hidden、三態皆掛框)→ `ui/src/AgentStrip.test.tsx`(25 測)。token 改值
+(亮度樓梯/降飽和/對比修正)屬視覺層,jsdom 不假裝測得到,由下方實機驗收扛。
+
+**token 帳(theme.css)**:亮度樓梯 `--bg #0d0e16→#15161d`、新 `--panel #191a22`、
+新 `--bg-stage #101117`(stage 永遠最暗)、`--popover-bg →#242530`、`--surface 白
+5%→6%`、`--accent #8b5cf6→#6d5bd0`(降飽和,附帶把白字對比 4.23→5.18 修過線)、
+`--clip-frozen-bg →#2c2f42`;18 處殘餘硬編色收編為 token(accent-glow 族/audio
+族/tint 族/link/brand-gradient-end 等);對比修正 `--text-3 →#82879c`(對 panel
+4.86:1、對 bg 5.06:1)、`--accent-2 →#6264f1`(白字 4.553:1,取最近的合規值)。
+琥珀紙條:idle/working `#241f16` 底+`#e8b04c` 字(8.38:1)、offline `#1f1c15` 底 +`#9c8654` 舊黃銅(4.82:1)+虛線灰圈、working 秒數 4.64:1;膠帶 ::before 移除,
+由歪框 SVG(#ap-pencil feTurbulence)接替;紙/膠帶 token 保留註記「亮版紙世界
+專用」。
+
+**gauntlet(source:d9f4252+本階段工作樹,單次乾淨全跑)**:828 passed
+(shared 46/server 465/ui 317,+2);UI 覆蓋率 89.78% statements;隨機順序×2
+PASS;突變錨點 112/112;**突變測試 111/111 killed+1 等價對照如預期存活**
+(本階段零新增 mutant——換裝零行為變更,既有 14 隻 strip mutant+全庫 112 錨點
+續守);型別/lint/格式/文件引用/中文字串/秘密掃描全 PASS;audit 僅既有 dev 依賴漏洞(本階段零新增依賴)。
+
+**真瀏覽器驗收(主 session)**:`npm run build -w @vidcut/ui`(✓ built)後
+`verify:panels` 全綠;:3845 實截圖確認琥珀紙條入列 header(舊黃銅 offline 態、
+歪框、與 Export 同列不撐版);全對比為實算(WCAG relative luminance),非目測。
+
+**已知限制(如實記)**:`--text-3` 對 `--popover-bg` 為 4.26:1——popover 內語意
+文字應改用 `--text-2`,現況 popover 中 text-3 僅裝飾/輔助用途,列為 advisory;
+hover 態 `#2b2519` 未經對比實算(非文字底);`--card #272d49` 未入亮度樓梯(記
+到階段 ②);accent 疊加族仍為 139,92,246 色相(刻意保留,見 spec §2);顏色外觀
+無自動化守著,同階段 3 的既有限定。

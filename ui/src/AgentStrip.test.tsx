@@ -353,6 +353,42 @@ describe('結構（紙的組成，視覺由真瀏覽器驗收）', () => {
     expect(filter!.querySelector('feDisplacementMap')!.getAttribute('scale')).toBe('2.6');
   });
 
+  it('歪框：絕對定位鋪滿的 SVG，viewBox 158×29 + preserveAspectRatio=none（跟著標籤拉伸）', () => {
+    // 2026-08-14 換裝：暗版載體改成琥珀終端標籤，膠帶（紙的配件）移除，
+    // 手繪簽名由這條歪框接手。三態都有框，框色由 CSS 控制。
+    const { container } = render(<AgentStrip onOpenActivity={() => {}} />);
+    const frame = container.querySelector('.ap-frame')!;
+    expect(frame).not.toBeNull();
+    expect(frame.getAttribute('viewBox')).toBe('0 0 158 29');
+    // 沒有 none 的話路徑會維持比例、框跟標籤寬度脫鉤（working 伸長時就露餡）
+    expect(frame.getAttribute('preserveAspectRatio')).toBe('none');
+    // 是手畫的歪矩形，不是 <rect>——DESIGN.md 的 form language
+    expect(frame.querySelector('rect')).toBeNull();
+    const path = frame.querySelector('path')!;
+    expect(path.getAttribute('pathLength')).toBe('1');
+    expect(path.getAttribute('d')!.length).toBeGreaterThan(20);
+  });
+
+  it('歪框三態都在（idle/working 也不是只有 offline 才畫）', () => {
+    for (const setup of [
+      () => {},
+      () => {
+        useProject.getState().setConnected(true);
+      },
+      () => {
+        useProject.getState().setConnected(true);
+        startCall('1', 'render');
+      },
+    ]) {
+      useProject.setState({ connected: false });
+      useAgent.setState({ calls: NO_CALLS });
+      act(setup);
+      const { container, unmount } = render(<AgentStrip onOpenActivity={() => {}} />);
+      expect(container.querySelector('.ap-frame')).not.toBeNull();
+      unmount();
+    }
+  });
+
   it('手繪圈的 path 帶 pathLength=1（stroke 揭示動畫的前提）', () => {
     const { container } = render(<AgentStrip onOpenActivity={() => {}} />);
     const path = ring(container).querySelector('path')!;

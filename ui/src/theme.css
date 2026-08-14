@@ -3,25 +3,81 @@
  * 讓元件「刪掉 inline style 就變好看」；元件級只補少量佈局 class。
  * 動態值（位置/寬度/進度）仍留在元件的 inline style。 */
 
+/**
+ * 亮度樓梯（2026-08-14 暗房調和，spec `2026-08-14-dual-theme-design.md` §2）。
+ * 改值之前先看懂這四階在做什麼——它們是「調和」的全部內容：
+ *
+ *   --bg-stage  #101117  最暗：預覽影片直接鄰接的區域
+ *   --bg        #15161d  頁面底（body 漸層的收尾色）
+ *   --panel     #191a22  header／左右面板／時間軸區的實底
+ *   --popover-bg #242530 浮出層（下拉、彈出）再高一階
+ *
+ * **stage 例外規則是硬性的**：`--bg-stage` 必須比 `--bg` 暗。淺色環境會干擾影片
+ * 顏色判斷，所以預覽周圍永遠是房間裡最暗的地方——這條在亮版（主題 B）也一樣成立，
+ * 不是「暗版剛好比較暗」而已。
+ */
 :root {
-  --bg: #0d0e16;
-  --surface: rgba(255, 255, 255, 0.05);
+  --bg: #15161d;
+  /* 樓梯第二階：header／左右面板／時間軸容器的**實底**（不是透明疊層）。
+   * 有了它，`--surface` 的白 6% 才有東西可以疊，層感不會被近黑底吃掉。 */
+  --panel: #191a22;
+  /* 預覽 stage 的襯底：全 UI 最暗處（見上面的 stage 例外規則） */
+  --bg-stage: #101117;
+  --surface: rgba(255, 255, 255, 0.06);
   --surface-2: rgba(255, 255, 255, 0.08);
   --card: #272d49;
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.14);
   --text-1: #e6e7f0;
   --text-2: #9ba0b8;
-  --text-3: #5d6275;
-  --accent: #8b5cf6;
-  --accent-2: #6366f1;
+  /* 第三階文字。2026-08-14 由 #5d6275 調亮到 #82879c：舊值對 --panel 只有 2.86:1，
+   * 而它早就不只做裝飾——`.panel-head`、`.form .section` 小標、`.form .hint`、
+   * 各面板的空狀態訊息都吃它，那些是語意文字，必須 ≥4.5:1。
+   * 實算：對 --panel #191a22 = 4.86:1、對 --bg #15161d = 5.06:1（兩者皆過）。
+   * ⚠️ 對 --popover-bg #242530 是 4.26:1——浮出層裡不要拿它寫語意文字，用 --text-2。 */
+  --text-3: #82879c;
+  /* 主行動色。2026-08-14 由 #8b5cf6 降飽和到 #6d5bd0：舊值在 2% 亮度的底上是
+   * 直接跳到 50% 亮度的飽和紫，中間沒有階梯——「按鈕很亮很怪」的本質。
+   * ⚠️ 這是**底色**用的紫。深底上的文字／發亮圖形不要用它（對比不足），
+   * 用下面的 --accent-text / --accent-bright，那兩個刻意沒有跟著降。 */
+  --accent: #6d5bd0;
+  /* 漸層的另一端（.btn-primary 的 135deg 漸層端 + playhead 漸層端）。
+   * 2026-08-14 由 #6366f1 微調到 #6264f1：白字對舊值是 4.47:1，就差那一點點。
+   * 這是「最接近原值的合規值」——R/G 各降 1–2，白字對它 4.553:1，
+   * 視覺上與原值無法區分（歐氏距離 2.8/255）。動它之前先重算白字對比。 */
+  --accent-2: #6264f1;
   --accent-soft: rgba(139, 92, 246, 0.2);
+  /* --accent-soft 的更淡階：時間軸字幕 chip 底、「播放頭正在這一句」的列高亮。
+   * 三級透明紫（0.2 / 0.14 / 0.08）都從同一個 hue 出，不要各自寫死。 */
+  --accent-wash: rgba(139, 92, 246, 0.14);
+  --accent-faint: rgba(139, 92, 246, 0.08);
+  /* 紫的描邊階：chip 未選取時的 inset 框（0.35）、審核卡外框與選中分頁鈕（0.5）。
+   * `.seg.on` 原本是 0.5、ReviewBar 原本是 0.45——差 0.05 在 1px 框上看不出來，
+   * 收成同一階（0.5）比留兩個各自寫死的數字好。 */
+  --accent-edge: rgba(139, 92, 246, 0.35);
+  --accent-edge-strong: rgba(139, 92, 246, 0.5);
+  /* 紫光暈（選取片段／playhead／吸附線的 drop shadow）。發光是圖形不是底色，
+   * 所以沿用未降飽和的亮紫 hue——降了會變成一團灰霧。
+   * strong 那階原本在三處各寫死 0.7／0.8／0.9（playhead 線、playhead 圓頭、
+   * 吸附線），三者的模糊半徑也不同（10／8／6px）——真正決定亮度的是半徑不是
+   * alpha，所以 alpha 收成單一 0.8。 */
+  --accent-glow: rgba(139, 92, 246, 0.35);
+  --accent-glow-strong: rgba(139, 92, 246, 0.8);
+  /* 最淡的紫暈：審核卡外圈那層「這是 AI 在跟你說話」的氛圍光。 */
+  --accent-halo: rgba(139, 92, 246, 0.15);
   /* 紫底上的強調文字／AI 署名（--accent 當文字色在深底上對比不足） */
   --accent-text: #c4b5fd;
   /* --accent 的亮化版：playhead、標題漸層等要在深底上發亮的圖形 */
   --accent-bright: #a78bfa;
+  /* 品牌漸層的另一端（vidcut 字樣：紫→藍）與連結色。藍調刻意不進 --accent 家族：
+   * 它只出現在這兩處，是「非紫的冷色」而不是第二強調色。 */
+  --link: #a5b4fc;
+  --brand-gradient-end: #60a5fa;
   --audio: #0ea5e9;
   --audio-bright: #7dd3fc;
+  /* 音訊青的透明階：AudioChip 的底（0.12）與描邊/光暈（0.35）。 */
+  --audio-wash: rgba(14, 165, 233, 0.12);
+  --audio-edge: rgba(14, 165, 233, 0.35);
   --ok: #34d399;
   /* 綠底 chip 上的文字（overlay 軌） */
   --ok-text: #6ee7b7;
@@ -29,12 +85,27 @@
   --hl: #fbbf24;
   /* 吸附導線等「注意一下」的提示色 */
   --warn: #eab308;
-  /* 浮出面板（下拉選單／彈出層）的不透明底色，比 --bg 亮一階以浮起於頁面 */
-  --popover-bg: #1a1d2e;
+  /* 浮出面板（下拉選單／彈出層）的不透明底色，比 --panel 再亮一階以浮起於頁面 */
+  --popover-bg: #242530;
+  /* 同一階的半透明版：ReviewBar 那張蓋在預覽上、帶 backdrop-blur 的卡。
+   * 它以前寫死 `rgba(26,29,46,.92)`＝舊 --popover-bg 的 92%，兩者是同一個層級、
+   * 卻沒有連在一起——樓梯一動它就會落單，所以收成 token。 */
+  --popover-bg-blur: rgba(36, 37, 48, 0.92);
   /* 錯誤 Toast 底色：帶紅調的深底，配 --danger 邊框 */
   --toast-danger-bg: #2a1620;
-  /* 定格 clip 的底色（沒有 filmstrip 可畫時的替代填色） */
-  --clip-frozen-bg: #2d3a52;
+  /* 定格 clip 的底色（沒有 filmstrip 可畫時的替代填色）。
+   * 2026-08-14 由 #2d3a52 收掉冷藍偏向，與新的微暖灰底同溫。 */
+  --clip-frozen-bg: #2c2f42;
+  /* 深底上的白色微光階：進度條軌（0.06）、捲軸 thumb（0.12／hover 0.2）、
+   * 定格 clip 的平線（0.15）、trim handle（hover 0.28／直接指到 0.5）。
+   * 這些不是「面板層」（那是 --surface），是浮在深色物件上的白線白條——
+   * 所以它們不跟著樓梯走，只跟著「底下那個物件有多深」走。 */
+  --tint-06: rgba(255, 255, 255, 0.06);
+  --tint-12: rgba(255, 255, 255, 0.12);
+  --tint-15: rgba(255, 255, 255, 0.15);
+  --tint-20: rgba(255, 255, 255, 0.2);
+  --tint-28: rgba(255, 255, 255, 0.28);
+  --tint-50: rgba(255, 255, 255, 0.5);
   --r-panel: 10px;
   --r-card: 9px;
   --r-ctl: 7px;
@@ -44,9 +115,17 @@
  * 紙上分鏡世界的「大使館」
  * spec: docs/superpowers/specs/2026-08-14-agent-presence-design.md §2 / §3.5
  *
- * 深色編輯器維持原樣；**只有 AI 存在感相關的元素是紙**——landing page
+ * 深色編輯器維持原樣；**只有 AI 存在感相關的元素**是大使館領土——landing page
  * (`site/index.html`) 那個用鉛筆打草稿的分鏡師在編輯器裡的駐點。
- * 紙物件僅限 spec 明列的兩件（header 紙條、Inspector 索引卡），不得擴散。
+ * 大使館物件僅限 spec 明列的兩件（header 標籤、Inspector 索引卡），不得擴散。
+ *
+ * ⚠️ **2026-08-14 使用者定案：大使館的識別是「那隻手」（手繪線），不是「紙」。**
+ * 紙在暗房裡是一塊會發光的白斑；真正把兩個世界縫起來的是**鉛筆的筆跡**——
+ * 歪框、手繪圈、`#ap-pencil` 濁度濾鏡。所以載體隨主題走、手不變：
+ *   - **暗版**＝琥珀終端標籤（下面的 code-slate/amber 家族）。DESIGN.md 裡
+ *     call sheet 的終端機區塊本來就是紙世界唯一的深色表面，把它請進暗房是
+ *     同一個世界的東西，不是新發明。
+ *   - **亮版（階段 ③ 紙桌面）**＝紙與膠帶。`--ap-paper*` / `--ap-tape` 保留給它。
  *
  * 值全部取自 `site/DESIGN.md`，一個都不發明。`--ap-` 前綴把大使館的 token
  * 跟編輯器本體（上面那組深色 token）隔開——兩套色系不共用、也不互相 fallback。
@@ -56,8 +135,29 @@
  *   - 綠 stamp（核可專用）與 highlighter 不出現在編輯器裡。
  * ============================================================ */
 :root {
-  /* 紙面：抬起來的紙物件底色（DESIGN.md「Paper Card」） */
+  /* ---- 琥珀終端家族：**暗版載體**（DESIGN.md 的 Code Amber / Code Slate 階） ----
+   * DESIGN.md 148 行：「Code Slate (#2b271d) … Code Amber (#e8b04c) prompts …
+   * the only dark surface — terminal blocks in the call sheet」。官網終端機的琥珀
+   * 就是這個值，不是另調的。標籤底比 code-slate 再暗一點點，因為它貼在
+   * --panel (#191a22) 上而不是米紙上，要壓得住才讀得出是「嵌進去的一片」。 */
+  --ap-amber: #e8b04c;
+  /* 退飽和的舊黃銅：offline。燈還在、只是沒通電（使用者選的 C 版）。
+   * 對 --ap-slate-off 是 4.82:1，語意文字合規。 */
+  --ap-amber-dim: #9c8654;
+  /* 標籤底：idle / working。琥珀對它 8.38:1。 */
+  --ap-slate: #241f16;
+  /* 標籤底：offline。比 --ap-slate 再暗一階＝燈滅了一格。 */
+  --ap-slate-off: #1f1c15;
+  /* 歪框的筆色：offline 是褪掉的琥珀（框比字先暗下去，所以透明度更低），
+   * idle/working 直接吃 --ap-amber 實線，不需要另一個 token。 */
+  --ap-frame-off: rgba(232, 176, 76, 0.35);
+
+  /* ---- 紙世界：**亮版專用**（索引卡／階段 ③ 紙桌面），暗版不再使用 ----
+   * 保留不刪：階段 ③ 亮版主題會把它們接回去，那時紙貼在紙桌上才成立。 */
+  /* 紙面：抬起來的紙物件底色（DESIGN.md「Paper Card」）。 */
   --ap-paper: #f7f3e9;
+  /* 較暗的紙階（DESIGN.md「Paper」，landing page 的頁面底）。 */
+  --ap-paper-dim: #ede8dc;
   /* 墨：標題、粗體、重筆畫（DESIGN.md「Ink」；純黑是禁止的） */
   --ap-ink: #26231d;
   /* 石墨：內文/次要文字、預設筆畫（DESIGN.md「Graphite」） */
@@ -66,7 +166,9 @@
   --ap-faint: #635c4b;
   /* 紅鉛筆：註記層。只做筆畫/手寫/focus，絕不當底色（One-Pigment 規則） */
   --ap-red: #c0392b;
-  /* 和紙膠帶：半透明、永遠微轉、帶 1px ink 色陰影 */
+  /* 和紙膠帶：半透明、永遠微轉、帶 1px ink 色陰影。
+   * **亮版紙世界專用**——膠帶是紙的配件，沒有紙就沒有膠帶可貼。
+   * 暗版的手繪簽名由歪框（.ap-frame）接手。 */
   --ap-tape: rgba(214, 192, 122, 0.55);
   /* 彈簧 easing：hover 的物理輕推與形態變化（DESIGN.md 通用 ease） */
   --ap-spring: cubic-bezier(0.2, 1.4, 0.4, 1);
@@ -140,7 +242,11 @@ body,
 }
 body {
   margin: 0;
-  background: linear-gradient(180deg, #151726 0%, var(--bg) 40%);
+  /* 頂部微亮的環境光漸層。起點刻意只比 --bg 亮一點點（#181923 vs #15161d）——
+   * 舊值 #151726 比舊 --bg(#0d0e16) 亮很多、又偏藍，在新的樓梯下會變成第五階
+   * 而且溫度不對。現在幾乎所有可見區都被 --panel / --bg-stage 實底蓋住，
+   * 這條漸層只在面板全收合時的縫隙露出來。 */
+  background: linear-gradient(180deg, #181923 0%, var(--bg) 40%);
   color: var(--text-1);
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans TC', sans-serif;
   font-size: 13px;
@@ -190,7 +296,7 @@ textarea:focus-visible {
   border: 1px solid transparent;
   color: #fff;
   font-weight: 600;
-  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.35);
+  box-shadow: 0 2px 12px var(--accent-glow);
 }
 .btn-primary:hover:not(:disabled) {
   background: linear-gradient(135deg, #9a70f8, #7478f3);
@@ -291,18 +397,24 @@ input[type='range'] {
   border: none;
 }
 a {
-  color: #a5b4fc;
+  color: var(--link);
 }
 
 /* ============================================================
- * AgentStrip —— header 的膠帶紙條（大使館物件 #1）
- * spec §3.3 / §3.5、元件在 `ui/src/AgentStrip.tsx`
+ * AgentStrip —— header 的琥珀終端標籤（大使館物件 #1）
+ * spec §3.3 / §3.5（含 2026-08-14 修訂）、元件在 `ui/src/AgentStrip.tsx`
+ *
+ * **2026-08-14 使用者定案：從「紙面紙條」換裝成「琥珀終端指示燈」。**
+ * 大使館的識別是**那隻手**（手繪圈 + 歪框 + `#ap-pencil` 濁度濾鏡），不是紙；
+ * 暗版的載體改用 DESIGN.md 裡官網終端機那組 code-slate/amber。紙與膠帶
+ * 保留給階段 ③ 的亮版紙桌面。**行為零變更**——三態邏輯、點擊、interval、
+ * aria 全部沒動，換的只有顏色與框。
  *
  * 它是 `<button>`（可點：切 Activity 分頁 + 展開右欄），所以上面那組
- * 原生 button 接管樣式全部要覆蓋掉——紙不是深色玻璃控件。
+ * 原生 button 接管樣式全部要覆蓋掉——標籤不是深色玻璃控件。
  *
  * **高度預算**：header 是 `padding: 8px 16px`，內容列高由最高的項目（ExportMenu
- * 的 button：12px 字 + 6px 上下內距 + 1px 框 ≈ 28px）決定。紙條算下來
+ * 的 button：12px 字 + 6px 上下內距 + 1px 框 ≈ 28px）決定。標籤算下來
  * 16px 圈 + 5px 上下內距 = 26px < 28px，所以**接手不會把 header 撐高**。
  * 動 padding/字級/圈尺寸之前先重算這筆帳。
  * ============================================================ */
@@ -312,28 +424,32 @@ a {
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  background: var(--ap-paper);
-  color: var(--ap-ink);
-  /* DESIGN.md 的紙角：3px（chips/buttons 級）。7px 以上圓角是禁止的 */
+  /* 琥珀終端標籤（2026-08-14 定案）。三態只換這一組色，形態/行為不動。 */
+  background: var(--ap-slate);
+  color: var(--ap-amber);
+  /* DESIGN.md 的終端／chip 角：3px。7px 以上圓角是禁止的 */
   border: none;
   border-radius: 3px;
-  /* 左內距略小於右：左上角壓著膠帶，視覺重心要往右讓一點 */
+  /* 左內距略小於右：左緣是圈、右緣是文字，視覺重心要往右讓一點 */
   padding: 5px 14px 5px 12px;
   /* header 空間窄，微轉收斂到 -0.6deg（demo 是 -1deg）：紙條比 demo 裡的短，
      同樣角度下右端會多翹起來，貼著 Export 鈕看得出歪。夠歪到像貼上去的，
      又不會讓上下緣吃掉高度預算。 */
   transform: rotate(-0.6deg);
-  /* 影全部是 ink 色、小而軟（DESIGN.md：不用純黑陰影） */
+  /* **著地陰影**（維持冷黑）。DESIGN.md 的 Ink Shadow 規則管的是「紙上放著的東西」
+   * ——那些影子落在米色紙上所以要 ink 色；這條落在暗房的深色頂欄上，
+   * 米色的影在深底上不會讀成陰影，只會讀成一圈濁色暈。冷黑才是對的。 */
   box-shadow:
-    0 2px 6px rgba(38, 35, 29, 0.35),
-    0 1px 2px rgba(38, 35, 29, 0.25);
+    0 3px 10px rgba(0, 0, 0, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.4);
   /* 形態變化（working 時伸長）走彈簧 */
   transition: padding 0.25s var(--ap-spring);
   cursor: pointer;
 }
-/* hover = 物理輕推（translate/rotate），**不加大陰影**（DESIGN.md 的 Do） */
+/* hover = 物理輕推（translate/rotate），**不加大陰影**（DESIGN.md 的 Do）。
+   底提亮一階＝終端「醒過來」，不換色相。 */
 .ap-strip:hover:not(:disabled) {
-  background: var(--ap-paper);
+  background: #2b2519;
   border: none;
   transform: rotate(-0.6deg) translateY(-2px);
 }
@@ -346,22 +462,16 @@ a {
   outline: 2px dashed var(--ap-red);
   outline-offset: 3px;
 }
-/* 和紙膠帶：左上角壓住紙條的一小條，微轉 + 1px ink 色陰影 */
-.ap-strip::before {
-  content: '';
-  position: absolute;
-  left: -9px;
-  top: -6px;
-  width: 26px;
-  height: 13px;
-  background: var(--ap-tape);
-  transform: rotate(-4deg);
-  border-radius: 1px;
-  box-shadow: 0 1px 2px rgba(38, 35, 29, 0.12);
-}
-/* 離線：整張紙褪色（不是換色）——紙還在，只是沒人在用 */
+/* ⚠️ **這裡以前有 `::before` 的和紙膠帶，2026-08-14 定案後移除**——膠帶是紙的
+ * 配件，暗版載體換成琥珀終端標籤之後它沒有東西可貼，半透明黃直接疊在標籤上
+ * 只會讀成一塊濁斑。手繪簽名的職責交給下面的歪框（.ap-frame）。
+ * 膠帶本身沒有刪掉：`--ap-tape` token 留著給階段 ③ 的亮版紙桌面。 */
+
+/* 離線：整組退成舊黃銅（使用者選的 C 版）——燈還在，只是沒通電。
+   **不是濾鏡褪色**：filter 會把歪框跟圈一起洗掉，三態的色差就讀不出來了。 */
 .ap-strip.offline {
-  filter: saturate(0.55) brightness(0.92);
+  background: var(--ap-slate-off);
+  color: var(--ap-amber-dim);
 }
 .ap-strip .ap-cap {
   /* label caps：Jost 600 / 0.16em（DESIGN.md 的 slate label 規格） */
@@ -374,11 +484,11 @@ a {
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--ap-graphite);
+  color: var(--ap-amber);
   line-height: 1;
 }
 .ap-strip.offline .ap-cap {
-  color: var(--ap-faint);
+  color: var(--ap-amber-dim);
 }
 /* working 時浮現的工具名與經過秒數：mono + tabular-nums，
    秒數每秒換一次數字，等寬才不會讓紙條左右抖動 */
@@ -390,11 +500,13 @@ a {
 }
 .ap-strip .ap-tool {
   font-size: 12px;
-  color: var(--ap-ink);
+  color: var(--ap-amber);
 }
+/* 秒數退一階（不是換色）：它是隨時在跳的次要讀數，跟工具名同亮度會搶注意力。
+   對 --ap-slate 是 4.64:1，仍過 4.5。 */
 .ap-strip .ap-secs {
   font-size: 11px;
-  color: var(--ap-faint);
+  color: var(--ap-amber-dim);
 }
 /* filter defs 容器：0×0 但 inline-flex 的 gap 仍會算它一格，要拿掉 */
 .ap-strip .ap-defs {
@@ -410,17 +522,44 @@ a {
 }
 .ap-ring path {
   fill: none;
-  stroke: var(--ap-graphite);
+  stroke: var(--ap-amber);
   /* DESIGN.md 的權重階：heavy 2.6 / default 2 / lite 1.4 */
   stroke-width: 2;
   stroke-linecap: round;
   filter: url(#ap-pencil);
 }
-/* offline：淡石墨虛線圈（線是斷的＝沒接上） */
+/* offline：舊黃銅虛線圈（線是斷的＝沒接上） */
 .ap-ring.dashed path {
-  stroke: var(--ap-faint);
+  stroke: var(--ap-amber-dim);
   stroke-dasharray: 0.12 0.08;
-  stroke-width: 1.4;
+  stroke-width: 1.6;
+}
+
+/* ---- 歪框：暗版的手繪簽名（接替膠帶的位置）----
+ * 一條刻意畫歪的矩形，過 `#ap-pencil` 濁度濾鏡——這是「那隻手」在暗房裡的筆跡，
+ * 也是大使館真正的識別（不是紙）。用 SVG 不用 CSS border：border 畫不出手繪的
+ * 抖動，`preserveAspectRatio="none"` 讓同一條路徑跟著標籤寬度自由拉伸，
+ * working 伸長時框跟著長、不需要第二條路徑。
+ * ⚠️ `overflow: visible` 是必要的：濁度濾鏡會把線推出 viewBox 邊界，
+ * 預設的 hidden 會把四個角切平，歪框就不歪了。 */
+.ap-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.ap-frame path {
+  fill: none;
+  stroke: var(--ap-amber);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  filter: url(#ap-pencil);
+}
+/* offline：框比字先暗下去（透明度更低的琥珀），所以狀態變化最先從框讀到 */
+.ap-strip.offline .ap-frame path {
+  stroke: var(--ap-frame-off);
 }
 /* working：圈一遍一遍重畫自己。pathLength=1 讓 dasharray/offset 用比例算，
    1 = 整圈，offset 從 1（全隱）走到 0（畫滿）。 */
@@ -453,9 +592,22 @@ a {
 }
 
 /* ---- 佈局積木 ---- */
+/* 頂欄。名字留著（元件端在用），但 2026-08-14 起它是**實底**不是透明玻璃：
+ * 白 6% 疊在近黑底上撐不出一階，換成 --panel 之後 header 與中欄 stage 的分野
+ * 才讀得出來。要玻璃感的是浮出層（.popover），不是這條常駐橫幅。 */
 .glass {
-  background: var(--surface);
+  background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+/* 樓梯第二階的實底容器：左右面板與底部時間軸區。
+ * 它們以前全是透明、直接看穿到 body 的 --bg，所以整個 UI 只有一個亮度層。 */
+.panel-surface {
+  background: var(--panel);
+}
+/* 預覽 stage 的外圍：全 UI 最暗處（見檔頭的 stage 例外規則）。
+ * 這一層是 stage **周圍**的襯底，不是影片框本身——影片框在 Player.tsx 裡是純黑。 */
+.stage-surface {
+  background: var(--bg-stage);
 }
 .panel-head {
   font-size: 11px;
@@ -474,7 +626,7 @@ a {
 }
 .seg.on {
   background: var(--accent-soft);
-  border-color: rgba(139, 92, 246, 0.5);
+  border-color: var(--accent-edge-strong);
   color: var(--accent-text);
 }
 .badge {
@@ -639,10 +791,10 @@ a {
   transition: background 0.12s ease;
 }
 .clipblk:hover .handle {
-  background: rgba(255, 255, 255, 0.28);
+  background: var(--tint-28);
 }
 .clipblk .handle:hover {
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--tint-50);
 }
 
 /* 面板伸縮把手：平常隱形，hover/拖曳時中央亮 2px 紫線 */
@@ -676,13 +828,13 @@ a {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--tint-12);
   border-radius: 5px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: var(--tint-20);
 }
 ::-webkit-scrollbar-track {
   background: transparent;

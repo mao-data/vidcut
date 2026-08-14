@@ -79,7 +79,7 @@ export const ClipBlock = memo(function ClipBlock({
         cursor: floating ? 'grabbing' : 'grab',
         background: 'var(--card)',
         boxShadow: selected
-          ? 'inset 0 0 0 1.5px var(--accent), 0 0 14px rgba(139, 92, 246, 0.35)'
+          ? 'inset 0 0 0 1.5px var(--accent), 0 0 14px var(--accent-glow)'
           : 'inset 0 0 0 1px var(--line-strong)',
         // 讓位動畫：只有「不是被拖的那個」才滑動，被拖的要 1:1 跟手。
         // 非拖曳時不寫 inline transition——box-shadow 補間在 .clipblk、
@@ -129,7 +129,7 @@ export const ClipBlock = memo(function ClipBlock({
               right: 6,
               top: '50%',
               height: 1.5,
-              background: 'rgba(255, 255, 255, 0.15)',
+              background: 'var(--tint-15)',
             }}
           />
         ) : (

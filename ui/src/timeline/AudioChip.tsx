@@ -53,10 +53,10 @@ export const AudioChip = memo(function AudioChip({
         borderRadius: 6,
         overflow: 'hidden',
         cursor: 'grab',
-        background: 'rgba(14, 165, 233, 0.12)',
+        background: 'var(--audio-wash)',
         boxShadow: selected
-          ? 'inset 0 0 0 1.5px var(--audio-bright), 0 0 10px rgba(14, 165, 233, 0.35)'
-          : 'inset 0 0 0 1px rgba(14, 165, 233, 0.35)',
+          ? 'inset 0 0 0 1.5px var(--audio-bright), 0 0 10px var(--audio-edge)'
+          : 'inset 0 0 0 1px var(--audio-edge)',
       }}
     >
       <canvas

@@ -226,7 +226,7 @@ export function App() {
         <b
           style={{
             fontSize: 15,
-            background: 'linear-gradient(90deg, var(--accent-bright), #60a5fa)',
+            background: 'linear-gradient(90deg, var(--accent-bright), var(--brand-gradient-end))',
             WebkitBackgroundClip: 'text',
             color: 'transparent',
           }}
@@ -265,8 +265,10 @@ export function App() {
             transition: resizing ? 'none' : 'grid-template-columns 0.25s ease',
           }}
         >
-          {/* 左：屬性（外層 hidden、內層固定寬 → 收合時內容不變形） */}
+          {/* 左：屬性（外層 hidden、內層固定寬 → 收合時內容不變形）。
+              `panel-surface` = --panel 實底（亮度樓梯第二階，theme.css 檔頭）。 */}
           <div
+            className="panel-surface"
             style={{ overflow: 'hidden', borderRight: leftOpen ? '1px solid var(--line)' : 'none' }}
           >
             <div style={{ width: leftWidth, height: '100%', overflowY: 'auto' }}>
@@ -295,7 +297,7 @@ export function App() {
               展開鈕與面板 header 裡的收合鈕齊高，收合前後位置幾乎不動。
               它的 z 要壓過頂欄的 Export 下拉（z 50）：兩者都貼右緣、水平必然重疊，
               靠位置錯開會隨視窗高度失效。點它會同時關掉下拉（ExportMenu 監聽外部 pointerdown）。 */}
-          <div style={{ position: 'relative', minHeight: 0 }}>
+          <div className="stage-surface" style={{ position: 'relative', minHeight: 0 }}>
             {leftOpen && (
               <PanelResizer side="left" gridRef={gridRef} onResizingChange={setResizing} />
             )}
@@ -327,8 +329,9 @@ export function App() {
             </div>
           </div>
 
-          {/* 右：字幕 ⇄ 活動分頁 */}
+          {/* 右：字幕 ⇄ 活動分頁（同左欄，--panel 實底） */}
           <div
+            className="panel-surface"
             style={{ overflow: 'hidden', borderLeft: rightOpen ? '1px solid var(--line)' : 'none' }}
           >
             <div
@@ -376,8 +379,8 @@ export function App() {
         </div>
       </div>
 
-      {/* 底：時間軸 */}
-      <div style={{ borderTop: '1px solid var(--line)', padding: 8 }}>
+      {/* 底：時間軸（同左右面板，--panel 實底） */}
+      <div className="panel-surface" style={{ borderTop: '1px solid var(--line)', padding: 8 }}>
         <Timeline />
       </div>
       <Toast />

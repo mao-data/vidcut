@@ -57,7 +57,7 @@ function Playhead({ pps }: { pps: number }) {
         width: 2,
         background: 'linear-gradient(var(--accent-bright), var(--accent-2))',
         borderRadius: 1,
-        boxShadow: '0 0 10px rgba(139, 92, 246, 0.7)',
+        boxShadow: '0 0 10px var(--accent-glow-strong)',
         pointerEvents: 'none',
       }}
     >
@@ -69,7 +69,7 @@ function Playhead({ pps }: { pps: number }) {
           background: 'var(--accent-bright)',
           // -3.5 = -(9-2)/2：把 9px 圓頭對齊 2px 線的中心。是置中算式，不是留白。
           margin: '-1px 0 0 -3.5px',
-          boxShadow: '0 0 8px rgba(139, 92, 246, 0.9)',
+          boxShadow: '0 0 8px var(--accent-glow-strong)',
         }}
       />
     </div>
@@ -773,10 +773,10 @@ export function Timeline() {
                     left: timeToPx(view.start, pps),
                     width: timeToPx(view.duration, pps),
                     color: 'var(--accent-text)',
-                    background: 'rgba(139, 92, 246, 0.14)',
+                    background: 'var(--accent-wash)',
                     boxShadow: isSel
                       ? 'inset 0 0 0 1.5px var(--accent)'
-                      : 'inset 0 0 0 1px rgba(139, 92, 246, 0.35)',
+                      : 'inset 0 0 0 1px var(--accent-edge)',
                   }}
                 >
                   <div
@@ -838,7 +838,7 @@ export function Timeline() {
                 left: timeToPx(snapLine, pps),
                 width: 1,
                 background: 'var(--accent)',
-                boxShadow: '0 0 6px rgba(139, 92, 246, 0.8)',
+                boxShadow: '0 0 6px var(--accent-glow-strong)',
                 pointerEvents: 'none',
               }}
             />

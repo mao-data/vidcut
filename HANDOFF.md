@@ -30,7 +30,7 @@
 | M4 渲染               | ✅ `m4-done`                                   | ffmpeg 從 project.json 輸出 1080×1920 成品 + 進度 + UI 渲染鈕                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | T1 CapCut 快贏        | ✅ `t1-done`                                   | 見下節                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | T2 #8 自動字幕        | ✅                                             | whisper 逐字稿 + 自動斷句 + 逐詞高亮 + 字幕列表 UI，見下節                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| UI 重設計             | ✅                                             | 深藍紫玻璃視覺系統 + 峰值/RMS 波形 + GSAP 動效，見下節                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| UI 重設計             | ✅                                             | 紫色視覺系統（**2026-08-14 起是實底亮度樓梯，不再是「深藍紫玻璃」**）+ 峰值/RMS 波形 + GSAP 動效，見下節                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | 字幕 WYSIWYG 階段 1–4 | ✅（分支 `caption-wysiwyg`，**四階段全完成**） | 階段 1：Pillow 常駐光柵器 + 字型表 + 字卡快取服務 + 字幕卡 debounce 同步。階段 2：**可編輯文字 overlay**——UI 時間軸「Text」鈕新增文字 overlay、Inspector 可改文字/字級/顏色，MCP `add_overlay`/`update_overlay`/`set_overlays` 皆支援 `text`。階段 3：**字幕預覽改走與成品同一張字卡**（**限非 karaoke**）——`fontSize/3` 估算已廢除，1080×1920 座標空間 + `transform: scale(stage寬/1080)`；karaoke 用 base+全高亮兩張幾何相同的卡疊 `clip-path` 逐詞揭色（**但匯出端是一詞一卡，兩者不是同一張圖**，見下節）；打字三段式即時預覽；真瀏覽器實測驗證縮放公式（見下節，注意那份量測不等於「預覽與成品對齊」）。階段 4：**畫布直接拖曳 overlay/字幕 + 吸附導線**——`shared/src/snap.ts` 的 `snapBBox` 純函數（水平置中/垂直置中/上下 5% 安全邊距，16px 吸附半徑）+ `ui/src/player/dragLayer.ts` 的錨點↔bbox 換算 + `Player.tsx` 的 pointer 拖曳與「放手後 echo 未到前」的本地覆蓋橋接；真瀏覽器 e2e 回歸（`npm run verify:canvas`，見下節）過程中抓到並修掉一個真 bug（`<img>` 原生瀏覽器拖曳手勢劫持 pointer 事件序列，見下節與 `.claude/rules/ui-verification.md`）。 |
 | 字幕匯出四模式        | ✅                                             | `burn`／`off`／`sidecar`／`embed`，見下面專節。測試 `server/test/render-subtitles.test.ts` + `shared/src/subtitles.test.ts`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 素材匯入：零複製引用  | ✅                                             | `server/src/paths.ts` 的 `resolveMediaPath`（相對＝專案內／絕對＝零複製外部引用）、`server/src/sourceFolder.ts` 的素材夾掃描、`GET /api/source`／`POST /api/import`，MCP 端是 `list_source`／`import_media`。測試 `server/test/paths.test.ts`、`sourceFolder.test.ts`、`source-api.test.ts`、`import-api.test.ts`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -139,7 +139,32 @@ UI 的 ExportMenu 沒有這個選項，目前只有 MCP 走得到。
 
 spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md)（brainstorm 含瀏覽器 mockup 比選，使用者逐步定案：C 現代 web 視覺 × 保守版面 × 峰值+RMS 波形）。
 
-- **設計系統 `ui/src/theme.css`**：CSS 變數 token（紫 #8b5cf6 強調、青 #0ea5e9 音訊、深藍紫玻璃層級）；**原生 button/select/input 直接被 theme 接管**，元件端大量刪 inline style；lucide-react 取代 emoji 圖示。
+- **設計系統 `ui/src/theme.css`**：CSS 變數 token（紫 `--accent` 強調、青 #0ea5e9 音訊、
+  **實底亮度樓梯**）；**原生 button/select/input 直接被 theme 接管**，元件端大量刪 inline
+  style；lucide-react 取代 emoji 圖示。
+  ⚠️ **色值與層級模型在 2026-08-14 的「暗房調和」改過**（spec
+  [`2026-08-14-dual-theme-design.md`](docs/superpowers/specs/2026-08-14-dual-theme-design.md) §2，
+  行為零變更）——原文寫的「紫 #8b5cf6、深藍紫玻璃層級」兩件事現在都不對了：
+  - `--accent` 由 `#8b5cf6` 降飽和到 **`#6d5bd0`**（底色用；深底上的文字/發亮圖形仍是
+    未降的 `--accent-text` #c4b5fd 與 `--accent-bright` #a78bfa，那兩個刻意沒跟著動）。
+    白字對它的對比反而**變好**：4.23:1 → 5.18:1。
+  - **「玻璃層級」改成實底的四階亮度樓梯**：`--bg-stage` #101117（最暗，只給預覽 stage
+    周圍）→ `--bg` #15161d → `--panel` #191a22（header／左右面板／時間軸區）→
+    `--popover-bg` #242530（浮出層）。以前 header 與面板都是透明的 `--surface` 疊在
+    近黑底上，整個 UI 實際只有一個亮度層。**`--bg-stage` 必須是全 UI 最暗處**——
+    淺色環境會干擾影片顏色判斷，這條規則在未來的亮版主題也一樣成立。
+  - 殘餘硬編色（18 處）全部收進語意 token：`--accent-wash/faint/edge/glow/halo`、
+    `--audio-wash/edge`、`--tint-*`（深底上的白線白條）、`--link`、`--brand-gradient-end`。
+    **canvas（`timeline/waveform.ts`）的 JS 顏色常數不在內**——CSS 變數進不去，
+    那是主題基建（spec §4）的查表工程。
+  - ✅ **`--text-3` 的對比已修**（2026-08-14）：`#5d6275` → **`#82879c`**。舊值對
+    `--panel` 只有 2.86:1，而它不只用在裝飾——`.panel-head`、`.form .section` 小標、
+    `.form .hint`、各面板的空狀態訊息都吃它，那些是語意文字。
+    新值實算：對 `--panel` #191a22 = **4.86:1**、對 `--bg` #15161d = **5.06:1**。
+    ⚠️ 對 `--popover-bg` #242530 是 4.26:1——**浮出層裡不要拿它寫語意文字**，用 `--text-2`。
+  - ✅ **`--accent-2` 微調**（2026-08-14）：`#6366f1` → **`#6264f1`**。白字對舊值是
+    4.47:1，就差一點點；新值 **4.553:1**，是最接近原值的合規值（R/G 各降 1–2，
+    歐氏距離 2.8/255，視覺上無法區分）。它是 `.btn-primary` 漸層端與 playhead 漸層端。
 - **版面**：RenderBar 刪除 → 頂欄 ExportMenu（匯出鈕+下拉+3px 進度條）；右欄改「字幕⇄活動」分頁；播放控制+時間碼移進時間軸工具列；審核條改事件式 overlay 卡（GSAP 彈性滑入）；左右面板可收合（grid-template-columns 動畫），之後又補上**可拖曳調寬**（`ui/src/PanelResizer.tsx`）。
 - **時間軸**：片段卡片化（上 60% filmstrip、下 40% 波形帶）；**峰值+RMS 雙層鏡像波形**（`ui/src/timeline/waveform.ts`，DPR 級解析度）；ingest 升級 **100 桶/秒＋rms 陣列**（`PeaksFile` 共用型別；舊檔無 rms 自動退單層）；音訊軌青色全高波形；playhead 紫漸層光暈圓頭。
 - **動效**：`ui/src/motion.ts`（gsap + useGSAP + motionOK）；審核條/分頁/toast/渲染完成 pulse/字幕自動捲動；微互動走 CSS transition；`prefers-reduced-motion` 全域尊重。
@@ -348,12 +373,17 @@ ui/src/stores/agent.ts    AI 存在感的狀態機（零視覺）：進行中工
 ui/src/stores/editDraft.ts 打字中的本地字幕草稿（text + previewHash）：不進 history、不碰 doc、不經 sendCommand
 ui/src/fx/                aiPatches（一輪 AI 編輯的 JSON patch → 哪些光暈/哪些進場/捲到哪，純函數）+ scroll（捲動目標計算）
 ui/src/PanelResizer.tsx   左右面板寬度拖曳把手；數學在 ui/src/panelResize.ts（純函數）
-ui/src/AgentStrip.tsx     header 的膠帶紙條（AI 存在感的視覺面，spec §3.3）：讀 stores/agent
+ui/src/AgentStrip.tsx     header 的琥珀終端標籤（AI 存在感的視覺面，spec §3.3 + 其
+                          2026-08-14 修訂）：讀 stores/agent
                           的三態顯示 NO AGENT／AGENT READY／WORKING+工具名+經過秒數；
                           取代原本 header 的「● Connected/Offline」。經過秒數是元件層
                           setInterval（store 只存 startedAt），只在 working 掛。點擊切
                           Activity 分頁（callback 由 App 傳入）+ useView.openRight()。
-                          formatElapsed 是可測的純函數；樣式在 theme.css 的 .ap-strip 區
+                          formatElapsed 是可測的純函數；樣式在 theme.css 的 .ap-strip 區。
+                          ⚠️ 大使館的識別是**那隻手（手繪線）不是紙**：暗版載體是
+                          code-slate/amber 終端標籤（手繪圈 + 歪框 .ap-frame 過
+                          #ap-pencil 濾鏡），**膠帶已移除**（紙的配件）；--ap-paper*/
+                          --ap-tape token 保留給階段 ③ 的亮版紙桌面
 ui/src/fonts/             紙世界的字型資產（Jost-var.woff2 + OFL 授權全文）。**放 src 不放
                           public**：public 會產出 /fonts/* 靜態路徑，撞 server 的字卡字型
                           /fonts/:id 路由（dev 模式 vite proxy 也整段代理）。theme.css 用

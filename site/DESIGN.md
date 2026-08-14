@@ -101,7 +101,9 @@ components:
 
 > **Scope.** This system governs only the static landing page under `site/`. The vidcut editor UI has its own incumbent system (`ui/src/theme.css`, a dark violet editor world) which this file does not describe and must not be merged with.
 >
-> **Sanctioned exception — the embassy (user-approved 2026-08-14).** The editor's **Agent Presence** elements — and only those — carry this paper world into the dark editor: a taped paper strip in the header and an index card in the Inspector, per `docs/superpowers/specs/2026-08-14-agent-presence-design.md`. Rationale: the AI _is_ this page's storyboard annotator, and its presence in the editor is the one piece of paper in the dark room. The exception is bounded: those two objects, these tokens and rules, no further spread.
+> **Sanctioned exception — the embassy (user-approved 2026-08-14).** The editor's **Agent Presence** elements — and only those — carry this world into the dark editor, per `docs/superpowers/specs/2026-08-14-agent-presence-design.md`. Rationale: the AI _is_ this page's storyboard annotator, so its presence in the editor is this world's outpost there. The exception is bounded: those objects, these tokens and rules, no further spread.
+>
+> **What the embassy carries is _the hand_ (the pencil-drawn line) — not necessarily the paper** (revised 2026-08-14, user-approved). Paper glows as a white patch in a dark room; what actually stitches the two worlds together is the pencil stroke: hand-drawn rings, wobbly frames, the `#pencil` turbulence filter. So the carrier follows the theme while the hand stays constant. In the **dark theme** the carrier is a **code-slate/amber terminal slip** (the Code Slate / Code Amber pair below — the call sheet's terminal block is already this world's only dark surface). **Paper — and the washi tape that goes with it — appears in the light theme** (the storyboard-desk theme, `docs/superpowers/specs/2026-08-14-dual-theme-design.md` §3), where a paper object sits on a paper desk and the tape has something to hold down.
 
 ## Overview
 
@@ -251,4 +253,4 @@ A dashed graphite rail (repeating-linear-gradient ticks) with an invisible full-
 - **Don't** use pure black — ink is #26231d — or pure-black shadows on paper surfaces.
 - **Don't** use radii above 7px on paper objects (circles are reserved for call-sheet step numbers).
 - **Don't** fill panels or buttons with Red Pencil; red is never a background.
-- **Don't** import the editor UI's dark violet theme (`ui/src/theme.css`) into this page, or this paper world into the editor — with one user-approved exception: the editor's Agent Presence elements (header paper strip + Inspector index card) are the paper world's sole embassy there; see the Scope note and `docs/superpowers/specs/2026-08-14-agent-presence-design.md`.
+- **Don't** import the editor UI's dark violet theme (`ui/src/theme.css`) into this page, or this world into the editor — with one user-approved exception: the editor's Agent Presence elements (header status slip + Inspector index card) are this world's sole embassy there. What they carry is **the hand — the pencil-drawn line — not necessarily the paper**: the dark theme's carrier is a code-slate/amber terminal slip, and paper (with its tape) belongs to the light theme. See the Scope note and `docs/superpowers/specs/2026-08-14-agent-presence-design.md`.

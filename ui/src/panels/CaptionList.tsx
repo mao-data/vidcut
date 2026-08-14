@@ -186,7 +186,7 @@ export function CaptionList() {
                 background: isSelected
                   ? 'var(--accent-soft)'
                   : isCurrent
-                    ? 'rgba(139, 92, 246, 0.08)'
+                    ? 'var(--accent-faint)'
                     : undefined,
                 cursor: 'pointer',
               }}
