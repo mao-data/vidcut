@@ -735,7 +735,7 @@ export function Player() {
                   top: 0,
                   width: 2,
                   height: 1920,
-                  background: 'var(--warn, #eab308)',
+                  background: 'var(--warn)',
                   pointerEvents: 'none',
                 }}
               />
@@ -748,7 +748,7 @@ export function Player() {
                   left: 0,
                   height: 2,
                   width: 1080,
-                  background: 'var(--warn, #eab308)',
+                  background: 'var(--warn)',
                   pointerEvents: 'none',
                 }}
               />

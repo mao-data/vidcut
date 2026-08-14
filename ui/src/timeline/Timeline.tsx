@@ -7,6 +7,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from 'react';
+import { Paperclip } from 'lucide-react';
 import {
   clipStartTimes,
   overlayWindow,
@@ -54,7 +55,7 @@ function Playhead({ pps }: { pps: number }) {
         bottom: 0,
         left: timeToPx(time, pps) - 1,
         width: 2,
-        background: 'linear-gradient(#a78bfa, #6366f1)',
+        background: 'linear-gradient(var(--accent-bright), var(--accent-2))',
         borderRadius: 1,
         boxShadow: '0 0 10px rgba(139, 92, 246, 0.7)',
         pointerEvents: 'none',
@@ -65,7 +66,8 @@ function Playhead({ pps }: { pps: number }) {
           width: 9,
           height: 9,
           borderRadius: '50%',
-          background: '#a78bfa',
+          background: 'var(--accent-bright)',
+          // -3.5 = -(9-2)/2：把 9px 圓頭對齊 2px 線的中心。是置中算式，不是留白。
           margin: '-1px 0 0 -3.5px',
           boxShadow: '0 0 8px rgba(139, 92, 246, 0.9)',
         }}
@@ -651,8 +653,9 @@ export function Timeline() {
                   className="mono"
                   style={{
                     position: 'absolute',
+                    // +3：刻度線右側的讓字距離，屬於尺規幾何（對齊刻度），不是留白階梯
                     left: timeToPx(t, pps) + 3,
-                    fontSize: 9.5,
+                    fontSize: 10,
                     color: 'var(--text-3)',
                   }}
                 >
@@ -722,14 +725,23 @@ export function Timeline() {
                       ...(of.delay != null ? { animationDelay: `${of.delay}ms` } : {}),
                       left: timeToPx(win.start, pps),
                       width: timeToPx(win.end - win.start, pps),
-                      color: '#6ee7b7',
+                      color: 'var(--ok-text)',
                       background: 'rgba(52, 211, 153, 0.14)',
                       boxShadow: isSel
                         ? 'inset 0 0 0 1.5px var(--ok)'
                         : 'inset 0 0 0 1px rgba(52, 211, 153, 0.35)',
+                      // 錨定圖示要跟檔名置中對齊：chip 原本靠 lineHeight 置中文字，
+                      // 行內 SVG 會壓在基線上；改 flex 對齊，高度仍由 chip 的固定值決定。
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
                     }}
                   >
-                    {o.anchor ? '📎 ' : ''}
+                    {/* size 11 是兩級制的時間軸 chip 例外（theme.css 有記）：chip 只有
+                        20px 高、字級 10，13 會撐爆。 */}
+                    {o.anchor && (
+                      <Paperclip size={11} aria-label="anchored" style={{ flexShrink: 0 }} />
+                    )}
                     {o.imagePath.split('/').pop()}
                   </div>
                 )
@@ -760,7 +772,7 @@ export function Timeline() {
                     ...(cf.delay != null ? { animationDelay: `${cf.delay}ms` } : {}),
                     left: timeToPx(view.start, pps),
                     width: timeToPx(view.duration, pps),
-                    color: '#c4b5fd',
+                    color: 'var(--accent-text)',
                     background: 'rgba(139, 92, 246, 0.14)',
                     boxShadow: isSel
                       ? 'inset 0 0 0 1.5px var(--accent)'
@@ -769,15 +781,7 @@ export function Timeline() {
                 >
                   <div
                     className="handle"
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      left: 0,
-                      width: 6,
-                      cursor: 'ew-resize',
-                      zIndex: 2,
-                    }}
+                    style={{ left: 0 }}
                     onPointerDown={(e) => {
                       e.stopPropagation();
                       onCapDrag(e, c.id, 'in');
@@ -785,15 +789,7 @@ export function Timeline() {
                   />
                   <div
                     className="handle"
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      right: 0,
-                      width: 6,
-                      cursor: 'ew-resize',
-                      zIndex: 2,
-                    }}
+                    style={{ right: 0 }}
                     onPointerDown={(e) => {
                       e.stopPropagation();
                       onCapDrag(e, c.id, 'out');

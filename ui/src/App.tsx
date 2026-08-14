@@ -43,7 +43,7 @@ function Toast() {
         bottom: 16,
         left: '50%',
         transform: 'translateX(-50%)',
-        background: '#2a1620',
+        background: 'var(--toast-danger-bg)',
         border: '1px solid rgba(248,113,113,0.4)',
         color: 'var(--text-1)',
         padding: '8px 16px',
@@ -85,6 +85,9 @@ export function App() {
   );
 
   // 編輯快捷鍵（CapCut 慣例）。在輸入框內打字時全部不作用。
+  // 顯示用的鍵位表在 `shortcuts.ts`（Inspector 的 Shortcuts 彈出層由它生成）。
+  // 這裡是行為的唯一來源，那裡是說明的唯一來源，兩者沒有程式上的連結：
+  // **動到下面任何一個 case，必須同步更新 `shortcuts.ts`**。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -215,7 +218,7 @@ export function App() {
           display: 'flex',
           alignItems: 'center',
           gap: 12,
-          padding: '7px 14px',
+          padding: '8px 16px',
           position: 'relative',
           zIndex: 30,
         }}
@@ -223,7 +226,7 @@ export function App() {
         <b
           style={{
             fontSize: 15,
-            background: 'linear-gradient(90deg, #a78bfa, #60a5fa)',
+            background: 'linear-gradient(90deg, var(--accent-bright), #60a5fa)',
             WebkitBackgroundClip: 'text',
             color: 'transparent',
           }}
@@ -277,12 +280,11 @@ export function App() {
               >
                 <span className="panel-head">Properties</span>
                 <button
-                  className="icon-btn"
+                  className="icon-btn panel-collapse"
                   onClick={() => useView.getState().toggleLeft()}
                   title="Collapse properties panel"
-                  style={{ marginLeft: 'auto', padding: '3px 5px' }}
                 >
-                  <PanelLeftClose size={14} />
+                  <PanelLeftClose size={13} />
                 </button>
               </div>
               <Inspector />
@@ -306,9 +308,9 @@ export function App() {
                 className="icon-btn panel-handle"
                 onClick={() => useView.getState().toggleLeft()}
                 title="Expand properties panel"
-                style={{ position: 'absolute', left: 6, top: 8, zIndex: 55 }}
+                style={{ left: 6 }}
               >
-                <PanelLeftOpen size={14} />
+                <PanelLeftOpen size={13} />
               </button>
             )}
             {!rightOpen && (
@@ -316,9 +318,9 @@ export function App() {
                 className="icon-btn panel-handle"
                 onClick={() => useView.getState().toggleRight()}
                 title="Expand captions/activity panel"
-                style={{ position: 'absolute', right: 6, top: 8, zIndex: 55 }}
+                style={{ right: 6 }}
               >
-                <PanelRightOpen size={14} />
+                <PanelRightOpen size={13} />
               </button>
             )}
             <div style={{ height: '100%', overflowY: 'auto', padding: 12 }}>
@@ -343,7 +345,7 @@ export function App() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: 4,
-                  padding: '8px 10px',
+                  padding: '8px 12px',
                   borderBottom: '1px solid var(--line)',
                 }}
               >
@@ -360,12 +362,11 @@ export function App() {
                   Activity
                 </button>
                 <button
-                  className="icon-btn"
+                  className="icon-btn panel-collapse"
                   onClick={() => useView.getState().toggleRight()}
                   title="Collapse"
-                  style={{ marginLeft: 'auto', padding: '3px 5px' }}
                 >
-                  <PanelRightClose size={14} />
+                  <PanelRightClose size={13} />
                 </button>
               </div>
               <div ref={tabBodyRef} style={{ flex: 1, minHeight: 0 }}>

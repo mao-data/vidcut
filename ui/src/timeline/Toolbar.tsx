@@ -28,7 +28,7 @@ function fmt(t: number): string {
 function Timecode({ total }: { total: number }) {
   const time = usePlayback((s) => s.time);
   return (
-    <span className="mono" style={{ color: '#c4b5fd', marginLeft: 4 }}>
+    <span className="mono" style={{ color: 'var(--accent-text)', marginLeft: 4 }}>
       {fmt(time)} <span className="tag">/ {fmt(total)}</span>
     </span>
   );
@@ -67,7 +67,7 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        padding: '2px 4px 6px',
+        padding: '2px 4px 8px',
         fontSize: 11,
         color: 'var(--text-2)',
       }}
@@ -77,13 +77,13 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
         onClick={() => usePlayback.getState().seek(0)}
         title="Jump to start"
       >
-        <SkipBack size={13} />
+        <SkipBack size={14} />
       </button>
       <button
         className="icon-btn"
         onClick={() => (playing ? usePlayback.getState().pause() : usePlayback.getState().play())}
         title="Play/Pause (Space)"
-        style={{ padding: '5px 12px' }}
+        style={{ padding: '6px 12px' }}
       >
         {playing ? <Pause size={14} /> : <Play size={14} />}
       </button>
@@ -92,7 +92,7 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
         onClick={() => usePlayback.getState().seek(total)}
         title="Jump to end"
       >
-        <SkipForward size={13} />
+        <SkipForward size={14} />
       </button>
       <Timecode total={total} />
 
@@ -102,7 +102,7 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
           title="Upload an image onto the overlay track (starts at playhead)"
           style={{ cursor: 'pointer' }}
         >
-          <ImagePlus size={13} /> Overlay
+          <ImagePlus size={14} /> Overlay
           <input
             type="file"
             accept="image/*"
@@ -139,31 +139,31 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
             useSelection.getState().select({ kind: 'overlay', id });
           }}
         >
-          <Type size={13} /> Text
+          <Type size={14} /> Text
         </button>
         <button
           className="icon-btn"
           onClick={() => useView.getState().zoomBy(1 / 1.4)}
           title="Zoom out (Ctrl+wheel)"
         >
-          <ZoomOut size={13} />
+          <ZoomOut size={14} />
         </button>
         <button
           className="icon-btn"
           onClick={() => useView.getState().zoomBy(1.4)}
           title="Zoom in (Ctrl+wheel)"
         >
-          <ZoomIn size={13} />
+          <ZoomIn size={14} />
         </button>
         <button className="icon-btn" onClick={onFit} title="Fit timeline (Shift+Z)">
-          <Maximize2 size={13} />
+          <Maximize2 size={14} />
         </button>
         <button
           className={`icon-btn seg${snapEnabled ? ' on' : ''}`}
           onClick={() => useView.getState().toggleSnap()}
           title="Toggle snapping (N)"
         >
-          <Magnet size={13} /> Snap
+          <Magnet size={14} /> Snap
         </button>
       </span>
     </div>

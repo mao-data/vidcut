@@ -7,16 +7,8 @@ export function Activity() {
   const entries = useActivity((s) => s.entries);
   const recent = [...entries].reverse().slice(0, 40);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: 8,
-          borderBottom: '1px solid var(--line)',
-        }}
-      >
+    <div className="panel-col">
+      <div className="panel-bar" style={{ gap: 8 }}>
         <button
           className="icon-btn"
           onClick={() => sendCommand({ name: 'undo', steps: 1 })}
@@ -32,7 +24,7 @@ export function Activity() {
           <Redo2 size={13} /> Redo
         </button>
       </div>
-      <div style={{ overflowY: 'auto', flex: 1, padding: 8, fontSize: 12 }}>
+      <div className="panel-body" style={{ padding: 8 }}>
         {recent.length === 0 && <div style={{ color: 'var(--text-3)' }}>No changes yet</div>}
         {recent.map((e) => (
           <div
@@ -40,9 +32,9 @@ export function Activity() {
             className={Date.now() - Date.parse(e.ts) < 3000 ? 'fx-slidein' : undefined}
             style={{
               display: 'flex',
-              gap: 6,
+              gap: 8,
               padding: '2px 0',
-              color: e.source === 'ai' ? '#c4b5fd' : 'var(--audio-bright)',
+              color: e.source === 'ai' ? 'var(--accent-text)' : 'var(--audio-bright)',
             }}
           >
             <span style={{ opacity: 0.6, minWidth: 28 }}>v{e.version}</span>

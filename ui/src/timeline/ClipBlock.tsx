@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, type CSSProperties, type PointerEvent } from 'react';
+import { memo, useEffect, useRef, type PointerEvent } from 'react';
 import { Snowflake } from 'lucide-react';
 import type { Project, VideoClip } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
@@ -58,14 +58,6 @@ export const ClipBlock = memo(function ClipBlock({
   const frameW = media ? (filmH * media.probe.width) / media.probe.height : 45;
   const bgOffset = -(clip.in * frameW);
   const muted = clip.volume === 0;
-  const handle: CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 6,
-    cursor: 'ew-resize',
-    zIndex: 2,
-  };
   return (
     <div
       className={'clipblk' + fx}
@@ -115,7 +107,7 @@ export const ClipBlock = memo(function ClipBlock({
           backgroundPosition: `${bgOffset}px 0`,
           backgroundSize: 'auto 100%',
           backgroundRepeat: 'repeat-x',
-          backgroundColor: clip.frozen ? '#2d3a52' : undefined,
+          backgroundColor: clip.frozen ? 'var(--clip-frozen-bg)' : undefined,
         }}
       />
       {/* 下：波形帶（frozen＝平線） */}
@@ -156,7 +148,7 @@ export const ClipBlock = memo(function ClipBlock({
       </div>
       <div
         className="handle"
-        style={{ ...handle, left: 0 }}
+        style={{ left: 0 }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onSelect(clip.id);
@@ -165,7 +157,7 @@ export const ClipBlock = memo(function ClipBlock({
       />
       <div
         className="handle"
-        style={{ ...handle, right: 0 }}
+        style={{ right: 0 }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onSelect(clip.id);
@@ -175,12 +167,14 @@ export const ClipBlock = memo(function ClipBlock({
       <span
         style={{
           position: 'absolute',
-          top: 3,
+          top: 4,
+          // left 9 / maxWidth 18 是一組：要讓開 6px 的 trim handle，且兩側對稱（9×2=18）。
+          // 屬於 chip 內部幾何，不是留白階梯。
           left: 9,
           fontSize: 11,
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 3,
+          gap: 4,
           textShadow: '0 1px 3px rgba(0,0,0,0.9)',
           pointerEvents: 'none',
           maxWidth: 'calc(100% - 18px)',
@@ -188,6 +182,8 @@ export const ClipBlock = memo(function ClipBlock({
           whiteSpace: 'nowrap',
         }}
       >
+        {/* size 11 是兩級制的時間軸 chip 例外（theme.css 有記）：標籤字級 11，
+            13 會壓過文字。 */}
         {clip.frozen && <Snowflake size={11} />}
         {clip.label ?? clip.id}
       </span>

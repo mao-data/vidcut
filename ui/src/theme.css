@@ -16,15 +16,69 @@
   --accent: #8b5cf6;
   --accent-2: #6366f1;
   --accent-soft: rgba(139, 92, 246, 0.2);
+  /* 紫底上的強調文字／AI 署名（--accent 當文字色在深底上對比不足） */
+  --accent-text: #c4b5fd;
+  /* --accent 的亮化版：playhead、標題漸層等要在深底上發亮的圖形 */
+  --accent-bright: #a78bfa;
   --audio: #0ea5e9;
   --audio-bright: #7dd3fc;
   --ok: #34d399;
+  /* 綠底 chip 上的文字（overlay 軌） */
+  --ok-text: #6ee7b7;
   --danger: #f87171;
   --hl: #fbbf24;
+  /* 吸附導線等「注意一下」的提示色 */
+  --warn: #eab308;
+  /* 浮出面板（下拉選單／彈出層）的不透明底色，比 --bg 亮一階以浮起於頁面 */
+  --popover-bg: #1a1d2e;
+  /* 錯誤 Toast 底色：帶紅調的深底，配 --danger 邊框 */
+  --toast-danger-bg: #2a1620;
+  /* 定格 clip 的底色（沒有 filmstrip 可畫時的替代填色） */
+  --clip-frozen-bg: #2d3a52;
   --r-panel: 10px;
   --r-card: 9px;
   --r-ctl: 7px;
 }
+
+/**
+ * 間距階梯（07-30 spec：一律走 4 的倍數；2 是唯一的半階，用在 chip 內緣這種
+ * 只有 20–26px 高、放 4 就撐開的地方）：
+ *
+ *   2  半階：chip 內緣、密集列的上下內距
+ *   4  最小正階：圖示與文字之間、緊鄰控制項之間
+ *   8  常用：面板區塊內距、控制列 gap
+ *   12 面板/卡片內距、頂欄水平內距
+ *   16 卡片級的大內距
+ *
+ * 奇數值（3/5/7）已全數歸到最近的偶數階。**例外只有兩類，都不是留白**：
+ *   - 幾何常數（ROW_H、SUB_ROW_H、AUDIO_ROW_H、handle 寬 6、chip 高）——動了會改
+ *     拖曳數學與 verify 截圖比對。
+ *   - 影片世界的值（字幕/overlay 的 fontSize 64 等）——那是產品資料，不是 UI chrome。
+ *
+ * UI chrome 字級階梯（同樣不涵蓋影片世界的字級）：
+ *
+ *   10  badge/chip 級：.badge、.section 小標、時間軸 chip 與音訊 chip 的標籤
+ *   11  時間軸密集標記與次要標籤：.panel-head、.tag、.form .field、.hint、尺規刻度
+ *   12  內文：button/input/select/textarea、列表列、面板說明文字
+ *   13  面板標題級：body 預設（面板標題 h3 用 14，是刻意比內文重一階的標題）
+ *
+ * 半像素字級（9.5/10.5/11.5/12.5）一個都不留——同一階裡多出半格既看不出差別，
+ * 又讓「這是哪一級」永遠要靠量的。
+ */
+
+/**
+ * 圖示尺寸兩級制（lucide 的 size prop，不是 CSS token——SVG 屬性吃不到 var()，
+ * 所以規範只能寫在這裡當唯一出處，元件端自己帶字面值）：
+ *
+ *   工具列級 14  時間軸工具列（Toolbar.tsx）、頂欄（App header 的 Export 觸發鈕）
+ *   面板行內 13  面板、面板內按鈕與彈出層、行內標記、面板頭的收合/展開鈕
+ *
+ * 例外必須在該行加註解說明理由，目前只有兩類：
+ *   size 11  時間軸 chip 內的狀態標記（ClipBlock 定格、AudioChip ducking、
+ *            Timeline overlay 錨定）。chip 只有 20–26px 高、字級 10–11，
+ *            13 會壓過標籤文字甚至撐爆列高。
+ *   size 20  ReviewBar 的 Bot：審核卡的頭像位，是整張卡的視覺重心，不是圖示。
+ */
 
 * {
   box-sizing: border-box;
@@ -54,7 +108,7 @@ button {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  padding: 5px 10px;
+  padding: 6px 10px;
   cursor: pointer;
   transition:
     background 0.12s ease,
@@ -103,8 +157,8 @@ textarea:focus-visible {
 .icon-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 8px;
+  gap: 4px;
+  padding: 6px 8px;
   line-height: 1;
 }
 .icon-btn svg {
@@ -129,6 +183,16 @@ textarea:focus-visible {
 }
 .panel-handle {
   animation: panel-handle-in 0.15s ease 0.25s both;
+  position: absolute;
+  top: 8px;
+  /* 要壓過頂欄的 Export 下拉（z 50）：兩者都貼右緣、水平必然重疊（見 App.tsx 的註解）。
+   * 貼哪一邊（left/right: 6）由使用端決定，那是位置。 */
+  z-index: 55;
+}
+/* 面板頭右端的收合鈕：比一般 icon-btn 再窄一點，讓它讀起來像標題列的一部分而不是控制項。 */
+.panel-collapse {
+  margin-left: auto;
+  padding: 4px 6px;
 }
 
 input,
@@ -140,7 +204,7 @@ textarea {
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  padding: 5px 8px;
+  padding: 6px 8px;
   transition: border-color 0.12s ease;
 }
 input:hover,
@@ -203,14 +267,66 @@ a {
 .seg.on {
   background: var(--accent-soft);
   border-color: rgba(139, 92, 246, 0.5);
-  color: #c4b5fd;
+  color: var(--accent-text);
 }
 .badge {
   font-size: 10px;
   padding: 0 6px;
   border-radius: 8px;
   background: var(--accent-soft);
-  color: #c4b5fd;
+  color: var(--accent-text);
+}
+
+/* 面板直向容器：撐滿高度、內容自己捲。右欄兩個分頁（CaptionList/Activity）共用。 */
+.panel-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+/* 面板頂部的控制列（Undo/Redo、Style to all…）：與下方內容用細線分隔。
+ * gap 由使用端決定（按鈕列 8、擠一點的 chip 列 6），共通的是內距與那條線。 */
+.panel-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+/* 面板的捲動內容區：吃掉 .panel-col 的剩餘高度。 */
+.panel-body {
+  overflow-y: auto;
+  flex: 1;
+  font-size: 12px;
+}
+/* Inspector 的區塊：一段設定 + 收尾細線（AI agent、Canvas fill…）。 */
+.panel-section {
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+/* Inspector 的表單標題（Clip / Audio / Caption / Overlay）。
+ * 14 是刻意比 12 的內文重一階，不是內文的變體。 */
+.form h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+/* 浮出層盒子（ExportMenu 的匯出設定、Inspector 的快捷鍵表）。
+ * 位置（top/right/left）、寬度與堆疊順序留在元件的 inline style——那是各自的版面決定，
+ * 這裡只收「浮起來的盒子長什麼樣」。 */
+.popover {
+  position: absolute;
+  padding: 12px;
+  border-radius: var(--r-ctl);
+  background: var(--popover-bg);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+/* 匯出下拉是「一疊控制項」，圓角吃面板級、陰影更深（它浮在頂欄之上、離頁面最遠）。 */
+.popover-menu {
+  border-radius: var(--r-panel);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* 表單面板（Inspector）：label 與滿寬輸入 */
@@ -218,7 +334,7 @@ a {
   display: block;
   font-size: 11px;
   color: var(--text-2);
-  margin: 10px 0 4px;
+  margin: 12px 0 4px;
 }
 .form input,
 .form textarea,
@@ -259,7 +375,7 @@ a {
  * 只是雜訊。 */
 .form .section {
   margin: 16px 0 0;
-  padding-bottom: 5px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
   font-size: 10px;
   font-weight: 600;
@@ -273,17 +389,17 @@ a {
 .form .duo {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+  gap: 8px;
 }
 /* 欄位下的狀態說明（例：這個 overlay 錨在哪一段），不是可編輯的東西。 */
 .form .hint {
-  margin: 5px 0 0;
+  margin: 6px 0 0;
   font-size: 11px;
   color: var(--text-3);
 }
 /* 破壞性操作與一般編輯隔開。窄面板下 flex 換行會讓刪除鈕落到不可預期的位置。 */
 .form .danger-zone {
-  margin-top: 14px;
+  margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
@@ -291,8 +407,8 @@ a {
 .form .field.check {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  margin: 10px 0;
+  gap: 8px;
+  margin: 12px 0;
   cursor: pointer;
 }
 .form .field.check input {
@@ -300,8 +416,17 @@ a {
 }
 
 /* 時間軸 trim handle：預設隱形（常駐白條在片段交界看起來像破圖），
- * hover 到片段才浮現、直接 hover 到 handle 最亮（CapCut 慣例）。 */
+ * hover 到片段才浮現、直接 hover 到 handle 最亮（CapCut 慣例）。
+ * 寬 6 是**拖曳熱區**（四個使用端 ClipBlock／AudioChip／Timeline 字幕軌左右緣共用同一個
+ * 數字），不是留白——動它會改變使用者抓得到 trim 的範圍。左右哪一邊由使用端的
+ * inline `left: 0` / `right: 0` 決定，那是位置、留在元件裡。 */
 .handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 2;
   background: transparent;
   transition: background 0.12s ease;
 }

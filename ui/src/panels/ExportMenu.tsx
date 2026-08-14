@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Clapperboard, Image } from 'lucide-react';
+import { Check, ChevronDown, Clapperboard, Image } from 'lucide-react';
 import { gsap, useGSAP, motionOK } from '../motion.js';
 import type { RenderOptions } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
@@ -92,7 +92,7 @@ export function ExportMenu() {
         className="icon-btn"
         onClick={() => setOpen((o) => !o)}
         title="Export settings"
-        style={{ marginLeft: 4, padding: '6px 5px' }}
+        style={{ marginLeft: 4, padding: '6px 4px' }}
       >
         <ChevronDown size={14} />
       </button>
@@ -100,20 +100,12 @@ export function ExportMenu() {
       {open && (
         <div
           data-export-pop
+          className="popover popover-menu"
           style={{
-            position: 'absolute',
             top: 'calc(100% + 8px)',
             right: 0,
             zIndex: 50,
             width: 240,
-            padding: 12,
-            borderRadius: 'var(--r-panel)',
-            background: '#1a1d2e',
-            border: '1px solid var(--line-strong)',
-            boxShadow: '0 12px 40px rgba(0,0,0,0.55)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
           }}
         >
           <span className="panel-head">Export settings</span>
@@ -145,20 +137,32 @@ export function ExportMenu() {
             onClick={() => sendSetCover(usePlayback.getState().time)}
             title="Use the current playhead frame as the cover"
           >
-            <Image size={14} /> Set cover from current frame
+            <Image size={13} /> Set cover from current frame
           </button>
           <button className="btn-primary" onClick={go} disabled={running}>
             {running ? `Rendering ${progress}%` : 'Start render'}
           </button>
 
           {render?.status === 'done' && render.lastOutput && (
-            <a href={`/media/${render.lastOutput}`} target="_blank" rel="noreferrer">
-              ✓ Open output ({render.lastOutput.split('/').pop()})
+            <a
+              href={`/media/${render.lastOutput}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <Check size={13} /> Open output ({render.lastOutput.split('/').pop()})
             </a>
           )}
           {render?.coverPath && (
-            <a className="tag" href={`/media/${render.coverPath}`} target="_blank" rel="noreferrer">
-              Cover ✓
+            <a
+              className="tag"
+              href={`/media/${render.coverPath}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              {/* size 11:.tag 字級 11 的行內綴飾,13 會壓過文字(兩級制例外,theme.css 有記) */}
+              Cover <Check size={11} />
             </a>
           )}
           {render?.status === 'error' && (

@@ -1,4 +1,5 @@
-import { memo, useEffect, useRef, type CSSProperties, type PointerEvent } from 'react';
+import { memo, useEffect, useRef, type PointerEvent } from 'react';
+import { Volume1 } from 'lucide-react';
 import type { AudioItem, Project } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
 import { drawWaveform, AUDIO_WAVE } from './waveform.js';
@@ -37,14 +38,6 @@ export const AudioChip = memo(function AudioChip({
     drawWaveform(cv, peaks, { from: a.in, duration: a.duration, midline: false, ...AUDIO_WAVE });
   }, [peaks, a.in, a.duration, w]);
 
-  const handle: CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 6,
-    cursor: 'ew-resize',
-    zIndex: 2,
-  };
   return (
     <div
       className={'clipblk' + fx}
@@ -78,7 +71,7 @@ export const AudioChip = memo(function AudioChip({
       />
       <div
         className="handle"
-        style={{ ...handle, left: 0 }}
+        style={{ left: 0 }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onDragStart(e, a, 'in');
@@ -86,7 +79,7 @@ export const AudioChip = memo(function AudioChip({
       />
       <div
         className="handle"
-        style={{ ...handle, right: 0 }}
+        style={{ right: 0 }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onDragStart(e, a, 'out');
@@ -101,9 +94,16 @@ export const AudioChip = memo(function AudioChip({
           color: 'var(--audio-bright)',
           textShadow: '0 1px 2px rgba(0,0,0,0.8)',
           pointerEvents: 'none',
+          // inline-flex 讓 ducking 圖示與文字置中對齊；chip 是絕對定位、高度固定，
+          // 圖示不會把它撐開（同 ClipBlock 的 frozen 標記）。
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
         }}
       >
-        {a.ducking ? '🔉 ' : ''}
+        {/* size 11 是兩級制的時間軸 chip 例外（theme.css 有記）：chip 只有 26px 高、
+            字級 10，13 會壓過文字。 */}
+        {a.ducking && <Volume1 size={11} aria-label="ducking" />}
         {a.label ?? a.mediaId}
       </span>
     </div>

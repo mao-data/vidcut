@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { motionOK } from '../motion.js';
 import { activeTokenIndex, type CaptionItem, type CaptionStyle } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
@@ -143,18 +144,9 @@ export function CaptionList() {
   const hasTokens = captions.some((c) => c.tokens && c.tokens.length > 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
+    <div className="panel-col" style={{ minWidth: 0 }}>
       {captions.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: 8,
-            borderBottom: '1px solid var(--line)',
-            flexWrap: 'wrap',
-          }}
-        >
+        <div className="panel-bar" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button
             onClick={() => applyStyleToAll(captions[0]!.style)}
             title="Apply the first caption's style to all"
@@ -169,9 +161,9 @@ export function CaptionList() {
         </div>
       )}
 
-      <div style={{ overflowY: 'auto', flex: 1, fontSize: 12 }}>
+      <div className="panel-body">
         {captions.length === 0 && (
-          <div style={{ padding: 10, color: 'var(--text-3)' }}>
+          <div style={{ padding: 12, color: 'var(--text-3)' }}>
             No captions yet. Ask the AI to run <code>auto_caption</code> (whisper → auto split →
             word highlight).
           </div>
@@ -255,6 +247,7 @@ export function CaptionList() {
                 </div>
               )}
               <button
+                className="icon-btn"
                 onClick={(e) => {
                   e.stopPropagation();
                   sendCommand({
@@ -263,8 +256,9 @@ export function CaptionList() {
                   });
                 }}
                 title="Delete this caption"
+                aria-label="Delete this caption"
               >
-                ✕
+                <X size={13} />
               </button>
             </div>
           );

@@ -1,5 +1,5 @@
-import { useState, type ChangeEvent } from 'react';
-import { AudioWaveform, CircleHelp, Scissors, Snowflake, Trash2 } from 'lucide-react';
+import { Fragment, useState, type ChangeEvent } from 'react';
+import { AudioWaveform, CircleHelp, Paperclip, Scissors, Snowflake, Trash2 } from 'lucide-react';
 import type { AudioItem, Command } from '@vidcut/shared';
 
 type AudioPatch = Partial<
@@ -10,6 +10,7 @@ import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
 import { useActivity } from '../stores/activity.js';
 import { sendCommand } from '../ws.js';
+import { SHORTCUTS } from '../shortcuts.js';
 
 function num(e: ChangeEvent<HTMLInputElement>): number {
   return Number(e.target.value);
@@ -19,11 +20,11 @@ function num(e: ChangeEvent<HTMLInputElement>): number {
 function CanvasFitRow() {
   const fit = useProject((s) => s.doc?.canvas.fit ?? 'contain');
   return (
-    <div style={{ padding: 12, borderBottom: '1px solid var(--line)' }}>
+    <div className="panel-section">
       <label className="field" style={{ marginTop: 0 }}>
         Canvas fill (when not covered)
       </label>
-      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         {(['contain', 'blur'] as const).map((f) => (
           <button
             key={f}
@@ -39,37 +40,41 @@ function CanvasFitRow() {
   );
 }
 
-/** 快捷鍵表：收進「?」彈出層，省 Inspector 高度。 */
+/**
+ * 快捷鍵表：收進「?」彈出層，省 Inspector 高度。
+ * 內容一律來自 `shortcuts.ts`（單一來源），不要在這裡硬編按鍵文字。
+ * 兩欄網格：鍵在左、動作在右，密度跟原本那份 `<br>` 分行的緊湊表相當。
+ */
 function ShortcutHelp() {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ marginTop: 12, position: 'relative' }}>
       <button className="icon-btn" onClick={() => setOpen((o) => !o)}>
-        <CircleHelp size={14} /> Shortcuts
+        <CircleHelp size={13} /> Shortcuts
       </button>
       {open && (
         <div
+          className="popover"
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
+            top: 'calc(100% + 8px)',
             left: 0,
             zIndex: 20,
             width: 216,
-            padding: 10,
-            borderRadius: 'var(--r-ctl)',
-            background: '#1a1d2e',
-            border: '1px solid var(--line-strong)',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-            lineHeight: 1.9,
             fontSize: 12,
             color: 'var(--text-2)',
+            display: 'grid',
+            gridTemplateColumns: 'auto 1fr',
+            columnGap: 10,
+            rowGap: 2,
+            lineHeight: 1.5,
           }}
         >
-          Space Play/Pause · S Split
-          <br />Q Delete left · W Delete right · F Freeze
-          <br />N Snap · Shift+Z Fit · ←/→ Frame step
-          <br />
-          Ctrl+wheel Zoom · Cmd+Z Undo
+          {SHORTCUTS.map((s) => (
+            <Fragment key={`${s.keys} ${s.label}`}>
+              <span style={{ color: 'var(--text-1)', whiteSpace: 'nowrap' }}>{s.keys}</span>
+              <span>{s.label}</span>
+            </Fragment>
+          ))}
         </div>
       )}
     </div>
@@ -86,11 +91,11 @@ function AgentStatus() {
   const entries = useActivity((s) => s.entries);
   const recent = [...entries].reverse().slice(0, 3);
   return (
-    <div style={{ padding: 12, borderBottom: '1px solid var(--line)' }}>
+    <div className="panel-section">
       <div className="panel-head" style={{ marginBottom: 8 }}>
         AI agent
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, fontSize: 12.5 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
         <span style={{ color: connected ? 'var(--ok)' : 'var(--danger)', fontSize: 10 }}>●</span>
         <span style={{ color: 'var(--text-1)' }}>{connected ? 'Agent connected' : 'No agent'}</span>
       </div>
@@ -100,12 +105,12 @@ function AgentStatus() {
           style={{
             display: 'block',
             marginTop: 8,
-            padding: '6px 8px',
+            padding: '8px',
             borderRadius: 'var(--r-ctl)',
             background: 'rgba(0,0,0,0.28)',
             border: '1px solid var(--line)',
             color: 'var(--text-2)',
-            fontSize: 10.5,
+            fontSize: 10,
             lineHeight: 1.5,
             wordBreak: 'break-all',
           }}
@@ -113,7 +118,7 @@ function AgentStatus() {
           claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
         </code>
       )}
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 12 }}>
         {recent.length === 0 ? (
           <div className="tag">No edits yet.</div>
         ) : (
@@ -122,10 +127,10 @@ function AgentStatus() {
               key={e.version}
               style={{
                 display: 'flex',
-                gap: 6,
+                gap: 8,
                 alignItems: 'baseline',
                 padding: '2px 0',
-                fontSize: 11.5,
+                fontSize: 11,
               }}
             >
               {/* AI 紫、人藍：與 Activity 面板同一條分色規則 */}
@@ -133,7 +138,7 @@ function AgentStatus() {
                 style={{
                   flex: 'none',
                   width: 26,
-                  color: e.source === 'ai' ? '#c4b5fd' : 'var(--audio-bright)',
+                  color: e.source === 'ai' ? 'var(--accent-text)' : 'var(--audio-bright)',
                 }}
               >
                 {e.source === 'ai' ? 'AI' : 'you'}
@@ -180,7 +185,7 @@ export function Inspector() {
     if (!clip) return null;
     return (
       <div className="form" style={{ padding: 12 }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Clip {clip.label ?? clip.id}</h3>
+        <h3>Clip {clip.label ?? clip.id}</h3>
         <label className="field">Label</label>
         <input
           value={clip.label ?? ''}
@@ -213,7 +218,7 @@ export function Inspector() {
           value={clip.volume}
           onChange={(e) => send({ name: 'updateClip', clipId: clip.id, patch: { volume: num(e) } })}
         />
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
           <button
             className="icon-btn"
             onClick={() => send({ name: 'splitAt', time: usePlayback.getState().time })}
@@ -256,7 +261,7 @@ export function Inspector() {
     const upd = (patch: AudioPatch) => send({ name: 'updateAudio', id: a.id, patch });
     return (
       <div className="form" style={{ padding: 12 }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Audio {a.label ?? a.mediaId}</h3>
+        <h3>Audio {a.label ?? a.mediaId}</h3>
         <p className="section">Timing</p>
         <label className="field">Start (s)</label>
         <input type="number" step="0.1" value={a.start} onChange={(e) => upd({ start: num(e) })} />
@@ -323,7 +328,7 @@ export function Inspector() {
     if (!cap) return null;
     return (
       <div className="form" style={{ padding: 12 }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Caption</h3>
+        <h3>Caption</h3>
         <label className="field">Text</label>
         {/*
          * **失焦才送命令**（與同一面板的文字 overlay Text 欄同一個模式）。
@@ -423,7 +428,7 @@ export function Inspector() {
   if (!ov) return null;
   return (
     <div className="form" style={{ padding: 12 }}>
-      <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Overlay {ov.imagePath.split('/').pop()}</h3>
+      <h3>Overlay {ov.imagePath.split('/').pop()}</h3>
       <p className="section">Timing</p>
       {ov.anchor ? (
         <>
@@ -440,8 +445,12 @@ export function Inspector() {
               })
             }
           />
-          <p className="hint">
-            📎 follows{' '}
+          <p
+            className="hint"
+            style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}
+          >
+            <Paperclip size={13} style={{ flexShrink: 0 }} />
+            follows{' '}
             {doc.tracks.video.find((c) => c.id === ov.anchor!.clipId)?.label ?? ov.anchor.clipId}
           </p>
         </>

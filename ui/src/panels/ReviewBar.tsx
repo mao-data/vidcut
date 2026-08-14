@@ -53,9 +53,14 @@ export function ReviewBar() {
         flexWrap: 'wrap',
       }}
     >
-      <Bot size={20} color="#c4b5fd" />
+      {/* 顏色走 currentColor（lucide 未給 color 時 stroke 就是 currentColor）：
+          SVG 屬性不吃 var()，所以 token 只能從 CSS 的 color 繼承下去。 */}
+      {/* size 20 是圖示兩級制的刻意例外（theme.css 有記）：這不是工具列或行內圖示，
+          而是審核卡的頭像位——整張卡唯一的視覺重心，縮到 14 就淪為裝飾。 */}
+      <Bot size={20} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 200 }}>
-        <strong style={{ color: '#c4b5fd' }}>AI asks for your review:</strong> {review.summary}
+        <strong style={{ color: 'var(--accent-text)' }}>AI asks for your review:</strong>{' '}
+        {review.summary}
         {review.focus?.length ? (
           <span className="tag">(focus: {review.focus.join(', ')})</span>
         ) : null}
@@ -76,10 +81,10 @@ export function ReviewBar() {
           fontWeight: 600,
         }}
       >
-        <Check size={14} /> Approve
+        <Check size={13} /> Approve
       </button>
       <button className="icon-btn" onClick={() => resolve('approved_with_notes')} disabled={!note}>
-        <Check size={14} /> Approve with note
+        <Check size={13} /> Approve with note
       </button>
       <button
         className="btn-danger icon-btn"
@@ -87,7 +92,7 @@ export function ReviewBar() {
         disabled={!note}
         title={!note ? 'A note is required to reject' : ''}
       >
-        <X size={14} /> Reject
+        <X size={13} /> Reject
       </button>
     </div>
   );

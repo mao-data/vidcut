@@ -711,8 +711,10 @@ describe('CaptionList', () => {
   it('deleting a caption sends the remaining ones', () => {
     seedProject();
     const { container } = render(<CaptionList />);
-    const del = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent === '✕',
+    // 刪除鈕原本是 ✕ 文字、靠 textContent 定位；改成 lucide 圖示後沒有文字節點，
+    // 改用它的 aria-label（圖示鈕唯一的可及名稱）。
+    const del = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Delete this caption"]',
     )!;
     act(() => {
       fireEvent.click(del);
