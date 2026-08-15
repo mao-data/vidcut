@@ -95,7 +95,7 @@ export const AudioChip = memo(function AudioChip({
           top: 2,
           fontSize: 10,
           color: 'var(--audio-bright)',
-          textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+          textShadow: 'var(--chip-text-shadow)',
           pointerEvents: 'none',
           // inline-flex 讓 ducking 圖示與文字置中對齊；chip 是絕對定位、高度固定，
           // 圖示不會把它撐開（同 ClipBlock 的 frozen 標記）。

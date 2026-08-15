@@ -101,7 +101,7 @@ function ThemeToggle() {
   const setTheme = useTheme((s) => s.setTheme);
   const on = theme === 'paper';
   return (
-    <div style={{ gridColumn: '1 / -1', marginTop: 8, borderTop: '1px solid var(--line)' }}>
+    <div className="panel-edge-t" style={{ gridColumn: '1 / -1', marginTop: 8 }}>
       <button
         className={`seg${on ? ' on' : ''}`}
         aria-pressed={on}
@@ -140,9 +140,9 @@ function AgentStatus() {
             marginTop: 8,
             padding: '8px',
             borderRadius: 'var(--r-ctl)',
-            background: 'rgba(0,0,0,0.28)',
+            background: 'var(--code-inline-bg)',
             border: '1px solid var(--line)',
-            color: 'var(--text-2)',
+            color: 'var(--code-inline-text)',
             fontSize: 10,
             lineHeight: 1.5,
             wordBreak: 'break-all',
@@ -151,7 +151,11 @@ function AgentStatus() {
           claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
         </code>
       )}
-      <div style={{ marginTop: 12 }}>
+      {/* `empty-note` 掛在**外層**而不是下面那個 `.tag` 上：`scripts/mutants.json` 的
+          `inspector-agent-empty` 錨在那一整行的字面值上（含 className 與文字），
+          動它會讓突變測試的 find 落空。這段註解也刻意不複述那串字面值——
+          複述會讓 find 命中兩次，`mutate --check` 同樣會紅。 */}
+      <div className={recent.length === 0 ? 'empty-note' : undefined} style={{ marginTop: 12 }}>
         {recent.length === 0 ? (
           <div className="tag">No edits yet.</div>
         ) : (
@@ -166,12 +170,13 @@ function AgentStatus() {
                 fontSize: 11,
               }}
             >
-              {/* AI 紫、人藍：與 Activity 面板同一條分色規則 */}
+              {/* 署名分色走 --who-* token（暗版紫/藍、紙版 graphite/紅鉛筆）：
+                  與 Activity 面板同一條規則 */}
               <span
                 style={{
                   flex: 'none',
                   width: 26,
-                  color: e.source === 'ai' ? 'var(--accent-text)' : 'var(--audio-bright)',
+                  color: e.source === 'ai' ? 'var(--who-ai)' : 'var(--who-you)',
                 }}
               >
                 {e.source === 'ai' ? 'AI' : 'you'}
@@ -203,7 +208,14 @@ export function Inspector() {
       <div className="form">
         <AgentStatus />
         <CanvasFitRow />
-        <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 12 }}>
+        {/* `empty-note`＝「桌上的一張便條」掛勾（微轉 −0.7deg，兩主題共用）。
+            ⚠️ `fontSize` 在 CSS 的 `.empty-note`（12px）而不是這裡的 inline style：
+            inline style 贏過任何 author 規則，留在這裡的話主題永遠改不掉字級。
+            ⚠️ 這裡曾有一個 `<span className="sc-help">` 包住 ShortcutHelp，用途是讓
+            快捷鍵表逃出紙主題套在 `.empty-note` 上的手寫體。**2026-08-14 手寫體全面
+            退場後它沒有存在意義**（ShortcutHelp 的根本來就是 block 的 `<div>`），
+            已連同 `.sc-help` 的 CSS 一起移除——不要再包回來。 */}
+        <div className="empty-note" style={{ padding: 12, color: 'var(--text-3)' }}>
           Select a clip / caption / overlay / audio to edit
           <ShortcutHelp />
         </div>

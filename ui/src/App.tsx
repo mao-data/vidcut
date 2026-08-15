@@ -39,17 +39,17 @@ function Toast() {
   return (
     <div
       ref={ref}
+      className="toast"
       style={{
         position: 'fixed',
         bottom: 16,
         left: '50%',
-        transform: 'translateX(-50%)',
         background: 'var(--toast-danger-bg)',
         border: '1px solid rgba(248,113,113,0.4)',
         color: 'var(--text-1)',
         padding: '8px 16px',
         borderRadius: 'var(--r-ctl)',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+        boxShadow: 'var(--shadow-toast)',
         zIndex: 100,
       }}
     >
@@ -267,9 +267,14 @@ export function App() {
         >
           {/* 左：屬性（外層 hidden、內層固定寬 → 收合時內容不變形）。
               `panel-surface` = --panel 實底（亮度樓梯第二階，theme.css 檔頭）。 */}
+          {/* 分界線交給 CSS（`.panel-edge-r`）而不是 inline style：紙主題要把這條
+              結構性大分界換成 1.5px dashed（DESIGN.md 的 dashed rules），而 inline
+              style 贏過任何 author 規則，scoped 覆寫只能靠 !important——那會連
+              「收合時不畫線」一起蓋掉。改用 class + `data-edge` 屬性表達開合狀態。 */}
           <div
-            className="panel-surface"
-            style={{ overflow: 'hidden', borderRight: leftOpen ? '1px solid var(--line)' : 'none' }}
+            className="panel-surface panel-edge-r"
+            data-edge={leftOpen ? 'on' : 'off'}
+            style={{ overflow: 'hidden' }}
           >
             <div style={{ width: leftWidth, height: '100%', overflowY: 'auto' }}>
               <div
@@ -331,8 +336,9 @@ export function App() {
 
           {/* 右：字幕 ⇄ 活動分頁（同左欄，--panel 實底） */}
           <div
-            className="panel-surface"
-            style={{ overflow: 'hidden', borderLeft: rightOpen ? '1px solid var(--line)' : 'none' }}
+            className="panel-surface panel-edge-l"
+            data-edge={rightOpen ? 'on' : 'off'}
+            style={{ overflow: 'hidden' }}
           >
             <div
               style={{
@@ -343,12 +349,10 @@ export function App() {
               }}
             >
               <div
+                className="panel-bar"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
                   gap: 4,
                   padding: '8px 12px',
-                  borderBottom: '1px solid var(--line)',
                 }}
               >
                 <button
@@ -380,7 +384,7 @@ export function App() {
       </div>
 
       {/* 底：時間軸（同左右面板，--panel 實底） */}
-      <div className="panel-surface" style={{ borderTop: '1px solid var(--line)', padding: 8 }}>
+      <div className="panel-surface panel-edge-t" style={{ padding: 8 }}>
         <Timeline />
       </div>
       <Toast />

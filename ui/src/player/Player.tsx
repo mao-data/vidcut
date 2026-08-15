@@ -625,7 +625,7 @@ export function Player() {
           background: '#000',
           borderRadius: 10,
           overflow: 'hidden',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px var(--line-strong)',
+          boxShadow: 'var(--shadow-stage), 0 0 0 1px var(--line-strong)',
         }}
       >
         {blurFill && (

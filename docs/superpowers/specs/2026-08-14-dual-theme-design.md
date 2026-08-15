@@ -55,6 +55,58 @@
   (「貼在紙上的深色相紙」),理由同上——色彩判斷優先於世界觀。
 - 大使館元素在亮版下天然融入(同一張紙桌)。
 
+> **階段 ③ 實作定案(2026-08-14 修訂,以實作為準)**:
+>
+> - **波形維持包絡渲染,只換 non-photo blue 色**——「刻度式」是 canvas 渲染行為
+>   變更(會動到暗版共用的 drawWaveform),不在主題階段範圍,要做另開案。
+> - **主行動鈕=ink 實體**(`--accent: #26231d`+紙白字 14.14:1),非 mock 的描邊款
+>   ——紫在紙上全面退場(One-Pigment),grep 驗證無殘留。
+> - **吸附導線 `--warn` 維持琥珀**:它畫在 stage 的影片上,不在紙上——stage
+>   例外規則的延伸(紙色導線在影片上會隱形)。
+> - **點格紙印在面板上,不是 body**:編輯器骨架蓋滿 viewport,body 的格紙永遠
+>   看不見(截圖抓到的,computed value 驗不出這種問題)。
+> - **`.seg.on` 用墨不用紅**:分頁選中是 UI 狀態不是批註,紅框會讀成「紅色系
+>   UI 強調」= Two-Hands 違規(實作中途自我修正)。
+> - **署名分色開專屬 token `--who-ai`/`--who-you`**(Inspector+Activity 共用):
+>   暗版值=既有紫/藍字面值(computed 不變);紙版 **AI=graphite、you=紅鉛筆**
+>   ——紅是批註、是人的手(agent-presence spec 的 Two-Hands 分色條)。首版把
+>   AI 映到紅,主 session 審查時抓到反了,已修正。
+> - `::selection` 用 DESIGN.md 的 highlighter(`--hl`,編輯器首次啟用);光暈族
+>   在紙上一律改 ink 投影(紙不發光,選取=紙卡抬起)。
+
+> **階段 ③ craft 補強(2026-08-14 第二輪修訂——使用者反饋「主題感不夠明顯」後
+> 三批補強,以實作為準)**:
+>
+> - **字體接管**:paper 下 UI 字體切 Jost(DESIGN.md body font)。@font-face 由
+>   `500 600` 放寬為 `400 700`(fvar 實測軸 100–900);單一宣告點(body,其餘
+>   `font: inherit`);中文 fallback 鏈保留(Jost 零 CJK 字形);mono 讀數與字卡
+>   管線不碰。暗版唯一 Jost 消費者 `.ap-cap` 固定 600,放寬前後選同一 instance。
+> - **材質層**:header 分界 2px ink 實線;結構性分隔改 `1.5px dashed`(App.tsx
+>   三條 inline 分界收編為 `.panel-edge-*` class,暗版值逐字元相同);**資料列
+>   `.rowline` 維持實線**(密集列間 dashed 是噪音);微旋轉只給桌上物件
+>   (empty-note −0.7deg/toast +0.5deg/Export −0.3deg),**stage/video/時間軸/
+>   popover/資料列絕不轉**——前兩者是座標量測面(overlay 拖曳、verify:canvas
+>   的 transform 檢查),後者是可讀性;focus-visible 改 red pencil dashed;
+>   hover=物理輕推不加大陰影。
+> - **手寫層**:Caveat 500/700 入庫(兩檔 byte-identical——Google css2 對
+>   variable font 回同一 URL;OFL 授權檔同入)。只給「介面對你說話」的文字:
+>   empty-note 16px/hint 14px(等效係數 1.3,headless canvas x-height 實測);
+>   **資料絕不手寫**(字幕/時間碼/檔名/工具名/快捷鍵表,後兩者需主動擋回
+>   mono/Jost——快捷鍵手寫會按錯)。新 `--font-ui` token 供逃逸 Caveat 繼承。
+> - **使用者第二輪收回(2026-08-14 定案,最高優先)**:看過成品後,(a) **Caveat
+>   手寫體從 app 文字全面退場**(引導句/hint 回 Jost;字型檔+@font-face 保留給
+>   階段 4 索引卡再議);(b) **分隔線一律 1px 實線**(dashed 撤回,兩主題);
+>   (c) **UI 元件一律擺正**(empty-note/toast/Export/hover 的 rotate 全撤,focus
+>   虛線改實線)。原則:「app 跟 landing 不一樣」——虛線/傾斜/手寫是 landing 的
+>   表現語彙,工作介面要乾淨可掃讀。**保留**:Jost 字體(兩主題)、hover 物理
+>   輕推(translate,無 rotate)、AgentStrip 大使館形態(微轉+膠帶+offline 虛線
+>   圈,使用者逐輪核准的識別,不在收回範圍)、disabled 欄位的虛線框(功能性
+>   提示,非分隔線)。
+> - **playhead 鉛筆濾鏡:試裝後否決**。feDisplacementMap 對 2px 細線是「啃」
+>   不是「抖」(1× DPR 全不可見、2× DPR 線寬 3–5px 跳動+圓頭壓扁),且
+>   playhead 逐幀改 `left` 是播放熱路徑,濾鏡逐幀重算。長筆畫(.ap-frame/
+>   .ap-ring)才吃得起這濾鏡。否決結論註記在 Timeline.tsx 防重試。
+
 ## 4. 主題基建(階段 ②,行為零變、預設視覺零變)
 
 - token 雙值化:`:root` 為暗版預設,`[data-theme='paper']` 覆寫;JS 讀

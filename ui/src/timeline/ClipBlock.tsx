@@ -93,7 +93,7 @@ export const ClipBlock = memo(function ClipBlock({
               zIndex: 20,
               opacity: 0.9,
               transform: 'scale(1.02)',
-              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.65), inset 0 0 0 1.5px var(--accent)',
+              boxShadow: 'var(--shadow-float), inset 0 0 0 1.5px var(--accent)',
             }
           : null),
       }}
@@ -121,7 +121,7 @@ export const ClipBlock = memo(function ClipBlock({
           right: 0,
           bottom: 0,
           height: bandH,
-          background: 'rgba(0, 0, 0, 0.32)',
+          background: 'var(--clip-band-bg)',
         }}
       >
         {clip.frozen ? (
@@ -178,7 +178,7 @@ export const ClipBlock = memo(function ClipBlock({
           display: 'inline-flex',
           alignItems: 'center',
           gap: 4,
-          textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+          textShadow: 'var(--clip-text-shadow)',
           pointerEvents: 'none',
           maxWidth: 'calc(100% - 18px)',
           overflow: 'hidden',

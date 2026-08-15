@@ -25,7 +25,11 @@ export function Activity() {
         </button>
       </div>
       <div className="panel-body" style={{ padding: 8 }}>
-        {recent.length === 0 && <div style={{ color: 'var(--text-3)' }}>No changes yet</div>}
+        {recent.length === 0 && (
+          <div className="empty-note" style={{ color: 'var(--text-3)' }}>
+            No changes yet
+          </div>
+        )}
         {recent.map((e) => (
           <div
             key={e.version}
@@ -34,7 +38,7 @@ export function Activity() {
               display: 'flex',
               gap: 8,
               padding: '2px 0',
-              color: e.source === 'ai' ? 'var(--accent-text)' : 'var(--audio-bright)',
+              color: e.source === 'ai' ? 'var(--who-ai)' : 'var(--who-you)',
             }}
           >
             <span style={{ opacity: 0.6, minWidth: 28 }}>v{e.version}</span>

@@ -163,7 +163,7 @@ export function CaptionList() {
 
       <div className="panel-body">
         {captions.length === 0 && (
-          <div style={{ padding: 12, color: 'var(--text-3)' }}>
+          <div className="empty-note" style={{ padding: 12, color: 'var(--text-3)' }}>
             No captions yet. Ask the AI to run <code>auto_caption</code> (whisper → auto split →
             word highlight).
           </div>

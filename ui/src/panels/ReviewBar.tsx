@@ -46,7 +46,7 @@ export function ReviewBar() {
         background: 'var(--popover-bg-blur)',
         backdropFilter: 'blur(8px)',
         border: '1px solid var(--accent-edge-strong)',
-        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.55), 0 0 24px var(--accent-halo)',
+        boxShadow: 'var(--shadow-review), 0 0 24px var(--accent-halo)',
         display: 'flex',
         alignItems: 'center',
         gap: 12,
@@ -75,9 +75,9 @@ export function ReviewBar() {
         className="icon-btn"
         onClick={() => resolve('approved')}
         style={{
-          background: 'linear-gradient(135deg, #10b981, #059669)',
+          background: 'linear-gradient(135deg, var(--approve-1), var(--approve-2))',
           border: '1px solid transparent',
-          color: '#fff',
+          color: 'var(--on-accent)',
           fontWeight: 600,
         }}
       >

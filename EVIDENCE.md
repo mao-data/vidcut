@@ -1657,3 +1657,49 @@ prettier 強制 `0.30`→`0.3`(實測寫 0.30 會讓 format:check 紅),色值等
 spec 佔位橫幅已聲明勿以此評判亮版);切換器藏在 Shortcuts 彈出層,可發現性低
 (刻意——零視覺變化優先,階段 ③ 再議升格);7 像素 playhead 噪聲殘差未歸零
 (與主題無關的既有抖動,壓到零需凍結 playhead 渲染,不在本階段範圍)。
+
+## 補記:雙主題階段 ③——分鏡紙桌面 craft+方向 A+兩輪使用者修正(2026-08-14)
+
+Spec:`2026-08-14-dual-theme-design.md` §3+三個修訂區塊(實作定案/craft 補強/
+使用者第二輪收回)。本節涵蓋同一工作樹上的連續四段:紙桌面 craft、Two-Hands
+署名修正、craft 補強三批(Jost/材質/Caveat+濾鏡)、方向 A+使用者收回。
+
+**設計驗收(非測試可證,如實記錄手段)**:paper 對比 44/44 實算 ≥4.5(計算器
+對 8 組暗版已知值自校);紫/青 grep 驗證於 paper 全退場;暗版在「方向 A 前」
+的每一批都以 CDP 決定性截圖驗零變化(批間 diff=26px 已知噪聲座標或 0);
+方向 A 起暗版外觀依核准改變,但**顏色 164 token 逐字元不變**(token 定義+全檔
+色值 multiset 兩道機械比對)。
+
+**行為→測試對映**:本線行為變更極少——`--who-ai`/`--who-you` token 化
+(Inspector/Activity 署名,值=原字面值)與 `.panel-edge-*`/`data-edge` 收編
+(App.tsx inline→CSS,暗版值逐字元同)皆為零行為重構,既有 345 UI 測試原樣
+全綠、斷言零修改;`.sc-help` wrapper 隨 Caveat 退場一併移除。
+
+**過程發現(如實記)**:(1) Opus 首版把署名分色做反(AI=紅),主 session 對
+spec Two-Hands 條款查證後修正(AI=graphite、you=紅鉛筆);(2) playhead 鉛筆
+濾鏡試裝後否決——feDisplacementMap 對 2px 線是「啃」不是「抖」,1×DPR 不可見
+/2×DPR 線寬 3–5px 跳動,且 playhead 逐幀改 left 是播放熱路徑;否決記入
+Timeline.tsx 註解;(3) 批次 1 曾誤報暗版 2 萬像素回歸,查明為 verify:canvas
+的 MCP overlay 加拆污染 demo 活動紀錄(內容差非渲染差),以單變因實驗
+(@font-face 範圍單獨切換)證得 26px=噪聲;(4) headless 無系統字體讓字寬量測
+全等(假陰性),棄用改 fontTools 對真 SFNS 實量;(5) Caveat 兩個 weight 檔
+byte-identical(variable font,Google css2 同 URL);(6) 使用者第二輪收回
+dashed/傾斜/手寫(「app 跟 landing 不一樣」),已全部撤除並記入 spec——
+Caveat 檔+@font-face 保留(零消費者=不下載,留給階段 4 議)。
+
+**gauntlet(source:92ffa12+本線全部工作樹,單次乾淨全跑)**:856 passed
+(shared 46/server 465/ui 345);UI 覆蓋率 91.49%;隨機順序×2 PASS;錨點
+117/117;**116/116 killed+1 等價對照如預期存活**(本線零新增 mutant——
+視覺層變更,行為由既有 mutant 續守);其餘各層全 PASS;零新增依賴(Caveat
+為靜態資產+OFL 授權檔)。中途一次 gauntlet 被使用者修正指示中停,殘留
+mutant(mcp.ts truncation slice)以 git diff 驗明後還原,最終數字來自其後的
+完整乾淨全跑。
+
+**真瀏覽器驗收(主 session)**:verify:panels/canvas/wysiwyg 三連綠(canvas
+的 demo 缺 overlay 以 MCP 臨時補、跑完即拆);暗版/paper 最終截圖經使用者過目
+核准(拉直+實線版)。
+
+**已知限制(如實記)**:paper 虛線收回後分隔線色隨 `--line`(0.18)比批次 2
+的 0.22 淡一階,使用者未再議,以現狀為準;切換器仍藏 Shortcuts 彈出層
+(可發現性 vs 零變化的取捨,階段 ③ 後可再議);Caveat/`--hl` 等保留 token
+現無消費者;暗版世界觀(B/C/D 候選)為下一線,本包不含。

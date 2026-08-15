@@ -67,6 +67,12 @@
   --accent-halo: rgba(139, 92, 246, 0.15);
   /* 紫底上的強調文字／AI 署名（--accent 當文字色在深底上對比不足） */
   --accent-text: #c4b5fd;
+  /* Two-Hands 署名色（Inspector/Activity 的 AI/you 標籤專用）。暗版沿用既有分色
+   * （值＝--accent-text／--audio-bright 的字面值，不是 var 引用——保持可獨立調）。
+   * paper 下反轉職責：AI=graphite、you=紅鉛筆——紅是批註、是人的手
+   * （agent-presence spec 的 Two-Hands 分色條），AI 用石墨畫草稿。 */
+  --who-ai: #c4b5fd;
+  --who-you: #7dd3fc;
   /* --accent 的亮化版：playhead、標題漸層等要在深底上發亮的圖形 */
   --accent-bright: #a78bfa;
   /* 品牌漸層的另一端（vidcut 字樣：紫→藍）與連結色。藍調刻意不進 --accent 家族：
@@ -81,6 +87,10 @@
   --ok: #34d399;
   /* 綠底 chip 上的文字（overlay 軌） */
   --ok-text: #6ee7b7;
+  /* 綠的透明階：overlay chip 的底（0.14）與未選取描邊（0.35）。
+   * 2026-08-14 階段 ③ 由 Timeline.tsx 的兩處寫死收編（值逐字元相同）。 */
+  --ok-wash: rgba(52, 211, 153, 0.14);
+  --ok-edge: rgba(52, 211, 153, 0.35);
   --danger: #f87171;
   --hl: #fbbf24;
   /* 吸附導線等「注意一下」的提示色 */
@@ -121,42 +131,476 @@
   --wave-audio-peak: rgba(14, 165, 233, 0.3);
   --wave-audio-rms: rgba(125, 211, 252, 0.85);
   --wave-midline: rgba(230, 231, 240, 0.18);
+
+  /* ---- 陰影／遮罩／實心鈕字（2026-08-14 階段 ③ 收編）----
+   * 這些值以前寫死在元件的 inline style 裡（暗版字面值）。收進 token 是因為
+   * 紙世界的同一批位置需要完全不同的東西（Ink Shadow：墨色投影，不是黑色發光）。
+   *
+   * ⚠️ **下面每個值都與收編前的字面值逐字元相同**，所以暗版的 computed 值沒有
+   * 任何改變（截圖逐像素 diff 是這條的驗收）。改動它們之前先確認你要動的是暗版。
+   * 對應的 paper 值在 `[data-theme='paper']` 區塊。 */
+  /* ClipBlock 拖曳中的浮起陰影 */
+  --shadow-float: 0 6px 20px rgba(0, 0, 0, 0.65);
+  /* App 的錯誤 Toast */
+  --shadow-toast: 0 8px 24px rgba(0, 0, 0, 0.5);
+  /* Player 的預覽框 */
+  --shadow-stage: 0 8px 32px rgba(0, 0, 0, 0.6);
+  /* .popover ／ .popover-menu ／ ReviewBar */
+  --shadow-popover: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --shadow-popover-menu: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --shadow-review: 0 12px 40px rgba(0, 0, 0, 0.55);
+  /* ClipBlock 下緣波形帶的凹槽底 */
+  --clip-band-bg: rgba(0, 0, 0, 0.32);
+  /* Timeline 捲動容器的內襯 */
+  --timeline-well-bg: rgba(0, 0, 0, 0.18);
+  /* 原生輸入框的底 */
+  --input-bg: rgba(0, 0, 0, 0.25);
+  --input-disabled-bg: rgba(0, 0, 0, 0.12);
+  /* Inspector 離線提示裡的 `claude mcp add …` code 區塊。刻意**不**共用 --input-bg：
+   * 它比輸入框再深一階（0.28 vs 0.25），是「不可編輯的終端輸出」不是輸入欄。 */
+  --code-inline-bg: rgba(0, 0, 0, 0.28);
+  /* 它的文字色。暗版＝--text-2 的同一個字面值（#9ba0b8），所以收編前後 computed
+   * 完全相同；分成獨立 token 是因為紙版那格是**深色終端**，text-2 的石墨在上面
+   * 會全黑掉——文字色必須跟著底色走，不能跟著面板的文字階走。 */
+  --code-inline-text: #9ba0b8;
+  /* chip／片段標籤在深色底上的打亮字陰影 */
+  --chip-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  --clip-text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  /* .btn-primary hover 的漸層兩端（原本寫死在規則裡） */
+  --accent-hover-1: #9a70f8;
+  --accent-hover-2: #7478f3;
+  /* ReviewBar 的 Approve 鈕漸層兩端 */
+  --approve-1: #10b981;
+  --approve-2: #059669;
+  /* 實心鈕（primary / approve）上的文字色 */
+  --on-accent: #fff;
 }
 
 /* ============================================================
- * 主題 B：分鏡紙桌面（spec `2026-08-14-dual-theme-design.md` §3）
+ * 主題 B：分鏡紙桌面（spec `2026-08-14-dual-theme-design.md` §3，階段 ③ craft）
  *
- * ⚠️ **這一塊全部是佔位值，階段 ③ 會全面重調——不要以現在的樣子評判亮版。**
- * 階段 ② 的工作是「基建」：讓雙值化、查表、切換器這條線通起來，並且證明
- * **暗版一個像素都沒動**。配色的 craft 是下一階段的事。
+ * **紙世界接管亮版，不是暗版翻白。** 顏料表在 `site/DESIGN.md`，這裡一個都不發明：
+ *   ink #26231d ／ graphite #4a463c ／ faint #635c4b ／ paper #ede8dc ／
+ *   paper-card #f7f3e9 ／ red pencil #c0392b（文字用途壓深到 #a02a1e）／
+ *   non-photo blue #8fb0c9 系。
  *
- * 只覆寫「底／面／文字／線」這幾組基礎 token。沒覆寫的（accent 族、audio 族、
- * tint 族、圓角）自然繼承上面的暗版值——佔位階段這是可接受的，階段 ③ 會逐項
- * 決定（例如紅鉛筆 `--ap-red` 要不要接管 accent 的哪些用途）。
+ * 三條規則貫穿整塊，改值之前先讀懂：
+ *
+ * 1. **Two-Hands**（DESIGN.md）：graphite 畫草稿、red 下判斷。紅鉛筆只做**筆**的
+ *    工作——playhead、時間碼進行值、字幕 chip 描邊、focus 外框、吸附導線。
+ *    **絕不當按鈕底色、面板底色或任何大面積填充。**
+ * 2. **One-Pigment**：紙世界的顏料就這幾種。**紫在亮版完全退場**——accent 族在
+ *    這裡全部改嫁到 ink（中性高亮）或 red pencil（註記），不是把紫調淡。
+ * 3. **Ink Shadow**：紙上沒有發光。所有陰影一律 `rgba(38,35,29,α)` 的墨色投影，
+ *    層感靠影子不靠白透明疊層；暗版的 glow/halo 在這裡全部改成「紙卡抬起的影子」。
  *
  * **`--bg-stage` 是硬性例外**：亮版下預覽 stage 周圍仍是深色襯底
  * （spec §3「貼在紙上的深色相紙」）。淺色環境會干擾影片顏色判斷，
  * 這條規則跨主題成立，不是「暗版剛好比較暗」。
+ *
+ * 對比：語意文字全部實算 ≥4.5:1（見各 token 註解的比值，WCAG relative luminance，
+ * 半透明前景先對其實際底色做 alpha 合成再算）。
  * ============================================================ */
 [data-theme='paper'] {
-  /* 底：DESIGN.md 的「Paper」階（landing page 頁面底） */
+  /* 底：DESIGN.md 的「Paper」階（landing page 頁面底）。點格紙在下面的 body 規則。 */
   --bg: #ede8dc;
   /* 面板：抬起來的紙卡（DESIGN.md「Paper Card」） */
   --panel: #f7f3e9;
-  /* stage 例外——見上面的硬性規則。刻意維持深色，不是漏改。 */
+  /* stage 例外——見上面的硬性規則。刻意維持深色，不是漏改。
+   * 這個值同時是 ink：預覽等於「貼在紙上的深色相紙」，紙世界裡最深的那階。 */
   --bg-stage: #26231d;
+
+  /* ---- 文字三階（ink / graphite / faint，DESIGN.md 原值）----
+   * 實算對比（bg #ede8dc ／ panel #f7f3e9 ／ popover #fffdf6）：
+   *   text-1  12.81 ／ 14.14 ／ 15.39
+   *   text-2   7.69 ／  8.49 ／  9.24
+   *   text-3   5.43 ／  5.99 ／  6.52
+   * text-3 沿用暗版「僅限裝飾」的限定（要求 ≥3:1），但紙上它實際上遠超 4.5——
+   * 因為 graphite-faint 本來就是給時間碼與細字用的，不是淡到看不見的灰。 */
   --text-1: #26231d;
   --text-2: #4a463c;
   --text-3: #635c4b;
+
+  /* ---- 表面：ink 極淡透明，不是白疊層 ----
+   * 暗版的 --surface 是「白 6% 疊在深底上」；紙上要反過來——白疊在紙上是隱形的，
+   * 唯一能在紙上讀出一階的方式是**壓暗**（鉛筆的灰）。所以這裡是 ink 透明。
+   * 消費端：button 底（0.05）、button:hover（0.09）、.seg、.rowline:hover。
+   * button 文字對 surface-on-panel（#ede9df）：text-1 12.92、text-2 7.76。 */
+  --surface: rgba(38, 35, 29, 0.05);
+  --surface-2: rgba(38, 35, 29, 0.09);
+  /* 時間軸主軌片段的紙卡底（ClipBlock 的 background）。比 --panel 再深一階＝
+   * 一張疊在面板上的紙；filmstrip 蓋在它上面，只有沒有縮圖時才看得到。 */
+  --card: #e4dece;
+  /* 描邊：ink 透明。0.18 是紙上勉強讀得出的細線，0.3 是片段外框那級的實線感。
+   * （佔位階段就發現的事：暗版的白 14% 透明在紙底上是完全隱形的。） */
   --line: rgba(38, 35, 29, 0.18);
-  --line-strong: rgba(38, 35, 29, 0.28);
-  /* 波形：spec §3 的 non-photo blue 刻度式（同樣是佔位級） */
-  --wave-clip-peak: rgba(96, 130, 160, 0.35);
-  --wave-clip-rms: rgba(58, 92, 124, 0.85);
-  --wave-audio-peak: rgba(96, 130, 160, 0.35);
-  --wave-audio-rms: rgba(58, 92, 124, 0.85);
-  --wave-midline: rgba(38, 35, 29, 0.18);
+  --line-strong: rgba(38, 35, 29, 0.3);
+
+  /* ---- 主行動色：紙世界的主鈕是**墨**不是紫 ----
+   * One-Pigment 的直接後果：紙上沒有紫。主鈕做成 ink 實體＋紙白字（DESIGN.md 的
+   * 「Ink：headings, bold emphasis, heavy sketch strokes, solid borders」），
+   * 這是紙世界唯一夠份量當實心鈕的顏料。**不是把紫調淡**，是換顏料。
+   * --accent-2 略淺一階，讓 .btn-primary 的 135deg 漸層仍有方向感（墨的深淺，
+   * 不是換色相）。紙白字 #f7f3e9 對 --accent 是 14.14:1、對 --accent-2 是 11.98:1。
+   * ⚠️ --accent 同時是 focus outline 與 input accent-color 的來源；focus 在下面的
+   * scoped 規則改成紅鉛筆（DESIGN.md 的「Focus (all)」），所以這裡的 ink 只服務鈕。 */
+  --accent: #26231d;
+  --accent-2: #3d382e;
+  /* 紫透明族的接班：**逐個看消費者**，不是整族換色。
+   *   --accent-soft  .seg.on 底、.badge 底、CaptionList 選取列 → 中性高亮＝ink 淡階
+   *   --accent-wash  時間軸字幕 chip 底                        → 紅鉛筆（那是註記層）
+   *   --accent-faint 「playhead 正在這一句」的列高亮            → 紅鉛筆更淡階
+   * soft/faint 的差別在暗版是同一 hue 的三級透明；紙上分成兩種顏料，因為它們的
+   * **語意本來就不同**——選取是中性狀態，字幕是紅筆畫上去的東西。 */
+  --accent-soft: rgba(38, 35, 29, 0.1);
+  --accent-wash: rgba(192, 57, 43, 0.09);
+  --accent-faint: rgba(192, 57, 43, 0.07);
+  /* 描邊階：chip 未選取的 inset 框（edge）、審核卡外框與選中分頁鈕（edge-strong）。
+   * 這兩個的消費者都是**線**，所以是紅鉛筆的正當用途（Two-Hands：紅是描不是填）。 */
+  --accent-edge: rgba(192, 57, 43, 0.5);
+  --accent-edge-strong: rgba(192, 57, 43, 0.65);
+  /* ⚠️ --accent-edge-strong 有**兩個語意不同的消費者**，紙上必須拆開（暗版同紫所以
+   * 無所謂）：ReviewBar 外框（AI 在跟你說話＝註記層，紅是對的）留給上面這個值；
+   * `.seg.on` 是**選取狀態**（分頁、canvas fit、snap 開關）——那是中性 UI 狀態，
+   * 不是誰畫上去的判斷。實測截圖裡紅框的分頁鈕直接讀成「紅色按鈕」，正是
+   * Two-Hands 禁止的事。所以 `.seg.on` 在下面的 scoped 規則改用 ink 描邊。 */
+  /* 光暈族 → **ink 投影**（Ink Shadow 規則）。紙上沒有發光：選取的片段不是在發亮，
+   * 是被拿起來一點、影子變長。消費端全是 box-shadow 的顏色位，所以直接換成墨色
+   * 半透明就成立，不必動任何 shadow 的幾何。 */
+  --accent-glow: rgba(38, 35, 29, 0.22);
+  --accent-glow-strong: rgba(38, 35, 29, 0.3);
+  /* 審核卡外圈那層氛圍光 → 紙上是卡片落在桌面的散影 */
+  --accent-halo: rgba(38, 35, 29, 0.16);
+  /* 紫底上的強調文字。紙上是**紅鉛筆的手寫**（批註/強調的職責）。
+   * 用壓深的 red pencil（#a02a1e）而不是基準 #c0392b：後者對 panel 只有 4.91、
+   * 對 chip 底更低，壓深後對 bg 6.04／panel 6.66／popover 7.25／字幕 chip 5.46。
+   * ⚠️ AI 署名**不**吃這個 token——紅是人的手，AI 署名走 --who-ai（見下）。 */
+  --accent-text: #a02a1e;
+  /* Two-Hands 署名分色（spec 的索引卡條款）：AI=graphite 畫草稿、you=紅鉛筆做批註。
+   * 暗版的紫/藍在紙上會反過來把 AI 標成紅（人的筆），所以這裡必須各自給值。 */
+  --who-ai: #4a463c;
+  --who-you: #a02a1e;
+  /* 暗版是「要在深底上發亮的圖形」＝playhead、標題漸層。紙上是**紅鉛筆的筆尖**：
+   * playhead 是紅的（DESIGN.md 的 signature），基準 #c0392b 當筆畫用足夠。 */
+  --accent-bright: #c0392b;
+  /* 連結：紅鉛筆（DESIGN.md「link hover turns Red Pencil site-wide」）。
+   * 用壓深階確保當文字時 ≥4.5（對 panel 6.66）。 */
+  --link: #a02a1e;
+  /* 品牌漸層另一端（vidcut 字樣）。紙上從 ink 走到 graphite——同一支筆的輕重，
+   * 不是雙色漸層；紫→藍那組在紙上會直接讀成貼錯世界的貼紙。 */
+  --brand-gradient-end: #635c4b;
+
+  /* ---- 音訊：non-photo blue（藍鉛筆，DESIGN.md 的「technical margins」）----
+   * 這是紙世界裡本來就有的第三支筆，音訊軌用它最名正言順。
+   * --audio-bright 是 AudioChip 的標籤文字色與選取描邊：壓深到 #2d5878 才讀得出，
+   * 對 chip 底（#dbdcd6）5.48:1。Activity/Inspector 的「人」署名也吃它（同樣過）。 */
+  --audio: #3a6484;
+  --audio-bright: #2d5878;
+  --audio-wash: rgba(58, 100, 132, 0.1);
+  --audio-edge: rgba(58, 100, 132, 0.45);
+
+  /* ---- 狀態色 ----
+   * 綠 stamp（#2a7a45）在 DESIGN.md 是**核可專用**，但編輯器的 --ok 消費者是
+   * 「agent 已連線」的圓點與 overlay 軌 chip，語意上都是「成立／在位」——同一族。
+   * 圓點是圖形（3:1 即可，實得 3.87）；--ok-text 是 chip 上的**文字**，所以壓深到
+   * #1f5c34（對 overlay chip 底 #daded0 是 5.81:1）。 */
+  --ok: #2a7a45;
+  --ok-text: #1f5c34;
+  /* stamp green 的透明階。chip 底疊在時間軸稿紙上＝#daded0，--ok-text 對它 5.81:1。 */
+  --ok-wash: rgba(42, 122, 69, 0.1);
+  --ok-edge: rgba(42, 122, 69, 0.45);
+  /* 危險：紅鉛筆家族的深階。紙上不引第二種紅——DESIGN.md 只有一支紅筆。
+   * 對 panel 6.66:1、對 toast 底 5.83:1。 */
+  --danger: #a02a1e;
+  /* highlighter（DESIGN.md：marker swipe / ::selection 專用，永遠是 ink 文字的底） */
+  --hl: #f3d13d;
+  /* 吸附導線：畫在 stage 的**影片**上而不是紙上，所以維持高可見度的暖黃
+   * （紙色的線在影片上會消失）。這是 stage 例外規則的延伸。 */
+  --warn: #eab308;
+
+  /* ---- 浮出層：更亮的紙（幾乎全白的便條）＋ink 陰影撐起層感 ---- */
+  --popover-bg: #fffdf6;
+  --popover-bg-blur: rgba(255, 253, 246, 0.94);
+  /* 錯誤 Toast：紙上的紅筆便條——極淡的紅紙底配 --danger 邊框，不是深色卡。
+   * --text-1 對它 12.09:1。 */
+  --toast-danger-bg: #f7e4df;
+  /* 定格 clip 的替代填色（沒有 filmstrip 可畫時）：比 --card 再淡、偏冷一點的紙，
+   * 讀起來像一張空白分鏡格。 */
+  --clip-frozen-bg: #dcd9cd;
+
+  /* ---- tint 族：深色物件上的白線白條 → 紙上一律翻成 ink ----
+   * 暗版註解說得很清楚：「它們不跟著樓梯走，只跟著底下那個物件有多深」。
+   * 紙上那些物件（進度條軌、捲軸 thumb、trim handle、定格平線）底下都是紙，
+   * 所以白線一律變 ink 線；透明度階梯保持同樣的相對關係。 */
+  --tint-06: rgba(38, 35, 29, 0.08);
+  --tint-12: rgba(38, 35, 29, 0.18);
+  --tint-15: rgba(38, 35, 29, 0.22);
+  --tint-20: rgba(38, 35, 29, 0.3);
+  --tint-28: rgba(38, 35, 29, 0.32);
+  --tint-50: rgba(38, 35, 29, 0.55);
+
+  /* ---- 收編進 token 的陰影／遮罩（元件端原本寫死暗版值）----
+   * :root 的值＝原本的字面值（逐字元），所以暗版的 computed 值完全沒變；
+   * 紙上這裡全部換成 Ink Shadow。 */
+  /* 浮起的紙卡（拖曳中的片段）：影子變長＝被拿起來 */
+  --shadow-float: 0 6px 20px rgba(38, 35, 29, 0.3);
+  /* 停在桌上的重物（Toast、預覽相紙、popover、審核卡） */
+  --shadow-toast: 0 8px 24px rgba(38, 35, 29, 0.22);
+  --shadow-stage: 0 8px 32px rgba(38, 35, 29, 0.3);
+  --shadow-popover: 0 10px 30px rgba(38, 35, 29, 0.18);
+  --shadow-popover-menu: 0 12px 40px rgba(38, 35, 29, 0.22);
+  --shadow-review: 0 12px 40px rgba(38, 35, 29, 0.24);
+  /* 波形帶的凹槽遮罩：紙上是「壓進去的一格」，用極淡的墨而不是黑 32% */
+  --clip-band-bg: rgba(38, 35, 29, 0.07);
+  /* 時間軸捲動容器的內襯：桌面上鋪的那張稿紙 */
+  --timeline-well-bg: rgba(38, 35, 29, 0.05);
+  /* 深色輸入框 → 紙上是**壓白**的欄位（比紙卡更白＝可以寫字的地方） */
+  --input-bg: rgba(255, 255, 255, 0.6);
+  --input-disabled-bg: rgba(38, 35, 29, 0.05);
+  /* 離線提示的終端指令：紙世界唯一的深色表面就是 DESIGN.md 的 code-slate 終端塊
+   * （「the only dark surface — terminal blocks in the call sheet」）。這一格正好
+   * 是那個東西，所以用 code-slate 實底，不是紙。--text-2 在 scoped 規則裡改成
+   * code-paper（#efe9d8），對 #2b271d 是 11.85:1。 */
+  --code-inline-bg: #2b271d;
+  /* DESIGN.md 的 Code Paper。對 code-slate #2b271d 是 11.85:1。 */
+  --code-inline-text: #efe9d8;
+  /* chip／片段標籤的文字陰影。紙上沒有「深色底上打亮字」這回事——
+   * 標籤是印在紙上的黑字，陰影會讀成印壞了。整個關掉。 */
+  --chip-text-shadow: none;
+  --clip-text-shadow: none;
+  /* .btn-primary 的 hover：墨再壓深一階（不是換色相），維持「按下去更重」的手感 */
+  --accent-hover-1: #16140f;
+  --accent-hover-2: #2b2721;
+  /* ReviewBar 的 Approve 鈕：紙世界的核可是**綠 stamp**（DESIGN.md 唯一的核可顏料）。
+   * 紙白字對 #2a7a45 是 5.30:1、對 #24683b 是 6.34:1。 */
+  --approve-1: #2a7a45;
+  --approve-2: #24683b;
+  /* 實心鈕（primary/approve）上的文字：紙白，不是純白（DESIGN.md 禁純黑，
+   * 紙世界的「白」是紙的白）。 */
+  --on-accent: #f7f3e9;
+
+  /* ---- 波形：non-photo blue（藍鉛筆）----
+   * clip 帶落在 #f7f3e9 的紙卡上，暗版那組紫在紙上會直接消失。
+   * rms 是主體（0.85 實心感）、peak 是外圈包絡（0.3 淡）。
+   * audio 軌同族稍偏青，與主軌的藍分得開又是同一支筆。
+   * ⚠️ spec §3 寫的是「non-photo blue **刻度式**」——刻度式是渲染行為變更
+   * （drawWaveform 的畫法），不在本階段範圍；這裡維持既有的包絡渲染器，
+   * 只換顏色。記為 spec 偏離。 */
+  --wave-clip-peak: rgba(58, 100, 132, 0.3);
+  --wave-clip-rms: rgba(58, 100, 132, 0.85);
+  --wave-audio-peak: rgba(45, 110, 130, 0.3);
+  --wave-audio-rms: rgba(45, 110, 130, 0.85);
+  --wave-midline: rgba(38, 35, 29, 0.25);
 }
+
+/* ---- 紙桌面的 scoped 規則（token 覆寫做不到的形態變更）---- */
+
+/* 點格紙。DESIGN.md：「the page ground, always carrying the 24px dot-grid
+ * (radial-gradient(rgba(38,35,29,.075) 1px, transparent 1.2px))」。
+ * 蓋掉暗版那條頂部環境光漸層——紙上不需要環境光，紙自己就是光的來源。 */
+[data-theme='paper'] body {
+  background-color: var(--bg);
+  background-image: radial-gradient(rgba(38, 35, 29, 0.075) 1px, transparent 1.2px);
+  background-size: 24px 24px;
+}
+/* ⚠️ 實測（headless 截圖）：`body` 的紙在編輯器裡**一個像素都看不到**——App 的骨架
+ * 用 `.glass` / `.panel-surface` / `.stage-surface` 把整個視窗鋪滿了。點格紙只寫在
+ * body 上等於沒做。所以格紙要畫在**面板自己**身上：它們才是這個世界裡的那幾張紙。
+ * 點子調淡到 0.055（面板底 #f7f3e9 比頁面底亮，同樣的墨點在上面會更明顯）。 */
+[data-theme='paper'] .panel-surface {
+  background-image: radial-gradient(rgba(38, 35, 29, 0.055) 1px, transparent 1.2px);
+  background-size: 24px 24px;
+}
+
+/* 圓角：紙的角是切出來的，不是模出來的（DESIGN.md：2/3/4/5px，
+ * 「Don't use radii above 7px on paper objects」）。暗版的 10/9/7 在紙上會讀成塑膠。 */
+[data-theme='paper'] {
+  --r-panel: 4px;
+  --r-card: 4px;
+  --r-ctl: 3px;
+}
+
+/* ⚠️ **UI 字體 Jost 已升為兩主題共用**（2026-08-14 方向 A：「同一雙手，兩張桌」）。
+ * 宣告點只有一個，在下面「原生控件全面接管」上方的 base `body` 規則——這裡曾有一條
+ * paper-scoped 的 `body { font-family: var(--font-ui) }`，連同 `--font-ui` token 一起
+ * 移除了（token 的另一個消費者 `.sc-help` 隨手寫層退場，見那區的說明）。
+ * 字型鏈的完整理由（中文 fallback、swap 期後備、不碰 mono 與字卡管線）搬到 base
+ * body 規則的註解，這裡不重複第二份。 */
+
+/* focus：紅鉛筆 + 3px offset。紅在這裡是**外框線**不是底色，符合 Two-Hands。
+ * 線型跟 base 一樣是實線（使用者 2026-08-14 定案：app 內不用虛線）；
+ * 這裡只有「換筆色 + 加大 offset」的紙世界差異。 */
+[data-theme='paper'] button:focus-visible,
+[data-theme='paper'] input:focus-visible,
+[data-theme='paper'] select:focus-visible,
+[data-theme='paper'] textarea:focus-visible {
+  outline-color: var(--ap-red);
+  outline-offset: 3px;
+}
+
+/* 主鈕：ink 實體＋紙白字。暗版靠 glow 撐起「這是主行動」，紙上靠**墨的重量**——
+ * 整個 UI 只有這一塊是實心深色，它自然就是視覺重心。陰影是 Ink Shadow。 */
+[data-theme='paper'] .btn-primary {
+  color: var(--on-accent);
+  box-shadow: 0 2px 6px var(--accent-glow);
+}
+[data-theme='paper'] .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--accent-hover-1), var(--accent-hover-2));
+}
+
+/* 一般 button：紙上的控制項是**紙卡**不是深色玻璃。--surface 已經是 ink 淡階，
+ * 但紙卡要比面板**亮**一點才讀得出是「可以按的東西」（暗版是壓暗，紙上是提亮）。 */
+[data-theme='paper'] button:not(.btn-primary):not(.ap-strip) {
+  background: var(--popover-bg);
+}
+[data-theme='paper'] button:not(.btn-primary):not(.ap-strip):hover:not(:disabled) {
+  background: #ffffff;
+}
+
+/* 輸入框：紙上可以寫字的地方是**更白**的一塊，不是挖深的洞（暗版是 rgba(0,0,0,.25)）。 */
+[data-theme='paper'] input,
+[data-theme='paper'] select,
+[data-theme='paper'] textarea {
+  background: var(--input-bg);
+}
+[data-theme='paper'] input:disabled,
+[data-theme='paper'] select:disabled,
+[data-theme='paper'] textarea:disabled {
+  background: var(--input-disabled-bg);
+}
+
+/* 面板／頂欄：紙卡靠 **ink 陰影**分層，不是靠白透明疊層（Ink Shadow 規則）。
+ * 暗版用一條 --line 底線就夠（深色上的亮線＝邊界）；紙上同色的紙疊同色的紙，
+ * 唯一讀得出來的是影子。 */
+[data-theme='paper'] .glass {
+  box-shadow: 0 2px 8px rgba(38, 35, 29, 0.1);
+}
+[data-theme='paper'] .panel-surface {
+  box-shadow: 0 1px 6px rgba(38, 35, 29, 0.08);
+}
+
+/* 浮出層：更亮的紙＋更長的影子（離桌面最遠的那張便條） */
+[data-theme='paper'] .popover {
+  box-shadow: var(--shadow-popover);
+}
+[data-theme='paper'] .popover-menu {
+  box-shadow: var(--shadow-popover-menu);
+}
+
+/* `.seg.on`＝選取狀態，中性（見 --accent-edge-strong 的註解）。紙上用 ink 描邊＋
+ * ink 淡底＋ink 文字：「這一格被按下去了」靠的是墨的重量，不是紅。 */
+[data-theme='paper'] .seg.on {
+  border-color: var(--line-strong);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+/* 選取的文字：DESIGN.md 的 highlighter——「Always a background behind ink text,
+ * never a text color」。marker 掃過去的那一筆。 */
+[data-theme='paper'] ::selection {
+  background: var(--hl);
+  color: var(--text-1);
+}
+
+/* 捲軸：紙上是鉛筆灰的細條（tint 族已翻成 ink，這裡只是確認它讀得出來）。
+ * 軌道留白＝紙。 */
+[data-theme='paper'] ::-webkit-scrollbar-thumb {
+  background: var(--tint-12);
+}
+[data-theme='paper'] ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--tint-20);
+}
+
+/* AI 編輯動畫的紫光暈 → 紙上是「紅筆剛畫過」的餘韻。
+ * drop-shadow 的顏色寫死在 keyframes 裡（animation 吃不到後續覆寫），
+ * 所以整組 keyframe 在 paper 下重寫一份。 */
+@keyframes fx-glow-paper-a {
+  from {
+    filter: drop-shadow(0 0 8px rgba(192, 57, 43, 0.75));
+  }
+  to {
+    filter: drop-shadow(0 0 0 rgba(192, 57, 43, 0));
+  }
+}
+@keyframes fx-glow-paper-b {
+  from {
+    filter: drop-shadow(0 0 8px rgba(192, 57, 43, 0.75));
+  }
+  to {
+    filter: drop-shadow(0 0 0 rgba(192, 57, 43, 0));
+  }
+}
+[data-theme='paper'] .fx-glow-a {
+  animation-name: fx-glow-paper-a;
+}
+[data-theme='paper'] .fx-glow-b {
+  animation-name: fx-glow-paper-b;
+}
+
+/* ============================================================
+ * 材質層（2026-08-14 兩輪使用者定案後的最終形）
+ *
+ * 第一輪（方向 A）曾把批次 2 的手作語彙（dashed 分隔、微旋轉、hover 物理輕推）
+ * 從 paper-scoped 升為兩主題共用；**第二輪使用者看過成品後收回其中兩樣**：
+ * 分隔線一律 1px 實線、UI 元件一律擺正（「app 跟 landing 不一樣」——虛線與傾斜
+ * 是 landing 的表現語彙，工作介面要乾淨可掃讀）。留下來的手作語彙：Jost 字體、
+ * hover 物理輕推（translate，無 rotate）、`--ap-spring` 緩動、AgentStrip 的
+ * 大使館形態（微轉+膠帶，使用者逐輪核准的識別，不在收回範圍）。
+ * **顏色一個都不動**：暗版線色仍是白透明的 `--line`、focus 仍是既有的 `--accent` 紫。
+ *
+ * 這一區只剩下**真正屬於紙**的兩件事：
+ *   - header 底線的 2px ink 實線（見下面 ① 的刻意不對等說明）
+ *   - toast 邊框換紅鉛筆（元件 inline 寫死的是暗版 danger 紅）
+ * ============================================================ */
+
+/* ---- ① header 底線：2px ink 實線（**刻意不對等**，只給紙）----
+ * 紙世界的頂欄與內容之間是**印刷分隔**，不是 UI 描邊——DESIGN.md 的 shot-list card
+ * 用「letterspaced manifest header over a 2px ink rule」，同一個語彙。
+ * 暗版是 1px 的 --line（深色上的亮線＝邊界）；紙上同色紙疊同色紙，那條淡墨線
+ * 讀不出「這裡是分界」，要實心 ink 才有印刷品的重量。
+ * ⚠️ 這條線會讓 header **高 1px**（1px → 2px border）。header 是 flex 內容列，
+ * 高度由內容決定、border 加在外面，所以不擠壓 AgentStrip 的高度預算，
+ * 只是整條頂欄往下多佔 1px；中欄與時間軸都是 flex:1 自動吸收。
+ *
+ * ⚠️ **這條刻意不移植到暗版**（方向 A 的唯一例外，2026-08-14 定案）。2px ink 實線
+ * 是**印刷**的隱喻——一份印出來的 shot list，頂端有條粗規則線。暗房裡沒有這件事：
+ * 琥珀終端那個世界的線本來就是細的（`.ap-frame` 1.5px、`.ap-ring` 2px 都是筆畫不是
+ * 印刷規則線），把 2px 實心亮線橫過整條頂欄會讀成「這裡有塊亮邊」而不是分界。
+ * 暗版維持 base 的 1px `--line`（見下面 `.glass`）。 */
+[data-theme='paper'] .glass {
+  border-bottom: 2px solid var(--text-1);
+}
+
+/* Toast 的邊框換紅鉛筆：元件 inline style 寫死 `rgba(248,113,113,0.4)`——那是
+ * **暗版的** danger 紅（#f87171，深底上發亮用的淺珊瑚），配在米紙上是 off-palette
+ * 的螢光粉。紙上的紅只有一支筆：red pencil `#c0392b`，同透明度階換過來。
+ * **不動 `--toast-danger-bg`**（那個 token 早就雙值化過了），這裡只補 inline 蓋不到
+ * 的邊框。`!important` 是必要的：來源是 inline style，author 一般宣告贏不了。
+ * 微轉（+0.5deg）已升為 base，見 `.toast` 那條。 */
+[data-theme='paper'] .toast {
+  border-color: rgba(192, 57, 43, 0.4) !important;
+}
+
+/* ============================================================
+ * 手寫層：**已全面移除**（2026-08-14 使用者定案）
+ *
+ * 批次 3 曾把 Caveat 套在 `.empty-note`（空狀態＋「Select a clip…」引導句）與
+ * `.form .hint`（欄位下的狀態說明）上。**使用者決定退場**：那幾句正是介面在給人
+ * 指路的地方，必須第一眼就讀得懂；app 是工作介面不是 landing page，手寫體的字母
+ * 曖昧（Caveat 的 l/1、a/o）換來的氛圍不值得那點閱讀成本。
+ *
+ * 隨之一併清掉的（都是為了服務 Caveat 才存在的東西）：
+ *   - `.empty-note` / `.form .hint` 的字級放大（16/14px）→ 回到 base 的 12/11px。
+ *   - `!important` 的 graphite 色覆寫 → 回到元件 inline 的 `--text-3`。
+ *   - `.empty-note code` 的 monospace 退回宣告 —— 沒有 Caveat 要擋，`code` 本來就是
+ *     瀏覽器預設等寬。
+ *   - `.sc-help` 逃逸 wrapper（連同 Inspector.tsx 的 `<span>`）與 `--font-ui` token
+ *     —— 兩者唯一的存在理由都是「把快捷鍵表拉回印刷層」。Jost 現在是 base body 字體
+ *     （見下面的 body 規則），快捷鍵表直接繼承就對了，不需要第二個字型鏈出處。
+ *
+ * `@font-face` 的 Caveat 宣告與 `ui/src/fonts/Caveat-*.woff2` **刻意保留**——理由與
+ * 保留條件寫在那兩條宣告旁邊。
+ * ============================================================ */
 
 /* ============================================================
  * 紙上分鏡世界的「大使館」
@@ -230,13 +674,71 @@
  * 路徑刻意用**相對路徑**讓 vite 打包成 hashed asset：放 `ui/public/fonts/` 會
  * 產出 `/fonts/*` 靜態路徑，跟 server 既有的字卡字型 `/fonts/:id` 路由相撞
  * （dev 模式 vite proxy 也整段代理 `/fonts` 給 server）。見 spec §3.5 的修訂註。
- * 零 npm 依賴、不打 CDN——本機優先是產品承諾。 */
+ * 零 npm 依賴、不打 CDN——本機優先是產品承諾。
+ *
+ * **宣告區間 400–700（2026-08-14 放寬，原本是 500 600）**：fontTools 讀 fvar 實測
+ * 這顆檔案的 wght 軸是 **100–900、預設 400**，命名 instance 有 100…900 九級——
+ * 也就是說 500/600 從來不是檔案的極限，只是宣告寫窄了。窄宣告的後果不是「拿不到
+ * 400」而是**瀏覽器合成**：要 400 時它拿 500 的實例去做（或直接用 500），要 700
+ * 時拿 600 合成假粗體，字重階梯就糊掉一階。paper 主題把 UI body 交給 Jost（DESIGN.md
+ * 的 body 是 Jost 400），400 必須是真實例，所以放寬到涵蓋 body 400 與 label/標題
+ * 600–700 的實用區間。不放到 100–900 是因為 UI chrome 沒有任何一處要求 100–300 或
+ * 800–900，宣告只寫真的會被要求的區間，多的沒有意義。
+ *
+ * ⚠️ 放寬 @font-face 對**暗版是零影響**：這行只是讓「若有元素要求 Jost 400/700，
+ * 就用真實例而不是合成」。暗版目前唯一用到 Jost 的是 `.ap-strip .ap-cap`，它寫死
+ * font-weight: 600 —— 600 在舊區間 [500,600] 與新區間 [400,700] 內都是真實例，
+ * 選出來的實例完全相同，computed style 也完全相同。 */
 @font-face {
   font-family: 'Jost';
   font-style: normal;
-  font-weight: 500 600;
+  font-weight: 400 700;
   font-display: swap;
   src: url('./fonts/Jost-var.woff2') format('woff2');
+}
+
+/* Caveat —— 手寫層的字型（DESIGN.md Typography：「Caveat is the pen on top of
+ * it: larger than the print it annotates, always red or graphite」）。
+ * **目前 app 內沒有任何消費者**，理由與保留條件見下面的 ⚠️。
+ * 授權 OFL（與 AGPL 相容），全文在 `ui/src/fonts/OFL-Caveat.txt`。路徑同樣是**相對
+ * 路徑**，理由與 Jost 完全相同：放 `ui/public/fonts/` 會產出 `/fonts/*` 靜態路徑，
+ * 跟 server 既有的字卡字型 `/fonts/:id` 路由相撞（dev 模式 vite proxy 也整段代理
+ * `/fonts` 給 server）。
+ *
+ * **兩個 weight 宣告、指向同一個檔案**——這不是複製貼上的疏忽：`Caveat-500.woff2`
+ * 與 `Caveat-700.woff2` 從 Google 取回時就是**同一顆位元組相同的檔案**（實測兩者
+ * MD5 均為 1fde3bbf…），因為 Caveat 是 variable font（fontTools 讀 fvar：wght 軸
+ * 400–700、預設 400，命名 instance 只有 Regular/Bold 兩級）。css2 對 `wght@500;700`
+ * 回同一個 URL，跟 Jost 是同一個模式。入庫兩份是為了讓檔名與宣告一一對應、日後
+ * 換成靜態子集時不必改 CSS；`src` 都指 500 那顆，瀏覽器只會下載一次。
+ *
+ * ⚠️ **2026-08-14 起這兩條宣告目前沒有任何消費者，是刻意保留的。**
+ * 使用者定案：**app 內的文字一律不用手寫體**——「Select a clip…」那類引導語是介面在
+ * 給人指路，必須第一眼讀得懂；app 是工作介面不是 landing page。批次 3 加在
+ * `.empty-note` / `.form .hint` 上的 Caveat 已全部移除（見上面的手寫層退場區塊）。
+ * 宣告與 `ui/src/fonts/Caveat-*.woff2` 不刪，留給 **agent-presence 階段 4 的索引卡**
+ * （spec `2026-08-14-agent-presence-design.md`：AI 手寫的索引卡是它自己的物件，
+ * 不是 app chrome 的內文）。要重新啟用時直接寫規則即可，不必再走一次入庫。
+ *
+ * 保留的成本是零：`@font-face` 只是「宣告有這麼一顆字型可用」，本身不觸發下載——
+ * 瀏覽器的 font 載入是懶的，只有當某個元素的 computed font-family 命中 'Caveat'
+ * 且該元素有字要畫時才發請求。**目前兩個主題都沒有元素要求 Caveat ⇒ 兩邊都不下載
+ * 這 74KB**（已驗證）。vite 那端則是「宣告在 CSS 裡就會進 bundle」：它靜態解析
+ * `url()` 把檔案複製成 hashed asset 並改寫路徑，不做「有沒有人用到」的分析，
+ * 所以檔案仍會被產出——那正是保留的目的。 */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/Caveat-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/Caveat-700.woff2') format('woff2');
 }
 
 /**
@@ -295,7 +797,35 @@ body {
    * 這條漸層只在面板全收合時的縫隙露出來。 */
   background: linear-gradient(180deg, #181923 0%, var(--bg) 40%);
   color: var(--text-1);
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans TC', sans-serif;
+  /* UI 字體：**Jost，兩個主題共用**（2026-08-14 方向 A——「同一雙手，兩張桌」；
+   * 原本只在 `[data-theme='paper']` 下接管，暗版留在系統 UI 字體）。DESIGN.md 的
+   * Typography 是 body/label/display 全 Jost，那是「那隻手」的印刷層，跟桌子是暗房
+   * 還是米紙無關；只有 mono 讀數與字卡管線例外（見下）。
+   *
+   * 為什麼只寫在 `body` 一處：UI chrome 的字體從來沒有第二個宣告點，button / input /
+   * select / textarea 在下面「原生控件全面接管」那段統一 `font: inherit`，
+   * 所以整棵樹都從這裡繼承。改這一行就是改整個 UI chrome，不需要逐元件補。
+   *
+   * fallback 鏈**原封不動接在 Jost 後面**，一個都不能刪：
+   *   - `PingFang TC` / `Noto Sans TC` —— Jost 是拉丁字型，**沒有任何漢字字面**。
+   *     面板裡的中文（以及使用者字幕內容被複製進 input 時）全靠這兩個接手；拿掉的話
+   *     中文會掉到瀏覽器最後手段字型，畫面會出現一整片明顯不同調的字。
+   *   - `-apple-system` / `BlinkMacSystemFont` —— Jost 尚未載入（`font-display: swap`
+   *     的 swap 期）與載入失敗時的拉丁後備，維持與換字前相同的版面度量。
+   *
+   * **不碰的兩類**（都在這條規則的作用域外，靠更具體的選擇器贏過繼承）：
+   *   - mono 讀數（`.ap-strip .ap-tool` / `.ap-secs` 的 SF Mono 堆疊）——DESIGN.md 的
+   *     technical margins 本來就是 mono，時間碼/秒數要 tabular-nums 才不會左右抖。
+   *   - 字幕／字卡渲染路徑（`CaptionLayer.tsx` 吃 `cap.style.fontFamily`、字卡
+   *     `@font-face` 由 `/api/fonts` 動態插入）——那是**影片內容**不是 UI chrome，
+   *     它的字體是專案資料，主題無權干涉（動了就等於偷改使用者的成品）。 */
+  font-family:
+    'Jost',
+    -apple-system,
+    BlinkMacSystemFont,
+    'PingFang TC',
+    'Noto Sans TC',
+    sans-serif;
   font-size: 13px;
 }
 
@@ -317,20 +847,37 @@ button {
     background 0.12s ease,
     border-color 0.12s ease,
     color 0.12s ease,
-    transform 0.12s ease;
+    transform 0.16s var(--ap-spring);
 }
+/* ---- hover＝物理輕推，不加大陰影（**兩主題共用**，2026-08-14 方向 A）----
+ * DESIGN.md 的 Do：「express hover as a physical nudge (translate/rotate/scale
+ * with cubic-bezier(.2,1.4,.4,1))」＋ Ink Shadow 條的「hover "lift" is a
+ * translate/rotate of the object, not a bigger shadow」。
+ * 原本只有 `translateY(-1px)`；補上的是**極輕的 rotate**——手推一個東西不會只往上
+ * 平移。彈簧 easing 用大使館那顆 `--ap-spring`（DESIGN.md 的通用 ease，值相同不另立
+ * token；它宣告在大使館的 `:root` 區塊，本檔內兩處都讀得到）。
+ * `.ap-strip` 排除在外：它有自己的一組 hover（−0.6deg 靜止角上再推）。
+ *
+ * ⚠️ reduced-motion：檔尾那條全域 `*{transition:none!important}` 蓋得過這裡
+ * （author !important > author 一般宣告），所以偏好減少動態的使用者拿到的是
+ * **瞬切到 hover 態**，不是沒有 hover。這是既有機制，沒有新增 JS 動效，
+ * 不需要經過 `motionOK()`。 */
 button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--line-strong);
-  transform: translateY(-1px);
 }
-button:active:not(:disabled) {
-  transform: translateY(0);
+button:hover:not(:disabled):not(.ap-strip):not(.btn-primary) {
+  transform: translate(0, -1px);
+}
+button:active:not(:disabled):not(.ap-strip):not(.btn-primary) {
+  transform: translate(0, 0);
 }
 button:disabled {
   opacity: 0.45;
   cursor: default;
 }
+/* focus：實線（使用者 2026-08-14 定案：**app 內不用虛線**——虛線/傾斜是 landing 的
+ * 語彙，工作介面要乾淨）。顏色：暗版 `--accent` 紫、paper 由 scoped 規則換紅鉛筆。 */
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -338,6 +885,7 @@ textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* Export 主鈕。不傾斜（使用者 2026-08-14 定案：UI 元件一律擺正）。 */
 .btn-primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   border: 1px solid transparent;
@@ -346,8 +894,12 @@ textarea:focus-visible {
   box-shadow: 0 2px 12px var(--accent-glow);
 }
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #9a70f8, #7478f3);
+  background: linear-gradient(135deg, var(--accent-hover-1), var(--accent-hover-2));
   border-color: transparent;
+  transform: translate(0, -1px);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translate(0, 0);
 }
 .btn-danger {
   color: var(--danger);
@@ -503,10 +1055,9 @@ a {
 .ap-strip:active:not(:disabled) {
   transform: rotate(-0.6deg) translateY(0);
 }
-/* focus：DESIGN.md 的「Focus (all)」——2px dashed 紅鉛筆 + 3px offset。
-   紅只做筆畫，這裡是外框線不是底色，符合 One-Pigment 規則。 */
+/* focus：實線（使用者 2026-08-14 定案：app 內不用虛線）。 */
 .ap-strip:focus-visible {
-  outline: 2px dashed var(--ap-red);
+  outline: 2px solid var(--ap-red);
   outline-offset: 3px;
 }
 /* ⚠️ **這裡以前有 `::before` 的和紙膠帶，2026-08-14 定案後移除**——膠帶是紙的
@@ -638,6 +1189,77 @@ a {
   }
 }
 
+/* ---- 大使館的亮版載體：紙＋膠帶（spec §3.5 的載體表）----
+ * 「載體隨主題走、手不變」。暗版是琥珀終端標籤（上面那組）；**紙桌面上載體回歸紙**
+ * ——因為紙貼在紙桌上才成立，而膠帶也終於有東西可以貼（暗版沒有紙所以膠帶被移除，
+ * `--ap-tape` token 就是留給這裡的）。
+ *
+ * 不變的是「那隻手」：手繪圈、歪框、`#ap-pencil` 濁度濾鏡的路徑與動畫全部沿用，
+ * 只換筆色（琥珀 → graphite）。**琥珀是暗版專屬，paper 下完全不出現。**
+ * 形態（尺寸、padding、旋轉角、高度預算）一律不動。 */
+[data-theme='paper'] .ap-strip {
+  background: var(--ap-paper);
+  color: var(--ap-graphite);
+  /* 著地陰影換 Ink Shadow：這張紙躺在米色紙桌上，影子必須是墨色的
+     （暗版那條冷黑是因為它落在暗房的深色頂欄上，理由見上面的註解）。 */
+  box-shadow:
+    0 3px 10px rgba(38, 35, 29, 0.16),
+    0 1px 3px rgba(38, 35, 29, 0.12);
+  /* ⚠️ **紙條本體的 −0.6deg 微轉不寫在這裡**——它在基底 `.ap-strip` 上，兩個主題
+     共用同一個角度（spec §3.5「形態一律不動」）。在這裡重複宣告一次只會製造
+     第二個真值來源：改基底時這條會默默把它擋掉。同理 hover 的
+     `rotate(-0.6deg) translateY(-2px)` 也沿用基底那條。 */
+}
+[data-theme='paper'] .ap-strip:hover:not(:disabled) {
+  /* hover＝物理輕推＋紙提亮到全白，不加大陰影（DESIGN.md 的 Do） */
+  background: #fffdf6;
+}
+/* 和紙膠帶：把紙條按在頂欄上。DESIGN.md「Always slightly rotated, with a 1px
+ * ink-tinted drop shadow」。外懸收在 2px 內（暗房調和那輪的定案沿用），
+ * 貼在上緣中央偏左——手貼的東西不會正中。 */
+[data-theme='paper'] .ap-strip::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 22%;
+  width: 34px;
+  height: 11px;
+  background: var(--ap-tape);
+  transform: rotate(-3.5deg);
+  box-shadow: 0 1px 2px rgba(38, 35, 29, 0.12);
+  pointer-events: none;
+}
+/* offline：較暗的紙階＋淡石墨（燈滅了一格的紙版本）。
+   對比：--ap-faint #635c4b 對 --ap-paper-dim #ede8dc 是 5.43:1。 */
+[data-theme='paper'] .ap-strip.offline {
+  background: var(--ap-paper-dim);
+  color: var(--ap-faint);
+}
+/* 手繪圈與歪框的筆色 → graphite（那隻手還在，只是換了鉛筆）。
+   對 --ap-paper 的對比：graphite 8.49:1、faint 5.99:1。 */
+[data-theme='paper'] .ap-strip .ap-cap,
+[data-theme='paper'] .ap-strip .ap-tool {
+  color: var(--ap-graphite);
+}
+[data-theme='paper'] .ap-strip.offline .ap-cap {
+  color: var(--ap-faint);
+}
+/* 秒數退一階（同暗版的邏輯：次要讀數）。--ap-faint 對 --ap-paper 是 5.99:1。 */
+[data-theme='paper'] .ap-strip .ap-secs {
+  color: var(--ap-faint);
+}
+[data-theme='paper'] .ap-ring path,
+[data-theme='paper'] .ap-frame path {
+  stroke: var(--ap-graphite);
+}
+[data-theme='paper'] .ap-ring.dashed path {
+  stroke: var(--ap-faint);
+}
+/* offline 的框仍比字先暗下去（同暗版的狀態讀序），改用淡石墨的透明階 */
+[data-theme='paper'] .ap-strip.offline .ap-frame path {
+  stroke: rgba(99, 92, 75, 0.45);
+}
+
 /* ---- 佈局積木 ---- */
 /* 頂欄。名字留著（元件端在用），但 2026-08-14 起它是**實底**不是透明玻璃：
  * 白 6% 疊在近黑底上撐不出一階，換成 --panel 之後 header 與中欄 stage 的分野
@@ -650,6 +1272,24 @@ a {
  * 它們以前全是透明、直接看穿到 body 的 --bg，所以整個 UI 只有一個亮度層。 */
 .panel-surface {
   background: var(--panel);
+}
+
+/* ---- 結構性大分界（左右面板 ⇄ 中欄、時間軸區的上緣）----
+ * 這三條線以前寫在 App.tsx 的 inline style。搬進 CSS 是為了讓紙主題換得掉形態
+ * （DESIGN.md 的 dashed rules）——**inline style 贏過任何 author 規則**，scoped
+ * 覆寫只能靠 `!important`，而那會連「面板收合時不畫線」一起蓋掉。所以開合狀態
+ * 改用 `data-edge` 屬性表達，線本身純 CSS。
+ *
+ * 線型：1px 實線，兩主題共用（使用者 2026-08-14 定案收回 dashed）。
+ * 顏色各自的 `--line`（暗版白透明、paper ink 透明）。 */
+.panel-edge-r[data-edge='on'] {
+  border-right: 1px solid var(--line);
+}
+.panel-edge-l[data-edge='on'] {
+  border-left: 1px solid var(--line);
+}
+.panel-edge-t {
+  border-top: 1px solid var(--line);
 }
 /* 預覽 stage 的外圍：全 UI 最暗處（見檔頭的 stage 例外規則）。
  * 這一層是 stage **周圍**的襯底，不是影片框本身——影片框在 Player.tsx 裡是純黑。 */
@@ -696,6 +1336,7 @@ a {
   display: flex;
   align-items: center;
   padding: 8px;
+  /* 線型同 `.panel-edge-*`：1px 實線，兩主題共用（見那組規則的註解） */
   border-bottom: 1px solid var(--line);
 }
 /* 面板的捲動內容區：吃掉 .panel-col 的剩餘高度。 */
@@ -707,7 +1348,45 @@ a {
 /* Inspector 的區塊：一段設定 + 收尾細線（AI agent、Canvas fill…）。 */
 .panel-section {
   padding: 12px;
+  /* 線型同 `.panel-edge-*`：1px 實線，兩主題共用 */
   border-bottom: 1px solid var(--line);
+}
+/* `.empty-note`（空狀態提示：「No captions yet.」「No changes yet」「No edits yet.」
+ * ＋ Inspector 的「Select a clip…」引導句）。
+ *
+ * 這裡**只有 font-size 一條**，而且它是從 Inspector 那句的 inline style 原值搬過來
+ * 的（12px，暗版 computed 逐值不變）。搬家的理由是紙主題的手寫層要放大這幾句到
+ * 16px，而 **inline style 贏過任何 author 規則**——留在元件上就等於那句話永遠換不
+ * 成手寫體（實測過：其餘三處都變了，只有它還是 12px 印刷體）。
+ * 其餘視覺（顏色、內距）仍在各元件的 inline style，本規則不接手。
+ *
+ * ---- 微旋轉：只給「桌上的物件」，**兩主題共用**（2026-08-14 方向 A）----
+ * DESIGN.md：「Nothing sits perfectly straight」／「give every hand-placed object a
+ * small rotation and alternate the sign across siblings; **keep print (headings,
+ * body, lists) square**」。後半句是守則——不是全部都轉。清單只有三處：
+ * `.empty-note` −0.7deg、`.toast` +0.5deg、`.btn-primary` −0.3deg，交錯方向。
+ *
+ * **絕不轉（硬性，理由是功能不是品味，兩主題皆然）**：
+ *   - 預覽 stage / video：那是**座標量測面**。Player 的 ResizeObserver 換算、
+ *     overlay 拖曳的滑鼠座標對映、`verify:canvas` 讀 transform 矩陣的 `a`（scaleX）
+ *     全部假設它沒有旋轉——轉了 rect 會變成外接矩形，量測與拖曳一起壞。
+ *   - 時間軸任何元素：對齊判讀（片段邊界對到刻度、playhead 對到片段）是它的工作，
+ *     歪 0.5deg 就等於把尺畫歪。
+ *   - 字幕列表資料列（.rowline）：一疊列各自歪會讀成排版壞掉，不是手作感。
+ *   - popover：可讀性優先，浮出層歪著會讓人以為沒對齊到觸發它的按鈕。
+ *
+ * 空狀態提示。不傾斜（使用者 2026-08-14 定案：UI 元件一律擺正，
+ * 傾斜/手寫是 landing 的語彙，工作介面要乾淨）。 */
+.empty-note {
+  font-size: 12px;
+}
+/*
+ *
+ * 錯誤 Toast。置中從 inline style 搬進來（GSAP 進場逐幀寫 inline transform，
+ * 置中留在 inline 會被蓋掉；放 CSS 讓 GSAP 從 computed 讀基準值）。
+ * 不傾斜（使用者 2026-08-14 定案：UI 元件一律擺正）。 */
+.toast {
+  transform: translateX(-50%);
 }
 /* Inspector 的表單標題（Clip / Audio / Caption / Overlay）。
  * 14 是刻意比 12 的內文重一階，不是內文的變體。 */
@@ -725,12 +1404,12 @@ a {
   border-radius: var(--r-ctl);
   background: var(--popover-bg);
   border: 1px solid var(--line-strong);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-popover);
 }
 /* 匯出下拉是「一疊控制項」，圓角吃面板級、陰影更深（它浮在頂欄之上、離頁面最遠）。 */
 .popover-menu {
   border-radius: var(--r-panel);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-popover-menu);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -783,6 +1462,7 @@ a {
 .form .section {
   margin: 16px 0 0;
   padding-bottom: 6px;
+  /* 線型同 `.panel-edge-*`：1px 實線，兩主題共用 */
   border-bottom: 1px solid var(--line);
   font-size: 10px;
   font-weight: 600;
@@ -808,6 +1488,7 @@ a {
 .form .danger-zone {
   margin-top: 16px;
   padding-top: 12px;
+  /* 線型同 `.panel-edge-*`：1px 實線，兩主題共用 */
   border-top: 1px solid var(--line);
 }
 /* 勾選列：方塊固定貼左、文字接在後面，窄面板換行時方塊仍對齊第一行。 */
@@ -861,7 +1542,9 @@ a {
   background: var(--accent);
 }
 
-/* 列表列（字幕/活動）通用 hover */
+/* 列表列（字幕/活動）通用 hover。
+ * 列間線 1px 實線（寫在 CaptionList.tsx 的 inline style，本來就在此作用域外）；
+ * 資料列不轉——一疊列各自歪會讀成排版壞掉。 */
 .rowline {
   transition: background 0.15s ease;
 }

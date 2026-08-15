@@ -44,6 +44,23 @@ const SUB_ROW_H = 24;
 /**
  * playhead：紫漸層＋光暈＋圓頭。只有它（和 Toolbar 的 Timecode）訂閱 playback time：
  * time 播放中每幀更新（rAF），若 Timeline 本體訂閱，整條時間軸會每秒重渲染 ~60 次。
+ *
+ * ⚠️ **鉛筆濾鏡（`filter: url(#ap-pencil)`）試裝過，結論是不上。** 別再試一次：
+ * 紙主題下讓 playhead 也帶上大使館那隻手的濁度是很自然的想法（DESIGN.md 明寫
+ * playhead 屬於紅鉛筆的職責），但實測兩端都不成立，而且成因是結構性的，不是調參數：
+ *   - **1× DPR：濾鏡等於沒作用。** 逐像素比對（headless CDP、deviceScaleFactor 1）
+ *     乾淨版 vs scale 2.6 只差 12 個像素／4400，scale 2.0 差 1 個。付了重繪成本、
+ *     買到看不見的東西。
+ *   - **2× DPR：作用了，但難看。** 10 倍放大下看到的不是石墨的濁，是**線緣被啃掉
+ *     一塊塊的矩形缺口**，圓頭被壓成扁豆形。線寬量測：乾淨版恆定 4 device px，
+ *     過濾後在 3–5 之間跳（±0.5 CSS px 的橫向抖動）。
+ * 成因：`feDisplacementMap` 是**位移**像素，而 playhead 只有 2px 寬——任何看得見的
+ * 位移量都是「整條線寬的一大半」，於是位移不是把線畫歪，是把線咬破。同一顆濾鏡在
+ * `.ap-frame` / `.ap-ring` 上好看，因為那些是**長筆畫**，2.6px 的抖動讀成手繪的
+ * 波浪；playhead 是**細線**，同樣的抖動讀成渲染壞掉。細線與位移濾鏡本質不相容。
+ * 附帶（就算視覺過關也還有這關）：playhead 播放中每幀改 `left`，濾鏡會讓那條線
+ * 每幀重跑一次 turbulence + displacement，成本落在最不該有成本的路徑上。
+ * 所以紙主題下 playhead 維持乾淨線，紅色來自 `--accent-bright`（已是紅鉛筆）。
  */
 function Playhead({ pps }: { pps: number }) {
   const time = usePlayback((s) => s.time);
@@ -625,7 +642,7 @@ export function Timeline() {
           overflowX: 'auto',
           border: '1px solid var(--line)',
           borderRadius: 'var(--r-panel)',
-          background: 'rgba(0, 0, 0, 0.18)',
+          background: 'var(--timeline-well-bg)',
           userSelect: 'none',
         }}
       >
@@ -726,10 +743,10 @@ export function Timeline() {
                       left: timeToPx(win.start, pps),
                       width: timeToPx(win.end - win.start, pps),
                       color: 'var(--ok-text)',
-                      background: 'rgba(52, 211, 153, 0.14)',
+                      background: 'var(--ok-wash)',
                       boxShadow: isSel
                         ? 'inset 0 0 0 1.5px var(--ok)'
-                        : 'inset 0 0 0 1px rgba(52, 211, 153, 0.35)',
+                        : 'inset 0 0 0 1px var(--ok-edge)',
                       // 錨定圖示要跟檔名置中對齊：chip 原本靠 lineHeight 置中文字，
                       // 行內 SVG 會壓在基線上；改 flex 對齊，高度仍由 chip 的固定值決定。
                       display: 'flex',
