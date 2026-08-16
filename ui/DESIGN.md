@@ -143,6 +143,25 @@ components:
     textColor: '{colors.graphite}'
     rounded: '{rounded.embassy}'
     padding: '5px 14px 5px 12px'
+  agent-card:
+    backgroundColor: '{colors.code-slate}'
+    textColor: '{colors.code-amber}'
+    borderColor: 'rgba(232, 176, 76, 0.5)'
+    rounded: '{rounded.embassy}'
+    padding: '10px 12px'
+    typography: '{typography.embassy-cap}'
+  agent-card-offline:
+    backgroundColor: '{colors.code-slate-off}'
+    textColor: '{colors.code-amber-dim}'
+    borderColor: 'rgba(156, 134, 84, 0.8)'
+    rounded: '{rounded.embassy}'
+    padding: '10px 12px'
+  agent-card-paper:
+    backgroundColor: '{colors.paper-card}'
+    textColor: '{colors.graphite}'
+    borderColor: 'rgba(38, 35, 29, 0.5)'
+    rounded: '{rounded.embassy}'
+    padding: '10px 12px'
 ---
 
 # Design System: vidcut editor UI
@@ -179,9 +198,10 @@ per consumer rather than hue-shifted as a family.
 The room is deliberately colorless. All four dark ground steps are neutral charcoal
 (R/G/B channels within 2 of each other): the walls carry no ambient tint so every
 saturated pixel on screen belongs to a pen or to the video. The one exception, and
-the only warm light anywhere in the dark theme, is the amber terminal tag in the
-header — the AI's embassy. Its scarcity is the mechanism: because nothing else
-glows, that tag is always the answer to "is the agent there?".
+the only warm light anywhere in the dark theme, is the embassy — the amber terminal
+tag in the header and the amber terminal card in the Inspector, the AI's two
+premises. Its scarcity is the mechanism: because nothing else is warm, amber is
+always the answer to "is the agent there?".
 
 Density is workshop-grade rather than editorial: 13px body, an 11–14px chrome ramp,
 4-multiple spacing, and two icon sizes. Things stay square and solid-lined. The
@@ -195,7 +215,7 @@ drops the paper craft that costs scan speed.
 - Two themes, one universe; dark is the default and is expressed as the _absence_
   of `data-theme`
 - Neutral grounds, pigment reserved for pens; red is a marking pigment and never a fill
-- Exactly one glowing element in the dark theme (the agent's amber tag)
+- Warm light belongs to the embassy alone — the agent's amber tag and index card
 - Solid 1px rules, square objects, print-legible type throughout the working surface
 - Contrast is computed, not eyeballed: every semantic text token carries its measured ratio
 
@@ -228,10 +248,11 @@ never branch on theme.
 
 ### Tertiary
 
-- **Code Amber** (`#e8b04c`) on **Code Slate** (`#241f16`): the AgentStrip terminal
-  tag, dark theme only. Offline steps to an unpowered brass (`#9c8654`) on a darker
-  slate (`#1f1c15`). These `--ap-*` tokens are an isolated namespace: they neither
-  share with nor fall back to the editor palette.
+- **Code Amber** (`#e8b04c`) on **Code Slate** (`#241f16`): the embassy's terminal
+  material — the AgentStrip tag and the AgentStatus index card — dark theme only.
+  Offline steps to an unpowered brass (`#9c8654`) on a darker slate (`#1f1c15`).
+  These `--ap-*` tokens are an isolated namespace: they neither share with nor fall
+  back to the editor palette.
 - **Alert Red** (`#fb8a8a`, dark) / **Red Pencil Deep** (`#a02a1e`, paper): danger
   only — destructive buttons, export failures, error toasts.
 - **Signal Green** (`#34d399` / `#2a7a45`): agent-connected dot, overlay-track chips,
@@ -263,10 +284,14 @@ fill. Caption chips get a red _wash_ at α ≤ 0.12 so it reads as pigment laid 
 surface, not as a red panel. Audit test: if you can point at a red rectangle bigger
 than a chip, the rule is broken.
 
-**The One-Warm-Light Rule.** The AgentStrip amber is the dark theme's only warm,
-glowing signal. No other element may emit warm light or a colored glow at rest;
-"the darkroom does not glow" applies to every resting state, and the AI-edit flash
-is allowed only because it decays to zero within 1s.
+**The One-Warm-Light Rule.** Warm light in the dark theme belongs to **the embassy
+and nothing else** — the AgentStrip tag in the header and the AgentStatus index card
+in the Inspector, which are the same amber-on-slate terminal material and the same
+drawn hand. The rule is about the _territory_, not the object count: adding a third
+embassy surface would need approval, but adding warm light to any non-embassy
+element is simply forbidden. No other element may emit warm light or a colored glow
+at rest; "the darkroom does not glow" applies to every resting state, and the AI-edit
+flash is allowed only because it decays to zero within 1s.
 
 **The Three-Axis Danger Rule.** Danger red and marking red must separate on hue,
 saturation, and luminance simultaneously. In the dark theme that is H8/S63%/L0.2857
@@ -296,7 +321,8 @@ red-never-fills rule forbids — the paper theme made and corrected that same mi
 **Fallback chain:** `-apple-system`, `BlinkMacSystemFont`, then `PingFang TC` /
 `Noto Sans TC`, then `sans-serif`.
 **Mono / readouts:** `SF Mono`, Menlo, Consolas, monospace with `tabular-nums`.
-**Handwriting:** Caveat is in the repo and declared, with zero consumers.
+**Handwriting:** Caveat is in the repo and declared, with zero consumers — and the
+surface it was being held for (the agent index card) has since shipped without it.
 
 **Character:** A geometric sans doing print work — even, upright, quietly
 constructed, so that eleven-pixel labels stay scannable at working density. The
@@ -316,7 +342,8 @@ prevents the browser from synthesizing a fake bold and collapsing a step of the 
   markers, `.tag`, form field labels, hints, ruler ticks.
 - **Section cap** (600, 10px, 0.09em, uppercase): form section headings, badges,
   timeline and audio chip labels.
-- **Embassy cap** (600, 11px, 0.16em, uppercase): the AgentStrip status word only.
+- **Embassy cap** (600, 11px, 0.16em, uppercase): the embassy status word — the
+  AgentStrip tag and the index card's head row, which share the `.ap-cap` spec.
 - **Mono readout** (12px tool name / 11px seconds, `tabular-nums`): elapsed time and
   timecodes.
 
@@ -331,9 +358,13 @@ project data, not chrome, and is outside this ramp entirely.
 **The No-Handwriting-In-App Rule.** No handwriting face is used for any app text.
 Caveat was shipped onto `.empty-note` and `.form .hint`, then removed by the user
 after review: those sentences are the interface giving directions and must be
-legible at a glance. The `@font-face` declarations and the woff2 files are kept
-deliberately — reserved for the agent index-card surface — and cost nothing, since a
-font with no matching computed `font-family` is never downloaded.
+legible at a glance. The exemption it was being kept for is now closed too — the
+agent index card shipped in 2026-08, and its `—AI` / `—you` signatures are set in
+the UI face at 10px in the `--who-*` pigment, because a signature that is decoration
+in a landing page is _attribution data_ in a working panel. The `@font-face`
+declarations and the woff2 files are still kept, but they are now a plain reserve
+with no named consumer; they cost nothing, since a font with no matching computed
+`font-family` is never downloaded.
 
 **The Video-Is-Not-Chrome Rule.** The theme has no authority over the caption/text-card
 rendering path (`CaptionLayer` reads `cap.style.fontFamily`; card fonts are injected
@@ -494,6 +525,8 @@ frame, `NO AGENT`), **idle** (solid amber ring and frame, `AGENT READY`), and
 **working** (the tag stretches, a mono tool name and elapsed `mm:ss` appear, and the
 ring redraws itself on a 1.6s loop that completes at 62% and rests).
 
+It has a sibling, not a copy: the **AgentStatus index card** below.
+
 Its identity is **the hand, not the paper**: a hand-drawn SVG ring and a deliberately
 crooked frame path, both filtered through `#ap-pencil` for graphite noise and stretched
 by `preserveAspectRatio="none"` so one path serves every width. The carrier follows
@@ -504,6 +537,37 @@ rotation (−0.6°), declared once on the base rule so both themes share the ang
 
 Height budget: 16px ring + 5px vertical padding = 26px, under the header's 28px
 content row. Recompute this before changing padding, type size, or ring size.
+
+### AgentStatus index card (the embassy's second premises)
+
+`.ap-card` in the Inspector, shown only when nothing is selected — which is why the
+deselect paths matter (`Esc`, and a click on timeline blank space): without a way
+back to the idle panel, a user who selects anything never sees the card again.
+
+Same material as the tag and the **same hand** — `RING_PATH` is imported from
+`AgentStrip.tsx` rather than copied, because a second copy would silently diverge and
+no test can see the shape of a path. The `#ap-pencil` filter `defs` live in the strip
+and are reached document-wide, so the card declares no `defs` of its own. Three
+states off the same `agentPhase` derivation: **offline** (slate-off ground, brass
+type, dashed ring, plus the `claude mcp add …` reconnect command), **idle** (solid
+ring, `AGENT READY`, session readout), **working** (a `▸ tool mm:ss` mono line whose
+seconds tick on an interval mounted only while working, plus the redrawing ring).
+
+Two deliberate divergences from the tag, both app-over-landing calls:
+
+- **The card is square** — no resting rotation. The tag is a 26px object where −0.6°
+  reads as "stuck on"; the card is a multi-line data block, and the no-rotate rule
+  names data rows explicitly (a tilted stack of rows reads as broken layout).
+- **The `—AI` / `—you` signatures are not handwriting.** They take the same `--who-*`
+  pigment as the row's source label and step down by _size_ (11 → 10px), never by
+  alpha: `--who-you` at α 0.8 falls to 3.81:1 on the panel, out of semantic grade.
+
+The card cannot separate from `--panel` tonally — `--ap-slate` against `#202023` is
+1.01:1, and on paper `--ap-paper` against the paper panel is exactly 1.00:1 (the same
+literal). Its boundary is therefore a **structural 1px rule**, computed to clear the
+3:1 non-text threshold in all four combinations (idle 3.12 dark / 3.07 paper; offline
+3.42 / 3.96), and the offline step changes _pigment_ rather than dropping alpha —
+fading the line to α 0.12 does not read as "dimmed", it deletes the card's edge.
 
 ### Waveforms
 
@@ -555,10 +619,11 @@ copied into any new surface.
   rect into a bounding box), any timeline element (alignment reading is its job), data
   rows (`.rowline` — a stack of individually tilted rows reads as broken layout), and
   popovers.
-- **Don't** set app text in a handwriting face. Guidance sentences must be legible at
-  a glance; Caveat is retained in the repo for the agent index card only.
-- **Don't** add a second glowing element to the dark theme. The amber tag's scarcity
-  is its function.
+- **Don't** set app text in a handwriting face — including the index card's `—AI` /
+  `—you` signatures, which are attribution data. Caveat is retained in the repo as an
+  unassigned reserve, not as a licence for any current surface.
+- **Don't** put warm light on anything outside the embassy. Amber's scarcity is its
+  function; the tag and the index card are the whole territory.
 - **Don't** give the playhead a gradient or a pencil-texture filter. A solid `#c94f42`
   line was forced by measurement: a deeper tail fails 3:1 against the clip surface, and
   a compliant tail has a 1.00 luminance ratio against the tip, so the "gradient" is

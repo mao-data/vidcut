@@ -643,10 +643,10 @@
   {
     "id": "inspector-agent-connected",
     "file": "ui/src/panels/Inspector.tsx",
-    "find": "{connected ? 'Agent connected' : 'No agent'}",
-    "replace": "{connected ? \"No agent\" : \"Agent connected\"}",
+    "find": "            {phase === 'offline' ? 'No agent' : working ? 'Working' : 'Agent ready'}",
+    "replace": "            {phase === 'offline' ? 'Agent ready' : working ? 'Working' : 'No agent'}",
     "tests": "ui/src/panels/panels.test.tsx",
-    "note": "連線狀態反轉 → B2 必須抓到"
+    "note": "索引卡的連線狀態反轉 → B2 必須抓到（find 隨階段 4 換裝更新：兩態 'Agent connected'/'No agent' → 三態，與 header 標籤逐字相同）"
   },
   {
     "id": "inspector-agent-hint-always",
@@ -935,5 +935,45 @@
     "replace": "        aria-pressed={false}",
     "tests": "ui/src/panels/themeToggle.test.tsx",
     "note": "aria-pressed 恆 false → 讀屏幕使用者永遠不知道目前是哪個主題；a11y 斷言必須抓到"
+  },
+  {
+    "id": "app-escape-deselect",
+    "file": "ui/src/App.tsx",
+    "find": "        case 'escape':\n          e.preventDefault();\n          useSelection.getState().select(null);",
+    "replace": "        case 'escape':\n          e.preventDefault();",
+    "tests": "ui/src/App.test.tsx",
+    "note": "Escape 不再清選取 → 選過東西就永遠回不到 Inspector 的閒置區（索引卡住在那裡）；取消選取斷言必須抓到"
+  },
+  {
+    "id": "tl-blank-deselect",
+    "file": "ui/src/timeline/Timeline.tsx",
+    "find": "    if (!(e.target instanceof Element) || !e.target.hasAttribute('data-tl-blank')) return;",
+    "replace": "    if (!(e.target instanceof Element)) return;",
+    "tests": "ui/src/timeline/Timeline.test.tsx",
+    "note": "空白白名單失效 → 點 clip/chip/尺規也會冒泡上來清掉選取（尺規的 click 是 seek，被搶就等於選不住東西）；「點 clip 不清」與「尺規保留選取」的斷言必須抓到"
+  },
+  {
+    "id": "inspector-card-working",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "  const working = phase === 'working' && call !== null;",
+    "replace": "  const working = false;",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "索引卡的 working 態退化成 idle → 實時行（工具名/秒數）與重畫圈全部不出現；C3 必須抓到"
+  },
+  {
+    "id": "inspector-card-tick-only-working",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "    if (!working) return;\n    setNow(Date.now());",
+    "replace": "    setNow(Date.now());",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "idle/offline 也每秒 setState → 面板整天空轉重繪；「interval 只在 working 掛」的 C5 必須抓到"
+  },
+  {
+    "id": "inspector-card-counts",
+    "file": "ui/src/panels/Inspector.tsx",
+    "find": "            v{version} · AI {counts.ai} · you {counts.human}",
+    "replace": "            v{version} · AI {counts.human} · you {counts.ai}",
+    "tests": "ui/src/panels/panels.test.tsx",
+    "note": "session 讀數列的 AI/人計數對調 → 讀數說反了誰做的；C7 必須抓到"
   }
 ]

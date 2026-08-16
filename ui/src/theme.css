@@ -1450,6 +1450,196 @@ a {
   stroke: rgba(99, 92, 75, 0.45);
 }
 
+/* ============================================================
+ * AgentStatus 索引卡 —— Inspector 的琥珀終端卡（大使館物件 #2）
+ * spec §3.4 / §3.5（含 2026-08-16 修訂）、元件在 `ui/src/panels/Inspector.tsx`
+ *
+ * **2026-08-16 使用者定案（A 案）：暗版載體＝琥珀終端卡**，跟 header 標籤同族
+ * （slate 底 + 琥珀讀數），不是紙。理由與標籤那次換裝完全相同：紙在暗房是一塊
+ * 會發光的白斑。識別仍然是**那隻手**——手繪圈與 `#ap-pencil` 濁度濾鏡，路徑
+ * (`RING_PATH`) 直接跟標籤共用同一份常數。
+ *
+ * ⚠️ **卡本體擺正（無 rotate）**——這是與標籤刻意不同的地方，不是漏寫：
+ * 標籤是 header 上一顆 26px 高的小物件，−0.6deg 讀成「貼上去的」；索引卡是
+ * Inspector 裡一塊有多行文字的資料區塊，DESIGN.md 的「Don't rotate a UI element」
+ * 明列 data rows 不得旋轉（歪掉的多行文字讀成版面壞掉，不讀成手貼）。
+ * app ≠ landing 的體例在這裡優先。
+ *
+ * ⚠️ **署名不用手寫體**（DESIGN.md 的 No-Handwriting-In-App 規則）：`—AI` / `—you`
+ * 用的是跟左邊那格同一個 `--who-*` 顏料，只把字級降一階（11 → 10px）。
+ * **不用 opacity 降階**：實算過，暗版 `--who-you` 在 0.8 alpha 下對 --panel
+ * 只有 3.81:1（滿版是 5.20），一降就掉出語意文字門檻。同色同階、靠字級分主次。
+ *
+ * **卡與面板的分野只能靠線，不能靠明度**：--ap-slate #241f16 對 --panel #202023
+ * 是 1.01:1（paper 那組更是 1.00:1）——同一片暗、同一片米。所以卡的邊界是
+ * 1px 實線（DESIGN.md：every rule in the app is a 1px solid line），
+ * 線色是琥珀的低透明階，讀成「終端機外殼的邊」。
+ * ============================================================ */
+.ap-card {
+  /* 擺正、3px 終端角（同標籤，DESIGN.md 的 embassy radius） */
+  border-radius: 3px;
+  background: var(--ap-slate);
+  /* 邊界＝這張卡唯一能跟 --panel 分開的手段（見檔頭說明），所以它是**結構線
+     不是裝飾**，實算必須過非文字的 3:1：琥珀 α0.5 疊在 slate 上 = #866831，
+     對 --panel #202023 是 3.12:1。α 0.22 那一版只有 1.60:1，等於沒畫。 */
+  border: 1px solid rgba(232, 176, 76, 0.5);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* ink 系陰影：卡躺在 --panel 上。**暗版用冷黑**，理由同標籤的著地陰影
+     （米色的影在深底上讀成濁暈，不讀成深度）。 */
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+/* offline：整組退成舊黃銅 + 更暗一階的底（燈還在、只是沒通電；同標籤的 C 版）。
+   框也跟著暗下去——狀態變化最先從框讀到。 */
+.ap-card.offline {
+  background: var(--ap-slate-off);
+  /* 框跟著暗下去，但**換顏料不是降透明度**：舊黃銅 α0.8 疊在 slate-off 上
+     = #837147，對 --panel 3.42:1，仍過非文字的 3:1。單純把 α 壓到 0.12 會掉到
+     1.21:1——那不是「暗下去」，是卡的邊界消失。 */
+  border-color: rgba(156, 134, 84, 0.8);
+}
+/* 狀態行：手繪圈 + label caps。`.ap-cap` 的字規（Jost 600 / 0.16em / caps）
+   由上面 AgentStrip 那條 `.ap-strip .ap-cap` 定義——這裡是第二個消費者，
+   所以把那組字規在 `.ap-card` 底下重述一次而不是靠繼承（兩條規則的
+   selector 各自 scoped，沒有共用的祖先可以掛）。 */
+.ap-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ap-card .ap-cap {
+  font-family:
+    'Jost',
+    -apple-system,
+    'Helvetica Neue',
+    sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  /* 琥珀對 --ap-slate 8.38:1 */
+  color: var(--ap-amber);
+  line-height: 1;
+}
+/* offline 的 label：舊黃銅對 --ap-slate-off 4.82:1 */
+.ap-card.offline .ap-cap {
+  color: var(--ap-amber-dim);
+}
+/* working 的實時行：`▸ {tool} mm:ss`。mono + tabular-nums，秒數每秒換一次數字，
+   等寬才不會讓整張卡左右抖動（同標籤的理由）。 */
+.ap-card-live {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  /* 三角形是靜態字元不是動畫：活著的證據是秒數在動 */
+  color: var(--ap-amber);
+  font-size: 12px;
+  line-height: 1;
+}
+/* 工具名：琥珀滿階（8.38:1），這一行的主角 */
+.ap-card-tool {
+  color: var(--ap-amber);
+  /* 長工具名不得把秒數擠出卡外 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 秒數退一階（不是換色）：隨時在跳的次要讀數，跟工具名同亮度會搶注意力。
+   舊黃銅對 --ap-slate 是 4.64:1，仍過 4.5。 */
+.ap-card-secs {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--ap-amber-dim);
+}
+/* session 讀數列 `v{n} · AI {n} · you {n}`：mono tabular-nums，
+   舊黃銅對 --ap-slate 4.64:1。 */
+.ap-card-counts {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--ap-amber-dim);
+  line-height: 1;
+}
+/* 離線的接回指令。**換皮不換行為**：文字與 code 語意都是既有的，只有配色跟著
+   卡走——它現在坐在 slate 卡裡，再套一層 --code-inline-bg 的黑會變成卡中卡。
+   底用比卡再深一階的黑透明（黑 α0.22 疊在 --ap-slate-off 上 = #181610），
+   字用舊黃銅：對那個底是 5.13:1。 */
+.ap-card-cmd {
+  display: block;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.22);
+  /* 卡內的次級分隔（不是卡的邊界，那條在 `.ap-card` 上），α 低一階即可：
+     疊出來 #4b3d21 對 code 底 #181610 是 1.94:1——它靠底色差就分得出來，
+     線只是收邊。 */
+  border: 1px solid rgba(232, 176, 76, 0.3);
+  padding: 8px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--ap-amber-dim);
+}
+/* 索引卡裡的手繪圈：形態（尺寸/stroke/濾鏡/三態）全部沿用上面 `.ap-ring` 的規則，
+   這裡一個都不重述——同一支筆同一個圈就是「那隻手」的定義。
+   `#ap-pencil` 的 defs 由 header 的 AgentStrip 內嵌，SVG filter id 是 document 級
+   可及的，所以卡不需要（也不該）再宣告一份同 id 的 defs。 */
+
+/* 最近 3 筆的尾端署名。**同一個 --who-* 顏料**（顏色寫在元件的 inline style，
+   因為它逐筆依 source 分流），這裡只降字級：11 → 10。
+   對比（滿階，未降 alpha）：暗版 who-ai 對 --panel 8.21、who-you 5.20；
+   paper who-ai 8.49、who-you 6.66。全部 ≥4.5。 */
+.ap-card-sign {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* ---- 索引卡的亮版載體：紙桌上回歸紙（同標籤的「載體隨主題走、手不變」）---- */
+[data-theme='paper'] .ap-card {
+  background: var(--ap-paper);
+  /* 同暗版的算法：ink α0.5 疊在 --ap-paper 上 = #8e8b83，對面板 3.07:1。
+     紙上這條線更關鍵——paper-card 對 paper-panel 是 1.00:1（同一個字面值）。 */
+  border-color: rgba(38, 35, 29, 0.5);
+  /* Ink Shadow：這張卡躺在米色面板上，影子必須是墨色的 */
+  box-shadow:
+    0 2px 8px rgba(38, 35, 29, 0.12),
+    0 1px 2px rgba(38, 35, 29, 0.1);
+}
+[data-theme='paper'] .ap-card.offline {
+  background: var(--ap-paper-dim);
+  /* 淡石墨 α0.8 疊在 --ap-paper-dim 上 = #7f7868，對面板 3.96:1 */
+  border-color: rgba(99, 92, 75, 0.8);
+}
+/* 筆色 → graphite / faint（那隻手還在，只是換了鉛筆）。
+   graphite 對 --ap-paper 8.49:1、faint 5.99:1；offline 的 faint 對
+   --ap-paper-dim 5.43:1。 */
+[data-theme='paper'] .ap-card .ap-cap,
+[data-theme='paper'] .ap-card-live,
+[data-theme='paper'] .ap-card-tool {
+  color: var(--ap-graphite);
+}
+[data-theme='paper'] .ap-card.offline .ap-cap {
+  color: var(--ap-faint);
+}
+[data-theme='paper'] .ap-card-secs,
+[data-theme='paper'] .ap-card-counts {
+  color: var(--ap-faint);
+}
+/* 紙上的接回指令：紙世界裡終端機是**唯一的深色表面**（DESIGN.md 的 call sheet
+   終端區塊），所以這格維持深底——直接吃既有的 --code-inline-* 那組，
+   不另調一份。--code-inline-text #efe9d8 對 --code-inline-bg #2b271d 是 12.28:1。 */
+[data-theme='paper'] .ap-card-cmd {
+  background: var(--code-inline-bg);
+  border-color: rgba(38, 35, 29, 0.18);
+  color: var(--code-inline-text);
+}
+
 /* ---- 佈局積木 ---- */
 /* 頂欄。名字留著（元件端在用），但 2026-08-14 起它是**實底**不是透明玻璃：
  * 白 6% 疊在近黑底上撐不出一階，換成 --panel 之後 header 與中欄 stage 的分野

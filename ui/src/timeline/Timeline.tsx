@@ -569,6 +569,26 @@ export function Timeline() {
     usePlayback.getState().seek(maybeSnap(pxToTime(e.clientX - rect.left, pps)));
   };
 
+  /**
+   * 點時間軸空白處 → 取消選取（工項 0 的第二條路徑；另一條是 App 的 Escape）。
+   *
+   * **掛在內容層、靠 `data-tl-blank` 白名單分辨**，不是 `e.target === e.currentTarget`：
+   * 「空白」不只有內容層自己，四條軌道各自的空處（chip 右邊那一大片）也是空白，
+   * 而那些空處在 DOM 上屬於軌道 row 的 `<div>`。純 currentTarget 比較只會認得
+   * 內容層本身，點軌道空處就沒反應——那正是使用者最常點的地方。
+   *
+   * 反過來，**絕不能只看 currentTarget 以外的冒泡**：clip / chip / 把手 / 尺規全都
+   * 冒泡到這一層。尺規尤其不能碰——它的 click 是 seek。所以標記是**明確 opt-in**：
+   * 只有內容層與四條軌道 row 掛 `data-tl-blank`，其餘一律不掛，於是
+   * `e.target` 帶標記 ⇔ 點到的真的是空白。chip 的 click 目標是 chip 自己，
+   * 沒有標記，一路冒泡上來也不會誤判（拖曳放手後補的那發 click 同理）。
+   */
+  const onBlankClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (drag.current) return;
+    if (!(e.target instanceof Element) || !e.target.hasAttribute('data-tl-blank')) return;
+    useSelection.getState().select(null);
+  };
+
   // 拖曳 trim 中：用 preview 覆蓋顯示的 clip；放手後由 pending 接手蓋到 echo 抵達
   const trimmedClips = doc.tracks.video.map((c) => {
     const d = drag.current;
@@ -654,6 +674,9 @@ export function Timeline() {
           style={{ position: 'relative', width, touchAction: 'none' }}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          // 空白處點擊＝取消選取。標記與白名單邏輯見 `onBlankClick` 的註解。
+          onClick={onBlankClick}
+          data-tl-blank
         >
           {/* 尺規 */}
           <div
@@ -684,8 +707,8 @@ export function Timeline() {
               );
             })}
           </div>
-          {/* video 主軌 */}
-          <div style={rowStyle} className={aiAnim ? 'ai-anim' : undefined}>
+          {/* video 主軌。`data-tl-blank`＝這條軌道的空處也算空白（見 onBlankClick）。 */}
+          <div style={rowStyle} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
             {trimmedClips.map((c) => {
               const isDragged = moveDrag?.clipId === c.id;
               const cf = fxFor(c.id);
@@ -709,7 +732,7 @@ export function Timeline() {
             })}
           </div>
           {/* overlays 軌（拖曳平移；錨定式改 offset） */}
-          <div style={subRow} className={aiAnim ? 'ai-anim' : undefined}>
+          <div style={subRow} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
             {doc.tracks.overlays.map((o) => {
               let win = overlayWindow(doc, o);
               const d = drag.current;
@@ -769,7 +792,7 @@ export function Timeline() {
             })}
           </div>
           {/* captions 軌（拖曳平移＋左右緣 trim） */}
-          <div style={subRow} className={aiAnim ? 'ai-anim' : undefined}>
+          <div style={subRow} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
             {doc.tracks.captions.map((c) => {
               const d = drag.current;
               const pd = pending.current;
@@ -825,6 +848,7 @@ export function Timeline() {
           <div
             style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}
             className={aiAnim ? 'ai-anim' : undefined}
+            data-tl-blank
           >
             {doc.tracks.audio.map((a) => {
               const d = drag.current;

@@ -219,6 +219,75 @@ describe('Timeline drags', () => {
     expect(useSelection.getState().selected).toEqual({ kind: 'audio', id: 'a1' });
   });
 
+  /**
+   * 取消選取的第二條路徑（agent-presence 階段 4 的工項 0）。
+   * 只有**明確標成空白**的層才清（`data-tl-blank`）：軌道內容層與四條軌道的空處。
+   * clip/chip/ruler/把手都不帶那個標記，所以既有的選取與 seek 行為一格都沒動。
+   */
+  describe('blank-area deselect', () => {
+    const blanks = (c: HTMLElement) => Array.from(c.querySelectorAll('[data-tl-blank]'));
+
+    it('clicking an empty track row clears the selection', () => {
+      const { container } = render(<Timeline />);
+      act(() => {
+        useSelection.getState().select({ kind: 'clip', id: 'c1' });
+      });
+      const rows = blanks(container);
+      expect(rows.length).toBeGreaterThan(0);
+      act(() => {
+        fireEvent.click(rows[rows.length - 1]!, { clientX: 500 });
+      });
+      expect(useSelection.getState().selected).toBeNull();
+    });
+
+    it('every blank layer clears it (content well and each track row)', () => {
+      const { container } = render(<Timeline />);
+      for (const el of blanks(container)) {
+        act(() => {
+          useSelection.getState().select({ kind: 'clip', id: 'c1' });
+        });
+        act(() => {
+          fireEvent.click(el, { clientX: 500 });
+        });
+        expect(useSelection.getState().selected).toBeNull();
+      }
+    });
+
+    it('clicking a clip still selects it (a chip click must not bubble into a deselect)', () => {
+      const { container } = render(<Timeline />);
+      act(() => {
+        fireEvent.pointerDown(chipByText(container, 'bgm'), { clientX: 10, pointerId: 1 });
+      });
+      act(() => {
+        fireEvent.click(chipByText(container, 'bgm'), { clientX: 10, bubbles: true });
+      });
+      expect(useSelection.getState().selected).toEqual({ kind: 'audio', id: 'a1' });
+    });
+
+    it('the ruler is not a blank layer (its click is a seek, and it must keep the selection)', () => {
+      const { container } = render(<Timeline />);
+      const ruler = container.querySelector('[style*="cursor: text"]')!;
+      expect(ruler.hasAttribute('data-tl-blank')).toBe(false);
+      act(() => {
+        useSelection.getState().select({ kind: 'clip', id: 'c1' });
+      });
+      act(() => {
+        fireEvent.click(ruler, { clientX: 4 * PPS, bubbles: true });
+      });
+      expect(usePlayback.getState().time).toBe(4);
+      expect(useSelection.getState().selected).toEqual({ kind: 'clip', id: 'c1' });
+    });
+
+    it('a drag that ends on blank space keeps the selection (drop is not a deselect)', () => {
+      // chip 拖曳的 pointerup 之後瀏覽器仍會補一發 click；若那發 click 落在空白層上
+      // （拖到軌道空處放手就是這種情況），選取不能被自己的拖曳清掉。
+      const { container } = render(<Timeline />);
+      const chip = chipByText(container, 'bgm');
+      drag(chip, 100, 140);
+      expect(useSelection.getState().selected).toEqual({ kind: 'audio', id: 'a1' });
+    });
+  });
+
   it('ruler click seeks the playhead', () => {
     const { container } = render(<Timeline />);
     const ruler = container.querySelector('[style*="cursor: text"]')!;

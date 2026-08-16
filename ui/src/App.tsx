@@ -136,6 +136,15 @@ export function App() {
           e.preventDefault();
           useView.getState().toggleSnap();
           break;
+        // 取消選取。**設定選取有九條路徑，清除以前只有三顆刪除鈕**——選過任何東西
+        // 之後就永遠回不到 Inspector 的閒置區（AI 索引卡住在那裡）。這條與時間軸
+        // 空白處點擊（`timeline/Timeline.tsx` 的 `data-tl-blank`）是唯二的回頭路。
+        // 打字中不作用由這顆 handler 開頭的 INPUT/TEXTAREA/contentEditable 守衛涵蓋：
+        // 欄位裡按 Escape 是「取消輸入法候選字」，不該把被編輯的物件整個取消掉。
+        case 'escape':
+          e.preventDefault();
+          useSelection.getState().select(null);
+          break;
         case 'z':
           if (e.shiftKey) {
             e.preventDefault();

@@ -3,6 +3,7 @@ import { render, act, fireEvent } from '@testing-library/react';
 import type { Command } from '@vidcut/shared';
 import { App } from './App.js';
 import { usePlayback } from './stores/playback.js';
+import { useSelection } from './stores/selection.js';
 import { useView } from './stores/view.js';
 import { useToast } from './stores/toast.js';
 import * as ws from './ws.js';
@@ -175,6 +176,53 @@ describe('App', () => {
       });
       expect(sent).toEqual([]);
       input.remove();
+    });
+
+    /**
+     * 取消選取的第一條路徑（agent-presence 階段 4 的工項 0）。
+     * 修的是既有缺陷：設定選取有九條路徑，清除只有三顆刪除鈕——選過任何東西之後
+     * 就永遠回不到 Inspector 的閒置區（AI 索引卡就住在那裡）。
+     */
+    it('Escape clears the selection', () => {
+      act(() => {
+        useSelection.getState().select({ kind: 'clip', id: 'c1' });
+      });
+      press('Escape');
+      expect(useSelection.getState().selected).toBeNull();
+    });
+
+    it('Escape sends no command (deselect is a view action, not an edit)', () => {
+      act(() => {
+        useSelection.getState().select({ kind: 'clip', id: 'c1' });
+      });
+      press('Escape');
+      expect(sent).toEqual([]);
+    });
+
+    it('Escape while typing in a field leaves the selection alone', () => {
+      // 打字中不攔：沿用同一顆 handler 開頭的 INPUT/TEXTAREA/contentEditable 守衛。
+      // 沒有這條的話，在 Inspector 的欄位裡按 Escape（取消輸入法候選字、關閉自動完成）
+      // 會把整個被編輯的物件從面板上取消掉——欄位連同表單一起消失。
+      act(() => {
+        useSelection.getState().select({ kind: 'clip', id: 'c1' });
+      });
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      input.focus();
+      act(() => {
+        fireEvent.keyDown(input, { key: 'Escape', bubbles: true });
+      });
+      expect(useSelection.getState().selected).toEqual({ kind: 'clip', id: 'c1' });
+      input.remove();
+    });
+
+    it('Escape with a modifier is left to the browser', () => {
+      // handler 的既有體例：`if (mod) return`（其餘帶修飾鍵的交給瀏覽器）。
+      act(() => {
+        useSelection.getState().select({ kind: 'clip', id: 'c1' });
+      });
+      press('Escape', { metaKey: true });
+      expect(useSelection.getState().selected).toEqual({ kind: 'clip', id: 'c1' });
     });
   });
 

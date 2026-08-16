@@ -37,8 +37,18 @@ export function formatElapsed(ms: number): string {
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
-/** 手繪圈的路徑：刻意歪的閉合路徑（DESIGN.md：不用 `<circle>`，要手畫的線）。 */
-const RING_PATH =
+/**
+ * 手繪圈的路徑：刻意歪的閉合路徑（DESIGN.md：不用 `<circle>`，要手畫的線）。
+ *
+ * **export 是給 Inspector 的索引卡用的**（大使館物件 #2，階段 4）。兩件物件共用
+ * 同一條路徑不是節省字元——是「那隻手」的定義：同一支筆畫的同一個圈，兩個地方
+ * 看起來必須是同一筆。複製一份的話有人改了其中一份就會分岔，而分岔沒有任何測試
+ * 抓得到（jsdom 不比對 path 的形狀）。
+ *
+ * ⚠️ `scripts/mutants.json` 有多隻錨在本檔的字面值上，但**沒有一隻錨在這條路徑**，
+ * 所以加 export 不影響任何 mutant 的 find。
+ */
+export const RING_PATH =
   'M8 1.6c3.6-.3 6.5 2.6 6.3 6.2-.2 3.5-2.9 6.4-6.4 6.3C4.4 14 1.5 11.2 1.7 7.7 1.9 4.3 4.6 1.8 8 1.6z';
 
 /**

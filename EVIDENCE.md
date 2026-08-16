@@ -1747,3 +1747,53 @@ killed+1 等價對照如預期存活**(零新增 mutant——純視覺層);其�
 **已知限制(如實記)**:「先ok」=保留後續微調空間(紅用量/蠟筆亮度/底深淺
 均為單 token 改動);`--playhead-tail` 在暗版現與筆尖同值(等待亮版以外的
 消費者);text-3 對 popover 4.32 維持「浮出層限用 text-2」的既有限定。
+
+## 補記:Agent Presence 階段 4——索引卡+取消選取路徑(2026-08-16)
+
+Spec:`2026-08-14-agent-presence-design.md` §3.4+新修訂區塊(載體 A 案琥珀終端卡
+/署名不用手寫體/「卡外紫藍」句過時聲明/deselect 補洞)。含使用者發現的既有缺陷
+修復:選取的設定路徑 9 條、清除路徑僅 3 顆刪除鈕——選過即回不到 Inspector 閒置區。
+
+**行為→測試對映**:Escape 取消選取(清選取/不送 command/打字中不清/帶修飾鍵
+不清,沿用 onKey 既有 guard 體例)→ App.test.tsx(+4);時間軸空白點擊取消
+(每個空白層都清/點 clip 不清/尺規 seek 不被搶且保留選取/拖曳落空白不清,
+`data-tl-blank` opt-in 白名單——currentTarget 判斷會漏掉「軌道列右側大片空白」)
+→ Timeline.test.tsx(+5);索引卡三態(offline 保留接回指令/idle 讀數列/working
+`▸ tool mm:ss`)、與 header 同源推導、interval 只在 working 掛、署名分色 →
+panels.test.tsx 等(合計 +21,366 UI 測試全綠,斷言零弱化);shortcuts.ts 同步
+`Esc — Deselect`(CLAUDE.md 鐵則)。
+
+**復用而非複製**:RING_PATH 與 formatElapsed 自 AgentStrip export——同一支筆的
+同一個圈,複製會默默分岔且 jsdom 驗不到形狀;#ap-pencil defs document 級可及,
+卡不重複宣告(真瀏覽器截圖確認濾鏡作用)。
+
+**對比實算 21 對全過**,其中兩個實算逼出的設計修正:(1) 卡與面板明度比
+1.01:1(slate 對 panel)/1.00:1(紙對紙),邊界必須是結構性 1px 線按 3:1 算,
+不是裝飾;(2) 署名不可用 opacity 降階——`--who-you` α0.8 對 panel 掉到 3.81,
+改為同顏料降字級。ui/DESIGN.md 同步:One-Warm-Light 改寫為大使館領土規則
+(strip+索引卡)、Caveat exemption 關閉、新增 AgentStatus 元件段。
+
+**過程發現(如實記)**:(1) Opus 首版 working 態卡文字未跟上 header(卡寫
+AGENT READY/header 已 WORKING),真瀏覽器截圖抓到,修復+補 C3b 測試;
+(2) 首輪 gauntlet 在突變層被訊號終止(exit 144,前十關全 PASS;疑與並行
+verify 三連的資源壓力有關),殘留 mutant(render.ts 進度旁路改直寫)git diff
+驗明後還原,重跑乾淨全綠;(3) offline 態真瀏覽器截圖:CDP 斷網殺不掉既有
+WS,改 WebSocket 攔截法(包 constructor+載後強制 close+禁重連)截得;
+(4) panels.test.tsx 的 beforeEach 補 agent store 重置(resetStores 沒收
+模組級 state,前一測試的進行中呼叫會讓下一測試卡在 working)。
+
+**gauntlet(source:9a4694d+本包工作樹,單次乾淨全跑)**:877 passed
+(shared 46/server 465/ui 366,+21);UI 覆蓋率 91.61%;隨機順序×2 PASS;
+錨點 122/122;**121/121 killed+1 等價**(5 新 mutant:app-escape-deselect/
+tl-blank-deselect/inspector-card-working/inspector-card-tick-only-working/
+inspector-card-counts,逐隻手動驗證;另 1 隻既有 inspector-agent-connected
+隨換裝重新錨定);其餘各層全 PASS;零新增依賴。
+
+**真瀏覽器驗收(主 session)**:兩主題×三態卡截圖(working 以真 MCP 呼叫
+截得秒數實跳;offline 以 WS 攔截截得);verify:panels/canvas/wysiwyg 三連綠
+——canvas 綠即證空白點擊未搶 clip/尺規/拖曳任何既有路徑。
+
+**已知限制(如實記)**:working 態的 paper 版未截(色組與已審 idle 紙卡同套,
+對比已實算);Esc 在 popover 開啟時的行為未特別處理(popover 自有外點關閉,
+無衝突);server 曾隨機器重啟而停,以 `npx tsx server/src/index.ts projects/demo`
+起回(未動 demo 內容)。

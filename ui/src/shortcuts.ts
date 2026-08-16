@@ -30,6 +30,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { keys: 'W', label: 'Delete right' },
   { keys: 'F', label: 'Freeze' },
   // 檢視
+  { keys: 'Esc', label: 'Deselect' },
   { keys: 'N', label: 'Snap' },
   { keys: 'Shift+Z', label: 'Fit' },
   { keys: 'Ctrl+wheel', label: 'Zoom' },
