@@ -571,8 +571,12 @@ fading the line to α 0.12 does not read as "dimmed", it deletes the card's edge
 
 ### Waveforms
 
-Canvas cannot read CSS variables, so `src/timeline/waveform.ts` looks the five
-`--wave-*` tokens up through `getComputedStyle` at draw time — as a _function_, not a
+The main-track clip no longer renders a waveform band (user decision 2026-08-16:
+filmstrip fills the full `ROW_H`; the `--wave-clip-*` tokens currently have **no
+consumer** and are kept only so the band can be restored by re-attaching the canvas).
+The audio track is the sole waveform surface. Canvas cannot read CSS variables, so
+`src/timeline/waveform.ts` looks the `--wave-*` tokens up through
+`getComputedStyle` at draw time — as a _function_, not a
 constant, so a runtime theme switch repaints correctly. Rendering is a mirrored
 envelope: a faint peak layer (α 0.3–0.35) with a solid RMS core (α 0.85) over a
 midline, amplitude on a `sqrt` perceptual curve. The dark theme draws clips in chalk

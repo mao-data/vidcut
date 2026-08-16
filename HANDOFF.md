@@ -162,7 +162,7 @@ spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/s
   - canvas 波形色走 `--wave-*` token 查表（`timeline/waveform.ts` 的字面值只是 jsdom
     回退）；`--danger` 刻意比紅蠟筆**亮**（#fb8a8a，亮度比 1.36）以區辨警示與標記。
 - **版面**：RenderBar 刪除 → 頂欄 ExportMenu（匯出鈕+下拉+3px 進度條）；右欄改「字幕⇄活動」分頁；播放控制+時間碼移進時間軸工具列；審核條改事件式 overlay 卡（GSAP 彈性滑入）；左右面板可收合（grid-template-columns 動畫），之後又補上**可拖曳調寬**（`ui/src/PanelResizer.tsx`）。
-- **時間軸**：片段卡片化（上 60% filmstrip、下 40% 波形帶）；**峰值+RMS 雙層鏡像波形**（`ui/src/timeline/waveform.ts`，DPR 級解析度）；ingest 升級 **100 桶/秒＋rms 陣列**（`PeaksFile` 共用型別；舊檔無 rms 自動退單層）；音訊軌藍灰全高波形（08-16 起，原青色）；playhead 紅蠟筆實心圓頭（08-16 起，原紫漸層——漸層被對比實算否決，見 spec 修訂）。
+- **時間軸**：片段卡片化（filmstrip 滿版——主軌波形帶 2026-08-16 使用者定案移除，機制與 `--wave-clip-*` token 保留無消費者，復原掛回 canvas+effect 即可）；**峰值+RMS 雙層鏡像波形只在音訊軌**（`ui/src/timeline/waveform.ts`，DPR 級解析度）；ingest 升級 **100 桶/秒＋rms 陣列**（`PeaksFile` 共用型別；舊檔無 rms 自動退單層）；音訊軌藍灰全高波形（08-16 起，原青色）；playhead 紅蠟筆實心圓頭（08-16 起，原紫漸層——漸層被對比實算否決，見 spec 修訂）。
 - **動效**：`ui/src/motion.ts`（gsap + useGSAP + motionOK）；審核條/分頁/toast/渲染完成 pulse/字幕自動捲動；微互動走 CSS transition；`prefers-reduced-motion` 全域尊重。
 - **行為零改動**：命令層/MCP/播放引擎/拖曳數學全部沒碰；demo 專案已重建（新 peaks）。
 

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
-import { ClipBlock } from './ClipBlock.js';
 import { AudioChip } from './AudioChip.js';
 import { useTheme } from '../stores/theme.js';
 import * as waveform from './waveform.js';
@@ -47,33 +46,8 @@ async function settle(): Promise<void> {
 }
 
 describe('主題切換觸發波形重畫', () => {
-  it('ClipBlock：切到 paper 之後 drawWaveform 被再次呼叫', async () => {
-    const spy = vi.spyOn(waveform, 'drawWaveform');
-    const p = demoProject();
-    render(
-      <ClipBlock
-        p={p}
-        clip={p.tracks.video[0]}
-        leftPx={0}
-        pps={40}
-        selected={false}
-        animate={false}
-        floating={false}
-        onTrimStart={() => {}}
-        onMoveStart={() => {}}
-        onSelect={() => {}}
-      />,
-    );
-    await settle();
-    const before = spy.mock.calls.length;
-    expect(before).toBeGreaterThan(0);
-
-    await act(async () => {
-      useTheme.getState().setTheme('paper');
-    });
-    expect(spy.mock.calls.length).toBeGreaterThan(before);
-  });
-
+  // ClipBlock 的重畫測試已隨「主軌不顯示波形帶」(2026-08-16 使用者定案)移除——
+  // 主軌不再有 canvas。機制與 token 保留,音訊軌仍走同一條線(下面這條測試守著)。
   it('AudioChip：切到 paper 之後 drawWaveform 被再次呼叫', async () => {
     const spy = vi.spyOn(waveform, 'drawWaveform');
     const p = demoProject();

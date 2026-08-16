@@ -39,7 +39,7 @@ import { useEditFx } from '../stores/editFx.js';
 import { scrollTargetFor } from '../fx/scroll.js';
 import { gsap, motionOK } from '../motion.js';
 
-const SUB_ROW_H = 24;
+const SUB_ROW_H = 30; // 2026-08-16 使用者定案:其他軌統一 30(主軌 60 的一半)
 
 /**
  * playhead：紫漸層＋光暈＋圓頭。只有它（和 Toolbar 的 Timecode）訂閱 playback time：

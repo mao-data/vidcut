@@ -1,13 +1,13 @@
-import { memo, useEffect, useRef, type PointerEvent } from 'react';
+import { memo, type PointerEvent } from 'react';
 import { Snowflake } from 'lucide-react';
 import type { Project, VideoClip } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
-import { drawWaveform, clipWave } from './waveform.js';
-import { useWaveform } from './usePeaks.js';
-import { useTheme } from '../stores/theme.js';
 
-/** 主軌列高（上：filmstrip／下：波形帶） */
-export const ROW_H = 64;
+/** 主軌列高(filmstrip 滿版)。2026-08-16 使用者兩輪定案收斂:
+ * 主軌=其他軌的 2 倍(60=2×30),其他軌統一 30、工具列不動、時間軸帶總高
+ * 與改版前持平。之後想再調,改這一個數字即可(音訊/字幕/overlay 軌在
+ * AudioChip/Timeline 的 30),改完跑 verify:canvas(拖曳幾何)。 */
+export const ROW_H = 60;
 
 /** memo：拖字幕/音訊/疊圖時主軌片段 props 全沒變，擋掉整排片段的陪跑重渲染 */
 export const ClipBlock = memo(function ClipBlock({
@@ -42,25 +42,15 @@ export const ClipBlock = memo(function ClipBlock({
   fxDelay?: number;
 }) {
   const media = p.media.find((m) => m.id === clip.mediaId);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const peaks = useWaveform(clip.frozen ? undefined : media?.peaksPath);
-  // canvas 不吃 CSS 變數：主題換了要自己重畫（只當依賴用，值本身由 clipWave() 查表）
-  const theme = useTheme((s) => s.theme);
   const w = timeToPx(clip.duration, pps);
-  /** 下緣波形帶高度（約 40%，定案於 spec §3） */
-  const bandH = Math.round(ROW_H * 0.4);
-
-  useEffect(() => {
-    const cv = canvasRef.current;
-    if (!cv || !peaks) return;
-    drawWaveform(cv, peaks, { from: clip.in, duration: clip.duration, ...clipWave() });
-  }, [peaks, clip.in, clip.duration, w, theme]);
-
+  // 2026-08-16 使用者定案:主軌**不顯示**波形帶,filmstrip 吃滿列高。
+  // 波形機制(clipWave 查表/--wave-clip-* token/繪製器)完整保留——音訊軌仍用,
+  // 要復原只需掛回 canvas+draw effect(參考 AudioChip.tsx 的現行寫法)。
+  // 已知代價:muted(volume=0)原以波形變淡提示,現無時間軸層級的視覺線索
+  // (音量狀態仍在 Inspector);frozen 的平線指示移除(Snowflake 圖示仍在)。
   const filmstrip = media?.filmstripPath ? `/media/${media.filmstripPath}` : undefined;
-  const filmH = ROW_H - bandH;
-  const frameW = media ? (filmH * media.probe.width) / media.probe.height : 45;
+  const frameW = media ? ((ROW_H - 4) * media.probe.width) / media.probe.height : 45;
   const bgOffset = -(clip.in * frameW);
-  const muted = clip.volume === 0;
   return (
     <div
       className={'clipblk' + fx}
@@ -76,7 +66,9 @@ export const ClipBlock = memo(function ClipBlock({
         ...(fxDelay != null ? { animationDelay: `${fxDelay}ms` } : {}),
         left: leftPx,
         width: w,
-        height: ROW_H,
+        // 上下各 2px 浮在列裡(與字幕 chip 同款,2026-08-16 使用者定案 A)
+        top: 2,
+        height: ROW_H - 4,
         borderRadius: 'var(--r-card)',
         overflow: 'hidden',
         cursor: floating ? 'grabbing' : 'grab',
@@ -101,14 +93,11 @@ export const ClipBlock = memo(function ClipBlock({
           : null),
       }}
     >
-      {/* 上：filmstrip 縮圖區 */}
+      {/* filmstrip 縮圖滿版(波形帶已依使用者定案移除,見上方註解) */}
       <div
         style={{
           position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: filmH,
+          inset: 0,
           backgroundImage: clip.frozen || !filmstrip ? undefined : `url(${filmstrip})`,
           backgroundPosition: `${bgOffset}px 0`,
           backgroundSize: 'auto 100%',
@@ -116,42 +105,6 @@ export const ClipBlock = memo(function ClipBlock({
           backgroundColor: clip.frozen ? 'var(--clip-frozen-bg)' : undefined,
         }}
       />
-      {/* 下：波形帶（frozen＝平線） */}
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: bandH,
-          background: 'var(--clip-band-bg)',
-        }}
-      >
-        {clip.frozen ? (
-          <div
-            style={{
-              position: 'absolute',
-              left: 6,
-              right: 6,
-              top: '50%',
-              height: 1.5,
-              background: 'var(--tint-15)',
-            }}
-          />
-        ) : (
-          <canvas
-            ref={canvasRef}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              pointerEvents: 'none',
-              opacity: muted ? 0.35 : 1,
-            }}
-          />
-        )}
-      </div>
       <div
         className="handle"
         style={{ left: 0 }}

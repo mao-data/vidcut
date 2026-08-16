@@ -6,7 +6,7 @@ import { drawWaveform, audioWave } from './waveform.js';
 import { useWaveform } from './usePeaks.js';
 import { useTheme } from '../stores/theme.js';
 
-/** 音訊軌列高 */
+/** 音訊軌列高(=其他軌統一 30,主軌的一半)。 */
 export const AUDIO_ROW_H = 30;
 
 /** 音訊軌項目：青色全高波形 chip（可拖曳平移、左右緣 trim）。memo 理由同 ClipBlock。 */

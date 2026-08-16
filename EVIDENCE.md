@@ -1797,3 +1797,38 @@ inspector-card-counts,逐隻手動驗證;另 1 隻既有 inspector-agent-connect
 對比已實算);Esc 在 popover 開啟時的行為未特別處理(popover 自有外點關閉,
 無衝突);server 曾隨機器重啟而停,以 `npx tsx server/src/index.ts projects/demo`
 起回(未動 demo 內容)。
+
+## 補記:時間軸比例調整+主軌波形帶移除(2026-08-16)
+
+多輪使用者迭代收斂的定案:主軌=其他軌的 2 倍(ROW_H 60=2×30,overlay/字幕
+/音訊軌統一 30)、工具列完全復原原尺寸(前一輪的 .tl-toolbar 縮身規則整組撤除)、
+主軌 filmstrip 滿版**不再顯示波形帶**(「取消影片的音軌顯示」定案;先前「音訊軌
+縮小 30%」語意有歧義——當時 demo 無音訊素材,使用者看到的其實是主軌波形帶,
+兩種解讀都做出來後由使用者選定此案)、影片塊上下各 2px 浮在列裡(與字幕 chip
+同款,A 案)。時間軸帶總高與改版前持平。
+
+**波形機制保留而非拆除**:clipWave 查表/--wave-clip-* token/繪製器全保留(音訊軌
+仍為唯一消費者),ClipBlock 留復原路徑註解(掛回 canvas+draw effect 參考
+AudioChip)。**已知代價(如實記)**:muted(volume=0)原以波形變淡提示、frozen
+原有平線指示,兩者的時間軸層級視覺線索消失(音量狀態仍在 Inspector;Snowflake
+圖示仍在)。
+
+**測試與 mutant 隨行為調整**:waveform.redraw.test 的 ClipBlock case 移除(主軌
+已無 canvas,測試對象不存在;AudioChip case 保留守著同一條線,365 UI 測試,-1);
+wave-redraw-dep mutant 重新錨定到 AudioChip.tsx 的 deps 行,正規擊殺驗證:帶突變
+`cd ui && npx vitest run` 1 failed/還原後 1 passed。
+
+**過程失誤(如實記)**:(1) 還原 mutant 時用 `git checkout -- AudioChip.tsx`,
+把未 commit 的 AUDIO_ROW_H 改動一併洗掉——重補,之後一律定點 replace 還原;
+(2) `npm test -w @vidcut/ui -- <repo根路徑>` 的 cwd 在 ui/,找不到檔案 exit 1,
+看似 mutant 被殺實為假證據——改在 ui/ 內以相對路徑重做擊殺驗證。
+
+**gauntlet(source:b45d55c+本包工作樹,單次乾淨全跑)**:876 passed(shared 46
+/server 465/ui 365);UI 覆蓋率 91.51%;隨機順序×2 PASS;錨點 122/122;
+**121/121 killed+1 等價對照存活如預期**;文件引用/使用者面字串/依賴稽核/秘密
+掃描全 PASS;零新增依賴。
+
+**真瀏覽器驗收(主 session)**:verify:panels/canvas 雙綠(canvas 需 t=0 有
+overlay,以 MCP add_overlay 臨時加、跑畢 remove——demo 活動紀錄因此多兩筆,
+內容差非渲染差);CDP 決定性截圖確認最終形態(工具列原尺寸/主軌 60 滿版
+filmstrip+2px 浮動/其他軌 30)。

@@ -922,9 +922,9 @@
   },
   {
     "id": "wave-redraw-dep",
-    "file": "ui/src/timeline/ClipBlock.tsx",
-    "find": "  }, [peaks, clip.in, clip.duration, w, theme]);",
-    "replace": "  }, [peaks, clip.in, clip.duration, w]);",
+    "file": "ui/src/timeline/AudioChip.tsx",
+    "find": "  }, [peaks, a.in, a.duration, w, theme]);",
+    "replace": "  }, [peaks, a.in, a.duration, w]);",
     "tests": "ui/src/timeline/waveform.redraw.test.tsx",
     "note": "useEffect 依賴漏 theme → 主題切換後 canvas 不重畫（CSS 變數換了 canvas 不會自己跟）；重畫斷言必須抓到"
   },
