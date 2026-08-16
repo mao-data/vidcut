@@ -384,8 +384,20 @@ block padding, control-row gaps), 12 (panel/card padding, header horizontal), 16
 (card-grade padding). 2 is the only half step, reserved for places 20–26px tall
 where 4 would burst the row. Odd values (3/5/7) are all normalized away. Two classes
 of exception are not padding and do not follow the ramp: **geometry constants**
-(`ROW_H` 64, `SUB_ROW_H` 24, `AUDIO_ROW_H` 30, handle width 6) which are drag math
-and screenshot-comparison surface, and **video-world values** which are project data.
+(`ROW_H` 60, `SUB_ROW_H` 30, `AUDIO_ROW_H` 30, `GUTTER_W` 32, `TRACKS_VIEW_H` 260,
+handle width 6) which are drag math and screenshot-comparison surface, and
+**video-world values** which are project data.
+
+**Timeline region.** The tracks sit in a fixed-height well (`TRACKS_VIEW_H` 260)
+that scrolls on both axes — vertical scroll is headroom for more-than-four tracks.
+A 32px track-header gutter (`GUTTER_W`) sticks to the left edge, one cell per track
+(Film / Image / Captions / AudioLines, size 13, `--text-3` on solid `--panel` —
+never the translucent well wash, chips scroll underneath it), row heights and 1px
+borders byte-identical to the track rows beside them. The ruler sticks to the top;
+the corner cell sticks on both axes and carries the highest z. The gutter lives
+**outside** the content coordinate system: drag/seek/snap math anchors on the
+content layer, and every "visible width" consumer (fit, zoom anchor, AI
+auto-scroll) subtracts `GUTTER_W` from the scroll container's clientWidth.
 
 **Icons: two sizes.** 14 for toolbar level (timeline toolbar, header export trigger),
 13 for in-panel level (panels, panel buttons, popovers, inline markers). Exceptions

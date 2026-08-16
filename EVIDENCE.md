@@ -1832,3 +1832,46 @@ wave-redraw-dep mutant 重新錨定到 AudioChip.tsx 的 deps 行,正規擊殺�
 overlay,以 MCP add_overlay 臨時加、跑畢 remove——demo 活動紀錄因此多兩筆,
 內容差非渲染差);CDP 決定性截圖確認最終形態(工具列原尺寸/主軌 60 滿版
 filmstrip+2px 浮動/其他軌 30)。
+
+## 補記:軌道區塊改版——軌頭 gutter+雙軸捲動+Ctrl+滾輪修活(2026-08-16)
+
+使用者定案三項:左側 32px sticky 軌頭欄(Film/Image/Captions/AudioLines,
+size 13、--text-3、實底 --panel——不能用半透明 well 底,chip 捲過會透出;
+每格高度與 1px 分隔線與右側軌道逐位元組同款)、軌道區可視高 TRACKS_VIEW_H=260
+(原內容高 170,約 1.5 倍;超過縱捲,為 >4 軌鋪路;尺規 sticky top、交叉格
+雙向 sticky)、gutter 在 contentRef 座標系**之外**(拖曳/吸附/尺規 seek 不動,
+fit/縮放錨點/AI 捲動的「可視寬」一律 clientWidth−GUTTER_W)。Opus 實作,
+主 session 獨立驗收。
+
+**驗收挖出兩隻真 bug(皆已修,如實記)**:
+(1) **Ctrl/⌘+滾輪縮放從功能加入起就是死的**(非本包引入):wheel listener
+掛在空 deps 的 effect,Timeline 首渲染時 doc 未達、return null,listener
+永遠掛不上且無錯誤——正是 ui-verification.md 記過的 useRef+空 deps 陷阱。
+真瀏覽器探針抓到:事件到達容器(自掛 once listener 收到)但 defaultPrevented
+恆 false。TDD 修復:Timeline.wheelzoom.test 先紅(mount 後才 seed doc,
+縮放不發生)→ deps 改 hasDoc → 綠;新 mutant tl-wheel-attach-deps 守 deps
+(帶突變 1 failed/還原 2 passed,gauntlet 確認擊殺)。
+(2) **縮放錨點補償被舊佈局 clamp 吃掉**:zoomBy 後同步寫 scrollLeft,該幀
+React 還沒按新 pps 重渲染,瀏覽器 clamp 到舊上限——實測 12 步放大後游標下
+時間點漂 857px(舊碼同款寫法,只因從未掛上而無人知)。改遞延到 pps 渲染後
+的 useLayoutEffect 套用,再補 el.clientLeft(well 的 1px 邊框,漏扣則每步
+漂 1px,實測 4 步 5.19px)。最終真瀏覽器實測:**可捲區間內 4 步縮放漂移
+0.19px(次像素),錨點釘住**。內容窄於視窗時無可捲空間、錨定物理上不可能,
+屬幾何本質非缺陷。
+
+**已知限制(Opus 回報,未修)**:clientWidth 含捲軸寬的既有誤差(macOS
+overlay 捲軸為 0,Windows 差十幾 px)本包未處理;未來 >4 軌縱向捲軸出現後
+「可視寬」會再被吃掉一截,啟用時要回頭補;Timeline.test 的尺規選取器
+`[style*="cursor: text"]` 是脆弱耦合(本包保留了該 inline style)。
+
+**gauntlet(source:087d902+本包工作樹,單次乾淨全跑)**:878 passed
+(shared 46/server 465/ui 367,+2);UI 覆蓋率 91.88%;隨機順序×2 PASS;
+錨點 123/123;**122/122 killed+1 等價對照存活如預期**(+1 新 mutant
+tl-wheel-attach-deps);其餘各層全 PASS;零新增依賴。
+
+**真瀏覽器驗收(主 session)**:verify:panels/canvas 雙綠(canvas 以 MCP
+臨時 overlay 加拆);兩主題 CDP 決定性截圖+與改動前逐像素比對(僅 Inspector
+版本讀數差,版面零變);橫捲證據照(gutter 釘左、chip 從底下捲過);縮放
+錨點探針數字如上。HANDOFF/ui/DESIGN.md 同步(DESIGN.md 幾何常數行原載
+ROW_H 64/SUB_ROW_H 24 為上一包漏更的舊值,本包一併修正為 60/30 並補
+gutter 段)。

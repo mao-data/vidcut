@@ -975,5 +975,13 @@
     "replace": "            v{version} · AI {counts.human} · you {counts.ai}",
     "tests": "ui/src/panels/panels.test.tsx",
     "note": "session 讀數列的 AI/人計數對調 → 讀數說反了誰做的；C7 必須抓到"
+  },
+  {
+    "id": "tl-wheel-attach-deps",
+    "file": "ui/src/timeline/Timeline.tsx",
+    "find": "  }, [hasDoc]);",
+    "replace": "  }, []);",
+    "tests": "ui/src/timeline/Timeline.wheelzoom.test.tsx",
+    "note": "wheel 縮放 effect 的 deps 改回空陣列 → Timeline 首渲染 return null 時 listener 永遠掛不上,Ctrl+滾輪縮放整個死掉且無錯誤;「doc 後到仍要能縮放」的掛載時序斷言必須抓到"
   }
 ]

@@ -1,13 +1,14 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
   type MouseEvent,
   type PointerEvent,
 } from 'react';
-import { Paperclip } from 'lucide-react';
+import { AudioLines, Captions, Film, Image, Paperclip } from 'lucide-react';
 import {
   clipStartTimes,
   overlayWindow,
@@ -39,7 +40,24 @@ import { useEditFx } from '../stores/editFx.js';
 import { scrollTargetFor } from '../fx/scroll.js';
 import { gsap, motionOK } from '../motion.js';
 
-const SUB_ROW_H = 30; // 2026-08-16 使用者定案:其他軌統一 30(主軌 60 的一半)
+const SUB_ROW_H = 30; // 2026-08-16 使用者定案：其他軌統一 30（主軌 60 的一半）
+/** 尺規列高度。gutter 的交叉格要逐像素跟它對齊，所以抽成常數而不是兩處各寫 20。 */
+const RULER_H = 20;
+/**
+ * 左側軌頭欄寬。**它在 content 之外**——所有水平座標（拖曳、吸附、尺規 seek）都以
+ * contentRef／各自的 currentTarget rect 為基準，把 gutter 排除在那個座標系外，
+ * 才不用在每個換算點各扣一次 32（漏一處就是整條軌對不上）。唯二需要顯式扣掉的是
+ * 那兩個拿 **scroll 容器** clientWidth 當「可視寬」的地方（fit / Toolbar onFit），
+ * 因為 scroll 容器同時包含 gutter 與 content。
+ */
+const GUTTER_W = 32;
+/**
+ * 軌道可視區高度（縱向捲動的視窗）。2026-08-16 使用者定案「區塊放大一點」；
+ * 之後要調高矮只改這個數字，不要改成算出來的值——它是版面預算，不是幾何推導。
+ * 軌道總高（尺規 20＋主軌 60＋overlay 30＋字幕 30＋音訊 30 ＝ 170）目前還沒超過，
+ * 這條路是為未來 >4 軌鋪的。
+ */
+const TRACKS_VIEW_H = 260;
 
 /**
  * playhead：紫漸層＋光暈＋圓頭。只有它（和 Toolbar 的 Timecode）訂閱 playback time：
@@ -223,31 +241,71 @@ export function Timeline() {
     };
   }, []);
 
-  // Ctrl/⌘+滾輪：以游標位置為錨點縮放
+  // Ctrl/⌘+滾輪：以游標位置為錨點縮放。
+  // deps 是 hasDoc 不是 []：Timeline 在專案抵達前 `return null`（見下方 !doc），
+  // 首渲染沒有 DOM，空 deps 的那唯一一次 effect 拿到的 scrollRef.current 是 null，
+  // listener 永遠掛不上——Ctrl+滾輪從功能加入起就是死的，2026-08-16 真瀏覽器探針
+  // （事件到達容器但 defaultPrevented 恆 false）才抓到。hasDoc 翻真的那一輪
+  // re-render 之後 effect 重跑，才真的掛上。（ui-verification.md 的
+  // useRef+空 deps 陷阱；Timeline.wheelzoom.test 守著這個時序。）
+  const hasDoc = doc !== null;
+  /** 縮放補償的暫存：onWheel 算好、pps 渲染落地後由 layout effect 套用（見下）。 */
+  const zoomScroll = useRef<number | null>(null);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onWheel = (e: globalThis.WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const cursorPx = e.clientX - rect.left + el.scrollLeft;
-      const cursorTime = pxToTime(cursorPx, useView.getState().pxPerSecond);
+      const content = contentRef.current;
+      if (!content) return;
+      /**
+       * 錨點一律量 **content** 的 rect，不是 scroll 容器的。
+       * content 是被捲動的那一層，它的 rect.left 已經含了 -scrollLeft 的位移，
+       * 也已經含了左邊 gutter 那 32px 的排版偏移——所以 `clientX - contentRect.left`
+       * 本身就是 content 座標，**不可以再加 scrollLeft**（加了會重複計一次）。
+       * 舊寫法（scroll 容器 rect + scrollLeft）在沒有 gutter 時等價；gutter 進來後
+       * 那條會整整偏 GUTTER_W，游標下的時間點會跳掉。
+       */
+      const anchorPx = e.clientX - content.getBoundingClientRect().left;
+      const cursorTime = pxToTime(anchorPx, useView.getState().pxPerSecond);
       useView.getState().zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15);
-      // 縮放後把同一時間點拉回游標下
-      const newPx = timeToPx(cursorTime, useView.getState().pxPerSecond);
-      el.scrollLeft = newPx - (e.clientX - rect.left);
+      // 縮放後把同一時間點拉回游標下：目標捲動量＝新像素位置 −「游標離 content 可視左緣
+      // 的距離」，後者＝游標離 scroll 容器左緣的距離再扣掉 gutter。
+      // ⚠️ **不能在這裡同步寫 el.scrollLeft**：此刻 React 還沒吃到新 pps 重渲染，
+      // content 還是舊寬度，瀏覽器會把賦值 clamp 到「舊佈局的可捲上限」（放大初期
+      // 常常是 0），補償整個丟掉——真瀏覽器實測 12 步放大後游標下的時間點漂了
+      // 857px。存進 ref，等 pps 那一輪渲染完、佈局有了新寬度，再由下面的
+      // useLayoutEffect 套用。
+      // clientLeft＝左邊框寬（well 有 1px border；rect.left 是含邊框的外緣）。
+      // 不扣的話每步多算 1px，連續縮放會以每步 1px 的速度往右漂——真瀏覽器實測
+      // 4 步 5.19px，扣掉後 <1px（次像素）。
+      const viewportX = e.clientX - el.getBoundingClientRect().left - el.clientLeft - GUTTER_W;
+      zoomScroll.current = timeToPx(cursorTime, useView.getState().pxPerSecond) - viewportX;
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [hasDoc]);
+
+  /** 縮放補償的遞延套用：pps 渲染落地（content 已是新寬度）後才寫 scrollLeft，
+   *  避免上面說的舊佈局 clamp。掛在 layout effect 是為了趕在瀏覽器繪製前，
+   *  不然會先閃一幀「放大了但還沒捲」的畫面。 */
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && zoomScroll.current !== null) {
+      el.scrollLeft = zoomScroll.current;
+      zoomScroll.current = null;
+    }
+  }, [pps]);
 
   // 供 Shift+Z（fit）取容器寬度
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !doc) return;
+    // 扣 GUTTER_W：clientWidth 是 scroll 容器的（含左側軌頭欄），但 fit 要餵的是
+    // **content 的可視寬**。不扣的話每次 fit 都多算 32px，內容會略微溢出右緣。
     (window as unknown as { __vidcutFit?: () => void }).__vidcutFit = () =>
-      useView.getState().fit(totalDuration(doc), el.clientWidth);
+      useView.getState().fit(totalDuration(doc), el.clientWidth - GUTTER_W);
   }, [doc]);
 
   // AI 變更在視窗外 → 平滑捲過去（reduced-motion 時直接跳）
@@ -260,7 +318,9 @@ export function Timeline() {
     const target = scrollTargetFor(
       timeToPx(t, useView.getState().pxPerSecond),
       el.scrollLeft,
-      el.clientWidth,
+      // 同 fit：scrollTargetFor 要的是 content 的可視寬，clientWidth 含 gutter 得扣掉。
+      // 不扣會把「已經看得到」的範圍高估 32px，貼著右緣的變更就不捲過去了。
+      el.clientWidth - GUTTER_W,
     );
     if (target === null) return;
     if (motionOK()) gsap.to(el, { scrollLeft: target, duration: 0.4, ease: 'power2.out' });
@@ -649,252 +709,340 @@ export function Timeline() {
     cursor: 'pointer',
   };
 
+  /**
+   * 軌頭欄的一格。高度與 borderBottom 必須跟右邊對應那一列**逐位元組相同**，
+   * 差一像素整條 gutter 就會跟軌道錯開（愈往下累積愈明顯）。
+   * 背景吃 `--panel`（兩主題都是實底：#202023 / #f7f3e9）而不是 `--timeline-well-bg`
+   * ——後者是半透明 rgba，chip 從底下橫向捲過去會直接透出來。
+   */
+  const gutterCell = (h: number, border: string): CSSProperties => ({
+    height: h,
+    borderBottom: border,
+    background: 'var(--panel)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'var(--text-3)',
+  });
+
   return (
     <div>
       <TimelineToolbar
         total={total}
         onFit={() => {
           const el = scrollRef.current;
-          if (el) useView.getState().fit(total, el.clientWidth);
+          // 扣 GUTTER_W 的理由同 __vidcutFit：clientWidth 含左側軌頭欄。
+          if (el) useView.getState().fit(total, el.clientWidth - GUTTER_W);
         }}
       />
 
+      {/*
+       * 捲動容器：雙軸。橫向是原本就有的時間軸捲動；縱向是為 >4 軌鋪路，
+       * 高度由 TRACKS_VIEW_H 固定住，超過才出現捲軸。
+       */}
       <div
         ref={scrollRef}
         style={{
-          overflowX: 'auto',
+          overflow: 'auto',
+          height: TRACKS_VIEW_H,
           border: '1px solid var(--line)',
           borderRadius: 'var(--r-panel)',
           background: 'var(--timeline-well-bg)',
           userSelect: 'none',
         }}
       >
+        {/*
+         * 兩欄：左軌頭欄 + 右內容欄。gutter 在 content **之外**，content 內部的
+         * 結構與座標語意一格都沒動（見 GUTTER_W 註解）。
+         * minHeight:'100%' ——內容不足可視高度時，下方空白也吃 well 背景並落在
+         * onClick 的冒泡路徑上，所以點軌道下方的空處一樣 deselect。
+         */}
         <div
-          ref={contentRef}
-          style={{ position: 'relative', width, touchAction: 'none' }}
+          style={{ display: 'flex', minHeight: '100%', width: width + GUTTER_W }}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           // 空白處點擊＝取消選取。標記與白名單邏輯見 `onBlankClick` 的註解。
           onClick={onBlankClick}
-          data-tl-blank
         >
-          {/* 尺規 */}
+          {/*
+           * 軌頭欄：`sticky left:0` ——橫捲時釘在左邊，縱捲時跟著軌道走。
+           * 它**不掛** `data-tl-blank`：空白 deselect 是明確 opt-in 白名單
+           * （見 onBlankClick），點軌頭不該觸發任何事。
+           */}
           <div
             style={{
-              position: 'relative',
-              height: 20,
-              borderBottom: '1px solid var(--line-strong)',
-              cursor: 'text',
+              position: 'sticky',
+              left: 0,
+              zIndex: 3,
+              flexShrink: 0,
+              width: GUTTER_W,
+              borderRight: '1px solid var(--line-strong)',
             }}
-            onClick={onRulerClick}
           >
-            {Array.from({ length: tickCount }, (_, i) => {
-              const t = i * tickStep;
-              return (
-                <span
-                  key={t}
-                  className="mono"
-                  style={{
-                    position: 'absolute',
-                    // +3：刻度線右側的讓字距離，屬於尺規幾何（對齊刻度），不是留白階梯
-                    left: timeToPx(t, pps) + 3,
-                    fontSize: 10,
-                    color: 'var(--text-3)',
-                  }}
-                >
-                  {t}s
-                </span>
-              );
-            })}
+            {/* 交叉格：雙向 sticky（left 由父層給、top 自己給），zIndex 全場最高，
+                否則橫捲的 chip 或縱捲的尺規會蓋過它。 */}
+            <div
+              style={{
+                ...gutterCell(RULER_H, '1px solid var(--line-strong)'),
+                position: 'sticky',
+                top: 0,
+                zIndex: 4,
+              }}
+            />
+            <div style={gutterCell(ROW_H, '1px solid var(--line)')}>
+              <Film size={13} aria-label="video track" />
+            </div>
+            <div style={gutterCell(SUB_ROW_H, '1px solid var(--line)')}>
+              <Image size={13} aria-label="overlay track" />
+            </div>
+            <div style={gutterCell(SUB_ROW_H, '1px solid var(--line)')}>
+              <Captions size={13} aria-label="caption track" />
+            </div>
+            {/* 音訊軌與右邊一樣 borderBottom:none（最後一列不畫線） */}
+            <div style={gutterCell(AUDIO_ROW_H, 'none')}>
+              <AudioLines size={13} aria-label="audio track" />
+            </div>
           </div>
-          {/* video 主軌。`data-tl-blank`＝這條軌道的空處也算空白（見 onBlankClick）。 */}
-          <div style={rowStyle} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
-            {trimmedClips.map((c) => {
-              const isDragged = moveDrag?.clipId === c.id;
-              const cf = fxFor(c.id);
-              return (
-                <ClipBlock
-                  key={c.id}
-                  p={doc}
-                  clip={c}
-                  fx={cf.cls}
-                  fxDelay={cf.delay}
-                  leftPx={isDragged ? draggedLeftPx : (leftById.get(c.id) ?? 0)}
-                  pps={pps}
-                  selected={selected?.kind === 'clip' && selected.id === c.id}
-                  animate={moveDrag !== null && !isDragged}
-                  floating={isDragged === true}
-                  onTrimStart={onTrimStart}
-                  onMoveStart={onMoveStart}
-                  onSelect={onSelect}
-                />
-              );
-            })}
-          </div>
-          {/* overlays 軌（拖曳平移；錨定式改 offset） */}
-          <div style={subRow} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
-            {doc.tracks.overlays.map((o) => {
-              let win = overlayWindow(doc, o);
-              const d = drag.current;
-              const pd = pending.current;
-              if (win && d?.mode === 'ov' && d.id === o.id) {
-                const span = d.orig.span;
-                win = {
-                  start: d.preview.absStart,
-                  end: span === null ? win.end : d.preview.absStart + span,
-                };
-              } else if (win && pd?.mode === 'ov' && pd.id === o.id) {
-                win = {
-                  start: pd.absStart,
-                  end: pd.span === null ? win.end : pd.absStart + pd.span,
-                };
-              }
-              const isSel = selected?.kind === 'overlay' && selected.id === o.id;
-              const of = fxFor(o.id);
-              return (
-                win && (
+
+          <div
+            ref={contentRef}
+            // flexShrink:0 ——width 是座標換算的基準（timeToPx 的值域），被 flex 壓縮
+            // 一個次像素，整條時間軸的像素↔秒對應就跟 pps 對不上了。
+            style={{
+              position: 'relative',
+              width,
+              flexShrink: 0,
+              minHeight: '100%',
+              touchAction: 'none',
+            }}
+            data-tl-blank
+          >
+            {/* 尺規：`sticky top:0` ＋實底，縱捲時刻度釘在頂上、chip 不能從底下透出 */}
+            <div
+              style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 2,
+                height: RULER_H,
+                background: 'var(--panel)',
+                borderBottom: '1px solid var(--line-strong)',
+                cursor: 'text',
+              }}
+              onClick={onRulerClick}
+            >
+              {Array.from({ length: tickCount }, (_, i) => {
+                const t = i * tickStep;
+                return (
+                  <span
+                    key={t}
+                    className="mono"
+                    style={{
+                      position: 'absolute',
+                      // +3：刻度線右側的讓字距離，屬於尺規幾何（對齊刻度），不是留白階梯
+                      left: timeToPx(t, pps) + 3,
+                      fontSize: 10,
+                      color: 'var(--text-3)',
+                    }}
+                  >
+                    {t}s
+                  </span>
+                );
+              })}
+            </div>
+            {/* video 主軌。`data-tl-blank`＝這條軌道的空處也算空白（見 onBlankClick）。 */}
+            <div style={rowStyle} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
+              {trimmedClips.map((c) => {
+                const isDragged = moveDrag?.clipId === c.id;
+                const cf = fxFor(c.id);
+                return (
+                  <ClipBlock
+                    key={c.id}
+                    p={doc}
+                    clip={c}
+                    fx={cf.cls}
+                    fxDelay={cf.delay}
+                    leftPx={isDragged ? draggedLeftPx : (leftById.get(c.id) ?? 0)}
+                    pps={pps}
+                    selected={selected?.kind === 'clip' && selected.id === c.id}
+                    animate={moveDrag !== null && !isDragged}
+                    floating={isDragged === true}
+                    onTrimStart={onTrimStart}
+                    onMoveStart={onMoveStart}
+                    onSelect={onSelect}
+                  />
+                );
+              })}
+            </div>
+            {/* overlays 軌（拖曳平移；錨定式改 offset） */}
+            <div style={subRow} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
+              {doc.tracks.overlays.map((o) => {
+                let win = overlayWindow(doc, o);
+                const d = drag.current;
+                const pd = pending.current;
+                if (win && d?.mode === 'ov' && d.id === o.id) {
+                  const span = d.orig.span;
+                  win = {
+                    start: d.preview.absStart,
+                    end: span === null ? win.end : d.preview.absStart + span,
+                  };
+                } else if (win && pd?.mode === 'ov' && pd.id === o.id) {
+                  win = {
+                    start: pd.absStart,
+                    end: pd.span === null ? win.end : pd.absStart + pd.span,
+                  };
+                }
+                const isSel = selected?.kind === 'overlay' && selected.id === o.id;
+                const of = fxFor(o.id);
+                return (
+                  win && (
+                    <div
+                      key={o.id}
+                      className={of.cls.trim() || undefined}
+                      onPointerDown={(e) => onOvDrag(e, o.id)}
+                      title={
+                        o.anchor
+                          ? 'Anchored to clip (drag changes offset; follows the clip)'
+                          : undefined
+                      }
+                      style={{
+                        ...chip,
+                        cursor: 'grab',
+                        ...(of.delay != null ? { animationDelay: `${of.delay}ms` } : {}),
+                        left: timeToPx(win.start, pps),
+                        width: timeToPx(win.end - win.start, pps),
+                        color: 'var(--ok-text)',
+                        background: 'var(--ok-wash)',
+                        boxShadow: isSel
+                          ? 'inset 0 0 0 1.5px var(--ok)'
+                          : 'inset 0 0 0 1px var(--ok-edge)',
+                        // 錨定圖示要跟檔名置中對齊：chip 原本靠 lineHeight 置中文字，
+                        // 行內 SVG 會壓在基線上；改 flex 對齊，高度仍由 chip 的固定值決定。
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      {/* size 11 是兩級制的時間軸 chip 例外（theme.css 有記）：chip 只有
+                        20px 高、字級 10，13 會撐爆。 */}
+                      {o.anchor && (
+                        <Paperclip size={11} aria-label="anchored" style={{ flexShrink: 0 }} />
+                      )}
+                      {o.imagePath.split('/').pop()}
+                    </div>
+                  )
+                );
+              })}
+            </div>
+            {/* captions 軌（拖曳平移＋左右緣 trim） */}
+            <div style={subRow} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
+              {doc.tracks.captions.map((c) => {
+                const d = drag.current;
+                const pd = pending.current;
+                const view =
+                  d?.mode === 'cap' && d.id === c.id
+                    ? { start: d.preview.start, duration: d.preview.duration }
+                    : pd?.mode === 'cap' && pd.id === c.id
+                      ? { start: pd.start, duration: pd.duration }
+                      : { start: c.start, duration: c.duration };
+                const isSel = selected?.kind === 'caption' && selected.id === c.id;
+                const cf = fxFor(c.id);
+                return (
                   <div
-                    key={o.id}
-                    className={of.cls.trim() || undefined}
-                    onPointerDown={(e) => onOvDrag(e, o.id)}
-                    title={
-                      o.anchor
-                        ? 'Anchored to clip (drag changes offset; follows the clip)'
-                        : undefined
-                    }
+                    key={c.id}
+                    className={'clipblk' + cf.cls}
+                    onPointerDown={(e) => onCapDrag(e, c.id, 'move')}
                     style={{
                       ...chip,
                       cursor: 'grab',
-                      ...(of.delay != null ? { animationDelay: `${of.delay}ms` } : {}),
-                      left: timeToPx(win.start, pps),
-                      width: timeToPx(win.end - win.start, pps),
-                      color: 'var(--ok-text)',
-                      background: 'var(--ok-wash)',
+                      ...(cf.delay != null ? { animationDelay: `${cf.delay}ms` } : {}),
+                      left: timeToPx(view.start, pps),
+                      width: timeToPx(view.duration, pps),
+                      color: 'var(--accent-text)',
+                      background: 'var(--accent-wash)',
+                      // 選取環同 ClipBlock：紅蠟筆的 --select-edge，不是主行動色
                       boxShadow: isSel
-                        ? 'inset 0 0 0 1.5px var(--ok)'
-                        : 'inset 0 0 0 1px var(--ok-edge)',
-                      // 錨定圖示要跟檔名置中對齊：chip 原本靠 lineHeight 置中文字，
-                      // 行內 SVG 會壓在基線上；改 flex 對齊，高度仍由 chip 的固定值決定。
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
+                        ? 'inset 0 0 0 1.5px var(--select-edge)'
+                        : 'inset 0 0 0 1px var(--accent-edge)',
                     }}
                   >
-                    {/* size 11 是兩級制的時間軸 chip 例外（theme.css 有記）：chip 只有
-                        20px 高、字級 10，13 會撐爆。 */}
-                    {o.anchor && (
-                      <Paperclip size={11} aria-label="anchored" style={{ flexShrink: 0 }} />
-                    )}
-                    {o.imagePath.split('/').pop()}
+                    <div
+                      className="handle"
+                      style={{ left: 0 }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        onCapDrag(e, c.id, 'in');
+                      }}
+                    />
+                    <div
+                      className="handle"
+                      style={{ right: 0 }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        onCapDrag(e, c.id, 'out');
+                      }}
+                    />
+                    {c.text}
                   </div>
-                )
-              );
-            })}
-          </div>
-          {/* captions 軌（拖曳平移＋左右緣 trim） */}
-          <div style={subRow} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
-            {doc.tracks.captions.map((c) => {
-              const d = drag.current;
-              const pd = pending.current;
-              const view =
-                d?.mode === 'cap' && d.id === c.id
-                  ? { start: d.preview.start, duration: d.preview.duration }
-                  : pd?.mode === 'cap' && pd.id === c.id
-                    ? { start: pd.start, duration: pd.duration }
-                    : { start: c.start, duration: c.duration };
-              const isSel = selected?.kind === 'caption' && selected.id === c.id;
-              const cf = fxFor(c.id);
-              return (
-                <div
-                  key={c.id}
-                  className={'clipblk' + cf.cls}
-                  onPointerDown={(e) => onCapDrag(e, c.id, 'move')}
-                  style={{
-                    ...chip,
-                    cursor: 'grab',
-                    ...(cf.delay != null ? { animationDelay: `${cf.delay}ms` } : {}),
-                    left: timeToPx(view.start, pps),
-                    width: timeToPx(view.duration, pps),
-                    color: 'var(--accent-text)',
-                    background: 'var(--accent-wash)',
-                    // 選取環同 ClipBlock：紅蠟筆的 --select-edge，不是主行動色
-                    boxShadow: isSel
-                      ? 'inset 0 0 0 1.5px var(--select-edge)'
-                      : 'inset 0 0 0 1px var(--accent-edge)',
-                  }}
-                >
-                  <div
-                    className="handle"
-                    style={{ left: 0 }}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      onCapDrag(e, c.id, 'in');
-                    }}
-                  />
-                  <div
-                    className="handle"
-                    style={{ right: 0 }}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      onCapDrag(e, c.id, 'out');
-                    }}
-                  />
-                  {c.text}
-                </div>
-              );
-            })}
-          </div>
-          {/* audio 軌（全高青色波形；拖曳平移＋左右緣 trim） */}
-          <div
-            style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}
-            className={aiAnim ? 'ai-anim' : undefined}
-            data-tl-blank
-          >
-            {doc.tracks.audio.map((a) => {
-              const d = drag.current;
-              const pd = pending.current;
-              const shown =
-                d?.mode === 'aud' && d.id === a.id
-                  ? { ...a, start: d.preview.start, in: d.preview.in, duration: d.preview.duration }
-                  : pd?.mode === 'aud' && pd.id === a.id
-                    ? { ...a, start: pd.start, in: pd.in, duration: pd.duration }
-                    : a;
-              return (
-                <AudioChip
-                  key={a.id}
-                  p={doc}
-                  a={shown}
-                  pps={pps}
-                  fx={fxFor(a.id).cls}
-                  fxDelay={fxFor(a.id).delay}
-                  selected={selected?.kind === 'audio' && selected.id === a.id}
-                  onDragStart={onAudDrag}
-                />
-              );
-            })}
-          </div>
-          {/* 吸附指示線 */}
-          {snapLine !== null && (
+                );
+              })}
+            </div>
+            {/* audio 軌（全高青色波形；拖曳平移＋左右緣 trim） */}
             <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: timeToPx(snapLine, pps),
-                width: 1,
-                // 時間軸內的吸附導線＝標記層（跟 playhead 同一支筆），所以吃
-                // --select-edge 而不是主行動色；它的暈 --accent-glow-strong 在暗版
-                // 已是紅蠟筆，線若留在 chalk 會在紅暈裡鑲一道白邊。
-                // ⚠️ 這條與 Player.tsx 畫在**影片上**的 --warn 導線是兩回事，
-                // 那兩條維持琥珀（stage 例外規則）。
-                // paper 下 --select-edge = ink 字面值，與收編前 var(--accent) 同色。
-                background: 'var(--select-edge)',
-                boxShadow: '0 0 6px var(--accent-glow-strong)',
-                pointerEvents: 'none',
-              }}
-            />
-          )}
-          <Playhead pps={pps} />
+              style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}
+              className={aiAnim ? 'ai-anim' : undefined}
+              data-tl-blank
+            >
+              {doc.tracks.audio.map((a) => {
+                const d = drag.current;
+                const pd = pending.current;
+                const shown =
+                  d?.mode === 'aud' && d.id === a.id
+                    ? {
+                        ...a,
+                        start: d.preview.start,
+                        in: d.preview.in,
+                        duration: d.preview.duration,
+                      }
+                    : pd?.mode === 'aud' && pd.id === a.id
+                      ? { ...a, start: pd.start, in: pd.in, duration: pd.duration }
+                      : a;
+                return (
+                  <AudioChip
+                    key={a.id}
+                    p={doc}
+                    a={shown}
+                    pps={pps}
+                    fx={fxFor(a.id).cls}
+                    fxDelay={fxFor(a.id).delay}
+                    selected={selected?.kind === 'audio' && selected.id === a.id}
+                    onDragStart={onAudDrag}
+                  />
+                );
+              })}
+            </div>
+            {/* 吸附指示線 */}
+            {snapLine !== null && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: 0,
+                  left: timeToPx(snapLine, pps),
+                  width: 1,
+                  // 時間軸內的吸附導線＝標記層（跟 playhead 同一支筆），所以吃
+                  // --select-edge 而不是主行動色；它的暈 --accent-glow-strong 在暗版
+                  // 已是紅蠟筆，線若留在 chalk 會在紅暈裡鑲一道白邊。
+                  // ⚠️ 這條與 Player.tsx 畫在**影片上**的 --warn 導線是兩回事，
+                  // 那兩條維持琥珀（stage 例外規則）。
+                  // paper 下 --select-edge = ink 字面值，與收編前 var(--accent) 同色。
+                  background: 'var(--select-edge)',
+                  boxShadow: '0 0 6px var(--accent-glow-strong)',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+            <Playhead pps={pps} />
+          </div>
         </div>
       </div>
     </div>
