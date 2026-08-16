@@ -1875,3 +1875,33 @@ tl-wheel-attach-deps);其餘各層全 PASS;零新增依賴。
 錨點探針數字如上。HANDOFF/ui/DESIGN.md 同步(DESIGN.md 幾何常數行原載
 ROW_H 64/SUB_ROW_H 24 為上一包漏更的舊值,本包一併修正為 60/30 並補
 gutter 段)。
+
+## 補記:時間軸微調包——板縮 10%+軌寬 6%+工具列縮+chip 實色底(2026-08-16)
+
+使用者四項定案(原五項,③縮圖密度經澄清後撤回——filmstrip 是每秒真實影格,
+重複感來自靜態素材,非 bug):TRACKS_VIEW_H 260→234(板縮 10%);工具列縱向
+padding 2/8→1/7,總高 38→36(−5.3%,最接近 6% 的整數解,不動全域 .icon-btn);
+ROW_H 60→64、SUB/AUDIO_ROW_H 30→32(+6.7%,取偶數整數,維持 2:1:1:1,gutter
+格高同常數自動跟齊);三種時間軸 chip 由半透明 wash 改**實色底**。
+
+**實色底做法**:--accent/--ok/--audio-wash 三 token 全 repo 僅時間軸三 chip
+消費、CSS 內部零引用,原地轉型為 --*-chip-bg(不留死 token)。值=原 rgba 疊
+軌道井底的合成,以截圖取樣校準(暗版井底 #1a1a1d 與算式全等;紙版有紙紋微染,
+取樣值與算式差 ≤2/255,採信取樣)。六組:暗 #2e2021/#1e342e/#26282d、紙
+#e7d9ce/#d9decf/#dadcd5。文字對比六組全部重算(--accent-text 4.99/5.35、
+--ok-text 8.69/5.80、--audio-bright 6.49/5.46,全過 4.5),數字入 theme.css
+註解;theme.css 兩處舊合成註記(#2b2e32、#daded0,疊 panel 算的近似)同步
+改為疊井底的實值。驗收:改版後截圖 chip 內部三點取樣逐位元組等於定案值且
+完全平坦(紙點不再透出)。
+
+**文件同步**:ui/DESIGN.md 幾何常數行、Chips 段(三 chip 改列合成值)、
+Red-Never-Fills 與 Do 清單補「實色合成也按光學色稽核,不看 alpha 通道」;
+HANDOFF 時間軸行。
+
+**gauntlet(source:9b301ff+本包工作樹,單次乾淨全跑)**:878 passed
+(shared 46/server 465/ui 367);UI 覆蓋率 91.88%;隨機順序×2 PASS;錨點
+123/123;**122/122 killed+1 等價對照存活如預期**;其餘各層全 PASS;零新增
+依賴、零測試改動(純樣式與常數,行為未變)。
+
+**真瀏覽器驗收(主 session)**:verify:panels/canvas 雙綠(canvas 以 MCP
+臨時 overlay 加拆);兩主題 CDP 決定性截圖過目;chip 取樣驗證如上。

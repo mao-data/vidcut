@@ -4,10 +4,10 @@ import type { Project, VideoClip } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
 
 /** 主軌列高(filmstrip 滿版)。2026-08-16 使用者兩輪定案收斂:
- * 主軌=其他軌的 2 倍(60=2×30),其他軌統一 30、工具列不動、時間軸帶總高
- * 與改版前持平。之後想再調,改這一個數字即可(音訊/字幕/overlay 軌在
- * AudioChip/Timeline 的 30),改完跑 verify:canvas(拖曳幾何)。 */
-export const ROW_H = 60;
+ * 主軌=其他軌的 2 倍,同日再定案「各軌放寬 6%」:60→64(=2×32,取偶數整數
+ * 避免次像素)。之後想再調,改這一個數字即可(音訊/字幕/overlay 軌在
+ * AudioChip/Timeline 的 32),改完跑 verify:canvas(拖曳幾何)。 */
+export const ROW_H = 64;
 
 /** memo：拖字幕/音訊/疊圖時主軌片段 props 全沒變，擋掉整排片段的陪跑重渲染 */
 export const ClipBlock = memo(function ClipBlock({

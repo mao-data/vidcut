@@ -67,7 +67,9 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        padding: '2px 4px 8px',
+        // 2026-08-16 使用者定案「按鈕列縮 6%」：縱向 2/8→1/7，總高 38→36（−5.3%，
+        // 最接近的整數解）。只縮容器，不動全域 .icon-btn（別的面板也在用）。
+        padding: '1px 4px 7px',
         fontSize: 11,
         color: 'var(--text-2)',
       }}

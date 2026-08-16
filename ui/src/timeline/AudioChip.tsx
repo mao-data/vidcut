@@ -6,8 +6,8 @@ import { drawWaveform, audioWave } from './waveform.js';
 import { useWaveform } from './usePeaks.js';
 import { useTheme } from '../stores/theme.js';
 
-/** 音訊軌列高(=其他軌統一 30,主軌的一半)。 */
-export const AUDIO_ROW_H = 30;
+/** 音訊軌列高(=其他軌統一 32,主軌的一半)。2026-08-16 使用者定案「各軌放寬 6%」:30→32。 */
+export const AUDIO_ROW_H = 32;
 
 /** 音訊軌項目：青色全高波形 chip（可拖曳平移、左右緣 trim）。memo 理由同 ClipBlock。 */
 export const AudioChip = memo(function AudioChip({
@@ -56,7 +56,8 @@ export const AudioChip = memo(function AudioChip({
         borderRadius: 6,
         overflow: 'hidden',
         cursor: 'grab',
-        background: 'var(--audio-wash)',
+        // 實色底(2026-08-16 使用者定案:時間軸 chip 不透底),值見 theme.css 的 chip-bg 註解
+        background: 'var(--audio-chip-bg)',
         boxShadow: selected
           ? 'inset 0 0 0 1.5px var(--audio-bright), 0 0 10px var(--audio-edge)'
           : 'inset 0 0 0 1px var(--audio-edge)',

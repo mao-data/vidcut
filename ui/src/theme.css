@@ -95,14 +95,15 @@
   --accent-2: #d8d4c9;
   /* 紫透明族的接班：**逐個看消費者**，不是整族換色（判準同紙世界那條註解）。
    *   --accent-soft  .seg.on 底、.badge 底、CaptionList 選取列 → 中性高亮＝chalk 淡階
-   *   --accent-wash  時間軸字幕 chip 底                        → 紅蠟筆（那是註記層）
+   *   --accent-chip-bg 時間軸字幕 chip 底                      → 紅蠟筆（那是註記層）
    *   --accent-faint 「playhead 正在這一句」的列高亮            → 紅蠟筆更淡階
    * soft/faint 在舊版是同一 hue 的三級透明；暗房裡分成兩種顏料，因為它們的
    * **語意本來就不同**——選取是中性狀態，字幕是紅筆畫上去的東西。
-   * ⚠️ wash 壓到 0.12（不是舊的 0.14）：紅蠟筆的標籤 --accent-text 疊在它上面要
-   * ≥4.5，0.14 只有 4.63、0.12 是 4.73——留出裕度。紅是著色不是填充。 */
+   * ⚠️ chip-bg 是**實色**（2026-08-16 使用者定案：時間軸 chip 不透底）：值＝原
+   * rgba(201,79,66,.12) 疊在軌道井底 #1a1a1d 上的合成、自截圖取樣校準——視覺與
+   * 原半透明版相同，但格線不再從 chip 底下透出。--accent-text 對它 4.99（≥4.5）。 */
   --accent-soft: rgba(232, 228, 218, 0.12);
-  --accent-wash: rgba(201, 79, 66, 0.12);
+  --accent-chip-bg: #2e2021;
   --accent-faint: rgba(201, 79, 66, 0.08);
   /* 描邊階：chip 未選取的 inset 框（edge）、審核卡外框與選中分頁鈕（edge-strong）。
    * 這兩個的消費者都是**線**，所以是紅蠟筆的正當用途（Two-Hands：紅是描不是填）。
@@ -195,21 +196,22 @@
    * 青是「螢幕色」不是「桌上的東西」。改成**降飽和的藍灰**：紙世界用 non-photo blue
    * 畫技術邊欄，暗房裡的對應就是磁帶／膠片盒那種冷灰藍——在場、可辨識、不搶戲。
    * --audio 只做描邊與光暈（3:1 圖形門檻，實得 4.96 對 panel）；
-   * --audio-bright 是 AudioChip 的標籤**文字**與選取描邊：對 chip 底 #2b2e32
-   * 是 6.03:1、對 panel 7.15:1。與 chalk 的亮度比 1.79、與紅蠟筆 1.38，三者分得開。 */
+   * --audio-bright 是 AudioChip 的標籤**文字**與選取描邊：對 chip 底 #26282d
+   * 是 6.49:1、對 panel 7.15:1。與 chalk 的亮度比 1.79、與紅蠟筆 1.38，三者分得開。 */
   --audio: #7a91a3;
   --audio-bright: #9aafbd;
-  /* 藍灰的透明階：AudioChip 的底（0.12）與描邊/光暈（0.45）。
-   * edge 由 0.35 提到 0.45：降飽和後的藍灰在炭黑上比原本的青弱一階，
-   * 同樣 alpha 讀不出來。 */
-  --audio-wash: rgba(122, 145, 163, 0.12);
+  /* chip-bg 是實色（2026-08-16 使用者定案：時間軸 chip 不透底）：原
+   * rgba(122,145,163,.12) 疊軌道井底 #1a1a1d 的合成。edge 由 0.35 提到 0.45：
+   * 降飽和後的藍灰在炭黑上比原本的青弱一階，同樣 alpha 讀不出來。 */
+  --audio-chip-bg: #26282d;
   --audio-edge: rgba(122, 145, 163, 0.45);
   --ok: #34d399;
   /* 綠底 chip 上的文字（overlay 軌） */
   --ok-text: #6ee7b7;
-  /* 綠的透明階：overlay chip 的底（0.14）與未選取描邊（0.35）。
-   * 2026-08-14 階段 ③ 由 Timeline.tsx 的兩處寫死收編（值逐字元相同）。 */
-  --ok-wash: rgba(52, 211, 153, 0.14);
+  /* overlay chip 的實色底（2026-08-16 使用者定案：時間軸 chip 不透底）：原
+   * rgba(52,211,153,.14)（2026-08-14 階段 ③ 自 Timeline.tsx 收編）疊軌道井底
+   * #1a1a1d 的合成。--ok-text 對它 8.69。edge（0.35）仍是透明描邊。 */
+  --ok-chip-bg: #1e342e;
   --ok-edge: rgba(52, 211, 153, 0.35);
   /* ---- 危險：**必須與紅蠟筆分得開**（暗房唯一的兩紅並存問題）----
    * 紅蠟筆是**標記**（playhead、字幕、時間碼——每一幀都在畫面上），danger 是**警示**
@@ -401,12 +403,15 @@
   --accent-2: #3d382e;
   /* 紫透明族的接班：**逐個看消費者**，不是整族換色。
    *   --accent-soft  .seg.on 底、.badge 底、CaptionList 選取列 → 中性高亮＝ink 淡階
-   *   --accent-wash  時間軸字幕 chip 底                        → 紅鉛筆（那是註記層）
+   *   --accent-chip-bg 時間軸字幕 chip 底                      → 紅鉛筆（那是註記層）
    *   --accent-faint 「playhead 正在這一句」的列高亮            → 紅鉛筆更淡階
    * soft/faint 的差別在暗版是同一 hue 的三級透明；紙上分成兩種顏料，因為它們的
-   * **語意本來就不同**——選取是中性狀態，字幕是紅筆畫上去的東西。 */
+   * **語意本來就不同**——選取是中性狀態，字幕是紅筆畫上去的東西。
+   * chip-bg 是實色（時間軸 chip 不透底，2026-08-16）：原 rgba(192,57,43,.09) 疊
+   * 稿紙井底 #ece9de 的合成、自截圖取樣校準——紙點不再從 chip 底下透出。
+   * --accent-text 對它 5.35。 */
   --accent-soft: rgba(38, 35, 29, 0.1);
-  --accent-wash: rgba(192, 57, 43, 0.09);
+  --accent-chip-bg: #e7d9ce;
   --accent-faint: rgba(192, 57, 43, 0.07);
   /* 描邊階：chip 未選取的 inset 框（edge）、審核卡外框與選中分頁鈕（edge-strong）。
    * 這兩個的消費者都是**線**，所以是紅鉛筆的正當用途（Two-Hands：紅是描不是填）。 */
@@ -464,18 +469,22 @@
    * 對 chip 底（#dbdcd6）5.48:1。Activity/Inspector 的「人」署名也吃它（同樣過）。 */
   --audio: #3a6484;
   --audio-bright: #2d5878;
-  --audio-wash: rgba(58, 100, 132, 0.1);
+  /* chip-bg 實色（時間軸 chip 不透底，2026-08-16）：原 rgba(58,100,132,.1) 疊
+   * 稿紙井底 #ece9de 的合成。--audio-bright 對它 5.46。 */
+  --audio-chip-bg: #dadcd5;
   --audio-edge: rgba(58, 100, 132, 0.45);
 
   /* ---- 狀態色 ----
    * 綠 stamp（#2a7a45）在 DESIGN.md 是**核可專用**，但編輯器的 --ok 消費者是
    * 「agent 已連線」的圓點與 overlay 軌 chip，語意上都是「成立／在位」——同一族。
    * 圓點是圖形（3:1 即可，實得 3.87）；--ok-text 是 chip 上的**文字**，所以壓深到
-   * #1f5c34（對 overlay chip 底 #daded0 是 5.81:1）。 */
+   * #1f5c34（對 overlay chip 底 #d9decf 是 5.80:1）。 */
   --ok: #2a7a45;
   --ok-text: #1f5c34;
-  /* stamp green 的透明階。chip 底疊在時間軸稿紙上＝#daded0，--ok-text 對它 5.81:1。 */
-  --ok-wash: rgba(42, 122, 69, 0.1);
+  /* overlay chip 的實色底（時間軸 chip 不透底，2026-08-16）：原 rgba(42,122,69,.1)
+   * 疊稿紙井底的合成（舊註記的 #daded0 是同一筆帳、疊在 panel 上算的近似）。
+   * --ok-text 對它 5.80。 */
+  --ok-chip-bg: #d9decf;
   --ok-edge: rgba(42, 122, 69, 0.45);
   /* 危險：紅鉛筆家族的深階。紙上不引第二種紅——DESIGN.md 只有一支紅筆。
    * 對 panel 6.66:1、對 toast 底 5.83:1。 */
