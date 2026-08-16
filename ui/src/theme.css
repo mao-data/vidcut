@@ -4,86 +4,206 @@
  * 動態值（位置/寬度/進度）仍留在元件的 inline style。 */
 
 /**
- * 亮度樓梯（2026-08-14 暗房調和，spec `2026-08-14-dual-theme-design.md` §2）。
- * 改值之前先看懂這四階在做什麼——它們是「調和」的全部內容：
+ * 亮度樓梯（2026-08-14 **剪接室暗房**世界，spec `2026-08-14-dual-theme-design.md` §2）。
+ * 改值之前先看懂這四階在做什麼——它們是這個世界的地面：
  *
- *   --bg-stage  #101117  最暗：預覽影片直接鄰接的區域
- *   --bg        #15161d  頁面底（body 漸層的收尾色）
- *   --panel     #191a22  header／左右面板／時間軸區的實底
- *   --popover-bg #242530 浮出層（下拉、彈出）再高一階
+ *   --bg-stage  #131315  最暗：預覽影片直接鄰接的區域
+ *   --bg        #1a1a1c  頁面底（body 漸層的收尾色）
+ *   --panel     #202023  header／左右面板／時間軸區的實底
+ *   --popover-bg #2a2a2e 浮出層（下拉、彈出）再高一階
+ *
+ * **四階全部是中性炭黑（無彩度偏移）**——舊的樓梯帶冷藍偏向（#15161d 等），
+ * 那是「紫世界」的環境光。暗房裡沒有色偏：牆是灰的，顏色全部留給筆。
+ * 檢查方式很簡單——R/G/B 三個通道差 ≤2 就是中性；帶偏向的值一眼看得出 B 特別高。
  *
  * **stage 例外規則是硬性的**：`--bg-stage` 必須比 `--bg` 暗。淺色環境會干擾影片
  * 顏色判斷，所以預覽周圍永遠是房間裡最暗的地方——這條在亮版（主題 B）也一樣成立，
  * 不是「暗版剛好比較暗」而已。
  */
+
+/**
+ * ============================================================
+ * 暗版的世界觀：**傳統剪接室（暗房）**
+ * 2026-08-14 使用者經兩輪 mock 選定（C4-d 版）。**紫在暗版全面退場。**
+ *
+ * 編輯器的兩個主題從此正式同屬**紙世界宇宙**，差的只是桌子與筆：
+ *   - 紙上（`[data-theme='paper']`）＝鉛筆（石墨）打草稿、**紅鉛筆**下判斷
+ *   - 暗房裡（本區塊）＝**白蠟筆**（grease pencil）描邊、**紅蠟筆**做標記
+ * 同一套 Two-Hands 規則，換一支筆而已。所以下面的 accent 族不是「把紫換個色」，
+ * 是**逐個消費者重新分配到 chalk 或 red**——判準跟紙世界一字不差：
+ *   中性 UI 狀態（選取、分頁、主行動）→ chalk；註記層（字幕、playhead、
+ *   時間碼進行值、AI 在跟你說話）→ red。
+ *
+ * 三支顏料（值只在這裡定義一次）：
+ *   chalk       #e8e4da  白蠟筆。主文字、描邊、實心主鈕
+ *   chalk-btn   #e3dfd4  Export 主鈕的實心底（比 chalk 沉一格，才不會像在發光）
+ *   grease red  #c94f42  紅蠟筆基準——**只做筆畫**（描邊、線、圓頭）
+ *   grease red  #da7565  紅蠟筆的**文字階**（壓亮到對比達標；同一支筆按輕一點）
+ *
+ * **紅絕不當底色**（One-Pigment / Two-Hands，與紙世界同一條規則）。紅只出現在：
+ * playhead ＋圓頭、時間碼進行值、當前字幕列左標、時間軸選中片段的框、
+ * 字幕 chip 的描邊與標籤。chip 的**底**是紅的極淡透明——那是「紅筆畫過的痕跡」
+ * 不是紅色面板，alpha ≤0.12 讓它讀成著色而不是填充。
+ *
+ * **AgentStrip 的琥珀終端完全不動**：暗房裡唯一一盞終端小燈。它的信號稀缺性是
+ * 刻意的——整個 UI 只有那一處會發光，所以它永遠是「AI 在不在」的答案。
+ * `--ap-*` 大使館 token 一個都沒動。
+ *
+ * **無齒孔、無 header 粗線、UI 一律擺正實線**（使用者明確定案）：
+ * 底片齒孔、2px 印刷規則線、傾斜都是 landing／紙世界的表現語彙，
+ * 工作介面要乾淨可掃讀。暗版維持 base 的 1px `--line`。
+ * ============================================================ */
 :root {
-  --bg: #15161d;
+  --bg: #1a1a1c;
   /* 樓梯第二階：header／左右面板／時間軸容器的**實底**（不是透明疊層）。
    * 有了它，`--surface` 的白 6% 才有東西可以疊，層感不會被近黑底吃掉。 */
-  --panel: #191a22;
+  --panel: #202023;
   /* 預覽 stage 的襯底：全 UI 最暗處（見上面的 stage 例外規則） */
-  --bg-stage: #101117;
+  --bg-stage: #131315;
   --surface: rgba(255, 255, 255, 0.06);
   --surface-2: rgba(255, 255, 255, 0.08);
-  --card: #272d49;
+  /* 時間軸主軌片段的底（ClipBlock 的 background，filmstrip 蓋在它上面）。
+   * 舊值 #272d49 是紫藍片段；暗房裡它是**中性炭階**——比 panel 高一階，
+   * 讀起來像一格擺在檯面上的膠片，描邊交給 chalk 的 --line-strong。 */
+  --card: #2b2b2e;
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.14);
-  --text-1: #e6e7f0;
-  --text-2: #9ba0b8;
-  /* 第三階文字。2026-08-14 由 #5d6275 調亮到 #82879c：舊值對 --panel 只有 2.86:1，
-   * 而它早就不只做裝飾——`.panel-head`、`.form .section` 小標、`.form .hint`、
-   * 各面板的空狀態訊息都吃它，那些是語意文字，必須 ≥4.5:1。
-   * 實算：對 --panel #191a22 = 4.86:1、對 --bg #15161d = 5.06:1（兩者皆過）。
-   * ⚠️ 對 --popover-bg #242530 是 4.26:1——浮出層裡不要拿它寫語意文字，用 --text-2。 */
-  --text-3: #82879c;
-  /* 主行動色。2026-08-14 由 #8b5cf6 降飽和到 #6d5bd0：舊值在 2% 亮度的底上是
-   * 直接跳到 50% 亮度的飽和紫，中間沒有階梯——「按鈕很亮很怪」的本質。
-   * ⚠️ 這是**底色**用的紫。深底上的文字／發亮圖形不要用它（對比不足），
-   * 用下面的 --accent-text / --accent-bright，那兩個刻意沒有跟著降。 */
-  --accent: #6d5bd0;
-  /* 漸層的另一端（.btn-primary 的 135deg 漸層端 + playhead 漸層端）。
-   * 2026-08-14 由 #6366f1 微調到 #6264f1：白字對舊值是 4.47:1，就差那一點點。
-   * 這是「最接近原值的合規值」——R/G 各降 1–2，白字對它 4.553:1，
-   * 視覺上與原值無法區分（歐氏距離 2.8/255）。動它之前先重算白字對比。 */
-  --accent-2: #6264f1;
-  --accent-soft: rgba(139, 92, 246, 0.2);
-  /* --accent-soft 的更淡階：時間軸字幕 chip 底、「播放頭正在這一句」的列高亮。
-   * 三級透明紫（0.2 / 0.14 / 0.08）都從同一個 hue 出，不要各自寫死。 */
-  --accent-wash: rgba(139, 92, 246, 0.14);
-  --accent-faint: rgba(139, 92, 246, 0.08);
-  /* 紫的描邊階：chip 未選取時的 inset 框（0.35）、審核卡外框與選中分頁鈕（0.5）。
-   * `.seg.on` 原本是 0.5、ReviewBar 原本是 0.45——差 0.05 在 1px 框上看不出來，
-   * 收成同一階（0.5）比留兩個各自寫死的數字好。 */
-  --accent-edge: rgba(139, 92, 246, 0.35);
-  --accent-edge-strong: rgba(139, 92, 246, 0.5);
-  /* 紫光暈（選取片段／playhead／吸附線的 drop shadow）。發光是圖形不是底色，
-   * 所以沿用未降飽和的亮紫 hue——降了會變成一團灰霧。
-   * strong 那階原本在三處各寫死 0.7／0.8／0.9（playhead 線、playhead 圓頭、
-   * 吸附線），三者的模糊半徑也不同（10／8／6px）——真正決定亮度的是半徑不是
-   * alpha，所以 alpha 收成單一 0.8。 */
-  --accent-glow: rgba(139, 92, 246, 0.35);
-  --accent-glow-strong: rgba(139, 92, 246, 0.8);
-  /* 最淡的紫暈：審核卡外圈那層「這是 AI 在跟你說話」的氛圍光。 */
-  --accent-halo: rgba(139, 92, 246, 0.15);
-  /* 紫底上的強調文字／AI 署名（--accent 當文字色在深底上對比不足） */
-  --accent-text: #c4b5fd;
-  /* Two-Hands 署名色（Inspector/Activity 的 AI/you 標籤專用）。暗版沿用既有分色
-   * （值＝--accent-text／--audio-bright 的字面值，不是 var 引用——保持可獨立調）。
-   * paper 下反轉職責：AI=graphite、you=紅鉛筆——紅是批註、是人的手
-   * （agent-presence spec 的 Two-Hands 分色條），AI 用石墨畫草稿。 */
-  --who-ai: #c4b5fd;
-  --who-you: #7dd3fc;
-  /* --accent 的亮化版：playhead、標題漸層等要在深底上發亮的圖形 */
-  --accent-bright: #a78bfa;
-  /* 品牌漸層的另一端（vidcut 字樣：紫→藍）與連結色。藍調刻意不進 --accent 家族：
-   * 它只出現在這兩處，是「非紫的冷色」而不是第二強調色。 */
-  --link: #a5b4fc;
-  --brand-gradient-end: #60a5fa;
-  --audio: #0ea5e9;
-  --audio-bright: #7dd3fc;
-  /* 音訊青的透明階：AudioChip 的底（0.12）與描邊/光暈（0.35）。 */
-  --audio-wash: rgba(14, 165, 233, 0.12);
-  --audio-edge: rgba(14, 165, 233, 0.35);
+  /* ---- 文字三階：白蠟筆的三種力道（全中性，無彩度偏移）----
+   * 舊的三階帶冷藍（#e6e7f0／#9ba0b8／#82879c），那是紫世界的環境光。
+   * 實算對比（bg #1a1a1c ／ panel #202023 ／ popover #2a2a2e）：
+   *   text-1  13.69 ／ 12.80 ／ 11.26
+   *   text-2   6.99 ／  6.53 ／  5.75
+   *   text-3   5.25 ／  4.91 ／  4.32
+   * text-1 就是 chalk 本身——主文字與白蠟筆描邊是同一支筆，這是刻意的。 */
+  --text-1: #e8e4da;
+  --text-2: #a8a49a;
+  /* 第三階文字。它不只做裝飾——`.panel-head`、`.form .section` 小標、`.form .hint`、
+   * 各面板的空狀態訊息、尺規刻度都吃它，那些是語意文字，必須 ≥4.5:1。
+   * 實算：對 --panel = 4.91:1、對 --bg = 5.25:1（兩者皆過）。
+   * ⚠️ 對 --popover-bg #2a2a2e 是 4.32:1——浮出層裡不要拿它寫語意文字，用 --text-2
+   * （那裡 5.75:1）。這個限定跟舊樓梯下的一模一樣，只是底色換了。 */
+  --text-3: #918d84;
+  /* ---- 主行動色：暗房的主鈕是**白蠟筆實心**，不是紫 ----
+   * 紫退場的直接後果（One-Pigment）。整個 UI 只有這一塊是實心亮色，它自然就是
+   * 視覺重心——跟紙世界的 ink 實心鈕是同一手法，只是明暗反過來。
+   * `--accent` 同時是 focus outline、`.resizer` 亮線、input accent-color、
+   * 時間軸**選中片段的框**與吸附線的來源。⚠️ 選中片段的框在下面的 scoped 規則
+   * 改成紅蠟筆（使用者定案：時間軸選中＝紅框），所以這裡的 chalk 服務其餘消費者。
+   * --accent-2 沉一階，讓 .btn-primary 的 135deg 漸層仍有方向感（蠟筆的厚薄，
+   * 不是換色相）。炭黑字 #1a1a1c 對 --accent 是 13.05:1、對 --accent-2 是 12.44:1。 */
+  --accent: #e3dfd4;
+  --accent-2: #d8d4c9;
+  /* 紫透明族的接班：**逐個看消費者**，不是整族換色（判準同紙世界那條註解）。
+   *   --accent-soft  .seg.on 底、.badge 底、CaptionList 選取列 → 中性高亮＝chalk 淡階
+   *   --accent-wash  時間軸字幕 chip 底                        → 紅蠟筆（那是註記層）
+   *   --accent-faint 「playhead 正在這一句」的列高亮            → 紅蠟筆更淡階
+   * soft/faint 在舊版是同一 hue 的三級透明；暗房裡分成兩種顏料，因為它們的
+   * **語意本來就不同**——選取是中性狀態，字幕是紅筆畫上去的東西。
+   * ⚠️ wash 壓到 0.12（不是舊的 0.14）：紅蠟筆的標籤 --accent-text 疊在它上面要
+   * ≥4.5，0.14 只有 4.63、0.12 是 4.73——留出裕度。紅是著色不是填充。 */
+  --accent-soft: rgba(232, 228, 218, 0.12);
+  --accent-wash: rgba(201, 79, 66, 0.12);
+  --accent-faint: rgba(201, 79, 66, 0.08);
+  /* 描邊階：chip 未選取的 inset 框（edge）、審核卡外框與選中分頁鈕（edge-strong）。
+   * 這兩個的消費者都是**線**，所以是紅蠟筆的正當用途（Two-Hands：紅是描不是填）。
+   * ⚠️ edge 從 0.35 提到 0.75（使用者指定「字幕 chip 紅描邊 .75 級」）——
+   * 紅蠟筆在炭黑上比紫暗，同樣的 alpha 會直接消失。
+   * ⚠️ --accent-edge-strong 有**兩個語意不同的消費者**（暗版舊值同紫所以無所謂，
+   * 現在必須拆）：ReviewBar 外框（AI 在跟你說話＝註記層，紅是對的）留給這個值；
+   * `.seg.on` 是**選取狀態**（分頁、canvas fit、snap 開關）——中性 UI 狀態，不是
+   * 誰畫上去的判斷，紅框會讀成「紅色按鈕」＝Two-Hands 違規（紙世界踩過同一個坑）。
+   * 所以 `.seg.on` 在下面的 scoped 規則改用 chalk 描邊。 */
+  --accent-edge: rgba(201, 79, 66, 0.75);
+  --accent-edge-strong: rgba(201, 79, 66, 0.85);
+  /* ---- 時間軸「選中」的框色（使用者定案：**時間軸選中片段＝紅框**）----
+   * 專屬 token 而不是直接吃 `--accent`，因為兩者的語意在這一版分家了：
+   * `--accent` 是**主行動**（Export 鈕、focus、resizer），暗房裡是白蠟筆；
+   * 時間軸的選取是**你用紅蠟筆圈起來的那一格**——紅蠟筆標記系統的一員
+   * （跟 playhead、時間碼、字幕描邊同一支筆）。兩者在暗房必須是不同的顏料，
+   * 所以不能共用一個 token。
+   * 消費者：ClipBlock 的選取環與拖曳中浮起環、Timeline 字幕 chip 的選取環。
+   * 用基準 #c94f42（實心筆畫，非文字：WCAG 圖形門檻 3:1，對 --card #2b2b2e
+   * 實得 3.36:1、對 --panel 3.62:1）。
+   * ⚠️ **paper 側必須維持既有行為**——那邊選取框一直是 `--accent`（ink），
+   * 所以 `[data-theme='paper']` 區塊把這個 token 指回 ink 的字面值，
+   * 紙上的 computed 一個像素都不變。 */
+  --select-edge: #c94f42;
+  /* playhead 直線漸層的**收尾端**（起點是 --accent-bright）。
+   * 以前這裡直接吃 `--accent-2`（那時它是紫，跟 --accent-bright 同族所以成立）。
+   * 暗房的 --accent-2 已改嫁白蠟筆（主鈕漸層），playhead 若還吃它就會**從紅漸層
+   * 到白**——一條上紅下白的線，讀成渲染壞掉而不是標記。
+   *
+   * **暗房收成與筆尖同色＝整條實心紅**，理由是實算逼出來的，不是偏好：
+   * playhead 是 2px 細線，且它**縱貫整個時間軸**——上半在 --panel 上、中段壓在
+   * --card 的片段上、定格片段是更亮的 --clip-frozen-bg。壓深一階的紅（試過
+   * #a83c31）對 --card 只有 2.60:1，**過不了 WCAG 非文字的 3:1**；而把它提到
+   * 3:1 以上（#c65246 之後）與筆尖 #c94f42 的亮度比就變成 1.00——漸層在視覺上
+   * 已經不存在，只剩一個「看起來像有漸層」的假設定。
+   * 兩邊都不成立，所以取實心：**一支蠟筆畫下去本來就是均勻的一道**，
+   * 漸層是舊紫世界「發光線條」的語彙，隨紫一起退場。
+   * 實算（playhead 縱貫時經過的每一種底，全部 ≥3）：
+   *   --panel 3.62 ／ --card 3.15 ／ --clip-frozen-bg 3.02 ／ 時間軸內襯 3.87。
+   * 最差的一格是定格片段（全時間軸最亮的片段底）——`--clip-frozen-bg` 的值
+   * 就是被這條反過來鎖住上限的，見該 token 的註解。
+   * ⚠️ paper 側指回 `--accent-2` 的 ink 字面值，紙上 computed 不變。 */
+  --playhead-tail: #c94f42;
+  /* 光暈族。**暗房不發光**——舊的紫光暈是「螢幕在發亮」的語彙，蠟筆不會發光。
+   * 但選取仍然需要可見的層次，所以這裡收斂成**蠟筆的極淡投影**：不再是彩色霓虹，
+   * 而是白蠟筆蹭在物件周圍的一圈粉末感（chalk 低 alpha）。消費端全是 box-shadow
+   * 與 drop-shadow 的顏色位，所以換值就成立，不必動任何 shadow 的幾何。
+   * strong 那階（playhead 線、圓頭、吸附線）改成**紅蠟筆**的粉末——playhead 是
+   * 紅的，它的暈當然也得是紅的，白暈會在紅線周圍鑲一道假邊。 */
+  --accent-glow: rgba(232, 228, 218, 0.14);
+  --accent-glow-strong: rgba(201, 79, 66, 0.45);
+  /* 審核卡外圈那層「這是 AI 在跟你說話」的氛圍光 → 紅蠟筆的極淡散暈。 */
+  --accent-halo: rgba(201, 79, 66, 0.12);
+  /* 紅蠟筆的**文字階**。基準 #c94f42 當文字在炭黑上只有 3.62:1（做筆畫夠、做字不夠），
+   * 所以壓亮到 #da7565——同一支筆按輕一點，不是換色。
+   * 消費者與實算：時間碼進行值（對 panel 5.20）、時間軸字幕 chip 標籤（對 chip 底
+   * #342627 是 4.73）、ReviewBar 的「AI asks for your review」（對卡片底 #28282c
+   * 是 4.69）、對 --popover-bg 4.57。全部 ≥4.5。
+   * ⚠️ `.seg.on` / `.badge` 的文字**不**吃這個 token（見下面的 scoped 規則）：
+   * 那是中性選取狀態，用 chalk。紅只給註記。 */
+  --accent-text: #da7565;
+  /* Two-Hands 署名色（Inspector/Activity 的 AI/you 標籤專用）。
+   * **暗房是紙世界的鏡像**：紙上 AI=石墨、you=紅鉛筆；暗房裡 AI=**白蠟筆的 dim 階**、
+   * you=**紅蠟筆**。紅永遠是人的手（agent-presence spec 的 Two-Hands 分色條），
+   * AI 用那個世界的「素描筆」畫草稿——紙上是石墨，暗房裡是白蠟筆。
+   * 兩者辨識度：who-ai 對 panel 8.21、who-you 對 panel 5.20，彼此亮度比 1.58
+   * （加上一個中性一個紅，兩軸分開）。 */
+  --who-ai: #bdb8ac;
+  --who-you: #da7565;
+  /* 要在深底上「畫出來」的紅筆圖形：**playhead 與它的圓頭**（使用者定案的紅蠟筆
+   * 標記系統核心）。這裡用基準 #c94f42——它是筆畫不是文字，3.87:1 對圖形足夠
+   * （WCAG 非文字要求 3:1），而且基準比文字階更飽和，playhead 才有蠟筆的實體感。
+   * ⚠️ 這個 token 名字裡的 "bright" 是舊紫世界的遺留（當時＝亮化的紫）。
+   * 暗房裡它的語意是「紅蠟筆的筆尖」，跟 paper 下完全一致（那邊也是 #c0392b 基準）。 */
+  --accent-bright: #c94f42;
+  /* 品牌字樣（vidcut）的漸層兩端與連結色。
+   * brand：紫→藍那組雙色漸層在暗房裡會讀成貼錯世界的貼紙，改成**白蠟筆的輕重**
+   * ——從 chalk 走到 chalk 的 dim 階，同一支筆的力道差，不是換色相。
+   * ⚠️ 漸層的**起點**以前直接吃 `--accent-bright`，而那個 token 在暗房已改嫁
+   * 紅蠟筆（playhead 筆尖）——留著不動的話字樣會變成「紅→灰」的漸層，
+   * 而 brand 不是標記層。所以起點另立 `--brand-gradient-start`。
+   * link：紅蠟筆的文字階（紙世界的「link hover turns Red Pencil」在暗房的對應）。
+   * 對 --panel 5.20:1、對 --bg 5.53:1。 */
+  --link: #da7565;
+  --brand-gradient-start: #e8e4da;
+  --brand-gradient-end: #a8a49a;
+  /* ---- 音訊：降飽和藍灰（磁帶／技術邊欄）----
+   * 舊值是飽和青（#0ea5e9／#7dd3fc），在暗房裡會跟紅蠟筆搶注意力，而且那個亮度的
+   * 青是「螢幕色」不是「桌上的東西」。改成**降飽和的藍灰**：紙世界用 non-photo blue
+   * 畫技術邊欄，暗房裡的對應就是磁帶／膠片盒那種冷灰藍——在場、可辨識、不搶戲。
+   * --audio 只做描邊與光暈（3:1 圖形門檻，實得 4.96 對 panel）；
+   * --audio-bright 是 AudioChip 的標籤**文字**與選取描邊：對 chip 底 #2b2e32
+   * 是 6.03:1、對 panel 7.15:1。與 chalk 的亮度比 1.79、與紅蠟筆 1.38，三者分得開。 */
+  --audio: #7a91a3;
+  --audio-bright: #9aafbd;
+  /* 藍灰的透明階：AudioChip 的底（0.12）與描邊/光暈（0.45）。
+   * edge 由 0.35 提到 0.45：降飽和後的藍灰在炭黑上比原本的青弱一階，
+   * 同樣 alpha 讀不出來。 */
+  --audio-wash: rgba(122, 145, 163, 0.12);
+  --audio-edge: rgba(122, 145, 163, 0.45);
   --ok: #34d399;
   /* 綠底 chip 上的文字（overlay 軌） */
   --ok-text: #6ee7b7;
@@ -91,21 +211,40 @@
    * 2026-08-14 階段 ③ 由 Timeline.tsx 的兩處寫死收編（值逐字元相同）。 */
   --ok-wash: rgba(52, 211, 153, 0.14);
   --ok-edge: rgba(52, 211, 153, 0.35);
-  --danger: #f87171;
+  /* ---- 危險：**必須與紅蠟筆分得開**（暗房唯一的兩紅並存問題）----
+   * 紅蠟筆是**標記**（playhead、字幕、時間碼——每一幀都在畫面上），danger 是**警示**
+   * （刪除鈕、匯出失敗、錯誤 Toast）。兩者同時在畫面上，讀錯的代價是使用者以為
+   * 某個標記出事了、或反過來把真的錯誤當成裝飾。所以三個軸全部拉開：
+   *   軸        紅蠟筆 --accent-text #da7565   danger #fb8a8a
+   *   色相      H8（偏橘的磚紅，蠟筆的顏料感）  H0（純紅，警示的慣例）
+   *   飽和度    S63%                            S93%（螢光級，明顯「不是顏料」）
+   *   相對亮度  0.2857                          0.3878 → **彼此對比 1.36:1**
+   * 舊值 #f87171 的相對亮度是 0.3296，跟紅蠟筆文字階**幾乎一模一樣（比值 1.00）**
+   * ——並排時完全分不出來，所以 danger 往上提到 #fb8a8a（亮度差拉到 1.36、
+   * 飽和度差 30 個百分點）。提亮不影響它的既有語意（本來就是深底上的亮警示紅），
+   * 對比反而更好：對 --panel 7.05:1、對 --toast-danger-bg 7.38:1。
+   * 記憶法：**蠟筆紅偏橘且沉，警示紅偏純且亮。** */
+  --danger: #fb8a8a;
   --hl: #fbbf24;
-  /* 吸附導線等「注意一下」的提示色 */
+  /* 吸附導線等「注意一下」的提示色。維持琥珀：它畫在 stage 的**影片**上而不是
+   * UI 面板上（Player.tsx 的兩條導線）——蠟筆色的線在任意影片畫面上會消失。
+   * 這是 stage 例外規則的延伸，跟 paper 側的理由完全相同。對 --panel 8.47:1。 */
   --warn: #eab308;
   /* 浮出面板（下拉選單／彈出層）的不透明底色，比 --panel 再亮一階以浮起於頁面 */
-  --popover-bg: #242530;
+  --popover-bg: #2a2a2e;
   /* 同一階的半透明版：ReviewBar 那張蓋在預覽上、帶 backdrop-blur 的卡。
    * 它以前寫死 `rgba(26,29,46,.92)`＝舊 --popover-bg 的 92%，兩者是同一個層級、
    * 卻沒有連在一起——樓梯一動它就會落單，所以收成 token。 */
-  --popover-bg-blur: rgba(36, 37, 48, 0.92);
-  /* 錯誤 Toast 底色：帶紅調的深底，配 --danger 邊框 */
+  --popover-bg-blur: rgba(42, 42, 46, 0.92);
+  /* 錯誤 Toast 底色：帶紅調的深底，配 --danger 邊框。--text-1 對它 13.40:1。 */
   --toast-danger-bg: #2a1620;
   /* 定格 clip 的底色（沒有 filmstrip 可畫時的替代填色）。
-   * 2026-08-14 由 #2d3a52 收掉冷藍偏向，與新的微暖灰底同溫。 */
-  --clip-frozen-bg: #2c2f42;
+   * 中性炭階，比 --card 再高一格＝一格空白的膠片（舊值 #2c2f42 帶冷藍偏向）。
+   * ⚠️ 上限被 **playhead** 綁住：這是全時間軸最亮的片段底，playhead（實心
+   * #c94f42）縱貫時會壓在它上面，紅對它必須 ≥3:1（WCAG 非文字）。
+   * 實算 3.02:1——再亮一階（試過 #303033）就掉到 2.93 不合規。
+   * --text-1 對它 10.66:1。 */
+  --clip-frozen-bg: #2e2e31;
   /* 深底上的白色微光階：進度條軌（0.06）、捲軸 thumb（0.12／hover 0.2）、
    * 定格 clip 的平線（0.15）、trim handle（hover 0.28／直接指到 0.5）。
    * 這些不是「面板層」（那是 --surface），是浮在深色物件上的白線白條——
@@ -122,15 +261,21 @@
 
   /* ---- canvas 波形（timeline/waveform.ts 查表用，spec §4）----
    * canvas 沒有 CSS 變數，所以這五個值是 JS 透過 getComputedStyle 讀走的。
-   * 它們是**新增**的 token：值取自 waveform.ts 原本的 JS 常數，所以暗版的
-   * 畫素輸出完全不變（唯一差異是 prettier 把 alpha `0.30` 正規化成 `0.3`，
-   * parse 出來同一個顏色）。waveform.ts 裡還留著同樣的值當 **jsdom 回退**
-   * （測試環境沒有樣式表）——改這裡要連那邊一起改。 */
-  --wave-clip-peak: rgba(167, 139, 250, 0.3);
-  --wave-clip-rms: rgba(196, 181, 253, 0.85);
-  --wave-audio-peak: rgba(14, 165, 233, 0.3);
-  --wave-audio-rms: rgba(125, 211, 252, 0.85);
-  --wave-midline: rgba(230, 231, 240, 0.18);
+   *
+   * **暗房配色**：主軌波形＝白蠟筆的灰階（rms 實心 0.85 是主體、peak 0.3 是外圈
+   * 包絡），audio 軌＝降飽和藍灰（同 --audio 族）。舊值是紫／青系，隨紫退場一起換。
+   * 中線同樣改成中性 chalk——舊值 rgba(230,231,240,.18) 帶冷藍偏向。
+   *
+   * ⚠️ `waveform.ts` 裡還留著**舊的紫／青字面值當 jsdom 回退**（測試環境沒有樣式表，
+   * `ui/src/timeline/waveform.test.ts` 直接斷言那組值）。**那是刻意不動的**：
+   * 回退值只在「沒有樣式表可讀」時出現，也就是只有單元測試會走到；真正的瀏覽器
+   * 一律讀這裡的 token。把回退值改掉等於要動既有測試斷言，而那些斷言驗的是
+   * 「cssVar 讀不到時會回退」這個**機制**，不是顏色本身。 */
+  --wave-clip-peak: rgba(232, 228, 218, 0.3);
+  --wave-clip-rms: rgba(232, 228, 218, 0.85);
+  --wave-audio-peak: rgba(122, 145, 163, 0.35);
+  --wave-audio-rms: rgba(154, 175, 189, 0.85);
+  --wave-midline: rgba(232, 228, 218, 0.18);
 
   /* ---- 陰影／遮罩／實心鈕字（2026-08-14 階段 ③ 收編）----
    * 這些值以前寫死在元件的 inline style 裡（暗版字面值）。收進 token 是因為
@@ -159,21 +304,29 @@
   /* Inspector 離線提示裡的 `claude mcp add …` code 區塊。刻意**不**共用 --input-bg：
    * 它比輸入框再深一階（0.28 vs 0.25），是「不可編輯的終端輸出」不是輸入欄。 */
   --code-inline-bg: rgba(0, 0, 0, 0.28);
-  /* 它的文字色。暗版＝--text-2 的同一個字面值（#9ba0b8），所以收編前後 computed
-   * 完全相同；分成獨立 token 是因為紙版那格是**深色終端**，text-2 的石墨在上面
-   * 會全黑掉——文字色必須跟著底色走，不能跟著面板的文字階走。 */
-  --code-inline-text: #9ba0b8;
+  /* 它的文字色。暗版＝--text-2 的同一個字面值（跟著新的中性階一起走），
+   * 分成獨立 token 是因為紙版那格是**深色終端**，text-2 的石墨在上面
+   * 會全黑掉——文字色必須跟著底色走，不能跟著面板的文字階走。
+   * 對 code 區塊實底 #171719 是 7.19:1。 */
+  --code-inline-text: #a8a49a;
   /* chip／片段標籤在深色底上的打亮字陰影 */
   --chip-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   --clip-text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-  /* .btn-primary hover 的漸層兩端（原本寫死在規則裡） */
-  --accent-hover-1: #9a70f8;
-  --accent-hover-2: #7478f3;
+  /* .btn-primary hover 的漸層兩端：白蠟筆**再壓一格**（不是換色相），
+   * 維持「按下去更用力＝畫得更白」的手感。炭黑字對 #f0ece2 是 14.73:1。 */
+  --accent-hover-1: #f0ece2;
+  --accent-hover-2: #e6e2d7;
   /* ReviewBar 的 Approve 鈕漸層兩端 */
   --approve-1: #10b981;
   --approve-2: #059669;
-  /* 實心鈕（primary / approve）上的文字色 */
-  --on-accent: #fff;
+  /* 實心鈕上的文字色。**暗房裡主鈕是 chalk 實心，所以字必須是炭黑**（舊值是白，
+   * 那時主鈕是深紫底）。值＝--bg，等於「把牆的顏色刻回蠟筆裡」。對 --accent
+   * (#e3dfd4) 是 13.05:1。
+   * ⚠️ 這個 token 也被 ReviewBar 的 Approve 鈕（綠底）吃：炭黑字對 --approve-1
+   * #10b981 是 6.85:1、對 --approve-2 #059669 是 4.61:1，兩端都過 4.5，
+   * 所以綠鈕不需要第二個 token（舊的白字對 #059669 只有 3.31，其實一直不合規——
+   * 換成炭黑字順手修掉了這個既有缺陷）。 */
+  --on-accent: #1a1a1c;
 }
 
 /* ============================================================
@@ -259,6 +412,16 @@
    * 這兩個的消費者都是**線**，所以是紅鉛筆的正當用途（Two-Hands：紅是描不是填）。 */
   --accent-edge: rgba(192, 57, 43, 0.5);
   --accent-edge-strong: rgba(192, 57, 43, 0.65);
+  /* 時間軸選取框（暗房是紅蠟筆的專屬 token，見 `:root` 那條的說明）。
+   * **紙上維持既有行為**：這裡的值＝`--accent` 的 ink 字面值 #26231d，與收編前
+   * ClipBlock/Timeline 直接吃 `var(--accent)` 時的 computed **逐字元相同**。
+   * 刻意寫字面值而不是 `var(--accent)`：紙上的選取框與主鈕本來就沒有連動關係，
+   * 用 var 會製造一個假的依賴（改主鈕會默默改到選取框）。 */
+  --select-edge: #26231d;
+  /* playhead 漸層收尾端。值＝紙版 `--accent-2` 的字面值（#3d382e），與收編前
+   * 直接吃 `var(--accent-2)` 的 computed **逐字元相同**。理由同 --select-edge：
+   * 寫字面值避免製造「改主鈕漸層會動到 playhead」的假依賴。 */
+  --playhead-tail: #3d382e;
   /* ⚠️ --accent-edge-strong 有**兩個語意不同的消費者**，紙上必須拆開（暗版同紫所以
    * 無所謂）：ReviewBar 外框（AI 在跟你說話＝註記層，紅是對的）留給上面這個值；
    * `.seg.on` 是**選取狀態**（分頁、canvas fit、snap 開關）——那是中性 UI 狀態，
@@ -286,8 +449,13 @@
   /* 連結：紅鉛筆（DESIGN.md「link hover turns Red Pencil site-wide」）。
    * 用壓深階確保當文字時 ≥4.5（對 panel 6.66）。 */
   --link: #a02a1e;
-  /* 品牌漸層另一端（vidcut 字樣）。紙上從 ink 走到 graphite——同一支筆的輕重，
-   * 不是雙色漸層；紫→藍那組在紙上會直接讀成貼錯世界的貼紙。 */
+  /* 品牌漸層兩端（vidcut 字樣）。紙上從 ink 走到 graphite——同一支筆的輕重，
+   * 不是雙色漸層；紫→藍那組在紙上會直接讀成貼錯世界的貼紙。
+   * 起點原本由 `--accent-bright`（紙上＝紅鉛筆 #c0392b）擔任；暗房把
+   * `--accent-bright` 專用於 playhead 之後，起點另立了 `--brand-gradient-start`。
+   * ⚠️ 這裡填的是 **`--accent-bright` 在 paper 下的字面值 #c0392b**，
+   * 所以紙上的字樣漸層與收編前**逐字元相同**（仍是紅鉛筆→graphite）。 */
+  --brand-gradient-start: #c0392b;
   --brand-gradient-end: #635c4b;
 
   /* ---- 音訊：non-photo blue（藍鉛筆，DESIGN.md 的「technical margins」）----
@@ -877,7 +1045,7 @@ button:disabled {
   cursor: default;
 }
 /* focus：實線（使用者 2026-08-14 定案：**app 內不用虛線**——虛線/傾斜是 landing 的
- * 語彙，工作介面要乾淨）。顏色：暗版 `--accent` 紫、paper 由 scoped 規則換紅鉛筆。 */
+ * 語彙，工作介面要乾淨）。顏色：暗版 `--accent` 白蠟筆、paper 由 scoped 規則換紅鉛筆。 */
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -885,11 +1053,17 @@ textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-/* Export 主鈕。不傾斜（使用者 2026-08-14 定案：UI 元件一律擺正）。 */
+/* Export 主鈕。不傾斜（使用者 2026-08-14 定案：UI 元件一律擺正）。
+ * **暗房＝白蠟筆實心**（`--accent` 已是 chalk）＋炭黑字，整個 UI 只有這一塊是
+ * 實心亮色，它自然就是視覺重心——跟紙世界的 ink 實心鈕同手法、明暗相反。
+ * ⚠️ `color` 由寫死的 `#fff` 改成 `var(--on-accent)`：白字在 chalk 底上完全讀不到。
+ * **paper 的 computed 不變**——`[data-theme='paper'] .btn-primary` 那條本來就把
+ * color 設成 `var(--on-accent)`（#f7f3e9），specificity 更高，一直贏過這裡的宣告；
+ * 也就是說紙上從來沒有用到過這個 `#fff`，換掉它動不到 paper 一個像素。 */
 .btn-primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   border: 1px solid transparent;
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   box-shadow: 0 2px 12px var(--accent-glow);
 }
@@ -901,6 +1075,15 @@ textarea:focus-visible {
 .btn-primary:active:not(:disabled) {
   transform: translate(0, 0);
 }
+/* 破壞性操作鈕。邊框／hover 底原本寫死 `rgba(248,113,113,α)`＝**舊的暗版 danger 紅**
+ * 的透明階。暗房把 --danger 提亮到 #fb8a8a（為了跟紅蠟筆拉開，見 token 註解），
+ * 這三處若留在舊值就會跟文字色差半格，讀成「框跟字不是同一個紅」。
+ *
+ * ⚠️ **只改暗版**：這三行是無 scope 的 base 規則，兩個主題現在共用同一組字面值，
+ * 直接改就會動到 paper 的 computed（紙上那組本來就是 off-palette 的暗版紅，
+ * 但修它不在本任務範圍——paper 必須零變化）。所以新值走 `:root:not([data-theme])`
+ * ——暗版**沒有** `data-theme` 屬性（spec §4 定案：dark 是移除屬性而非設 "dark"），
+ * 所以這條精準命中暗版、對 paper 完全不適用；base 那三行原封不動留給 paper。 */
 .btn-danger {
   color: var(--danger);
   border-color: rgba(248, 113, 113, 0.35);
@@ -908,6 +1091,13 @@ textarea:focus-visible {
 .btn-danger:hover:not(:disabled) {
   border-color: rgba(248, 113, 113, 0.6);
   background: rgba(248, 113, 113, 0.08);
+}
+:root:not([data-theme]) .btn-danger {
+  border-color: rgba(251, 138, 138, 0.35);
+}
+:root:not([data-theme]) .btn-danger:hover:not(:disabled) {
+  border-color: rgba(251, 138, 138, 0.6);
+  background: rgba(251, 138, 138, 0.08);
 }
 .icon-btn {
   display: inline-flex;
@@ -1323,6 +1513,50 @@ a {
   background: var(--accent-soft);
   color: var(--accent-text);
 }
+/* ---- `.seg.on` / `.badge` 在暗房裡是**中性**，不是紅（Two-Hands）----
+ * 兩者的 base 規則吃 `--accent-edge-strong` / `--accent-text`，而那兩個 token 在暗房
+ * 已改嫁紅蠟筆（它們主要服務的是字幕 chip 與 ReviewBar 那種**註記層**）。但這兩個
+ * 元件不是註記：`.seg.on` 是選取狀態（分頁、canvas fit、snap 開關）、`.badge` 是
+ * 標籤計數，都是中性 UI 狀態，紅框紅字會直接讀成「紅色 UI 強調」——**紙世界在
+ * 實作中途踩過並自我修正的同一個坑**（見 `--accent-edge-strong` 的註解），
+ * 暗房不重蹈。所以這裡把它們拉回白蠟筆：框用 chalk 的 --line-strong、字用 --text-1。
+ * 底維持 `--accent-soft`（它在暗房本來就是 chalk 淡階，不是紅）。
+ * 對比：chalk 對 soft 底（#383839）9.27:1。
+ * scope 用 `:root:not([data-theme])`＝暗版（dark 是移除屬性，見 stores/theme.ts），
+ * paper 側完全不適用——那邊自己另有一條 `.seg.on` 的 ink 版本，不受影響。 */
+:root:not([data-theme]) .seg.on {
+  border-color: var(--line-strong);
+  color: var(--text-1);
+  font-weight: 600;
+}
+:root:not([data-theme]) .badge {
+  color: var(--text-1);
+}
+
+/* ---- 當前字幕列的左標：3px 紅蠟筆實心條（暗房專屬）----
+ * 使用者定案的紅蠟筆標記系統的一員：playhead 在時間軸上指著某個時刻，這條在字幕
+ * 清單裡指著**同一個時刻**——同一支筆的兩個落點。列底本身仍是 --accent-faint
+ * （紅的極淡透明），左標是那一列唯一的實心紅。
+ *
+ * 用 inset box-shadow 而不是 `border-left`：border 會讓當前列的內容區少 3px，
+ * playhead 一走到下一句，整列文字就會左右跳一次。box-shadow 不參與佈局。
+ *
+ * scope 在暗版（`:root:not([data-theme])`，dark 是移除屬性）——`.cap-current` 這個
+ * class 是 2026-08-14 新加的**純掛勾**，紙世界沒有任何規則消費它，
+ * 所以 paper 的 computed 與新增前完全相同。要在紙上做對應的紅鉛筆左標是另一回事，
+ * 那需要走 paper 的 craft，不在本任務範圍。 */
+:root:not([data-theme]) .cap-current {
+  box-shadow: inset 3px 0 0 var(--select-edge);
+}
+
+/* Toast 的邊框跟上 `--danger` 的新值。元件 inline 寫死的是 `rgba(248,113,113,0.4)`
+ * ＝**舊的**暗版 danger 紅；暗房把 danger 提亮到 #fb8a8a（為了跟紅蠟筆拉開，
+ * 見 token 註解），邊框留在舊值就會比字暗半格。
+ * `!important` 是必要的：來源是 inline style，author 一般宣告贏不了
+ * （paper 那條同位置的紅鉛筆覆寫用的是同一個手法，見它的註解）。 */
+:root:not([data-theme]) .toast {
+  border-color: rgba(251, 138, 138, 0.4) !important;
+}
 
 /* 面板直向容器：撐滿高度、內容自己捲。右欄兩個分頁（CaptionList/Activity）共用。 */
 .panel-col {
@@ -1592,22 +1826,29 @@ a {
     box-shadow 0.15s ease;
 }
 
-/* 被 AI 改到：紫色光暈 1s 衰減。a/b 兩份相同 keyframe 依 stamp 奇偶交替，
-   讓連續兩發落在同一 chip 時動畫能重播（class 換名才會 restart） */
+/* 被 AI 改到：光暈 1s 衰減。a/b 兩份相同 keyframe 依 stamp 奇偶交替，
+   讓連續兩發落在同一 chip 時動畫能重播（class 換名才會 restart）。
+
+   暗房版＝**白蠟筆剛畫過的餘韻**（舊值是 rgba(167,139,250,.95) 的紫，隨紫退場換掉）。
+   這是「AI 動了這個東西」的瞬時提示，不是常駐光暈，所以蠟筆粉末感成立、
+   而且它衰減到 0——暗房不發光那條規則管的是**靜止態**。
+   ⚠️ drop-shadow 的顏色寫死在 keyframes 裡（animation 吃不到後續的 token 覆寫），
+   所以 paper 另有一整組 `fx-glow-paper-*` 重寫（見上面），靠 `animation-name` 切換。
+   **改這裡只影響暗版**，paper 的那組不受任何影響。 */
 @keyframes fx-glow-a {
   from {
-    filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.95));
+    filter: drop-shadow(0 0 10px rgba(232, 228, 218, 0.9));
   }
   to {
-    filter: drop-shadow(0 0 0 rgba(167, 139, 250, 0));
+    filter: drop-shadow(0 0 0 rgba(232, 228, 218, 0));
   }
 }
 @keyframes fx-glow-b {
   from {
-    filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.95));
+    filter: drop-shadow(0 0 10px rgba(232, 228, 218, 0.9));
   }
   to {
-    filter: drop-shadow(0 0 0 rgba(167, 139, 250, 0));
+    filter: drop-shadow(0 0 0 rgba(232, 228, 218, 0));
   }
 }
 .fx-glow-a {

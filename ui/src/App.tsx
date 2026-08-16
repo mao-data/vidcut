@@ -226,7 +226,11 @@ export function App() {
         <b
           style={{
             fontSize: 15,
-            background: 'linear-gradient(90deg, var(--accent-bright), var(--brand-gradient-end))',
+            // 起點改吃專屬 token：--accent-bright 在暗版已專用於 playhead 的紅蠟筆，
+            // 品牌字樣不是標記層。paper 下 --brand-gradient-start = #c0392b
+            // （＝該主題 --accent-bright 的字面值），紙上 computed 不變。
+            background:
+              'linear-gradient(90deg, var(--brand-gradient-start), var(--brand-gradient-end))',
             WebkitBackgroundClip: 'text',
             color: 'transparent',
           }}

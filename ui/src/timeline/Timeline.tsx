@@ -72,7 +72,10 @@ function Playhead({ pps }: { pps: number }) {
         bottom: 0,
         left: timeToPx(time, pps) - 1,
         width: 2,
-        background: 'linear-gradient(var(--accent-bright), var(--accent-2))',
+        // 紅蠟筆的筆尖→尾端。收尾端刻意不吃 --accent-2（暗房裡那是主鈕的白蠟筆，
+        // 會讓 playhead 從紅漸層到白）；--playhead-tail 在 paper 下＝--accent-2 的
+        // ink 字面值，紙上 computed 不變。
+        background: 'linear-gradient(var(--accent-bright), var(--playhead-tail))',
         borderRadius: 1,
         boxShadow: '0 0 10px var(--accent-glow-strong)',
         pointerEvents: 'none',
@@ -791,8 +794,9 @@ export function Timeline() {
                     width: timeToPx(view.duration, pps),
                     color: 'var(--accent-text)',
                     background: 'var(--accent-wash)',
+                    // 選取環同 ClipBlock：紅蠟筆的 --select-edge，不是主行動色
                     boxShadow: isSel
-                      ? 'inset 0 0 0 1.5px var(--accent)'
+                      ? 'inset 0 0 0 1.5px var(--select-edge)'
                       : 'inset 0 0 0 1px var(--accent-edge)',
                   }}
                 >
@@ -854,7 +858,13 @@ export function Timeline() {
                 bottom: 0,
                 left: timeToPx(snapLine, pps),
                 width: 1,
-                background: 'var(--accent)',
+                // 時間軸內的吸附導線＝標記層（跟 playhead 同一支筆），所以吃
+                // --select-edge 而不是主行動色；它的暈 --accent-glow-strong 在暗版
+                // 已是紅蠟筆，線若留在 chalk 會在紅暈裡鑲一道白邊。
+                // ⚠️ 這條與 Player.tsx 畫在**影片上**的 --warn 導線是兩回事，
+                // 那兩條維持琥珀（stage 例外規則）。
+                // paper 下 --select-edge = ink 字面值，與收編前 var(--accent) 同色。
+                background: 'var(--select-edge)',
                 boxShadow: '0 0 6px var(--accent-glow-strong)',
                 pointerEvents: 'none',
               }}

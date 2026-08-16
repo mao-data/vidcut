@@ -81,8 +81,11 @@ export const ClipBlock = memo(function ClipBlock({
         overflow: 'hidden',
         cursor: floating ? 'grabbing' : 'grab',
         background: 'var(--card)',
+        // 選取＝紅蠟筆圈起來的那一格（--select-edge）。刻意不吃 --accent：
+        // 那是主行動色（Export/focus），時間軸的選取是標記層，兩者在暗版是不同顏料。
+        // paper 下 --select-edge 指向 ink 字面值，computed 與收編前完全相同。
         boxShadow: selected
-          ? 'inset 0 0 0 1.5px var(--accent), 0 0 14px var(--accent-glow)'
+          ? 'inset 0 0 0 1.5px var(--select-edge), 0 0 14px var(--accent-glow)'
           : 'inset 0 0 0 1px var(--line-strong)',
         // 讓位動畫：只有「不是被拖的那個」才滑動，被拖的要 1:1 跟手。
         // 非拖曳時不寫 inline transition——box-shadow 補間在 .clipblk、
@@ -93,7 +96,7 @@ export const ClipBlock = memo(function ClipBlock({
               zIndex: 20,
               opacity: 0.9,
               transform: 'scale(1.02)',
-              boxShadow: 'var(--shadow-float), inset 0 0 0 1.5px var(--accent)',
+              boxShadow: 'var(--shadow-float), inset 0 0 0 1.5px var(--select-edge)',
             }
           : null),
       }}

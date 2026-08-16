@@ -1703,3 +1703,47 @@ mutant(mcp.ts truncation slice)以 git diff 驗明後還原,最終數字來自�
 的 0.22 淡一階,使用者未再議,以現狀為準;切換器仍藏 Shortcuts 彈出層
 (可發現性 vs 零變化的取捨,階段 ③ 後可再議);Caveat/`--hl` 等保留 token
 現無消費者;暗版世界觀(B/C/D 候選)為下一線,本包不含。
+
+## 補記:暗版世界觀——剪接室暗房 C4-d(2026-08-16)
+
+Spec:`2026-08-14-dual-theme-design.md` 新增 §6(取代 §2「紫世界身分不變」)。
+使用者經兩輪 mock 定案(B/C/D 選 C;C1–C4 收斂為 C4;再收斂為降對比+無粗線+
+無齒孔的 d 版),暗版整體換裝為剪接室暗房:炭黑階梯+白蠟筆+紅蠟筆標記系統,
+紫/青全面退役,兩主題正式同屬紙世界宇宙(Two-Hands 換支筆)。
+
+**行為→測試對映**:零行為變更——純 token 值改動+3 個新 token
+(`--select-edge`/`--playhead-tail`/`--brand-gradient-start`,因語意分家與 paper
+零變化而生)+1 個掛勾 class(`.cap-current`,當前字幕列左標,inset box-shadow
+避免 border 擠位)。既有 345 UI 測試斷言零修改全綠;`waveform.ts` 的紫/青字面值
+為 jsdom 回退機制**刻意保留**(`waveform.test.ts` 釘的是回退機制非顏色)。
+
+**paper 零變化(硬性驗收)**:主 session CDP 逐像素 diff **=0**;實作側另有
+機械證明(剝註解解析全部 CSS 規則比對:paper 30 個選擇器逐字元相同,僅新增
+3 個 token 且值=各消費者原解析值;共用規則改動走 `:root:not([data-theme])`
+或被 paper 更高 specificity 蓋掉)。
+
+**對比實算(WCAG,半透明先 alpha 合成)**:語意文字零失敗——text-1 對
+bg/panel/popover 13.69/12.80/11.26;紅蠟筆文字階 `#da7565` 對 panel 5.20/chip
+4.63/popover 4.57;`--who-ai` 8.21;炭黑字對 chalk 主鈕 13.05;圖形 ≥3(選中
+紅框對 card 3.15、playhead 對 panel/card/frozen 3.62/3.15/3.02)。**順手修掉
+既有缺陷**:白字對 `--approve-2` 一直只有 3.31,換炭黑字後 4.61。
+
+**過程發現(如實記)**:(1) playhead 取消漸層改整條實心紅——壓深端對 card
+2.60 不合規、提亮後漸層感消失,兩頭堵死,且蠟筆本就畫得均勻;(2) `--danger`
+與紅蠟筆相對亮度比 1.00 無法區辨,提亮至 `#fb8a8a`(色相/飽和/亮度比 1.36
+三軸拉開);(3) `--clip-frozen-bg` 被 playhead 對比反向鎖住上限,雙側註解
+互標;(4) 前一輪 gauntlet 因使用者修正指示中停,殘留 mutant(mcp.ts)以
+git diff 驗明後還原。
+
+**gauntlet(source:46451a0+本包工作樹,單次乾淨全跑)**:856 passed
+(shared 46/server 465/ui 345);隨機順序×2 PASS;錨點 117/117;**116/116
+killed+1 等價對照如預期存活**(零新增 mutant——純視覺層);其餘各層全 PASS;
+零新增依賴。
+
+**真瀏覽器驗收(主 session)**:verify:panels/canvas/wysiwyg 三連綠(canvas
+的 demo 缺 overlay 照例 MCP 臨時補、跑完即拆);暗版新世界截圖經使用者過目
+核准(「先ok」)。
+
+**已知限制(如實記)**:「先ok」=保留後續微調空間(紅用量/蠟筆亮度/底深淺
+均為單 token 改動);`--playhead-tail` 在暗版現與筆尖同值(等待亮版以外的
+消費者);text-3 對 popover 4.32 維持「浮出層限用 text-2」的既有限定。

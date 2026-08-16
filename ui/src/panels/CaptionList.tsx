@@ -176,7 +176,10 @@ export function CaptionList() {
             <div
               key={cap.id}
               ref={isCurrent ? currentRowRef : undefined}
-              className="rowline"
+              // `cap-current`＝「playhead 正在這一句」。**只是個掛勾，本身不帶樣式**：
+              // 暗房用它畫 3px 紅蠟筆左標（theme.css 的 `:root:not([data-theme])`
+              // 那條），紙世界沒有對應規則所以完全不受影響（paper 零變化）。
+              className={'rowline' + (isCurrent ? ' cap-current' : '')}
               onClick={() => useSelection.getState().select({ kind: 'caption', id: cap.id })}
               style={{
                 display: 'flex',
