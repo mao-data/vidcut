@@ -355,7 +355,10 @@ server/src/agentActivity.ts AI 工具呼叫的進行中旁路：agentActivityBus
                           不進版本/歷史/undo。發射點是 mcp.ts 的 registerTool 包裝層
 server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render/agentActivity
 server/src/index.ts       startServer + CLI
-ui/src/theme.css          設計系統：token + 原生控件樣式 + 佈局 class ★
+ui/src/theme.css          設計系統實作：token + 原生控件樣式 + 佈局 class ★
+ui/DESIGN.md              編輯器設計系統文件（documenter 自成品反推；雙主題 token
+                          目錄、named rules、被否決方案的反面清單）。改編輯器 UI
+                          之前先讀；landing 歸 site/DESIGN.md，兩者互引不互蓋
 ui/src/main.tsx           React 入口（createRoot）
 ui/src/App.tsx            版面外殼：三欄 grid＋header、全域鍵盤快捷鍵 handler、伺服器字型
                           @font-face 注入（id 防 StrictMode 雙掛載）、錯誤 Toast、面板收合鈕

@@ -99,7 +99,7 @@ components:
 
 # Design System: vidcut Landing Page
 
-> **Scope.** This system governs only the static landing page under `site/`. The vidcut editor UI has its own incumbent system (`ui/src/theme.css`, a dark violet editor world) which this file does not describe and must not be merged with.
+> **Scope.** This system governs only the static landing page under `site/`. The vidcut editor UI has its own design system, recorded in `ui/DESIGN.md` and implemented in `ui/src/theme.css` (a dual-theme world: a charcoal cutting room by default, a storyboard paper desk under `[data-theme='paper']`). This file does not describe it and must not be merged with it; the two cross-reference each other and neither overrides the other.
 >
 > **Sanctioned exception — the embassy (user-approved 2026-08-14).** The editor's **Agent Presence** elements — and only those — carry this world into the dark editor, per `docs/superpowers/specs/2026-08-14-agent-presence-design.md`. Rationale: the AI _is_ this page's storyboard annotator, so its presence in the editor is this world's outpost there. The exception is bounded: those objects, these tokens and rules, no further spread.
 >

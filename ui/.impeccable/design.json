@@ -1,0 +1,500 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-16T00:00:00.000Z",
+  "title": "Design System: vidcut editor UI",
+  "extensions": {
+    "scope": "Editor application UI only (ui/src, served at :3845). The landing page has its own document at site/DESIGN.md; the two cross-reference and neither overrides the other.",
+    "themes": [
+      {
+        "name": "dark",
+        "displayName": "Cutting Room (darkroom)",
+        "selector": ":root",
+        "note": "Default. Applied by REMOVING the data-theme attribute, never by setting data-theme=\"dark\" — this is what makes :root:not([data-theme]) a precise dark-only scope."
+      },
+      {
+        "name": "paper",
+        "displayName": "Storyboard Paper Desk",
+        "selector": "[data-theme='paper']",
+        "note": "Pigments inherited from site/DESIGN.md; nothing invented here."
+      }
+    ],
+    "colorMeta": {
+      "charcoal-stage": {
+        "role": "neutral",
+        "displayName": "Stage Charcoal",
+        "canonical": "#131315",
+        "note": "Darkest surface in the whole UI, in every theme (paper uses ink #26231d for the same slot).",
+        "tonalRamp": [
+          "#0a0a0b",
+          "#131315",
+          "#1a1a1c",
+          "#202023",
+          "#2b2b2e",
+          "#3a3a3e",
+          "#5c5c62",
+          "#8e8e96"
+        ]
+      },
+      "charcoal-panel": {
+        "role": "neutral",
+        "displayName": "Panel Charcoal",
+        "canonical": "#202023",
+        "note": "Neutral by construction: R/G/B channels within 2 of each other. The walls carry no ambient tint.",
+        "tonalRamp": [
+          "#0a0a0b",
+          "#131315",
+          "#1a1a1c",
+          "#202023",
+          "#2b2b2e",
+          "#3a3a3e",
+          "#5c5c62",
+          "#8e8e96"
+        ]
+      },
+      "chalk": {
+        "role": "primary",
+        "displayName": "White Grease Pencil",
+        "canonical": "#e8e4da",
+        "note": "Primary text AND stroke pigment — deliberately the same pen. 13.69:1 on page ground, 12.80:1 on panel, 11.26:1 on popover.",
+        "tonalRamp": [
+          "#2e2c27",
+          "#4a473f",
+          "#6a665c",
+          "#918d84",
+          "#a8a49a",
+          "#c8c4ba",
+          "#e8e4da",
+          "#f5f2ea"
+        ]
+      },
+      "grease-red": {
+        "role": "secondary",
+        "displayName": "Red Grease Pencil",
+        "canonical": "#c94f42",
+        "note": "Marking system, stroke grade. Clears 3:1 against every ground the playhead crosses: panel 3.62, card 3.15, frozen clip 3.02, timeline well 3.87. Text grade steps to #da7565.",
+        "tonalRamp": [
+          "#3d1713",
+          "#5c231d",
+          "#7d2f27",
+          "#a03d33",
+          "#c94f42",
+          "#da7565",
+          "#e79c8f",
+          "#f2c6bd"
+        ]
+      },
+      "tape-blue": {
+        "role": "tertiary",
+        "displayName": "Magnetic Tape Blue-Grey",
+        "canonical": "#7a91a3",
+        "note": "Audio track. The darkroom equivalent of the paper world's non-photo blue technical margin. Luminance ratio 1.79 vs chalk and 1.38 vs grease red — three-way separable.",
+        "tonalRamp": [
+          "#1f272d",
+          "#334049",
+          "#485a67",
+          "#5f7585",
+          "#7a91a3",
+          "#9aafbd",
+          "#bccbd6",
+          "#dde5eb"
+        ]
+      },
+      "alert-red": {
+        "role": "tertiary",
+        "displayName": "Alert Red",
+        "canonical": "#fb8a8a",
+        "note": "Danger only. Separated from the marking red on all three axes: H0 vs H8, S93% vs S63%, luminance 0.3878 vs 0.2857 (ratio 1.36:1). The retired #f87171 sat at 0.3296 — effectively identical to the marking red.",
+        "tonalRamp": [
+          "#4a1414",
+          "#6d1f1f",
+          "#932c2c",
+          "#c14545",
+          "#e06a6a",
+          "#fb8a8a",
+          "#ffb0b0",
+          "#ffd6d6"
+        ]
+      },
+      "code-amber": {
+        "role": "tertiary",
+        "displayName": "Terminal Amber",
+        "canonical": "#e8b04c",
+        "note": "AgentStrip only, dark theme only. The single warm light in the room; its scarcity is the signal. Isolated --ap-* namespace with no fallback to the editor palette. 8.38:1 on code slate.",
+        "tonalRamp": [
+          "#3b2c10",
+          "#5a441a",
+          "#7d5f24",
+          "#9c8654",
+          "#c69a3c",
+          "#e8b04c",
+          "#f0c87e",
+          "#f8e2b7"
+        ]
+      },
+      "ink": {
+        "role": "primary",
+        "displayName": "Ink",
+        "canonical": "#26231d",
+        "note": "Paper theme primary action and text; also the stage backing in BOTH themes. Inherited from site/DESIGN.md.",
+        "tonalRamp": [
+          "#16140f",
+          "#26231d",
+          "#3d382e",
+          "#4a463c",
+          "#635c4b",
+          "#8d8674",
+          "#c0b9a5",
+          "#ede8dc"
+        ]
+      },
+      "red-pencil": {
+        "role": "secondary",
+        "displayName": "Red Pencil",
+        "canonical": "#c0392b",
+        "note": "Paper theme marking pigment, stroke grade. Text use steps DEEPER to #a02a1e (6.66:1 on panel) — the opposite direction from the dark theme, because the ground is light.",
+        "tonalRamp": [
+          "#3a110d",
+          "#571a14",
+          "#75231b",
+          "#a02a1e",
+          "#c0392b",
+          "#d4685c",
+          "#e39a91",
+          "#f2ccc7"
+        ]
+      },
+      "non-photo-blue": {
+        "role": "tertiary",
+        "displayName": "Non-Photo Blue (deepened)",
+        "canonical": "#3a6484",
+        "note": "Paper theme audio + waveform. Deepened from the landing page's #8fb0c9 so chip labels clear 4.5:1 on paper.",
+        "tonalRamp": [
+          "#111e28",
+          "#1c3242",
+          "#2d5878",
+          "#3a6484",
+          "#5b83a1",
+          "#8fb0c9",
+          "#b7cfe0",
+          "#dceaf3"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "panel-title": {
+        "displayName": "Panel Title",
+        "purpose": "Inspector form headings (Clip / Audio / Caption / Overlay). One step heavier than body on purpose, not a body variant."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "The body default and the single declaration point for the entire chrome — all native controls take font: inherit."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Buttons, inputs, selects, textareas, list rows, panel copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Dense timeline markers, tags, form field labels, hints, ruler ticks. Uppercase for panel heads."
+      },
+      "section-cap": {
+        "displayName": "Section Cap",
+        "purpose": "Form section headings, badges, timeline and audio chip labels."
+      },
+      "embassy-cap": {
+        "displayName": "Embassy Cap",
+        "purpose": "The AgentStrip status word only. Wider tracking (0.16em) than any other label in the app."
+      },
+      "mono-readout": {
+        "displayName": "Mono Readout",
+        "purpose": "Tool name and elapsed mm:ss. tabular-nums so a per-second update does not shake the tag's width."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-float",
+        "value": "0 6px 20px rgba(0, 0, 0, 0.65)",
+        "paperValue": "0 6px 20px rgba(38, 35, 29, 0.3)",
+        "purpose": "A clip being dragged. On paper it is not lit up — it was picked up and its shadow got longer."
+      },
+      {
+        "name": "shadow-stage",
+        "value": "0 8px 32px rgba(0, 0, 0, 0.6)",
+        "paperValue": "0 8px 32px rgba(38, 35, 29, 0.3)",
+        "purpose": "The preview frame."
+      },
+      {
+        "name": "shadow-toast",
+        "value": "0 8px 24px rgba(0, 0, 0, 0.5)",
+        "paperValue": "0 8px 24px rgba(38, 35, 29, 0.22)",
+        "purpose": "Error toast."
+      },
+      {
+        "name": "shadow-popover",
+        "value": "0 10px 30px rgba(0, 0, 0, 0.5)",
+        "paperValue": "0 10px 30px rgba(38, 35, 29, 0.18)",
+        "purpose": "Floating boxes (export settings, shortcut sheet)."
+      },
+      {
+        "name": "shadow-popover-menu",
+        "value": "0 12px 40px rgba(0, 0, 0, 0.55)",
+        "paperValue": "0 12px 40px rgba(38, 35, 29, 0.22)",
+        "purpose": "Export dropdown — floats above the header, so deeper than a plain popover."
+      },
+      {
+        "name": "shadow-review",
+        "value": "0 12px 40px rgba(0, 0, 0, 0.55)",
+        "paperValue": "0 12px 40px rgba(38, 35, 29, 0.24)",
+        "purpose": "The review card laid over the preview."
+      },
+      {
+        "name": "shadow-embassy",
+        "value": "0 3px 10px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4)",
+        "paperValue": "0 3px 10px rgba(38, 35, 29, 0.16), 0 1px 3px rgba(38, 35, 29, 0.12)",
+        "purpose": "AgentStrip landing shadow. Stays cold black in the dark theme because it falls on a dark header — an ink shadow there reads as a muddy halo."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ap-spring",
+        "value": "cubic-bezier(0.2, 1.4, 0.4, 1)",
+        "purpose": "House spring. Hover physical nudge and the AgentStrip's shape change when it stretches for working state."
+      },
+      {
+        "name": "fx-spring",
+        "value": "cubic-bezier(0.3, 1.36, 0.4, 1)",
+        "purpose": "AI-edit motion: chip position/width glide and the domino enter animation. Control point >1 overshoots and settles."
+      },
+      {
+        "name": "hover-nudge",
+        "value": "transform: translate(0, -1px) — 0.16s",
+        "purpose": "Hover is a physical nudge, never a bigger shadow. :active returns to translate(0,0)."
+      },
+      {
+        "name": "ap-ring-draw",
+        "value": "1.6s infinite, complete at 62%",
+        "purpose": "The agent ring redrawing itself while working; it rests at the completed state for the remainder so the loop seam does not twitch."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important } }",
+        "purpose": "Global degrade to instant state changes. Author !important beats component inline transitions, which is intentional. Note it does NOT stop GSAP; that is gated by motionOK() in ui/src/motion.ts."
+      }
+    ],
+    "geometryConstants": [
+      {
+        "name": "ROW_H",
+        "value": "64px",
+        "note": "Main clip row height. Not spacing — drag math and screenshot-comparison surface."
+      },
+      { "name": "SUB_ROW_H", "value": "24px", "note": "Caption/overlay sub-row height." },
+      { "name": "AUDIO_ROW_H", "value": "30px", "note": "Audio track row height." },
+      {
+        "name": "handle",
+        "value": "6px",
+        "note": "Trim handle drag hot zone, shared by four call sites. Changing it changes what the user can grab."
+      }
+    ],
+    "iconSizes": [
+      { "name": "toolbar", "value": 14, "purpose": "Timeline toolbar, header export trigger." },
+      {
+        "name": "in-panel",
+        "value": 13,
+        "purpose": "Panels, panel buttons, popovers, inline markers."
+      },
+      {
+        "name": "chip",
+        "value": 11,
+        "purpose": "Exception: inside 20-26px timeline chips, where 13 would overpower a 10-11px label."
+      },
+      {
+        "name": "avatar",
+        "value": 20,
+        "purpose": "Exception: the ReviewBar bot, which is an avatar slot rather than an icon."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button (Export)",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The only solid bright block in the dark theme, which is what makes it the visual center of gravity. Chalk gradient with charcoal text; on paper it inverts to solid ink with paper-white text.",
+      "html": "<button class=\"ds-btn-primary\">Export</button>",
+      "css": ".ds-btn-primary { font-family: 'Jost', -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans TC', sans-serif; font-size: 12px; font-weight: 600; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--r-ctl, 7px); background: linear-gradient(135deg, var(--accent, #e3dfd4), var(--accent-2, #d8d4c9)); color: var(--on-accent, #1a1a1c); box-shadow: 0 2px 12px var(--accent-glow, rgba(232,228,218,0.14)); cursor: pointer; transition: background .12s ease, transform .16s cubic-bezier(.2,1.4,.4,1); } .ds-btn-primary:hover { background: linear-gradient(135deg, var(--accent-hover-1, #f0ece2), var(--accent-hover-2, #e6e2d7)); transform: translate(0, -1px); } .ds-btn-primary:active { transform: translate(0, 0); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent, #e3dfd4); outline-offset: 1px; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "The workhorse control. On charcoal it steps down into the surface (white 6%); on paper it steps up out of the panel — a pressable thing moves toward the viewer in whichever direction reads.",
+      "html": "<button class=\"ds-btn\">Split</button>",
+      "css": ".ds-btn { font-family: 'Jost', -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans TC', sans-serif; font-size: 12px; color: var(--text-1, #e8e4da); background: var(--surface, rgba(255,255,255,0.06)); border: 1px solid var(--line, rgba(255,255,255,0.08)); border-radius: var(--r-ctl, 7px); padding: 6px 10px; cursor: pointer; transition: background .12s ease, border-color .12s ease, color .12s ease, transform .16s cubic-bezier(.2,1.4,.4,1); } .ds-btn:hover { background: var(--surface-2, rgba(255,255,255,0.08)); border-color: var(--line-strong, rgba(255,255,255,0.14)); transform: translate(0, -1px); } .ds-btn:active { transform: translate(0, 0); } .ds-btn:focus-visible { outline: 2px solid var(--accent, #e3dfd4); outline-offset: 1px; } .ds-btn:disabled { opacity: .45; cursor: default; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive actions. Text and border in the alert red, never a filled red button — red never fills.",
+      "html": "<button class=\"ds-btn-danger\">Delete clip</button>",
+      "css": ".ds-btn-danger { font-family: 'Jost', -apple-system, sans-serif; font-size: 12px; color: var(--danger, #fb8a8a); background: var(--surface, rgba(255,255,255,0.06)); border: 1px solid rgba(251,138,138,0.35); border-radius: var(--r-ctl, 7px); padding: 6px 10px; cursor: pointer; transition: background .12s ease, border-color .12s ease; } .ds-btn-danger:hover { border-color: rgba(251,138,138,0.6); background: rgba(251,138,138,0.08); } .ds-btn-danger:focus-visible { outline: 2px solid var(--accent, #e3dfd4); outline-offset: 1px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A well cut into the dark surface; on paper it inverts to a whitened writing area. Disabled fields go dashed so they cannot be mistaken for something the user typed.",
+      "html": "<input class=\"ds-input\" value=\"2.400\" />",
+      "css": ".ds-input { font-family: 'Jost', -apple-system, sans-serif; font-size: 12px; color: var(--text-1, #e8e4da); background: var(--input-bg, rgba(0,0,0,0.25)); border: 1px solid var(--line, rgba(255,255,255,0.08)); border-radius: var(--r-ctl, 7px); padding: 6px 8px; transition: border-color .12s ease; } .ds-input:hover { border-color: var(--line-strong, rgba(255,255,255,0.14)); } .ds-input:focus-visible { outline: 2px solid var(--accent, #e3dfd4); outline-offset: 1px; } .ds-input:disabled { color: var(--text-3, #918d84); background: var(--input-disabled-bg, rgba(0,0,0,0.12)); border-style: dashed; cursor: default; }"
+    },
+    {
+      "name": "Segmented Tab",
+      "kind": "nav",
+      "refersTo": "button",
+      "description": "Tab / canvas-fit / snap toggles. The selected state is NEUTRAL in both themes — chalk or ink, never the annotation red, which would read as a red button.",
+      "html": "<div style=\"display:flex;gap:4px\"><button class=\"ds-seg\">Captions</button><button class=\"ds-seg ds-seg-on\">Activity</button></div>",
+      "css": ".ds-seg { font-family: 'Jost', -apple-system, sans-serif; font-size: 12px; padding: 6px 10px; border-radius: var(--r-ctl, 7px); background: var(--surface, rgba(255,255,255,0.06)); border: 1px solid var(--line, rgba(255,255,255,0.08)); color: var(--text-2, #a8a49a); cursor: pointer; transition: background .12s ease, border-color .12s ease, color .12s ease; } .ds-seg:hover { background: var(--surface-2, rgba(255,255,255,0.08)); } .ds-seg-on { background: var(--accent-soft, rgba(232,228,218,0.12)); border-color: var(--line-strong, rgba(255,255,255,0.14)); color: var(--text-1, #e8e4da); font-weight: 600; } .ds-seg:focus-visible { outline: 2px solid var(--accent, #e3dfd4); outline-offset: 1px; }"
+    },
+    {
+      "name": "Caption Chip",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "A timeline caption: red wash background at alpha 0.12 with a red stroke and a red-grade label. The wash is pigment laid on a surface, not a red panel — that alpha ceiling is what keeps the label at 4.73:1.",
+      "html": "<span class=\"ds-chip-caption\">so anyway, the thing is</span>",
+      "css": ".ds-chip-caption { display: inline-flex; align-items: center; height: 24px; padding: 0 6px; font-family: 'Jost', -apple-system, sans-serif; font-size: 10px; border-radius: 4px; background: var(--accent-wash, rgba(201,79,66,0.12)); box-shadow: inset 0 0 0 1px var(--accent-edge, rgba(201,79,66,0.75)); color: var(--accent-text, #da7565); text-shadow: var(--chip-text-shadow, 0 1px 2px rgba(0,0,0,0.8)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }"
+    },
+    {
+      "name": "Audio Chip",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "The audio track's chip in tape blue-grey — the technical margin pigment, present but never competing with the marking red.",
+      "html": "<span class=\"ds-chip-audio\">bgm-loop.mp3</span>",
+      "css": ".ds-chip-audio { display: inline-flex; align-items: center; height: 26px; padding: 0 6px; font-family: 'Jost', -apple-system, sans-serif; font-size: 10px; border-radius: 4px; background: var(--audio-wash, rgba(122,145,163,0.12)); box-shadow: inset 0 0 0 1px var(--audio-edge, rgba(122,145,163,0.45)); color: var(--audio-bright, #9aafbd); text-shadow: var(--chip-text-shadow, 0 1px 2px rgba(0,0,0,0.8)); }"
+    },
+    {
+      "name": "Popover",
+      "kind": "card",
+      "refersTo": "popover",
+      "description": "One ladder step brighter than a panel, strong 1px border, popover shadow. Semantic text inside uses text-2, never text-3 — text-3 only reaches 4.32:1 on this ground.",
+      "html": "<div class=\"ds-popover\"><div class=\"ds-popover-title\">EXPORT</div><div class=\"ds-popover-body\">Subtitles are burned into the picture.</div></div>",
+      "css": ".ds-popover { padding: 12px; border-radius: var(--r-ctl, 7px); background: var(--popover-bg, #2a2a2e); border: 1px solid var(--line-strong, rgba(255,255,255,0.14)); box-shadow: var(--shadow-popover, 0 10px 30px rgba(0,0,0,0.5)); font-family: 'Jost', -apple-system, sans-serif; } .ds-popover-title { font-size: 10px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--text-2, #a8a49a); margin-bottom: 8px; } .ds-popover-body { font-size: 12px; color: var(--text-2, #a8a49a); }"
+    },
+    {
+      "name": "AgentStrip (idle)",
+      "kind": "custom",
+      "refersTo": "agent-strip",
+      "description": "The AI's embassy in the header and the dark theme's only warm light. Identity is the hand — a hand-drawn ring and a deliberately crooked frame, both run through a graphite-noise filter — not the carrier, which changes with the theme. The only element permitted a resting rotation (-0.6deg).",
+      "html": "<button class=\"ds-ap-strip\"><svg class=\"ds-ap-defs\" width=\"0\" height=\"0\" aria-hidden=\"true\"><filter id=\"ds-ap-pencil\"><feTurbulence type=\"fractalNoise\" baseFrequency=\"0.9\" numOctaves=\"2\" result=\"n\"/><feDisplacementMap in=\"SourceGraphic\" in2=\"n\" scale=\"1.2\"/></filter></svg><svg class=\"ds-ap-ring\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M8 1.6c3.6-.3 6.5 2.6 6.3 6.2-.2 3.5-2.9 6.4-6.4 6.3C4.4 14 1.5 11.2 1.7 7.7 1.9 4.3 4.6 1.8 8 1.6z\"/></svg><span class=\"ds-ap-cap\">Agent Ready</span><svg class=\"ds-ap-frame\" viewBox=\"0 0 158 29\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><path d=\"M2.5 3.2c50-2 104-1.8 153 .8 1.2 6.8-.6 15.6.3 22-52 2.6-102 2-152.6-.4-1.4-6.6.4-14.8-.7-22.4z\"/></svg></button>",
+      "css": ".ds-ap-strip { position: relative; display: inline-flex; align-items: center; gap: 8px; background: var(--ap-slate, #241f16); color: var(--ap-amber, #e8b04c); border: none; border-radius: 3px; padding: 5px 14px 5px 12px; transform: rotate(-0.6deg); box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.4); transition: padding .25s cubic-bezier(.2,1.4,.4,1); cursor: pointer; } .ds-ap-strip:hover { background: #2b2519; transform: rotate(-0.6deg) translateY(-2px); } .ds-ap-strip:active { transform: rotate(-0.6deg) translateY(0); } .ds-ap-strip:focus-visible { outline: 2px solid var(--ap-red, #c0392b); outline-offset: 3px; } .ds-ap-defs { position: absolute; width: 0; height: 0; } .ds-ap-ring { width: 16px; height: 16px; flex: none; } .ds-ap-ring path { fill: none; stroke: var(--ap-amber, #e8b04c); stroke-width: 2; stroke-linecap: round; filter: url(#ds-ap-pencil); } .ds-ap-cap { font-family: 'Jost', -apple-system, 'Helvetica Neue', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--ap-amber, #e8b04c); line-height: 1; } .ds-ap-frame { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; } .ds-ap-frame path { fill: none; stroke: var(--ap-amber, #e8b04c); stroke-width: 1.5; stroke-linecap: round; filter: url(#ds-ap-pencil); }"
+    },
+    {
+      "name": "AgentStrip (offline)",
+      "kind": "custom",
+      "refersTo": "agent-strip-offline",
+      "description": "Unpowered brass on a darker slate: the lamp is still there, it just has no current. The frame dims before the text does, so the state change is read from the frame first. The ring's dashed line is literal — the connection is cut.",
+      "html": "<button class=\"ds-ap-strip ds-ap-off\"><svg class=\"ds-ap-defs\" width=\"0\" height=\"0\" aria-hidden=\"true\"><filter id=\"ds-ap-pencil-off\"><feTurbulence type=\"fractalNoise\" baseFrequency=\"0.9\" numOctaves=\"2\" result=\"n\"/><feDisplacementMap in=\"SourceGraphic\" in2=\"n\" scale=\"1.2\"/></filter></svg><svg class=\"ds-ap-ring ds-ap-dashed\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path pathLength=\"1\" d=\"M8 1.6c3.6-.3 6.5 2.6 6.3 6.2-.2 3.5-2.9 6.4-6.4 6.3C4.4 14 1.5 11.2 1.7 7.7 1.9 4.3 4.6 1.8 8 1.6z\"/></svg><span class=\"ds-ap-cap\">No Agent</span><svg class=\"ds-ap-frame\" viewBox=\"0 0 158 29\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><path d=\"M2.5 3.2c50-2 104-1.8 153 .8 1.2 6.8-.6 15.6.3 22-52 2.6-102 2-152.6-.4-1.4-6.6.4-14.8-.7-22.4z\"/></svg></button>",
+      "css": ".ds-ap-strip.ds-ap-off { background: var(--ap-slate-off, #1f1c15); color: var(--ap-amber-dim, #9c8654); } .ds-ap-off .ds-ap-cap { color: var(--ap-amber-dim, #9c8654); } .ds-ap-off .ds-ap-ring path { stroke: var(--ap-amber-dim, #9c8654); stroke-dasharray: .12 .08; stroke-width: 1.6; filter: url(#ds-ap-pencil-off); } .ds-ap-off .ds-ap-frame path { stroke: var(--ap-frame-off, rgba(232,176,76,0.35)); filter: url(#ds-ap-pencil-off); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "One Pair of Hands, Two Desks",
+    "overview": "vidcut's editor is the same storyboard world as the landing page, seen at two times of day. The light theme is the storyboard paper desk: ink and graphite drafting, a red pencil for judgment, non-photo blue for the technical margins. The dark theme is the traditional cutting room after the lights go down: neutral charcoal walls, a white grease pencil for line work, a red grease pencil for marks, and a desaturated tape-blue for the audio side. The two themes are not a color inversion of each other — they are the same hand holding a different pen on a different table, and every accent was reassigned per consumer rather than hue-shifted as a family.\n\nThe room is deliberately colorless. All four dark ground steps are neutral charcoal (R/G/B channels within 2 of each other): the walls carry no ambient tint so every saturated pixel on screen belongs to a pen or to the video. The one exception, and the only warm light anywhere in the dark theme, is the amber terminal tag in the header — the AI's embassy. Its scarcity is the mechanism: because nothing else glows, that tag is always the answer to 'is the agent there?'.\n\nDensity is workshop-grade rather than editorial: 13px body, an 11–14px chrome ramp, 4-multiple spacing, and two icon sizes. Things stay square and solid-lined. The handmade vocabulary of the landing page (dashed rules, tilted objects, handwriting) was tried in the app and pulled back out by the user after seeing the build — the editor keeps the hand (the drawn ring, the wobbly frame, the spring easing) and drops the paper craft that costs scan speed.",
+    "keyCharacteristics": [
+      "Two themes, one universe; dark is the default and is expressed as the absence of data-theme",
+      "Neutral grounds, pigment reserved for pens; red is a marking pigment and never a fill",
+      "Exactly one glowing element in the dark theme (the agent's amber tag)",
+      "Solid 1px rules, square objects, print-legible type throughout the working surface",
+      "Contrast is computed, not eyeballed: every semantic text token carries its measured ratio"
+    ],
+    "rules": [
+      {
+        "name": "The Darkest-Stage Rule",
+        "body": "--bg-stage is the darkest surface in the entire UI, in every theme. Light surroundings corrupt color judgment on the video, so the preview backing stays #26231d even on the paper desk. This is a color-judgment constraint that outranks the world metaphor; it is not 'the dark theme happens to be dark'.",
+        "section": "colors"
+      },
+      {
+        "name": "The Red-Never-Fills Rule",
+        "body": "Red is a pen. It draws lines, strokes, rings, round caps, and marks — it is never a button background, a panel background, or any large fill. Caption chips get a red wash at alpha <= 0.12 so it reads as pigment laid on a surface, not as a red panel. Audit test: if you can point at a red rectangle bigger than a chip, the rule is broken.",
+        "section": "colors"
+      },
+      {
+        "name": "The One-Warm-Light Rule",
+        "body": "The AgentStrip amber is the dark theme's only warm, glowing signal. No other element may emit warm light or a colored glow at rest; 'the darkroom does not glow' applies to every resting state, and the AI-edit flash is allowed only because it decays to zero within 1s.",
+        "section": "colors"
+      },
+      {
+        "name": "The Three-Axis Danger Rule",
+        "body": "Danger red and marking red must separate on hue, saturation, and luminance simultaneously. In the dark theme that is H8/S63%/L0.2857 for the grease pencil versus H0/S93%/L0.3878 for danger — a 1.36:1 luminance ratio. Mnemonic: the crayon red is orange-leaning and settled; the alert red is pure and bright. Never set danger to a value whose luminance ratio against the marking red approaches 1.00.",
+        "section": "colors"
+      },
+      {
+        "name": "The Popover Text Rule",
+        "body": "--text-3 is semantic-grade on panels (4.91:1) and on the page ground (5.25:1) but only 4.32:1 on --popover-bg. Inside any floating layer, semantic text uses --text-2 (5.75:1). Decoration may stay on --text-3.",
+        "section": "colors"
+      },
+      {
+        "name": "The Per-Consumer Reassignment Rule",
+        "body": "When a pigment changes, reassign token by token according to what consumes it, never by recoloring a family. Neutral UI state (selection, tabs, primary action) goes to chalk/ink; the annotation layer (captions, playhead, running timecode, the AI addressing you) goes to red. This is why .seg.on and .badge are pulled back to chalk in the dark theme: a red-outlined tab reads as 'a red button', which is exactly what the red-never-fills rule forbids — the paper theme made and corrected that same mistake.",
+        "section": "colors"
+      },
+      {
+        "name": "The Four-Step Chrome Rule",
+        "body": "UI chrome type has exactly four sizes — 10 / 11 / 12 / 13 (plus 14 for panel titles). No half-pixel sizes exist and none may be added: a half step is invisible as a distinction but forces you to measure to know which level you are looking at. Video-world type (caption and overlay fontSize) is project data, not chrome, and is outside this ramp entirely.",
+        "section": "typography"
+      },
+      {
+        "name": "The No-Handwriting-In-App Rule",
+        "body": "No handwriting face is used for any app text. Caveat was shipped onto .empty-note and .form .hint, then removed by the user after review: those sentences are the interface giving directions and must be legible at a glance. The @font-face declarations and the woff2 files are kept deliberately — reserved for the agent index-card surface — and cost nothing, since a font with no matching computed font-family is never downloaded.",
+        "section": "typography"
+      },
+      {
+        "name": "The Video-Is-Not-Chrome Rule",
+        "body": "The theme has no authority over the caption/text-card rendering path. Those are the user's finished work; changing them would be editing the user's output.",
+        "section": "typography"
+      },
+      {
+        "name": "The Ink-Shadow Rule",
+        "body": "On the paper desk, nothing glows. Every glow token becomes an ink drop shadow: a selected clip is not lit up, it has been picked up slightly and its shadow got longer. The consumers are all color slots in existing box-shadow / drop-shadow declarations, so the geometry never changes with the theme.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Shadow-Follows-Its-Ground Rule",
+        "body": "A shadow's tint follows the surface it lands on, not the theme name. The AgentStrip's landing shadow stays cold black in the dark theme because it falls on a dark header — an ink-colored shadow there reads as a muddy halo, not as depth.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Nudge-Not-Lift Rule",
+        "body": "Hover is expressed as a physical nudge — translate(0, -1px) on cubic-bezier(0.2, 1.4, 0.4, 1) — never as a larger shadow. :active returns to translate(0, 0).",
+        "section": "elevation"
+      },
+      {
+        "name": "The App-Is-Not-Landing Rule",
+        "body": "The landing page's expressive vocabulary does not transfer to the working interface. Rules are 1px solid, UI elements sit square, and app text is never handwritten. Confirmed by the user across two review rounds after seeing the build.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do keep --bg-stage the darkest surface in the UI in every theme, including paper (#26231d).",
+      "Do use red as a pen only: strokes, rings, caps, marks, and washes at alpha <= 0.12.",
+      "Do reassign pigments per consumer when a color changes — neutral UI state to chalk/ink, annotation layer to red — and never recolor a token family wholesale.",
+      "Do state a measured contrast ratio next to any new semantic color token; graphics clear 3:1, semantic text clears 4.5:1, and half-transparent foregrounds are alpha-composited against their real ground before the ratio is computed.",
+      "Do switch to the dark theme by removing data-theme (never by setting data-theme=\"dark\"); the dark theme is :root, which is what makes it byte-identical to the pre-theme build and what makes :root:not([data-theme]) a precise dark-only scope.",
+      "Do express hover as a physical nudge on cubic-bezier(0.2, 1.4, 0.4, 1).",
+      "Do keep the --ap-* embassy palette isolated; it neither shares with nor falls back to the editor tokens.",
+      "Do use 1px solid rules everywhere and keep every UI element square.",
+      "Do put semantic text in floating layers on --text-2, not --text-3."
+    ],
+    "donts": [
+      "Don't dash a divider, a border, or a focus ring. Dashed rules are the landing page's vocabulary; a working interface has to be clean and scannable (user decision, two rounds). The only survivors are input:disabled and the offline agent ring, where the broken line carries literal meaning.",
+      "Don't rotate a UI element. Tilt is landing vocabulary and was withdrawn from the app. Beyond taste, four things must never rotate for functional reasons: the preview stage and video (a coordinate measurement surface), any timeline element (alignment reading is its job), data rows (a stack of individually tilted rows reads as broken layout), and popovers.",
+      "Don't set app text in a handwriting face. Guidance sentences must be legible at a glance; Caveat is retained in the repo for the agent index card only.",
+      "Don't add a second glowing element to the dark theme. The amber tag's scarcity is its function.",
+      "Don't give the playhead a gradient or a pencil-texture filter. A solid #c94f42 line was forced by measurement: a deeper tail fails 3:1 against the clip surface, and a compliant tail has a 1.00 luminance ratio against the tip, so the gradient is invisible either way. A crayon stroke is uniform.",
+      "Don't port the paper header's 2px ink rule into the dark theme, and don't add film sprocket holes anywhere. Both are print/landing metaphors; on charcoal a 2px bright band reads as a lit edge, not a boundary.",
+      "Don't use red for a selected tab, a badge, a button fill, or a panel fill — it reads as 'a red UI accent' and the paper theme already had to correct exactly that mistake.",
+      "Don't exceed a 7px radius on any paper object, or ship a half-pixel chrome font size.",
+      "Don't copy the purple/cyan literals in waveform.ts into anything. They are a jsdom fallback that exists to prove the lookup mechanism, not a palette.",
+      "Don't hard-code a theme-dependent value in a component's inline style. Inline style beats every author rule, which means the paper theme can only override it with !important."
+    ]
+  }
+}
