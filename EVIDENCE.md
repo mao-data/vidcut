@@ -1937,3 +1937,41 @@ frontmatter 色表同步(tape-blue-bright/non-photo-blue-deep 換值+chip 家族
 **真瀏覽器驗收(主 session)**:verify:panels/canvas 雙綠(canvas 以 MCP
 臨時 overlay 加拆);兩主題 CDP 截圖逐輪過目(含臨時 overlay 展示綠 chip,
 拍畢即拆);chip 取樣驗證各輪色值逐位元組等於定案值。
+
+## 補記:版面重構——AI 全高左欄+右欄整合+時間軸右移(2026-08-16)
+
+使用者定案(一次修正收斂:「整個移往右邊,把下面的軌道也往右移動」):header
+全寬不動;其下左=AI 專區全高縱欄(三態狀態卡+完整活動流,原 Inspector AI
+區塊與右欄 Activity 分頁合體),右=舞台+右欄(Captions ⇄ Properties)在上、
+時間軸在下(從 AI 欄右緣開始)。原 Properties 左欄退役,其內容(Canvas fill
+/選取表單/Shortcuts/閒置提示)整合進右欄 Properties 分頁;選取任何物件右欄
+自動跳 Properties,取消選取不跳走。AgentStrip 留 header,點擊改為展開左欄
+(openLeft,新 store action)。Opus 實作,主 session 獨立驗收。
+
+**骨架實作要點**(Opus 報告):維持單一 CSS grid(3 欄×2 列)而非巢狀
+flex——PanelResizer 以同一容器 rect 換算指標座標,拆兩層會讓左右兩式量到
+不同原點;AI 欄 gridRow '1/3'、時間軸 gridColumn '2/4'。Timeline.tsx 零改動
+(量自己容器,AI 欄收合時自動變寬)。
+
+**測試搬家零弱化**:367→377(+10)。19 條 agent 測試移 AgentPanel.test.tsx;
+兩條斷言實質調整均有記錄:N2 反轉(「選取後 agent 區塊消失」是舊寄居處的
+副作用而非需求,改斷言反向)、B6 範圍收斂到 .panel-section(欄內現有完整
+活動流,「最近三筆」斷言本意如此)。11 隻 mutant 重錨(find 逐位元組不變,
+僅 file/tests/note),逐隻正規驗殺(帶突變紅/還原綠,數字入 Opus 報告);
+另 5 隻鄰近 mutant 複驗未破。
+
+**主 session 驗收**:verify:panels 首跑紅——e2e 腳本按鈕 title 還是舊版面
+(Collapse properties panel 等),同步為 Collapse/Expand AI panel 與
+captions/properties 後全綠(驗證器跟上新版面,非弱化);verify:canvas 綠
+(MCP 臨時 overlay 加拆);行為四項真瀏覽器實測全過(點 clip→Properties
+表單、Esc→閒置提示、收合→0px、點 AgentStrip→展回 260px);Esc/data-tl-blank
+deselect 路徑 diff 為空;兩主題 CDP 截圖過目。
+
+**gauntlet(source:da46842+本包工作樹,單次乾淨全跑)**:888 passed
+(shared 46/server 465/ui 377);UI 覆蓋率 91.95%;隨機順序×2 PASS;錨點
+123/123;**122/122 killed+1 等價對照存活如預期**;其餘各層全 PASS;零新增
+依賴。
+
+**已知事項(如實記)**:Activity 自帶的 Undo/Redo 列現坐 AI 欄中段(狀態卡
+與流水帳之間),截圖判斷成立,使用者可再調;shortcuts.ts 的 Esc 條目未提
+「Properties 回閒置提示」(onKey 未變,措辭候選);--wave-clip-* 仍無消費者。

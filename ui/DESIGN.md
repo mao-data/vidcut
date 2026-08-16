@@ -208,7 +208,7 @@ The room is deliberately colorless. All four dark ground steps are neutral charc
 (R/G/B channels within 2 of each other): the walls carry no ambient tint so every
 saturated pixel on screen belongs to a pen or to the video. The one exception, and
 the only warm light anywhere in the dark theme, is the embassy — the amber terminal
-tag in the header and the amber terminal card in the Inspector, the AI's two
+tag in the header and the amber terminal card in the AI column, the AI's two
 premises. Its scarcity is the mechanism: because nothing else is warm, amber is
 always the answer to "is the agent there?".
 
@@ -299,8 +299,8 @@ broken.
 
 **The One-Warm-Light Rule.** Warm light in the dark theme belongs to **the embassy
 and nothing else** — the AgentStrip tag in the header and the AgentStatus index card
-in the Inspector, which are the same amber-on-slate terminal material and the same
-drawn hand. The rule is about the _territory_, not the object count: adding a third
+at the top of the AI column, which are the same amber-on-slate terminal material and
+the same drawn hand. The rule is about the _territory_, not the object count: adding a third
 embassy surface would need approval, but adding warm light to any non-embassy
 element is simply forbidden. No other element may emit warm light or a colored glow
 at rest; "the darkroom does not glow" applies to every resting state, and the AI-edit
@@ -388,11 +388,36 @@ the user's output.
 
 ## Layout
 
-Three-region shell: a fixed header (`.glass`, solid panel fill, 8px/16px padding),
-a middle row of left panel / preview stage / right panel, and the timeline region
-across the bottom. Side panels are resizable and collapsible; collapse is instant
-while width animates over 0.25s, so the reopen handle fades in on a matching delay
-rather than co-existing with the closing panel.
+**The shell is cut vertically first** (user decision 2026-08-16): a fixed header
+(`.glass`, solid panel fill, 8px/16px padding) spans the full width, and everything
+below it is split by one full-height rule into **the AI column** on the left and the
+work area on the right. The work area is then cut horizontally: preview stage plus
+the Captions/Properties panel on top, the timeline region underneath. The timeline
+therefore starts at the AI column's right edge and no longer spans the window —
+when the AI column collapses, the timeline simply gets wider.
+
+Mechanically this is still one CSS grid (three columns × two rows), not a flex
+column wrapping a second grid: `PanelResizer` converts pointer coordinates against
+that single container's rect (`clientX - rect.left` on the left, `rect.right -
+clientX` on the right), so splitting the AI column out into its own box would leave
+those two expressions measuring different origins. The skeleton lives in two
+declarations — the AI column takes `gridRow: 1 / 3` (full height, so it crosses the
+timeline row) and the timeline takes `gridColumn: 2 / 4` (starting at the preview
+column).
+
+Both side columns are resizable and collapsible; collapse is instant while width
+animates over 0.25s, so the reopen handle fades in on a matching delay rather than
+co-existing with the closing panel.
+
+**Right column: two tabs, Captions ⇄ Properties.** Properties carries what used to
+be the left panel — canvas fill, the selected object's Inspector form, the Shortcuts
+popover, and the idle "Select a clip / caption / overlay / audio to edit" prompt.
+**Selecting anything switches the right column to Properties** (and expands it if
+collapsed): that is the direct translation of the old reflex where clicking a clip
+turned the left panel into its form. Deselecting does _not_ switch away — the user
+pressed Escape or clicked timeline blank space, and bouncing them off the tab they
+are reading would be a second, unasked-for move; Properties just falls back to the
+idle prompt.
 
 **Spacing rhythm: multiples of 4.** 4 (icon-to-text, adjacent controls), 8 (panel
 block padding, control-row gaps), 12 (panel/card padding, header horizontal), 16
@@ -420,9 +445,12 @@ must be annotated at the call site; only two exist — size 11 inside timeline c
 (20–26px tall, 10–11px labels) and size 20 for the ReviewBar bot, which is an avatar
 rather than an icon.
 
-**Forms** use a two-column grid for x·y pairs — never three, because at the 200px
-minimum panel width a third column truncates a four-decimal position value and the
-user reads `-0.0` as if it were the real number.
+**Forms** use a two-column grid for x·y pairs — never three, because a third column
+truncates a four-decimal position value and the user reads `-0.0` as if it were the
+real number. The measurement was taken at the 200px minimum of the old left panel;
+the forms now sit in the right column (240px minimum), which is more room, not
+less — the rule stands and the number stays as the origin of it, since widening a
+panel is not a reason to re-add a column that was removed for legibility.
 
 ## Elevation & Depth
 
@@ -579,9 +607,17 @@ content row. Recompute this before changing padding, type size, or ring size.
 
 ### AgentStatus index card (the embassy's second premises)
 
-`.ap-card` in the Inspector, shown only when nothing is selected — which is why the
-deselect paths matter (`Esc`, and a click on timeline blank space): without a way
-back to the idle panel, a user who selects anything never sees the card again.
+`.ap-card` at the top of the AI column, above the activity feed — the two halves of
+one column because they are two scales of the same question: the card answers "what
+is happening now", the feed answers "what has been done so far", and a user who has
+to reassemble those from opposite edges of the screen is doing the interface's job.
+
+**It is on screen whenever the column is** (user decision 2026-08-16). Until then the
+card lived in the Inspector's nothing-selected branch, so selecting any object hid
+it — which is why the deselect paths (`Esc`, a click on timeline blank space) used to
+be load-bearing for the embassy specifically. They still matter as an editing
+affordance, but the card no longer depends on them: whether the AI is there is not a
+question that should be answered only while the user happens to have nothing selected.
 
 Same material as the tag and the **same hand** — `RING_PATH` is imported from
 `AgentStrip.tsx` rather than copied, because a second copy would silently diverge and

@@ -69,6 +69,27 @@ describe('App', () => {
     expect(container.textContent).toContain('Agent ready');
   });
 
+  /**
+   * 版面骨架（使用者 2026-08-16 定案）。**縱切一刀**：AI 專區是全高的第一欄，
+   * 時間軸從它的右緣開始、不再橫貫全寬。
+   *
+   * jsdom 沒有版面引擎（`getBoundingClientRect` 全是 0），所以這裡驗的是**產生
+   * 那個版面的宣告本身**——grid 的行列指派。這不是「測 CSS」：`gridRow`／
+   * `gridColumn` 是這個骨架唯一的載體，改掉其中一個就是改掉骨架，而那正是
+   * 這兩條要擋的回歸。真正的視覺由主 session 在真瀏覽器驗收。
+   */
+  it('the AI column spans both rows and the timeline starts at its right edge', () => {
+    seedProject();
+    const { container } = render(<App />);
+    const aiCol = container.querySelector<HTMLElement>('.panel-edge-r')!;
+    // 跨兩列＝全高，時間軸那一列沒有它的格子
+    expect(aiCol.style.gridRow).toBe('1 / 3');
+
+    const timeline = container.querySelector<HTMLElement>('.panel-edge-t')!;
+    // 從第二欄（預覽）起跳、吃到最右：左緣＝AI 欄右緣
+    expect(timeline.style.gridColumn).toBe('2 / 4');
+  });
+
   it('collapses and expands the side panels', () => {
     seedProject();
     render(<App />);
@@ -85,31 +106,82 @@ describe('App', () => {
     expect(useView.getState().rightOpen).toBe(false);
   });
 
-  it('switches the right panel between captions and activity', () => {
+  // 舊斷言是「右欄在 Captions ⇄ Activity 之間切」。**經核准的版面變更**
+  // （使用者 2026-08-16 定案）：Activity 分頁退役——活動流搬進左邊的 AI 專區，
+  // 右欄的第二個分頁改成 Properties（原左欄的表單）。這條測的仍然是同一件事：
+  // 右欄的分頁切換有沒有真的換掉下面的內容。
+  it('switches the right panel between captions and properties', () => {
     seedProject();
     const { getByText, container } = render(<App />);
+    // Captions 是預設分頁：先確認 Properties 的閒置提示還沒出現
+    expect(container.textContent).not.toContain('Select a clip');
     act(() => {
-      fireEvent.click(getByText('Activity'));
+      fireEvent.click(getByText('Properties'));
     });
-    expect(container.textContent).toContain('No changes yet');
+    expect(container.textContent).toContain('Select a clip');
   });
 
-  // 紙條的 onOpenActivity 是 App 傳進去的 setTab——這條驗的是**接線**
-  // （紙條自己的點擊契約在 AgentStrip.test.tsx，那裡的 callback 是 vi.fn()，
-  // 證不了 App 真的接到分頁狀態上）。
-  it('clicking the header agent strip opens the activity tab and expands the right panel', () => {
+  // 選了東西 → 右欄自動跳到 Properties（舊版面「選了東西左欄變表單」那條反射的
+  // 直譯）。**取消選取不自動跳走**：那是使用者按 Esc 的結果，把他從正在看的分頁
+  // 彈開是第二次沒要求的動作；Properties 分頁自己顯示閒置提示。
+  it('selecting something switches the right panel to Properties', () => {
     seedProject();
     const { container } = render(<App />);
+    expect(container.textContent).not.toContain('Select a clip');
+
+    act(() => {
+      useSelection.getState().select({ kind: 'clip', id: 'c1' });
+    });
+    // 表單真的出現了（不只是分頁按鈕變亮）
+    expect(container.textContent).toContain('clip one');
+    expect(container.textContent).not.toContain('Select a clip');
+  });
+
+  it('selecting also expands the right panel (a tab you cannot see is not a tab)', () => {
+    seedProject();
+    render(<App />);
     act(() => {
       useView.getState().toggleRight(); // 先收起來
     });
     expect(useView.getState().rightOpen).toBe(false);
-    expect(container.textContent).not.toContain('No changes yet');
+
+    act(() => {
+      useSelection.getState().select({ kind: 'clip', id: 'c1' });
+    });
+    expect(useView.getState().rightOpen).toBe(true);
+  });
+
+  it('deselecting leaves the Properties tab in place, showing the idle prompt', () => {
+    seedProject();
+    const { container } = render(<App />);
+    act(() => {
+      useSelection.getState().select({ kind: 'clip', id: 'c1' });
+    });
+    expect(container.textContent).toContain('clip one');
+
+    act(() => {
+      useSelection.getState().select(null);
+    });
+    // 還在 Properties 分頁（沒有被彈回 Captions），只是換成閒置提示
+    expect(container.textContent).toContain('Select a clip');
+  });
+
+  // 紙條的 onOpenActivity 是 App 傳進去的——這條驗的是**接線**（紙條自己的點擊
+  // 契約在 AgentStrip.test.tsx，那裡的 callback 是 vi.fn()，證不了 App 真的把它
+  // 接到版面上）。2026-08-16 版面重構後目的地從右欄的 Activity 分頁換成左邊的
+  // AI 專區，語意不變：點紙條＝去看活動流，而且看得到。
+  it('clicking the header agent strip expands the AI column so the activity feed is visible', () => {
+    seedProject();
+    const { container } = render(<App />);
+    act(() => {
+      useView.getState().toggleLeft(); // 先收起來
+    });
+    expect(useView.getState().leftOpen).toBe(false);
 
     act(() => {
       fireEvent.click(container.querySelector('.ap-strip')!);
     });
-    expect(useView.getState().rightOpen).toBe(true);
+    expect(useView.getState().leftOpen).toBe(true);
     expect(container.textContent).toContain('No changes yet');
   });
 

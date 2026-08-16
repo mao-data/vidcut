@@ -634,58 +634,58 @@
   },
   {
     "id": "inspector-agent-block",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "        <AgentStatus />\n",
     "replace": "",
-    "tests": "ui/src/panels/panels.test.tsx",
-    "note": "AI 區塊整塊不渲染 → B1..B7 必須抓到"
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
+    "note": "AI 區塊整塊不渲染 → B1..B7 必須抓到（2026-08-16 版面重構：從 Inspector 的未選取分支搬到 AI 專區 AgentPanel，錨點跟著搬）"
   },
   {
     "id": "inspector-agent-connected",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "            {phase === 'offline' ? 'No agent' : working ? 'Working' : 'Agent ready'}",
     "replace": "            {phase === 'offline' ? 'Agent ready' : working ? 'Working' : 'No agent'}",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "索引卡的連線狀態反轉 → B2 必須抓到（find 隨階段 4 換裝更新：兩態 'Agent connected'/'No agent' → 三態，與 header 標籤逐字相同）"
   },
   {
     "id": "inspector-agent-hint-always",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "{!connected && (",
     "replace": "{true && (",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "離線指令連線時也顯示 → B4 必須抓到"
   },
   {
     "id": "inspector-agent-order",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "const recent = [...entries].reverse().slice(0, 3);",
     "replace": "const recent = [...entries].slice(0, 3);",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "不反轉＝顯示最舊三筆 → B6 的順序斷言必須抓到"
   },
   {
     "id": "inspector-agent-count",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": ".reverse().slice(0, 3)",
     "replace": ".reverse().slice(0, 5)",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "取五筆而非三筆 → B6 必須抓到"
   },
   {
     "id": "inspector-agent-source",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "{e.source === 'ai' ? 'AI' : 'you'}",
     "replace": "{'AI'}",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "來源標示恆為 AI → B7 必須抓到"
   },
   {
     "id": "inspector-agent-empty",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "<div className=\"tag\">No edits yet.</div>",
     "replace": "<div className=\"tag\" />",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "空狀態文字消失 → B5 必須抓到"
   },
   {
@@ -859,10 +859,10 @@
   {
     "id": "strip-click-openright",
     "file": "ui/src/AgentStrip.tsx",
-    "find": "        useView.getState().openRight();",
+    "find": "        useView.getState().openLeft();",
     "replace": "",
     "tests": "ui/src/AgentStrip.test.tsx",
-    "note": "點了切分頁但右欄仍收合 → 使用者什麼都沒看到；點擊斷言必須抓到"
+    "note": "點了 AI 專區仍收合 → 使用者什麼都沒看到；點擊斷言必須抓到（2026-08-16 版面重構：活動流搬到左欄，openRight → openLeft）"
   },
   {
     "id": "strip-click-callback",
@@ -954,26 +954,26 @@
   },
   {
     "id": "inspector-card-working",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "  const working = phase === 'working' && call !== null;",
     "replace": "  const working = false;",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "索引卡的 working 態退化成 idle → 實時行（工具名/秒數）與重畫圈全部不出現；C3 必須抓到"
   },
   {
     "id": "inspector-card-tick-only-working",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "    if (!working) return;\n    setNow(Date.now());",
     "replace": "    setNow(Date.now());",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "idle/offline 也每秒 setState → 面板整天空轉重繪；「interval 只在 working 掛」的 C5 必須抓到"
   },
   {
     "id": "inspector-card-counts",
-    "file": "ui/src/panels/Inspector.tsx",
+    "file": "ui/src/panels/AgentPanel.tsx",
     "find": "            v{version} · AI {counts.ai} · you {counts.human}",
     "replace": "            v{version} · AI {counts.human} · you {counts.ai}",
-    "tests": "ui/src/panels/panels.test.tsx",
+    "tests": "ui/src/panels/AgentPanel.test.tsx",
     "note": "session 讀數列的 AI/人計數對調 → 讀數說反了誰做的；C7 必須抓到"
   },
   {

@@ -9,7 +9,7 @@ import { useView } from './stores/view.js';
 import { Player } from './player/Player.js';
 import { Timeline } from './timeline/Timeline.js';
 import { Inspector } from './panels/Inspector.js';
-import { Activity } from './panels/Activity.js';
+import { AgentPanel } from './panels/AgentPanel.js';
 import { CaptionList } from './panels/CaptionList.js';
 import { ReviewBar } from './panels/ReviewBar.js';
 import { ExportMenu } from './panels/ExportMenu.js';
@@ -66,9 +66,27 @@ export function App() {
   const rightWidth = useView((s) => s.rightWidth);
   const gridRef = useRef<HTMLDivElement>(null);
   const [resizing, setResizing] = useState(false);
-  const [tab, setTab] = useState<'captions' | 'activity'>('captions');
+  const [tab, setTab] = useState<'captions' | 'properties'>('captions');
+  const selected = useSelection((s) => s.selected);
   const captionCount = doc?.tracks.captions.length ?? 0;
   const tabBodyRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * 選了東西就跳到 Properties 分頁（2026-08-16 版面定案）。
+   *
+   * 這是舊版面「點一個 clip → 左欄自己變成那個東西的表單」那條反射的直譯：
+   * 表單搬進右欄的分頁之後，沒有這一跳的話使用者點了 clip 卻停在 Captions 上，
+   * 看起來像「點了沒反應」。連帶把右欄展開——跳到一個收合起來的分頁等於沒跳。
+   *
+   * **取消選取不自動跳走**（`selected` 變 null 時什麼都不做）：那是使用者按 Esc
+   * 或點時間軸空白處的結果，把他從正在看的分頁上彈開是第二次沒要求的動作。
+   * Properties 分頁自己會顯示閒置提示。
+   */
+  useEffect(() => {
+    if (!selected) return;
+    setTab('properties');
+    useView.getState().openRight();
+  }, [selected]);
 
   // 分頁切換：內容 fade + 8px slide
   useGSAP(
@@ -251,8 +269,11 @@ export function App() {
           v{__APP_VERSION__} · {doc?.name ?? '—'}
         </span>
         {/* 紙條取代了原本的「● Connected / Offline」：連線與否只是它三態中的一態
-            （offline），另外兩態（idle / working）是這裡以前完全看不到的東西。 */}
-        <AgentStrip onOpenActivity={() => setTab('activity')} />
+            （offline），另外兩態（idle / working）是這裡以前完全看不到的東西。
+            點它＝去看活動流。活動流 2026-08-16 從右欄分頁搬進左邊的 AI 專區，
+            所以這個 callback 現在展開的是左欄（紙條自己也會 `openLeft()`，
+            兩邊都冪等；prop 留著是為了讓版面知識留在 App 這一層）。 */}
+        <AgentStrip onOpenActivity={() => useView.getState().openLeft()} />
         <ExportMenu />
       </header>
 
@@ -267,18 +288,34 @@ export function App() {
         }}
       >
         <ReviewBar />
+        {/*
+         * 版面骨架（使用者 2026-08-16 定案）。**先縱切一刀**：左邊是全高的 AI 專區，
+         * 右邊那一整塊（預覽＋右欄＋時間軸）是它的鄰居。時間軸因此從 AI 欄的右緣
+         * 開始，不再橫貫整個視窗。
+         *
+         * 實作上仍然是**一個** grid 容器，不是「左欄 flex + 右邊再一個 grid」：
+         * `PanelResizer` 的座標換算吃的就是這顆容器的 `getBoundingClientRect()`
+         * （left 是 `clientX - rect.left`、right 是 `rect.right - clientX`），
+         * 把左欄拆出去會讓那兩條式子各自對到不同的基準。所以三欄照舊，
+         * 改的是**列**：加一條時間軸列，用 `gridColumn: '2 / 4'` 讓它從第二欄
+         * （預覽）起跳，第一欄（AI）在那一列沒有格子——這就是「時間軸右移」。
+         *
+         * `gridTemplateRows: '1fr auto'`：上排吃掉剩餘高度，時間軸列由內容決定高。
+         */}
         <div
           ref={gridRef}
           style={{
             flex: 1,
             display: 'grid',
             gridTemplateColumns: `${leftOpen ? `${leftWidth}px` : '0px'} 1fr ${rightOpen ? `${rightWidth}px` : '0px'}`,
+            gridTemplateRows: '1fr auto',
             minHeight: 0,
             // 拖曳伸縮中關掉過渡（不然黏手）；收合/展開仍有動畫
             transition: resizing ? 'none' : 'grid-template-columns 0.25s ease',
           }}
         >
-          {/* 左：屬性（外層 hidden、內層固定寬 → 收合時內容不變形）。
+          {/* 左：AI 專區（外層 hidden、內層固定寬 → 收合時內容不變形）。**全高**：
+              `gridRow: '1 / 3'` 讓它跨過時間軸那一列，所以時間軸從它的右緣開始。
               `panel-surface` = --panel 實底（亮度樓梯第二階，theme.css 檔頭）。 */}
           {/* 分界線交給 CSS（`.panel-edge-r`）而不是 inline style：紙主題要把這條
               結構性大分界換成 1.5px dashed（DESIGN.md 的 dashed rules），而 inline
@@ -287,26 +324,39 @@ export function App() {
           <div
             className="panel-surface panel-edge-r"
             data-edge={leftOpen ? 'on' : 'off'}
-            style={{ overflow: 'hidden' }}
+            style={{ overflow: 'hidden', gridRow: '1 / 3' }}
           >
-            <div style={{ width: leftWidth, height: '100%', overflowY: 'auto' }}>
+            <div
+              style={{
+                width: leftWidth,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   padding: '8px 12px 0',
+                  flex: 'none',
                 }}
               >
-                <span className="panel-head">Properties</span>
+                <span className="panel-head">AI</span>
                 <button
                   className="icon-btn panel-collapse"
                   onClick={() => useView.getState().toggleLeft()}
-                  title="Collapse properties panel"
+                  title="Collapse AI panel"
                 >
                   <PanelLeftClose size={13} />
                 </button>
               </div>
-              <Inspector />
+              {/* 索引卡在上、活動流在下，兩段共用一根全高的欄（見 AgentPanel）。
+                  `minHeight: 0` 是活動流捲得起來的前提——flex 子項預設
+                  `min-height: auto` 會被內容撐開，整欄一起長高而不是內部捲動。 */}
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <AgentPanel />
+              </div>
             </div>
           </div>
 
@@ -326,7 +376,7 @@ export function App() {
               <button
                 className="icon-btn panel-handle"
                 onClick={() => useView.getState().toggleLeft()}
-                title="Expand properties panel"
+                title="Expand AI panel"
                 style={{ left: 6 }}
               >
                 <PanelLeftOpen size={13} />
@@ -336,7 +386,7 @@ export function App() {
               <button
                 className="icon-btn panel-handle"
                 onClick={() => useView.getState().toggleRight()}
-                title="Expand captions/activity panel"
+                title="Expand captions/properties panel"
                 style={{ right: 6 }}
               >
                 <PanelRightOpen size={13} />
@@ -347,7 +397,8 @@ export function App() {
             </div>
           </div>
 
-          {/* 右：字幕 ⇄ 活動分頁（同左欄，--panel 實底） */}
+          {/* 右：字幕 ⇄ 屬性分頁（同左欄，--panel 實底）。
+              Activity 分頁 2026-08-16 退役——活動流整組搬進左邊的 AI 專區。 */}
           <div
             className="panel-surface panel-edge-l"
             data-edge={rightOpen ? 'on' : 'off'}
@@ -375,10 +426,10 @@ export function App() {
                   Captions {captionCount > 0 && <span className="badge">{captionCount}</span>}
                 </button>
                 <button
-                  className={`seg${tab === 'activity' ? ' on' : ''}`}
-                  onClick={() => setTab('activity')}
+                  className={`seg${tab === 'properties' ? ' on' : ''}`}
+                  onClick={() => setTab('properties')}
                 >
-                  Activity
+                  Properties
                 </button>
                 <button
                   className="icon-btn panel-collapse"
@@ -388,18 +439,34 @@ export function App() {
                   <PanelRightClose size={13} />
                 </button>
               </div>
+              {/* Properties 分頁自己捲：Inspector 是一長條表單，而分頁殼是 flex 直向。
+                  Captions 分頁的 CaptionList 內部已是 `.panel-col` + `.panel-body`，
+                  自己處理捲動，所以只有 Inspector 這條路需要外面補一層 overflow。 */}
               <div ref={tabBodyRef} style={{ flex: 1, minHeight: 0 }}>
-                {tab === 'captions' ? <CaptionList /> : <Activity />}
+                {tab === 'captions' ? (
+                  <CaptionList />
+                ) : (
+                  <div style={{ height: '100%', overflowY: 'auto' }}>
+                    <Inspector />
+                  </div>
+                )}
               </div>
             </div>
+          </div>
+
+          {/* 底：時間軸（同左右面板，--panel 實底）。
+              `gridColumn: '2 / 4'`＝從預覽欄起跳、吃到最右——AI 欄那一格不屬於這一列，
+              所以時間軸的左緣就是 AI 欄的右緣。AI 欄收合時第一欄寬度歸零，
+              時間軸自然變寬；`Timeline.tsx` 量的是自己容器的寬，不必知道這件事。 */}
+          <div
+            className="panel-surface panel-edge-t"
+            style={{ padding: 8, gridColumn: '2 / 4', minWidth: 0 }}
+          >
+            <Timeline />
           </div>
         </div>
       </div>
 
-      {/* 底：時間軸（同左右面板，--panel 實底） */}
-      <div className="panel-surface panel-edge-t" style={{ padding: 8 }}>
-        <Timeline />
-      </div>
       <Toast />
     </div>
   );

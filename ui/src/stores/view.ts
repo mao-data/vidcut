@@ -33,7 +33,7 @@ interface ViewState {
   pxPerSecond: number;
   /** 吸附開關（N） */
   snapEnabled: boolean;
-  /** 左（屬性）/右（字幕·活動）面板收合狀態。不持久化。 */
+  /** 左（AI 專區）/右（字幕·屬性）面板收合狀態。不持久化。 */
   leftOpen: boolean;
   rightOpen: boolean;
   /** 面板寬度（px）。持久化到 localStorage。 */
@@ -48,7 +48,13 @@ interface ViewState {
   toggleLeft: () => void;
   toggleRight: () => void;
   /**
-   * 冪等地展開右欄（AgentStrip 點擊要「切到 Activity 並看得到它」，
+   * 冪等地展開左欄（AgentStrip 點擊要「指向活動流而且看得到它」，用 toggleLeft
+   * 的話本來就開著會被關掉）。已經開著時不 set，避免無謂的 state 通知。
+   * 2026-08-16 版面重構前這件事是 `openRight` 在做——活動流那時住在右欄。
+   */
+  openLeft: () => void;
+  /**
+   * 冪等地展開右欄（選了東西要「跳到 Properties 分頁而且看得到它」，
    * 用 toggleRight 的話本來就開著會被關掉）。已經開著時不 set，
    * 避免無謂的 state 通知。
    */
@@ -79,6 +85,9 @@ export const useView = create<ViewState>((set, get) => ({
   toggleSnap: () => set({ snapEnabled: !get().snapEnabled }),
   toggleLeft: () => set({ leftOpen: !get().leftOpen }),
   toggleRight: () => set({ rightOpen: !get().rightOpen }),
+  openLeft: () => {
+    if (!get().leftOpen) set({ leftOpen: true });
+  },
   openRight: () => {
     if (!get().rightOpen) set({ rightOpen: true });
   },

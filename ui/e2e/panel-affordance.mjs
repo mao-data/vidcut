@@ -201,17 +201,17 @@ async function main() {
         const r = b.getBoundingClientRect();
         return Math.round(r.top + r.height / 2);
       };
-      return JSON.stringify({ left: y('Collapse properties panel'), right: y('Collapse') });
+      return JSON.stringify({ left: y('Collapse AI panel'), right: y('Collapse') });
     })()`);
 
     // 兩側面板都收合
     await click('Collapse');
-    await click('Collapse properties panel');
+    await click('Collapse AI panel');
     await collapsedCols();
 
     console.log('收合後、未開下拉：');
-    await check('右側展開鈕可點', clickable('Expand captions/activity panel'));
-    await check('左側展開鈕可點', clickable('Expand properties panel'));
+    await check('右側展開鈕可點', clickable('Expand captions/properties panel'));
+    await check('左側展開鈕可點', clickable('Expand AI panel'));
 
     // 只收一側時，畫面上會同時出現「一顆展開鈕 + 一顆收合鈕」，高度不同就會看起來歪掉
     const sameRow = (title, expected) => `(() => {
@@ -225,8 +225,8 @@ async function main() {
         : { ok: false, why: \`展開鈕 y=\${y}，收合鈕 y=${expected}，差 \${d}px\` };
     })()`;
     const cy = JSON.parse(collapseY);
-    await check('左側展開鈕與收合鈕同高', sameRow('Expand properties panel', cy.left));
-    await check('右側展開鈕與收合鈕同高', sameRow('Expand captions/activity panel', cy.right));
+    await check('左側展開鈕與收合鈕同高', sameRow('Expand AI panel', cy.left));
+    await check('右側展開鈕與收合鈕同高', sameRow('Expand captions/properties panel', cy.right));
 
     console.log('Export 下拉開啟時：');
     await click('Export settings');
@@ -238,7 +238,7 @@ async function main() {
         const p = document.querySelector('[data-export-pop]');
         if (!p) return { ok: false, why: '下拉沒開，這兩項檢查沒有意義' };
         const a = p.getBoundingClientRect();
-        const b = document.querySelector('button[title="Expand captions/activity panel"]')?.getBoundingClientRect();
+        const b = document.querySelector('button[title="Expand captions/properties panel"]')?.getBoundingClientRect();
         if (!b) return { ok: false, why: '右鈕不存在' };
         const overlaps = a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
         const box = (x) => \`[\${Math.round(x.left)},\${Math.round(x.top)} → \${Math.round(x.right)},\${Math.round(x.bottom)}]\`;
@@ -247,8 +247,8 @@ async function main() {
           : { ok: false, why: \`兩者沒有重疊，這個 case 沒測到東西。pop=\${box(a)} btn=\${box(b)} vp=\${innerWidth}x\${innerHeight}\` };
       })()`,
     );
-    await check('右側展開鈕不被下拉蓋住', clickable('Expand captions/activity panel'));
-    await check('左側展開鈕不被下拉蓋住', clickable('Expand properties panel'));
+    await check('右側展開鈕不被下拉蓋住', clickable('Expand captions/properties panel'));
+    await check('左側展開鈕不被下拉蓋住', clickable('Expand AI panel'));
     await click('Export settings');
     await sleep(300);
 
@@ -263,8 +263,8 @@ async function main() {
     })()`);
     console.log(`  （把 ${scrolled} 個可捲動容器捲到底）`);
     await sleep(300);
-    await check('捲動後右側展開鈕仍可點', clickable('Expand captions/activity panel'));
-    await check('捲動後左側展開鈕仍可點', clickable('Expand properties panel'));
+    await check('捲動後右側展開鈕仍可點', clickable('Expand captions/properties panel'));
+    await check('捲動後左側展開鈕仍可點', clickable('Expand AI panel'));
 
     console.log('預覽區尺寸：');
     await check(
@@ -284,9 +284,9 @@ async function main() {
     );
 
     console.log('展開狀態下的伸縮把手：');
-    await click('Expand captions/activity panel');
+    await click('Expand captions/properties panel');
     await sleep(300);
-    await click('Expand properties panel');
+    await click('Expand AI panel');
     await sleep(500);
     await check(
       '中欄底部仍有左側伸縮熱區',
@@ -330,7 +330,7 @@ async function main() {
           return { there: true, unclipped, opacity: Number(getComputedStyle(b).opacity) };
         };
         const collapse = seen('Collapse');
-        const expand = seen('Expand captions/activity panel');
+        const expand = seen('Expand captions/properties panel');
         const elapsed = Math.round(performance.now() - window.__t0);
         document.getElementById('e2e-no-motion').disabled = false;
         if (!collapse.there || !collapse.unclipped) {

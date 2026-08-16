@@ -161,7 +161,7 @@ spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/s
     與字卡管線除外）。
   - canvas 波形色走 `--wave-*` token 查表（`timeline/waveform.ts` 的字面值只是 jsdom
     回退）；`--danger` 刻意比紅蠟筆**亮**（#fb8a8a，亮度比 1.36）以區辨警示與標記。
-- **版面**：RenderBar 刪除 → 頂欄 ExportMenu（匯出鈕+下拉+3px 進度條）；右欄改「字幕⇄活動」分頁；播放控制+時間碼移進時間軸工具列；審核條改事件式 overlay 卡（GSAP 彈性滑入）；左右面板可收合（grid-template-columns 動畫），之後又補上**可拖曳調寬**（`ui/src/PanelResizer.tsx`）。
+- **版面**：RenderBar 刪除 → 頂欄 ExportMenu（匯出鈕+下拉+3px 進度條）；播放控制+時間碼移進時間軸工具列；審核條改事件式 overlay 卡（GSAP 彈性滑入）；左右面板可收合（grid-template-columns 動畫），之後又補上**可拖曳調寬**（`ui/src/PanelResizer.tsx`）。**2026-08-16 使用者定案重構成「先縱切一刀」**：header 全寬不動，其下左邊是**全高的 AI 專區**（`ui/src/panels/AgentPanel.tsx`——上＝三態索引卡＋最近三筆署名列＋session 讀數，下＝完整活動流），右邊才是預覽＋右欄＋時間軸；**時間軸整條右移**、從 AI 欄右緣開始不再橫貫全寬（AI 欄收合時自然變寬，`Timeline.tsx` 量自己容器寬故不必改）。右欄分頁改「**字幕⇄屬性**」（Activity 分頁退役，內容搬左；Properties＝原左欄的 Canvas fill／Inspector 表單／Shortcuts／閒置提示），**選取任何物件自動跳 Properties 並展開右欄，取消選取不自動跳走**。實作上仍是**一個** 3 欄 ×2 列 grid（`PanelResizer` 的座標換算吃同一顆容器的 rect），骨架由 AI 欄的 `gridRow: 1/3` 與時間軸的 `gridColumn: 2/4` 兩條宣告承載。
 - **時間軸**：片段卡片化（filmstrip 滿版——主軌波形帶 2026-08-16 使用者定案移除，機制與 `--wave-clip-*` token 保留無消費者，復原掛回 canvas+effect 即可）；**峰值+RMS 雙層鏡像波形只在音訊軌**（`ui/src/timeline/waveform.ts`，DPR 級解析度）；ingest 升級 **100 桶/秒＋rms 陣列**（`PeaksFile` 共用型別；舊檔無 rms 自動退單層）；音訊軌藍灰全高波形（08-16 起，原青色）；playhead 紅蠟筆實心圓頭（08-16 起，原紫漸層——漸層被對比實算否決，見 spec 修訂）；**軌頭 gutter＋雙軸捲動**（08-16 起）——左側 32px sticky 軌頭欄（Film/Image/Captions/AudioLines 圖示，`--text-3`，在 contentRef 座標系之外），可視高 `TRACKS_VIEW_H=200`（08-16 三輪定案 260→234→200）超過縱捲、尺規 sticky top；fit/縮放錨點/AI 捲動的「可視寬」一律 `clientWidth - GUTTER_W`；軌高兩輪放寬至 70/35、工具列縱向縮＋**去框**（`.tl-toolbar` ghost，Snap 開啟=填色）、**三種 chip 改粉彩家族實色底**（`--*-chip-bg`/`--accent-chip-text`：LightPink #FFB6C1 定色相＋灰粉調 s.42 v.90，暗版同色相深調；原 wash token 已除役，色值與對比見 ui/DESIGN.md Chips 段）。**Ctrl+滾輪縮放同輪修活**：wheel listener 空 deps＋首渲染 `return null` 從未掛上（`Timeline.wheelzoom.test` 守掛載時序），縮放補償遞延到 pps 渲染後的 layoutEffect 套用（同步寫會被舊佈局 clamp 吃掉）。
 - **動效**：`ui/src/motion.ts`（gsap + useGSAP + motionOK）；審核條/分頁/toast/渲染完成 pulse/字幕自動捲動；微互動走 CSS transition；`prefers-reduced-motion` 全域尊重。
 - **行為零改動**：命令層/MCP/播放引擎/拖曳數學全部沒碰；demo 專案已重建（新 peaks）。
@@ -215,10 +215,10 @@ npm run dev:ui
 驗收（重點在體感，e2e 只驗了「機制有沒有跑」，沒驗「順不順手」）：
 
 1. 時間軸 5 clip（縮圖 + 波形；No.3 無音軌 → 平線），按 ▶ **切換有無黑幀/停頓**（M1 最關鍵，這條仍然是回歸底線）。
-2. 拖 clip 左右邊緣 trim、拖 clip 本體換順序、點 clip 在左欄改屬性、Cmd+Z 復原、右欄活動記錄。
+2. 拖 clip 左右邊緣 trim、拖 clip 本體換順序、點 clip 在右欄 Properties 分頁改屬性（點下去會自動跳分頁）、Cmd+Z 復原、左欄 AI 專區的活動記錄。
 3. **拖曳手感（階段 4，新）**：在預覽畫布上直接拖動一個 overlay（排名徽章）或一句字幕——吸附到中心線/安全邊距時的靈敏度是否符合直覺？導線出現/消失的時機會不會太早/太晚、會不會抖動？拖到畫布邊緣時元素會不會整個消失不見（設計上應該最多露出一半，見 `dragLayer.ts` 的 clamp 說明）？
 4. **打字體感（階段 3）**：在**右上字幕列表雙擊**一句字幕改字（三段式只接在 `CaptionList.tsx`，
-   **畫布上不能直接改字**；左欄 Inspector 的字幕 Text 欄仍然不走三段式，但**已經不再每一鍵
+   **畫布上不能直接改字**；右欄 Properties 分頁 Inspector 的字幕 Text 欄仍然不走三段式，但**已經不再每一鍵
    送一筆命令**——2026-08-04 改成與同面板的文字 overlay Text 欄一致的**失焦才送**
    ［在此之前是 `onChange` 每鍵一筆 `updateCaption`：每鍵一筆 history + 一次字卡重產。
    「33 個字 → `derived/text/` 多 99 個檔」是當時的一次性實測、未重驗（現行程式碼是
@@ -229,7 +229,7 @@ npm run dev:ui
    ✅ **「加長文字讓它自動換行」現在可以拿來驗了**（2026-08-04 起，見 `.claude/rules/wysiwyg.md`「自動換行」節）：
    字幕與文字 overlay 都會折在畫布寬的 90%（文字 overlay 可用 `maxWidth` 調），中文逐字折、
    英數在空白處折。**請順便看這件事**：既有專案裡以前被裁掉的長字現在會折行、卡片變高，
-   那是修好了不是回歸。要驗顯式換行仍可在左欄 Inspector 的 Text 欄（那是 `<textarea>`，
+   那是修好了不是回歸。要驗顯式換行仍可在右欄 Properties 分頁 Inspector 的 Text 欄（那是 `<textarea>`，
    按 Enter 就會換行；右上字幕列表是單行 `<input>`，Enter 是送出）裡打真的換行。
    ⚠️ 文字太長時寫入可能被「字卡超過像素預算」拒絕——那是**最壞情況上界**在保守拒絕
    （1080 寬、fontSize 64 是 369 字，`server/test/textCards.test.ts` 有測試釘住這個數字），
@@ -360,12 +360,14 @@ ui/DESIGN.md              編輯器設計系統文件（documenter 自成品反�
                           目錄、named rules、被否決方案的反面清單）。改編輯器 UI
                           之前先讀；landing 歸 site/DESIGN.md，兩者互引不互蓋
 ui/src/main.tsx           React 入口（createRoot）
-ui/src/App.tsx            版面外殼：三欄 grid＋header、全域鍵盤快捷鍵 handler、伺服器字型
+ui/src/App.tsx            版面外殼：3 欄 ×2 列 grid（AI 欄 gridRow 1/3 全高、時間軸
+                          gridColumn 2/4 右移）＋header、右欄 Captions⇄Properties 分頁與
+                          「選取即跳 Properties」接線、全域鍵盤快捷鍵 handler、伺服器字型
                           @font-face 注入（id 防 StrictMode 雙掛載）、錯誤 Toast、面板收合鈕
 ui/src/shortcuts.ts       快捷鍵單一來源表（描述 App.tsx onKey 的實況＋Timeline 的 Ctrl+wheel；
                           Inspector 的 ShortcutHelp 彈出層由它生成——改 handler 必須同步此表）
 ui/src/motion.ts          GSAP 進入點（useGSAP + reduced-motion 判斷）
-ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）/ agent（見下）/ theme（dark|paper 雙主題：localStorage `vidcutTheme` > prefers-color-scheme；dark 時**移除** html 的 data-theme 屬性以保證預設 DOM 不變，paper 時設 `data-theme="paper"` 觸發 theme.css 覆寫塊；模組載入即套用防首繪閃爍；波形 canvas 色由 timeline/waveform.ts 讀 `--wave-*` token 查表，ClipBlock/AudioChip 的 draw effect 依賴 theme 值故切換即重畫；切換器藏在 Inspector 的 Shortcuts 彈出層）
+ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合＋冪等展開 openLeft/openRight）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）/ agent（見下）/ theme（dark|paper 雙主題：localStorage `vidcutTheme` > prefers-color-scheme；dark 時**移除** html 的 data-theme 屬性以保證預設 DOM 不變，paper 時設 `data-theme="paper"` 觸發 theme.css 覆寫塊；模組載入即套用防首繪閃爍；波形 canvas 色由 timeline/waveform.ts 讀 `--wave-*` token 查表，ClipBlock/AudioChip 的 draw effect 依賴 theme 值故切換即重畫；切換器藏在 Inspector 的 Shortcuts 彈出層，即右欄 Properties 分頁）
 ui/src/stores/agent.ts    AI 存在感的狀態機（零視覺）：進行中工具呼叫集合（callId → tool/startedAt）、
                           三態純函數 agentPhase（offline/idle/working）、最新一筆 currentCall、
                           session 統計 sessionCounts。斷線由 project.setConnected(false) 清空
@@ -376,8 +378,9 @@ ui/src/AgentStrip.tsx     header 的琥珀終端標籤（AI 存在感的視覺�
                           2026-08-14 修訂）：讀 stores/agent
                           的三態顯示 NO AGENT／AGENT READY／WORKING+工具名+經過秒數；
                           取代原本 header 的「● Connected/Offline」。經過秒數是元件層
-                          setInterval（store 只存 startedAt），只在 working 掛。點擊切
-                          Activity 分頁（callback 由 App 傳入）+ useView.openRight()。
+                          setInterval（store 只存 startedAt），只在 working 掛。點擊＝去看
+                          活動流：callback 由 App 傳入 + useView.openLeft()（2026-08-16
+                          版面重構前是 openRight，活動流那時是右欄的一個分頁）。
                           formatElapsed 是可測的純函數；樣式在 theme.css 的 .ap-strip 區。
                           ⚠️ 大使館的識別是**那隻手（手繪線）不是紙**：暗版載體是
                           code-slate/amber 終端標籤（手繪圈 + 歪框 .ap-frame 過
@@ -394,7 +397,15 @@ ui/src/player/sync.ts     播放中媒體元素的時鐘同步策略：小漂移
 ui/src/player/CaptionLayer.tsx 字幕預覽：有字卡 hash 就 <img> 直出（無 karaoke 時與匯出同一張圖），karaoke 疊 hl 卡 + clip-path（與匯出的一詞一卡**不**同源）；沒有 hash／幾何 fetch 失敗／圖檔 onError 才退回 DOM 近似 fallback，幾何 fetch 進行中是 return null（空白一幀，不是近似文字）
 ui/src/player/dragLayer.ts dragOverlay/dragCaption：畫布拖曳數學（純函數）——overlay 的 position 錨點不對稱（x=中心、y=上緣），這裡負責錨點↔bbox 左上角的雙向換算，呼叫 shared 的 snapBBox 做實際吸附 ★
 ui/src/timeline/          scale + dragMath + waveform（純函數）+ Timeline（trim/排序/選取/縮放/吸附/transport）+ Toolbar / ClipBlock / AudioChip / usePeaks
-ui/src/panels/            Inspector / Activity / ReviewBar / ExportMenu / CaptionList（字幕列表）
+ui/src/panels/            Inspector（右欄 Properties 分頁：Canvas fill／選取物件表單／Shortcuts
+                          彈出層／閒置提示）/ AgentPanel（見下）/ Activity / ReviewBar /
+                          ExportMenu / CaptionList（字幕列表）
+ui/src/panels/AgentPanel.tsx AI 專區（左欄全高，使用者 2026-08-16 版面定案）：上半 AgentStatus
+                          ＝大使館第二件實體的琥珀終端索引卡（三態同 AgentStrip 的
+                          agentPhase 推導、RING_PATH 直接 import 共用同一隻手、離線給
+                          `claude mcp add …` 接回指令、session 讀數列、最近三筆署名列），
+                          下半嵌 Activity 完整活動流。**卡不再綁「未選取」**——它以前住在
+                          Inspector 的閒置分支，選了東西就看不到
 ```
 
 測試與稽核的基礎設施（不是產品程式碼，但改測試時一定會碰到）：

@@ -63,7 +63,13 @@ const FRAME_PATH =
   'M2.5 3.2c50-2 104-1.8 153 .8 1.2 6.8-.6 15.6.3 22-52 2.6-102 2-152.6-.4-1.4-6.6.4-14.8-.7-22.4z';
 
 export interface AgentStripProps {
-  /** 點擊時切到 Activity 分頁。分頁 state 是 App 的 local useState，所以由 App 傳進來。 */
+  /**
+   * 點擊時要把使用者帶到活動流那裡。**2026-08-16 版面重構改了目的地、沒改語意**：
+   * 以前活動流是右欄的一個分頁，所以這個 callback 是 App 的 `setTab('activity')`；
+   * 現在它整組搬進左邊的 AI 專區（`panels/AgentPanel.tsx`），所以 App 傳進來的是
+   * 「切到那一欄該做的事」。**留成 prop 而不是在元件裡直接寫死**：紙條不該知道
+   * 版面長什麼樣，那是 App 的職責——版面再改一次時只要換 App 傳的東西。
+   */
   onOpenActivity: () => void;
 }
 
@@ -97,8 +103,9 @@ export function AgentStrip({ onOpenActivity }: AgentStripProps) {
       title="Show agent activity"
       onClick={() => {
         onOpenActivity();
-        // 右欄收合時展開——切了分頁卻看不到內容等於沒切。openRight 是冪等的。
-        useView.getState().openRight();
+        // AI 專區收合時展開——指向一個看不到的地方等於沒指。openLeft 是冪等的
+        // （2026-08-16 版面重構前這裡是 openRight，活動流那時住在右欄）。
+        useView.getState().openLeft();
       }}
     >
       {/* `#pencil` 濁度濾鏡（DESIGN.md：feTurbulence 0.055 / seed 7 + displacement 2.6）。

@@ -25,7 +25,7 @@ function startCall(callId: string, tool: string, startedAt = Date.now()) {
 beforeEach(() => {
   useProject.setState({ doc: null, version: 0, connected: false });
   useAgent.setState({ calls: NO_CALLS });
-  useView.setState({ rightOpen: true });
+  useView.setState({ leftOpen: true, rightOpen: true });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -248,33 +248,46 @@ describe('經過秒數（元件層 interval，store 只存 startedAt）', () => 
   });
 });
 
+// 目的地 2026-08-16 版面重構後從右欄的 Activity 分頁換成左邊的 AI 專區
+// （活動流整組搬過去）。語意一字不變：點紙條＝去看活動流，而且看得到。
 describe('點擊行為', () => {
-  it('呼叫 onOpenActivity 並展開右欄', () => {
+  it('呼叫 onOpenActivity 並展開左欄', () => {
     const onOpenActivity = vi.fn();
     act(() => {
-      useView.setState({ rightOpen: false });
+      useView.setState({ leftOpen: false });
     });
     const { container } = render(<AgentStrip onOpenActivity={onOpenActivity} />);
     act(() => {
       fireEvent.click(strip(container));
     });
     expect(onOpenActivity).toHaveBeenCalledTimes(1);
-    expect(useView.getState().rightOpen).toBe(true);
+    expect(useView.getState().leftOpen).toBe(true);
   });
 
-  it('右欄本來就開著：再點一次仍然是開的（openRight 冪等，不是 toggle）', () => {
+  it('左欄本來就開著：再點一次仍然是開的（openLeft 冪等，不是 toggle）', () => {
     const onOpenActivity = vi.fn();
     const { container } = render(<AgentStrip onOpenActivity={onOpenActivity} />);
-    expect(useView.getState().rightOpen).toBe(true);
+    expect(useView.getState().leftOpen).toBe(true);
     act(() => {
       fireEvent.click(strip(container));
     });
-    expect(useView.getState().rightOpen).toBe(true);
+    expect(useView.getState().leftOpen).toBe(true);
     act(() => {
       fireEvent.click(strip(container));
     });
-    expect(useView.getState().rightOpen).toBe(true);
+    expect(useView.getState().leftOpen).toBe(true);
     expect(onOpenActivity).toHaveBeenCalledTimes(2);
+  });
+
+  it('不動右欄（字幕/屬性面板的開合不是紙條的事）', () => {
+    act(() => {
+      useView.setState({ leftOpen: false, rightOpen: false });
+    });
+    const { container } = render(<AgentStrip onOpenActivity={() => {}} />);
+    act(() => {
+      fireEvent.click(strip(container));
+    });
+    expect(useView.getState().rightOpen).toBe(false);
   });
 
   it('三態下都可點（offline 也要能開 Activity 看歷史）', () => {
