@@ -40,7 +40,7 @@ import { useEditFx } from '../stores/editFx.js';
 import { scrollTargetFor } from '../fx/scroll.js';
 import { gsap, motionOK } from '../motion.js';
 
-const SUB_ROW_H = 32; // 2026-08-16 使用者定案：其他軌統一、主軌的一半;同日「放寬 6%」30→32
+const SUB_ROW_H = 35; // 2026-08-16 使用者定案：其他軌統一、主軌的一半;同日兩輪放寬 30→32→35
 /** 尺規列高度。gutter 的交叉格要逐像素跟它對齊，所以抽成常數而不是兩處各寫 20。 */
 const RULER_H = 20;
 /**
@@ -52,13 +52,13 @@ const RULER_H = 20;
  */
 const GUTTER_W = 32;
 /**
- * 軌道可視區高度（縱向捲動的視窗）。2026-08-16 使用者定案「區塊放大一點」＝260，
- * 同日再定案「軌道板縮 10%」：260→234。之後要調高矮只改這個數字，不要改成
- * 算出來的值——它是版面預算，不是幾何推導。
- * 軌道總高（尺規 20＋主軌 64＋overlay 32＋字幕 32＋音訊 32 ＝ 180)目前還沒超過，
- * 這條路是為未來 >4 軌鋪的。
+ * 軌道可視區高度（縱向捲動的視窗）。2026-08-16 使用者三輪定案：「區塊放大一點」
+ * ＝260 →「軌道板縮 10%」＝234 →「再讓空間給畫面」＝200。之後要調高矮只改
+ * 這個數字，不要改成算出來的值——它是版面預算，不是幾何推導。
+ * 軌道總高（尺規 20＋主軌 70＋overlay 35＋字幕 35＋音訊 35 ＝ 195）目前還沒超過
+ * （內距 198，餘裕 3px），這條路是為未來 >4 軌鋪的。
  */
-const TRACKS_VIEW_H = 234;
+const TRACKS_VIEW_H = 200;
 
 /**
  * playhead：紫漸層＋光暈＋圓頭。只有它（和 Toolbar 的 Timecode）訂閱 playback time：
@@ -958,7 +958,8 @@ export function Timeline() {
                       ...(cf.delay != null ? { animationDelay: `${cf.delay}ms` } : {}),
                       left: timeToPx(view.start, pps),
                       width: timeToPx(view.duration, pps),
-                      color: 'var(--accent-text)',
+                      // chip 專屬文字階(--accent-text 在加濃底上不足 4.5,見 theme.css)
+                      color: 'var(--accent-chip-text)',
                       background: 'var(--accent-chip-bg)', // 實色底(2026-08-16:chip 不透底)
                       // 選取環同 ClipBlock：紅蠟筆的 --select-edge，不是主行動色
                       boxShadow: isSel

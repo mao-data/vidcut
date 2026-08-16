@@ -3,11 +3,11 @@ import { Snowflake } from 'lucide-react';
 import type { Project, VideoClip } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
 
-/** 主軌列高(filmstrip 滿版)。2026-08-16 使用者兩輪定案收斂:
- * 主軌=其他軌的 2 倍,同日再定案「各軌放寬 6%」:60→64(=2×32,取偶數整數
- * 避免次像素)。之後想再調,改這一個數字即可(音訊/字幕/overlay 軌在
- * AudioChip/Timeline 的 32),改完跑 verify:canvas(拖曳幾何)。 */
-export const ROW_H = 64;
+/** 主軌列高(filmstrip 滿版)。2026-08-16 使用者多輪定案收斂:
+ * 主軌=其他軌的 2 倍,同日兩輪放寬 60→64→70(=2×35)。之後想再調,改這
+ * 一個數字即可(音訊/字幕/overlay 軌在 AudioChip/Timeline 的 35),改完跑
+ * verify:canvas(拖曳幾何)。 */
+export const ROW_H = 70;
 
 /** memo：拖字幕/音訊/疊圖時主軌片段 props 全沒變，擋掉整排片段的陪跑重渲染 */
 export const ClipBlock = memo(function ClipBlock({

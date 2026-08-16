@@ -1905,3 +1905,35 @@ HANDOFF 時間軸行。
 
 **真瀏覽器驗收(主 session)**:verify:panels/canvas 雙綠(canvas 以 MCP
 臨時 overlay 加拆);兩主題 CDP 決定性截圖過目;chip 取樣驗證如上。
+
+## 補記:時間軸再調——去框工具列+井高 200+軌高 70/35+粉彩 chip 家族(2026-08-16)
+
+多輪使用者迭代定案:工具列去框(.tl-toolbar scoped ghost——無框無底、
+hover --surface-2、Snap 開啟=--accent-soft 填色+加粗;border:0 再省 2px);
+TRACKS_VIEW_H 234→200(三輪 260→234→200,「再讓空間給畫面」);軌高再放寬
+~10%:ROW_H 64→70、SUB/AUDIO 32→35(維持 2:1:1:1;內容 195 ≤ 內距 198,
+不觸發縱捲)。
+
+**chip 換獨立粉彩家族**(多輪收斂的定案史,如實記):實色合成 →「飽和度再高
+20%」×2 →「LightPink #FFB6C1 定色號,其他你配同調性——原本的跟背景同族,
+怎麼加濃都像透的」→ 粉彩 +30% 飽和 →「太粉紅/太跳」→ 壓亮度成灰粉調
+(HSV s.42 v.90;跳的來源是又亮又純,不是飽和)。最終:紙版 #e68593/#85e6a0/
+#85bde6、暗版 #751e2b/#1c5e3c/#234d6b(同色相暗房深調);chip 文字同色相
+極端階(--accent-chip-text 新 token:紙 #4f0f18/暗 #ffc4cd;--audio-bright
+兩主題改 #123a5e/#a8cce8),六組對比 5.07–7.10 全過 4.5,值與算式入
+theme.css 註解。
+
+**設計系統修訂**(ui/DESIGN.md):Red-Never-Fills 開「粉彩 chip 家族」正式
+例外(粉彩錨定 LightPink,不是標記紅;紅家族填色仍禁);Chips 段改列色板
+與對比;Buttons 段記 .tl-toolbar ghost 例外;Per-Consumer 段改「三種顏料」;
+frontmatter 色表同步(tape-blue-bright/non-photo-blue-deep 換值+chip 家族
+八色)。HANDOFF 時間軸行同步。
+
+**gauntlet(source:085d7b7+本包工作樹,單次乾淨全跑)**:878 passed
+(shared 46/server 465/ui 367);UI 覆蓋率 91.88%;隨機順序×2 PASS;錨點
+123/123;**122/122 killed+1 等價對照存活如預期**;其餘各層全 PASS;零新增
+依賴、零測試改動(純樣式與常數)。
+
+**真瀏覽器驗收(主 session)**:verify:panels/canvas 雙綠(canvas 以 MCP
+臨時 overlay 加拆);兩主題 CDP 截圖逐輪過目(含臨時 overlay 展示綠 chip,
+拍畢即拆);chip 取樣驗證各輪色值逐位元組等於定案值。

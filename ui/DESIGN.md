@@ -16,7 +16,7 @@ colors:
   grease-red: '#c94f42'
   grease-red-text: '#da7565'
   tape-blue: '#7a91a3'
-  tape-blue-bright: '#9aafbd'
+  tape-blue-bright: '#a8cce8'
   alert-red: '#fb8a8a'
   signal-green: '#34d399'
   signal-green-text: '#6ee7b7'
@@ -33,11 +33,20 @@ colors:
   red-pencil: '#c0392b'
   red-pencil-deep: '#a02a1e'
   non-photo-blue: '#3a6484'
-  non-photo-blue-deep: '#2d5878'
+  non-photo-blue-deep: '#123a5e'
   stamp-green: '#2a7a45'
   stamp-green-deep: '#1f5c34'
   highlighter: '#f3d13d'
   toast-danger-bg-paper: '#f7e4df'
+  # ---- Pastel chip family (timeline chips, user decision 2026-08-16; LightPink-anchored) ----
+  chip-pink: '#e68593'
+  chip-pink-text: '#4f0f18'
+  chip-pink-dark: '#751e2b'
+  chip-pink-dark-text: '#ffc4cd'
+  chip-green: '#85e6a0'
+  chip-green-dark: '#1c5e3c'
+  chip-blue: '#85bde6'
+  chip-blue-dark: '#234d6b'
   # ---- Embassy (--ap-*, AI-presence carrier; never falls back to the editor palette) ----
   code-amber: '#e8b04c'
   code-amber-dim: '#9c8654'
@@ -280,12 +289,13 @@ that outranks the world metaphor; it is not "the dark theme happens to be dark".
 
 **The Red-Never-Fills Rule.** Red is a pen. It draws lines, strokes, rings, round
 caps, and marks — it is never a button background, a panel background, or any large
-fill. Caption chips read as a red _wash_ at α ≤ 0.12 laid on a surface, not as a
-red panel — since 2026-08-16 the chip background is stored as the **opaque
-composite** of that wash over the timeline well (`--accent-chip-bg`), so the rule
-audits on the optical color, not the alpha channel: the chip still looks like
-pigment on paper, it just no longer lets grid lines bleed through. Audit test: if
-you can point at a red rectangle bigger than a chip, the rule is broken.
+fill. **Timeline chips are the carved-out exception since 2026-08-16 (user
+decision):** they fill with the pastel chip family (see Chips below), which is
+anchored on LightPink, not on the marking red — a pink sticker on the timeline, not
+a red button. The rule still governs everything that is actually red: buttons,
+panels, and any fill in the `--accent`/`--select-edge` marking family. Audit test:
+if you can point at a _marking-red_ rectangle bigger than a chip, the rule is
+broken.
 
 **The One-Warm-Light Rule.** Warm light in the dark theme belongs to **the embassy
 and nothing else** — the AgentStrip tag in the header and the AgentStatus index card
@@ -312,9 +322,10 @@ token according to what consumes it, never by recoloring a family. Neutral UI st
 (selection, tabs, primary action) goes to chalk/ink; the annotation layer (captions,
 playhead, running timecode, the AI addressing you) goes to red. `--accent-soft`,
 `--accent-chip-bg` (né `--accent-wash`), and `--accent-faint` were a single hue's
-three alpha steps in the
-old world and are now two different pigments, because their meanings were always
-different. This is why `.seg.on` and `.badge` are pulled back to chalk in the dark
+three alpha steps in the old world and are now **three** different pigments —
+neutral highlight, the pastel chip family (see Chips), and the red row-highlight —
+because their meanings were always different. This is why `.seg.on` and `.badge`
+are pulled back to chalk in the dark
 theme: a red-outlined tab reads as "a red button", which is exactly what the
 red-never-fills rule forbids — the paper theme made and corrected that same mistake.
 
@@ -388,11 +399,11 @@ block padding, control-row gaps), 12 (panel/card padding, header horizontal), 16
 (card-grade padding). 2 is the only half step, reserved for places 20–26px tall
 where 4 would burst the row. Odd values (3/5/7) are all normalized away. Two classes
 of exception are not padding and do not follow the ramp: **geometry constants**
-(`ROW_H` 64, `SUB_ROW_H` 32, `AUDIO_ROW_H` 32, `GUTTER_W` 32, `TRACKS_VIEW_H` 234,
+(`ROW_H` 70, `SUB_ROW_H` 35, `AUDIO_ROW_H` 35, `GUTTER_W` 32, `TRACKS_VIEW_H` 200,
 handle width 6) which are drag math and screenshot-comparison surface, and
 **video-world values** which are project data.
 
-**Timeline region.** The tracks sit in a fixed-height well (`TRACKS_VIEW_H` 234)
+**Timeline region.** The tracks sit in a fixed-height well (`TRACKS_VIEW_H` 200)
 that scrolls on both axes — vertical scroll is headroom for more-than-four tracks.
 A 32px track-header gutter (`GUTTER_W`) sticks to the left edge, one cell per track
 (Film / Image / Captions / AudioLines, size 13, `--text-3` on solid `--panel` —
@@ -477,6 +488,10 @@ literally means "the connection is cut".
 ### Buttons
 
 - **Shape:** softly rounded controls (7px dark, 3px paper), 1px solid border, 6px×10px padding.
+- **Timeline-toolbar exception (user decision 2026-08-16):** buttons inside
+  `.tl-toolbar` are ghost — no border, no resting fill; hover brings `--surface-2`,
+  and the Snap on-state reads by `--accent-soft` fill + weight instead of a border.
+  Scoped to that one row; every other panel keeps boxed buttons.
 - **Default:** white 6% surface on charcoal / a paper card lighter than the panel
   (`#fffdf6`) on paper — because a pressable thing steps _down_ in the dark and _up_
   on paper. Hover raises to 8% / pure white and strengthens the border; the object
@@ -492,17 +507,21 @@ literally means "the connection is cut".
 
 ### Chips (timeline)
 
-- Chip backgrounds are **opaque** (user decision 2026-08-16): each `-chip-bg` token
-  stores the composite of the old translucent wash over the timeline well, sampled
-  from screenshots — same optical color, nothing bleeds through a chip.
-- **Caption chip:** red-wash composite background (`#2e2021` dark / `#e7d9ce` paper)
-  with a red stroke at 0.75 / 0.5 alpha and a red-grade text label — the stroke
-  alpha is higher in the dark theme because a grease pencil on charcoal loses more
-  than a pencil on paper.
-- **Audio chip:** tape-blue / non-photo-blue composite (`#26282d` / `#dadcd5`) with
-  a 0.45 stroke and a bright-grade label.
-- **Overlay chip:** stamp-green composite (`#1e342e` / `#d9decf`), 0.35 / 0.45
-  stroke, deepened green text.
+- Chip backgrounds are the **pastel chip family** (user decision 2026-08-16, after
+  several rounds): opaque, anchored on LightPink `#FFB6C1` for hue, then muted to a
+  dusty grade (HSV s .42 / v .90) so they stay saturated without shouting — the
+  earlier translucent washes and their well-composites read as "part of the
+  background" and looked see-through. Dark theme uses the same three hues as deep
+  room-tones. Chip text is the same hue at a contrast-checked extreme (deep on
+  paper, pale in the dark).
+- **Caption chip:** pink — paper `#e68593` with `#4f0f18` text (5.76), dark
+  `#751e2b` with `#ffc4cd` text (7.10). Stroke stays the red edge at 0.75 / 0.5
+  alpha (higher in the dark: a grease pencil on charcoal loses more than a pencil
+  on paper).
+- **Audio chip:** blue — paper `#85bde6` with `#123a5e` text (5.81), dark `#234d6b`
+  with `#a8cce8` text (5.32); 0.45 stroke.
+- **Overlay chip:** green — paper `#85e6a0` with `#1f5c34` text (5.24), dark
+  `#1c5e3c` with `#6ee7b7` text (5.07); 0.35 / 0.45 stroke.
 - **Selected:** the marking-red ring in the dark theme (`--select-edge` `#c94f42`) and
   ink on paper; chips never gain a fill on selection.
 
@@ -614,8 +633,8 @@ copied into any new surface.
 
 - **Do** keep `--bg-stage` the darkest surface in the UI in every theme, including
   paper (`#26231d`).
-- **Do** use red as a pen only: strokes, rings, caps, marks, and washes at α ≤ 0.12
-  (or their opaque composites — audit the optical color, not the alpha channel).
+- **Do** use red as a pen only: strokes, rings, caps, marks, and washes at α ≤ 0.12.
+  (Timeline chips fill with the pastel chip family, which is not the marking red.)
 - **Do** reassign pigments per consumer when a color changes — neutral UI state to
   chalk/ink, annotation layer to red — and never recolor a token family wholesale.
 - **Do** state a measured contrast ratio next to any new semantic color token; graphics

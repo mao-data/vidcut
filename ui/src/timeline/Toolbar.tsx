@@ -63,12 +63,15 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
   const snapEnabled = useView((s) => s.snapEnabled);
   return (
     <div
+      // tl-toolbar＝去框 scoped 規則（theme.css）：2026-08-16 使用者定案「按鈕列
+      // 不要框框」，只有時間軸工具列的按鈕變 ghost，別的面板不跟。
+      className="tl-toolbar"
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        // 2026-08-16 使用者定案「按鈕列縮 6%」：縱向 2/8→1/7，總高 38→36（−5.3%，
-        // 最接近的整數解）。只縮容器，不動全域 .icon-btn（別的面板也在用）。
+        // 2026-08-16 使用者定案「按鈕列縮 6%」：縱向 2/8→1/7（總高 38→36）；
+        // 同日去框再省 2px 邊框（36→34）。只縮容器，不動全域 .icon-btn。
         padding: '1px 4px 7px',
         fontSize: 11,
         color: 'var(--text-2)',
