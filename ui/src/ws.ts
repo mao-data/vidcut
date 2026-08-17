@@ -28,6 +28,16 @@ export function sendCommand(cmd: Command, reqId?: string): void {
   sendMsg({ type: 'command', cmd, reqId }, 'Offline — edit not sent');
 }
 
+/**
+ * 送一則聊天訊息給 AI（經 server 存進 chat.json 並廣播給所有連線）。
+ *
+ * **不帶離線警告字串**：Chat 分頁在離線時就把輸入框 disabled 了（而且草稿留著），
+ * 所以這條路走不到；真的走到也不該冒一個 toast——那個 toast 的措辭是給編輯用的。
+ */
+export function sendChatMessage(text: string): void {
+  sendMsg({ type: 'sendChatMessage', text });
+}
+
 /** 回報人在 UI 的脈絡（選取/playhead/範圍）給 AI 的 get_editor_context 讀。 */
 export function sendContext(context: EditorContextData): void {
   sendMsg({ type: 'context', context });

@@ -16,6 +16,7 @@ import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import type { TextCardService } from './textCards.js';
+import { CHAT_MAX_LEN, type ChatStore } from './chatStore.js';
 import { aiWrite } from './aiWrite.js';
 import { prepareMedia } from './ingest.js';
 import { extractFrame } from './frame.js';
@@ -34,6 +35,11 @@ export interface McpDeps {
   baseUrl: string;
   /** add_overlay/update_overlay 帶 text 時用來產字卡（見 resolveTextCommand 前置） */
   textCards: TextCardService;
+  /**
+   * 與監修者的對話記錄（`post_chat` / `get_chat`）。**不是編輯路徑**——
+   * 它不進 doc、不進版本/歷史/undo，見 `chatStore.ts` 檔頭。
+   */
+  chat: ChatStore;
 }
 
 /** 應用層失敗：標 isError 讓模型能明確辨識（訊息本身與成功路徑同格式）。 */
@@ -449,7 +455,7 @@ function clipTrackReply(
 
 /** 建立註冊好全部工具的 McpServer（每個 HTTP 請求建一個，closure 共享 deps）。 */
 export function createMcpServer(deps: McpDeps): McpServer {
-  const { store, projectDir, editorContext, reviews, baseUrl, textCards } = deps;
+  const { store, projectDir, editorContext, reviews, baseUrl, textCards, chat } = deps;
   const server = new McpServer(
     { name: 'vidcut', version: '0.1.0' },
     {
@@ -502,7 +508,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'A write that replies "no-op" means the command was valid but no field actually changed — usually the values ' +
         'sent match the current state.' +
         'The patch for update_clip / update_caption / update_overlay / update_audio is matched strictly: a misspelled ' +
-        'field name returns a schema error rather than becoming a no-op.',
+        'field name returns a schema error rather than becoming a no-op.' +
+        'post_chat and get_chat are a talk channel with the person reviewing your work — the messages appear in the ' +
+        'Chat tab of the editor and the user can reply there. It is **not an editing path**: chat changes nothing in ' +
+        'the project, does not bump the version, and is not undoable, so keep doing the actual work with the editing ' +
+        'tools above. Use post_chat to explain what you did or ask a question the edit itself cannot answer, and ' +
+        'get_chat to read what the user told you (call it when you start, and again after a request_review round). ' +
+        'For a decision you must block on, request_review is still the tool — post_chat does not wait for a reply.',
     },
   );
 
@@ -662,6 +674,66 @@ export function createMcpServer(deps: McpDeps): McpServer {
         c as unknown as Record<string, unknown>,
         `playhead=${c.playhead.toFixed(2)}s selection=${c.selection?.id ?? 'none'}`,
       );
+    },
+  );
+
+  // ---- 與監修者的對話（**不是編輯路徑**）----
+  // 三步鐵則的第三步：這兩隻工具沒有對應的 `Command` variant，因為聊天不改專案狀態
+  // （見 chatStore.ts 檔頭）。它們共用 UI 左欄 Chat 分頁的同一份記錄，人的訊息從
+  // WS 的 `sendChatMessage` 進來，兩邊都經 ChatStore 廣播給所有連線。
+  const chatMessageOutput = z.object({
+    id: z.string(),
+    author: z.enum(['user', 'ai']),
+    text: z.string(),
+    ts: z.string().describe('ISO 8601 timestamp'),
+  });
+
+  server.registerTool(
+    'get_chat',
+    {
+      description:
+        'Read the conversation with the person reviewing your work (both sides, oldest first). ' +
+        'Call it when you start and after each review round to pick up anything they typed in the ' +
+        "editor's Chat tab. Read-only, and unrelated to project state — chat carries no edits.",
+      outputSchema: { messages: z.array(chatMessageOutput) },
+      inputSchema: {
+        limit: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('return only the most recent N messages; default all'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ limit }) => {
+      const all = chat.messages();
+      // `slice(-0)` 是 `slice(0)` ＝ **整個陣列**，語意與 limit:0 正好相反——
+      // get_history 踩過同一個坑，這裡先分流。
+      const n = limit === undefined ? undefined : Math.max(0, Math.floor(limit));
+      const messages = n === undefined ? [...all] : n === 0 ? [] : all.slice(-n);
+      return result({ messages }, `${messages.length} message(s)`);
+    },
+  );
+
+  server.registerTool(
+    'post_chat',
+    {
+      description:
+        'Say something to the person reviewing your work — it shows up in the Chat tab of the editor and they can ' +
+        'reply there. Use it to explain what you changed or to ask a question the edit cannot answer. ' +
+        '**Not an editing tool**: it changes nothing in the project, does not bump the version, and cannot be undone; ' +
+        'keep making edits with the editing tools. It also does not block — when you need an answer before ' +
+        'continuing, use request_review instead.',
+      outputSchema: { ok: z.boolean(), message: chatMessageOutput },
+      inputSchema: { text: z.string().describe('the message; blank messages are rejected') },
+      annotations: { readOnlyHint: false },
+    },
+    async ({ text }) => {
+      const trimmed = text.trim().slice(0, CHAT_MAX_LEN);
+      if (trimmed.length === 0) return err('post_chat: text is empty');
+      const message = chat.append('ai', trimmed);
+      return result({ ok: true, message }, `posted: ${message.text}`);
     },
   );
 

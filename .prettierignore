@@ -8,6 +8,11 @@ _skill_extracted
 # 而那些 [warn] 沒有一個是你能修的。eslint.config.js 的 ignores 已經先擋掉這一段了。
 .claude
 
+# impeccable 設計偵測 hook 的快取——hook 每次編輯 UI 檔就重寫它（不照 prettier 格式），
+# 而它只被 .git/info/exclude 擋（prettier 3 只讀 .gitignore/.prettierignore，看不見
+# info/exclude），不濾掉的話 format:check 會在任何一次 UI 編輯之後開始紅。
+ui/.impeccable/hook.cache.json
+
 # vitest 的 file snapshot（server/test/__snapshots__/mcp-surface.snap.json）。
 # 格式的擁有者是 vitest 不是 prettier，兩邊會打架：prettier 會把 `"canvas": {}` 這種
 # 空物件收成一行（實測 86701 → 82345 bytes），下一次 `-u` 又原樣寫回去，於是

@@ -39,6 +39,7 @@
 | 預覽音訊同步          | ✅                                             | `ui/src/player/sync.ts`：小漂移調 `playbackRate` 追趕（不中斷、無雜音）、大漂移才硬 seek。測試 `ui/src/player/sync.test.ts`、`ui/src/player/Player.sync.test.tsx`；spec `docs/superpowers/specs/2026-08-02-preview-audio-sync.md`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | AI 編輯動畫           | ✅                                             | `ui/src/fx/aiPatches.ts`（一輪 AI 編輯的 JSON patch → 哪些光暈、哪些進場、捲到哪）+ `ui/src/fx/scroll.ts` + `ui/src/stores/editFx.ts`（最後一次變更後 1.6s 收窗）。測試 `ui/src/fx/aiPatches.test.ts`、`ui/src/stores/editFx.test.ts`；spec `docs/superpowers/specs/2026-08-02-ai-edit-fx.md`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 面板寬度拖曳          | ✅                                             | `ui/src/PanelResizer.tsx` + `ui/src/panelResize.ts`（純函數）。測試 `ui/src/panelResize.test.ts`；spec `docs/superpowers/specs/2026-07-30-panel-resize-design.md`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| AI 聊天               | ✅                                             | 人 ⇄ AI 的 meta 溝通渠道，**刻意不進 doc／版本／歷史／undo**（不是編輯操作，所以不走 `applyCommand`）。server 端 `server/src/chatStore.ts`（每專案一份 `chat.json`，載入容錯）；WS 命令 `sendChatMessage`（驗證在 `wsHub`，不在 UI）＋ `chat` 廣播；MCP 工具 `post_chat`／`get_chat`（鐵則第三步：`mcp.ts` 手動 registerTool ＋ instructions 已同步，說明「這是對話渠道，editing 仍走既有工具」）。UI 是左 AI 欄的 **Chat ⇄ Activity 內部分頁**（三態狀態卡恆頂於兩分頁之上），Chat 分頁**不做聊天泡泡**、靠 `--who-*` 署名分色，離線時輸入 disabled 但**草稿不丟**，AgentStrip 顯示未讀徽章。測試 `server/test/chatStore.test.ts`／`ws-chat.test.ts`／`mcp-chat.test.ts`、`ui/src/stores/chat.test.ts`／`ui/src/panels/Chat.test.tsx`／`AgentTabs.test.tsx`／`ui/src/AgentStrip.unread.test.tsx`。                                                                                                                                                                                                                                                                 |
 
 **自動化狀態全綠**：typecheck 三 workspace 乾淨、ESLint 0 問題、prettier 乾淨、全測試套件通過、突變測試全滅、UI 可 build。全部走真 ffmpeg、真 whisper、真 Pillow 與真 MCP/WS transport 驗證過。**當下數字跑 `bash scripts/gauntlet.sh` 看**——這份文件不寫會過期的數字（快照數字看 `EVIDENCE.md`，它帶 commit SHA）。
 
@@ -325,6 +326,12 @@ shared/src/snap.ts        snapBBox：畫布拖曳吸附純函數（水平置中/
 shared/src/subtitles.ts   serializeSrt / serializeVtt：字幕檔序列化純函數（時間基準＝成品時間軸，零換算）
 shared/src/index.ts       shared 的對外出口（server/ui 都從 @vidcut/shared 匯入）
 server/src/store.ts       ProjectStore：唯一真相來源、immer patch、history、undo/redo（真的有 #redoStack）、原子存檔
+server/src/chatStore.ts   ChatStore：每專案一份 chat.json（與 project.json 同目錄）的人⇄AI 聊天記錄。
+                          **刻意不進 doc/版本/歷史/undo**——聊天是關於編輯的 meta 溝通，不是編輯
+                          操作，所以不走 applyCommand（Cmd+Z 不該撤掉一句話）。載入一律容錯
+                          （檔案缺失／壞 JSON／形狀不對＝空清單，壞的個別訊息丟掉留好的），
+                          落盤照 ProjectStore 的 debounce 500ms + tmp→rename。CHAT_MAX_LEN 由
+                          WS 的 sendChatMessage 與 MCP 的 post_chat 共用（兩個入口同一條上限）
 server/src/commands.ts    applyCommand：人機共用的驗證過的編輯命令層 ★
 server/src/aiWrite.ts     AI 寫入守衛（審核中擋 + ifVersion 過期偵測）→ commands
 server/src/reviews.ts     ReviewManager：request_review 的核心（阻塞/核准/退回回滾/逾時）
@@ -353,7 +360,11 @@ server/src/app.ts         Express app：`/api/project`（debug）、`GET /api/so
 server/src/agentActivity.ts AI 工具呼叫的進行中旁路：agentActivityBus（EventEmitter，型態同
                           renderProgressBus）+ 模組級遞增 callId。**不是 Command**——不動 doc、
                           不進版本/歷史/undo。發射點是 mcp.ts 的 registerTool 包裝層
-server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render/agentActivity
+server/src/wsHub.ts       WS：full/patch/command/context/reviewResolve/render/agentActivity/chat
+                          ＋ client 的 sendChatMessage（**不走 applyCommand**：聊天不是專案狀態
+                          變更。驗證［空白、CHAT_MAX_LEN］寫在這一層不寫在 UI——/ws 是公開介面，
+                          UI 的 disabled 只是禮貌。壞訊息靜默丟棄，不送 commandError：那會讓
+                          UI 顯示「Edit rejected」，語意完全不對）
 server/src/index.ts       startServer + CLI
 ui/src/theme.css          設計系統實作：token + 原生控件樣式 + 佈局 class ★
 ui/DESIGN.md              編輯器設計系統文件（documenter 自成品反推；雙主題 token
@@ -372,6 +383,10 @@ ui/src/stores/agent.ts    AI 存在感的狀態機（零視覺）：進行中工
                           三態純函數 agentPhase（offline/idle/working）、最新一筆 currentCall、
                           session 統計 sessionCounts。斷線由 project.setConnected(false) 清空
 ui/src/stores/editDraft.ts 打字中的本地字幕草稿（text + previewHash）：不進 history、不碰 doc、不經 sendCommand
+ui/src/stores/chat.ts     聊天的 UI 狀態：訊息清單（server 每次送整份）＋輸入草稿＋未讀數。
+                          **草稿住 store 不住元件**——離線時輸入框 disabled 但字要留著，而斷線／
+                          切分頁都會讓面板重掛。未讀只數「新增的 AI 訊息」且**連上時的第一份
+                          記錄不算**（否則重整就頂著假徽章），打開 Chat 分頁即歸零
 ui/src/fx/                aiPatches（一輪 AI 編輯的 JSON patch → 哪些光暈/哪些進場/捲到哪，純函數）+ scroll（捲動目標計算）
 ui/src/PanelResizer.tsx   左右面板寬度拖曳把手；數學在 ui/src/panelResize.ts（純函數）
 ui/src/AgentStrip.tsx     header 的琥珀終端標籤（AI 存在感的視覺面，spec §3.3 + 其
@@ -400,14 +415,20 @@ ui/src/timeline/          scale + dragMath + waveform（純函數）+ Timeline�
 ui/src/ThemeToggle.tsx    header 的日夜切換 icon 鈕（暗版給太陽、紙版給月亮＝按下去會去的
                           那一面；aria-pressed=是否紙主題；2026-08-16 自 Shortcuts 彈出層搬上）
 ui/src/panels/            Inspector（右欄 Properties 分頁：Canvas fill／選取物件表單／Shortcuts
-                          彈出層／閒置提示）/ AgentPanel（見下）/ Activity / ReviewBar /
-                          ExportMenu / CaptionList（字幕列表）
+                          彈出層／閒置提示）/ AgentPanel（見下）/ Activity / Chat（見下）/
+                          ReviewBar / ExportMenu / CaptionList（字幕列表）
 ui/src/panels/AgentPanel.tsx AI 專區（左欄全高，使用者 2026-08-16 版面定案）：上半 AgentStatus
                           ＝大使館第二件實體的琥珀終端索引卡（三態同 AgentStrip 的
                           agentPhase 推導、RING_PATH 直接 import 共用同一隻手、離線給
                           `claude mcp add …` 接回指令、session 讀數列、最近三筆署名列），
-                          下半嵌 Activity 完整活動流。**卡不再綁「未選取」**——它以前住在
-                          Inspector 的閒置分支，選了東西就看不到
+                          下半是 **Chat ⇄ Activity 兩個分頁**（分頁列沿用右欄的 `.seg`/`.seg.on`
+                          既有模式）。**卡不再綁「未選取」**——它以前住在 Inspector 的閒置分支，
+                          選了東西就看不到；**卡也恆頂、不進分頁**，兩個分頁都在它下面
+ui/src/panels/Chat.tsx    Chat 分頁：訊息列表＋底部輸入列（Enter 送出、Shift+Enter 換行）。
+                          **不做聊天泡泡**（Two-Hands 體例）——靠署名分色區分：AI 走 `--who-ai`、
+                          使用者走 `--who-you`，與索引卡／活動流同一條規則同一組 token。
+                          新訊息自動捲到底（尊重 `motionOK()`）；離線時輸入 disabled 但草稿保留
+                          （草稿在 `stores/chat.ts`，見上）
 ```
 
 測試與稽核的基礎設施（不是產品程式碼，但改測試時一定會碰到）：

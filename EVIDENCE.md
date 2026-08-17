@@ -2028,3 +2028,68 @@ prettier --check 與 docs-check 單獨複跑皆綠(如實記:該兩層的全跑�
 load 16.7)CDP 連續逾時未拍成,使用者已直接在 :3845 瀏覽器過目並核可
 (「可以了」);muted/frozen 的時間軸線索、scrollTargetFor/fit 未扣捲軸寬
 (Windows)等既有已知限制不變。
+
+## 補記:AI 聊天——ChatStore+WS+MCP post_chat/get_chat+左欄 Chat 分頁(2026-08-17)
+
+使用者核准的計劃,Opus 實作、主 session 獨立驗收。
+
+**架構定調**:聊天是人⇄AI 的 meta 溝通,**不是編輯**——不進 doc、不走
+applyCommand、不進版本/歷史/undo(Cmd+Z 不該撤掉一句話)。持久化在與
+project.json 同目錄的 `chat.json`(debounce 500ms+tmp→rename 原子替換,
+載入全容錯:壞檔=空清單、壞單筆只丟該筆)。單則上限 `CHAT_MAX_LEN`(4000)
+由 WS 與 MCP 兩個入口**共用一份常數**。WS `sendChatMessage` 驗證在命令層
+(壞訊息靜默丟棄,刻意不發 commandError——那會顯示成「Edit rejected」);
+broadcast 每次送整份清單(增量同步的複雜度聊天不值得再付一次);連線時
+即送(空清單也送,UI 才知道「載入完成」)。MCP `get_chat`(readOnly,
+limit 有 slice(-0) 分流)/`post_chat`(空白拒絕),三步鐵則第三步完成:
+registerTool+instructions 同步(明示 not an editing path、不 block、
+要 block 用 request_review);mcp-surface-snapshot 先讀 diff 再 -u,diff
+恰為兩個新工具+一段 instructions,既有工具零變動。UI:左欄 Chat⇄Activity
+分頁沿用右欄 `.seg` 語彙,**索引卡恆頂不進分頁**;Chat 無泡泡,署名分色
+(--who-ai/--who-you,對比皆 ≥4.5 有記錄);草稿住 store(斷線/切分頁
+重掛不吃字);offline 輸入 disabled 草稿保留;AgentStrip 未讀徽章
+(`.badge` 復用,aria-label 帶數);jsdom 補 `Element.scrollTo` polyfill。
+
+**Opus 測試**:RED-first,+40 server/+46 ui。斷言調整兩處(範圍精確化,
+非弱化,均有記):AgentTabs 分頁切換斷言收斂到分頁 body(狀態卡恆頂,
+整欄斷言會變成「要求卡消失」);mcp-chat 的 get_chat 補 `arguments: {}`
+(MCP SDK 對 object-schema 工具一律要求,經 get_editor_context 對照證實
+是測試錯不是產品錯)。Opus 自抓一個測試競態:server 的 full 與初始 chat
+同 tick 送達,先消費 full 再掛 chat listener 就永遠等不到——改成連線起即
+緩衝的 Conn 類+游標等待,隔離連跑 8/8 綠+全套連跑 2/2 綠(不是用 retry
+或加長 timeout 蓋掉)。
+
+**主 session 驗收抓到一個真 bug(TDD 修)**:store 的首載判準用
+`prev.messages === NO_MESSAGES` 推斷——空歷史專案首份記錄就是空清單,
+reference 不變,**第二份(AI 開口的第一句)被誤判成首載而不計未讀**,
+恰是新專案最常見路徑;現有計數測試全用非空首份墊底所以沒咬到。修法:
+顯式 `loaded` 旗標。紅測試(1 failed/15 passed)→修→16/16 綠(beforeEach
+補重置新欄位屬 setup 修繕,斷言零動);新 mutant `chat-unread-first-real`
+(精確重現原 bug)驗殺:帶突變紅/還原綠。127→**128 隻**。
+
+**實機驗收**(:3845 由外部程序占用且 kill 受權限限制,改在 :3846 以
+demo 複本起第二台新碼 server,:3845 不動):真 MCP 協議呼叫
+(StreamableHTTP JSON-RPC)——tools/list 見兩工具、post_chat 寫入、
+get_chat 讀回、limit:0 回 0 筆、空白 post isError、chat.json 落盤逐欄
+正確;CDP 行為探針兩主題各 8/8:首載歷史不計未讀、MCP post_chat 後
+strip 徽章=1、Chat 分頁鈕帶計數、開分頁訊息可見+清零、Enter 送出進列表
++輸入框清空、server get_chat 收到 user 訊息(author/text 正確);
+兩主題截圖過目(署名分色、無泡泡、狀態卡恆頂、輸入列貼底);
+VIDCUT_URL 指 :3846 跑 verify:panels 全綠。探針首輪一項紅是探針自身
+regex 筆誤(`\\s`),修探針後紙輪 8/8(非產品問題,如實記)。
+
+**環境事件(如實記)**:impeccable 設計 hook 的 `ui/.impeccable/
+hook.cache.json` 只被 .git/info/exclude 擋,prettier 3 看不見 info/exclude
+→ format:check 在 UI 編輯後開始紅;進 `.prettierignore`(生成物,與
+snapshot 同理)。
+
+**gauntlet(source:966b763+本包工作樹,單次乾淨全跑,2026-08-17)**:
+**975 passed**(shared 46/server 505/ui 424);UI 覆蓋率 91.58%;隨機
+順序×2 PASS;錨點 128/128;**127/127 killed+1 等價對照存活如預期**;
+文件引用/使用者面字串/秘密掃描全 PASS;零新增依賴。本補記於 gauntlet
+完跑後寫入,prettier --check 與 docs-check 單獨複跑皆綠(如實記)。
+
+**已知限制**:聊天記錄無保留/裁剪政策(單則 4000 上限但整份無上限),
+長期專案累積前值得定案;:3845 那台 server 仍跑舊碼,**要重啟才有聊天
+功能**;Chat 輸入是單行 `<input>`(註解提到 Shift+Enter 留給換行是
+措辭超前,實際單行——候選改進)。

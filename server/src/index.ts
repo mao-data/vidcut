@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { attachWs } from './wsHub.js';
 import { ProjectStore } from './store.js';
+import { ChatStore } from './chatStore.js';
 import { EditorContext } from './editorContext.js';
 import { ReviewManager } from './reviews.js';
 import { mountMcp } from './mcp.js';
@@ -29,12 +30,16 @@ const DEFAULT_PORT = (() => {
 export interface StartedServer {
   server: Server;
   store: ProjectStore;
+  chat: ChatStore;
   editorContext: EditorContext;
   reviews: ReviewManager;
 }
 
 export async function startServer(projectDir: string, port = DEFAULT_PORT): Promise<StartedServer> {
   const store = await ProjectStore.load(join(projectDir, 'project.json'));
+  // 聊天記錄與 project.json 同目錄、各自獨立的檔案。載入永不拋（壞檔＝空清單），
+  // 所以這一行不需要 try/catch——理由見 chatStore.ts 檔頭。
+  const chat = await ChatStore.load(join(projectDir, 'chat.json'));
   const editorContext = new EditorContext();
   const reviews = new ReviewManager(store);
   const uiDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
@@ -66,7 +71,15 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const app = createApp(store, projectDir, uiDist, { fonts, textCards });
   // MCP 需要能讀 req.body（JSON），StreamableHTTP 會自己處理 SSE。
   const server = createServer(app);
-  const wss = attachWs(server, { store, editorContext, reviews, projectDir, cardSync, textCards });
+  const wss = attachWs(server, {
+    store,
+    editorContext,
+    reviews,
+    projectDir,
+    cardSync,
+    textCards,
+    chat,
+  });
   // ws 收到 `{ server }` 時會把 http server 的 'error' 轉發到 wss 上。轉發過來的
   // EADDRINUSE 在 wss 這邊沒有監聽者，Node 就直接丟——這正是從前那十幾行堆疊的來源，
   // 而且它比下面 Promise 的 reject 早到。listen 期間的錯誤由下面統一回報，這裡只吃掉
@@ -83,6 +96,7 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
     reviews,
     baseUrl: `http://127.0.0.1:${port}`,
     textCards,
+    chat,
   };
   mountMcp(app, deps);
 
@@ -122,7 +136,7 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
     .catch((e: unknown) =>
       console.warn(`⚠ Failed to re-resolve text-overlay cards: ${(e as Error).message}`),
     );
-  return { server, store, editorContext, reviews };
+  return { server, store, chat, editorContext, reviews };
 }
 
 // CLI: tsx src/index.ts <projectDir>

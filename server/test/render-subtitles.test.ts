@@ -7,6 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildRenderArgs, render, type CaptionCard } from '../src/render.js';
 import { ProjectStore } from '../src/store.js';
+import { ChatStore } from '../src/chatStore.js';
 import { EditorContext } from '../src/editorContext.js';
 import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer } from '../src/mcp.js';
@@ -175,6 +176,7 @@ describe('render — subtitle sidecar / soft track (integration)', () => {
       reviews: new ReviewManager(store, 900_000),
       baseUrl: 'http://127.0.0.1:3845',
       textCards: new TextCardService(dir, new PillowRasterizer(() => undefined)),
+      chat: await ChatStore.load(join(dir, 'chat.json')),
     });
     const client = new Client({ name: 'test', version: '0' });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

@@ -975,5 +975,53 @@
     "replace": "  }, []);",
     "tests": "ui/src/timeline/Timeline.wheelzoom.test.tsx",
     "note": "wheel 縮放 effect 的 deps 改回空陣列 → Timeline 首渲染 return null 時 listener 永遠掛不上,Ctrl+滾輪縮放整個死掉且無錯誤;「doc 後到仍要能縮放」的掛載時序斷言必須抓到"
+  },
+  {
+    "id": "chat-ws-blank-guard",
+    "file": "server/src/wsHub.ts",
+    "find": "if (text.length > 0) chat.append('user', text);",
+    "replace": "chat.append('user', text);",
+    "tests": "server/test/ws-chat.test.ts",
+    "note": "命令層的空白訊息驗證被拿掉 → 空字串也會進聊天記錄;「驗證寫在命令層不寫在 UI」的斷言必須抓到"
+  },
+  {
+    "id": "chat-mcp-author",
+    "file": "server/src/mcp.ts",
+    "find": "      const message = chat.append('ai', trimmed);",
+    "replace": "      const message = chat.append('user', trimmed);",
+    "tests": "server/test/mcp-chat.test.ts",
+    "note": "post_chat 把 AI 的話記成使用者說的 → 署名分色整個反過來;author 斷言必須抓到"
+  },
+  {
+    "id": "chat-unread-author",
+    "file": "ui/src/stores/chat.ts",
+    "find": "const newFromAi = added.filter((m) => m.author === 'ai').length;",
+    "replace": "const newFromAi = added.length;",
+    "tests": "ui/src/stores/chat.test.ts",
+    "note": "未讀數把使用者自己剛送出的訊息也算進去 → 每打一句話就給自己加一個未讀;「不數自己的訊息」斷言必須抓到"
+  },
+  {
+    "id": "chat-unread-clear",
+    "file": "ui/src/stores/chat.ts",
+    "find": "set(viewing ? { viewing, unread: 0 } : { viewing }),",
+    "replace": "set({ viewing }),",
+    "tests": "ui/src/stores/chat.test.ts",
+    "note": "打開 Chat 分頁不再清未讀 → 徽章永遠掛著清不掉;setViewing 歸零的斷言必須抓到"
+  },
+  {
+    "id": "chat-offline-send",
+    "file": "ui/src/panels/Chat.tsx",
+    "find": "    if (!connected) return;",
+    "replace": "",
+    "tests": "ui/src/panels/Chat.test.tsx",
+    "note": "離線時仍然送出並清掉草稿 → 使用者打的字進了黑洞(WS 沒連,訊息丟失);「離線不送且草稿留著」的斷言必須抓到"
+  },
+  {
+    "id": "chat-unread-first-real",
+    "file": "ui/src/stores/chat.ts",
+    "find": "    const firstLoad = !prev.loaded;",
+    "replace": "    const firstLoad = prev.messages === NO_MESSAGES;",
+    "tests": "ui/src/stores/chat.test.ts",
+    "note": "首載判準退回 reference 推斷 → 空歷史專案 AI 開口第一句永遠不計未讀(2026-08-17 主 session 驗收抓到的原 bug);「空首載後第一則 AI 訊息計 1」的斷言必須抓到"
   }
 ]

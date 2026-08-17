@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Command } from '@vidcut/shared';
 import { ProjectStore } from '../src/store.js';
+import { ChatStore } from '../src/chatStore.js';
 import { EditorContext } from '../src/editorContext.js';
 import { ReviewManager } from '../src/reviews.js';
 import { createMcpServer, type McpDeps } from '../src/mcp.js';
@@ -82,6 +83,7 @@ beforeAll(async () => {
     reviews: new ReviewManager(store, 900_000),
     baseUrl: 'http://127.0.0.1:3845',
     textCards: new TextCardService(dir, new PillowRasterizer(() => undefined)),
+    chat: await ChatStore.load(join(dir, 'chat.json')),
   };
   const server = createMcpServer(deps);
   const [ct, st] = InMemoryTransport.createLinkedPair();

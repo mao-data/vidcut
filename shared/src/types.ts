@@ -361,6 +361,20 @@ export interface HistoryBrief {
   ts: string;
 }
 
+// ---- 聊天（人 ⇄ AI 的 meta 溝通渠道）----
+/**
+ * 一則聊天訊息。**刻意不進 `Project`**：聊天是關於編輯的對話，不是編輯本身，
+ * 所以它不走 `applyCommand`、不進 doc、不進版本/歷史/undo（Cmd+Z 不該撤掉一句話）。
+ * 持久化在與 `project.json` 同目錄的 `chat.json`，由 `server/src/chatStore.ts` 管。
+ */
+export interface ChatMessage {
+  id: string;
+  author: 'user' | 'ai';
+  text: string;
+  /** ISO 8601 時間戳（`new Date().toISOString()`）。 */
+  ts: string;
+}
+
 export type WsServerMsg =
   | { type: 'full'; version: number; doc: Project; history: HistoryBrief[] }
   | {
@@ -381,11 +395,23 @@ export type WsServerMsg =
    * server 端由 mcp.ts 的 registerTool 包裝層在 handler 進入/離開（含拋錯）時發射，
    * `callId` 是全域遞增序號，start 與其配對的 end 共用同一個值。
    */
-  | { type: 'agentActivity'; phase: 'start' | 'end'; tool: string; callId: string };
+  | { type: 'agentActivity'; phase: 'start' | 'end'; tool: string; callId: string }
+  /**
+   * 整份聊天記錄（連線時送一次，之後每次有新訊息都重送完整清單）。
+   * 與 `textCards`／`agentActivity` 同類的旁路：**不動 doc、不進版本/歷史/undo**，
+   * 所以它沒有 `version` 欄位，UI 端必須早期 return，別落到 patch 分支去
+   * （那會把 `undefined` 版本判成 resync，形成無限迴圈）。
+   */
+  | { type: 'chat'; messages: ChatMessage[] };
 
 export type WsClientMsg =
   | { type: 'resync' }
   | { type: 'command'; cmd: Command; reqId?: string }
+  /**
+   * 瀏覽器端的使用者發一則聊天訊息。**不是 `Command`**——它不改專案狀態，
+   * 所以不走 `applyCommand`；驗證（空字串、長度上限）在 `wsHub` 的命令層做，不在 UI。
+   */
+  | { type: 'sendChatMessage'; text: string }
   | { type: 'context'; context: EditorContextData }
   | { type: 'reviewResolve'; id: string; outcome: ReviewOutcome; note?: string }
   | { type: 'render'; stamp?: string; options?: RenderOptions }

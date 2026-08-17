@@ -57,6 +57,9 @@ Element.prototype.setPointerCapture = vi.fn();
 Element.prototype.releasePointerCapture = vi.fn();
 Element.prototype.hasPointerCapture = vi.fn(() => false);
 Element.prototype.scrollIntoView = vi.fn();
+// jsdom 也沒有 `Element.scrollTo`（Chat 分頁的「新訊息捲到底」會呼叫）。
+// 同上：環境邊界補在這裡，不逐檔補、也不為了測試在產品碼裡加 `typeof` 守衛。
+Element.prototype.scrollTo = vi.fn();
 
 // 4) matchMedia：motionOK() 讀 prefers-reduced-motion
 Object.defineProperty(window, 'matchMedia', {

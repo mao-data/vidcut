@@ -3,6 +3,7 @@ import { applyPatches, enablePatches, type Patch } from 'immer';
 import type { Project, WsServerMsg } from '@vidcut/shared';
 import { useActivity } from './activity.js';
 import { useAgent } from './agent.js';
+import { useChat } from './chat.js';
 import { useEditFx } from './editFx.js';
 import { analyzeAiPatches } from '../fx/aiPatches.js';
 
@@ -54,6 +55,13 @@ export const useProject = create<ProjectState>((set, get) => ({
       // 早期 return 是關鍵:若落到下面 patch 分支,msg.version 是 undefined,
       // 會被判成 'resync' 觸發再廣播,形成無限迴圈(Task 4 修過的坑)。
       set({ captionCards: Object.fromEntries(msg.entries.map((e) => [e.id, e.hash])) });
+      return 'ok';
+    }
+    if (msg.type === 'chat') {
+      // 與 textCards/agentActivity 同類的旁路（不動 doc/version/history——聊天不是編輯）。
+      // 早期 return 同樣是關鍵：落到下面 patch 分支的話 msg.version 是 undefined
+      // → 判成 'resync' → 無限迴圈。
+      useChat.getState().receive(msg.messages);
       return 'ok';
     }
     if (msg.type === 'agentActivity') {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useProject } from './stores/project.js';
 import { useAgent, agentPhase, currentCall } from './stores/agent.js';
+import { useChat } from './stores/chat.js';
 import { useView } from './stores/view.js';
 
 /**
@@ -79,6 +80,12 @@ export function AgentStrip({ onOpenActivity }: AgentStripProps) {
   const phase = agentPhase(connected, calls);
   const call = currentCall(calls);
   const working = phase === 'working' && call !== null;
+  /**
+   * 未讀的 AI 聊天訊息數。**不隨連線狀態消失**：那些話是 AI 之前說的，
+   * 斷線不會讓它們變成已讀（三態文字才是講「現在」的那一半）。
+   * 打開 Chat 分頁就歸零（`stores/chat.ts` 的 `setViewing`）。
+   */
+  const unread = useChat((s) => s.unread);
 
   // 經過秒數：只在 working 掛 interval。`now` 每秒推進一次，重繪的只有這條紙條。
   const [now, setNow] = useState(() => Date.now());
@@ -100,6 +107,9 @@ export function AgentStrip({ onOpenActivity }: AgentStripProps) {
       // 播報，但不打斷使用者正在聽的內容（這不是警報，是背景狀態）。
       role="status"
       aria-live="polite"
+      // 徽章的數字對讀屏幕來說只是一個裸數字——必須說得出「這是什麼的 n」。
+      // 沒有未讀時不覆寫（讓內容文字自己當標籤，即三態文字）。
+      aria-label={unread > 0 ? `${label} — ${unread} unread message(s)` : undefined}
       title="Show agent activity"
       onClick={() => {
         onOpenActivity();
@@ -157,6 +167,14 @@ export function AgentStrip({ onOpenActivity }: AgentStripProps) {
           <span className="ap-tool">{call.tool}</span>
           <span className="ap-secs">{formatElapsed(now - call.startedAt)}</span>
         </>
+      )}
+      {/* 未讀徽章：與右欄 Captions 分頁的計數徽章同一顆 `.badge`，不另立第二種
+          計數視覺。放在最後——它是附加資訊，不該把三態文字往右擠。
+          `aria-hidden` 因為上面的 `aria-label` 已經把這個數字唸過一次了。 */}
+      {unread > 0 && (
+        <span className="badge" aria-hidden="true">
+          {unread}
+        </span>
       )}
     </button>
   );

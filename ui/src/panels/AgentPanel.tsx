@@ -5,7 +5,9 @@ import { useAgent, agentPhase, currentCall, sessionCounts } from '../stores/agen
 // 索引卡與 header 標籤共用同一隻手（`RING_PATH`）與同一份格式化（`formatElapsed`）。
 // 複製一份的話有人改了其中一份就會分岔，而分岔沒有任何測試抓得到。
 import { RING_PATH, formatElapsed } from '../AgentStrip.js';
+import { useChat } from '../stores/chat.js';
 import { Activity } from './Activity.js';
+import { Chat } from './Chat.js';
 
 /**
  * AI 專區的索引卡——**大使館在編輯器裡的第二件實體**
@@ -168,25 +170,47 @@ export function AgentStatus() {
 }
 
 /**
- * AI 專區（左欄全高，使用者 2026-08-16 版面定案）。
+ * AI 專區（左欄全高，使用者 2026-08-16 版面定案；分頁為後續定案）。
  *
  * 上＝三態索引卡＋最近三筆署名列＋session 讀數（`AgentStatus`，原本住在 Inspector
- * 的未選取分支）；下＝完整活動流（`Activity`，原本是右欄的一個分頁）。
- * 兩者是同一件事的兩個尺度：卡回答「現在怎樣」，流回答「到目前為止做了什麼」，
- * 分在兩根欄裡的時候使用者得自己在腦裡把它們接起來。
+ * 的未選取分支）；下＝**Chat ⇄ Activity 兩個分頁**。
+ * 卡與流是同一件事的兩個尺度：卡回答「現在怎樣」，流回答「到目前為止做了什麼」，
+ * Chat 則是第三件事——「我們談了什麼」。
  *
- * 版面用 flex 直向：`AgentStatus` 是固定高度的頭（`flex: none`），活動流吃掉剩餘
- * 高度並自己捲（`Activity` 內部已是 `.panel-col` + `.panel-body`，給它 `minHeight: 0`
+ * **索引卡恆頂、不進分頁**（使用者定案）：「AI 在不在」是這個產品的核心迴路狀態，
+ * 不該因為使用者切到某個分頁就消失。它以前被「有沒有選取東西」蓋掉過一次
+ * （見 AgentStatus 的檔頭），那個教訓在這裡就是「也不要被分頁蓋掉」。
+ *
+ * **分頁列沿用右欄 Captions⇄Properties 的 `.seg` / `.seg.on`**，不另立第二套分頁
+ * 語彙——同一個 app 裡兩種分頁長相不同的話，使用者得學兩次。
+ *
+ * 版面用 flex 直向：卡與分頁列是固定高度的頭（`flex: none`），分頁內容吃掉剩餘
+ * 高度並自己捲（兩個分頁內部都是 `.panel-col` + `.panel-body`，給它 `minHeight: 0`
  * 才捲得起來——flex 子項的預設 `min-height: auto` 會被內容撐開、整欄一起長高）。
  */
 export function AgentPanel() {
+  const [tab, setTab] = useState<'chat' | 'activity'>('activity');
+  const unread = useChat((s) => s.unread);
   return (
     <div className="panel-col">
       <div style={{ flex: 'none' }}>
         <AgentStatus />
       </div>
+      <div className="panel-bar" style={{ gap: 4, padding: '8px 12px', flex: 'none' }}>
+        <button className={`seg${tab === 'chat' ? ' on' : ''}`} onClick={() => setTab('chat')}>
+          {/* 未讀徽章與右欄 Captions 分頁的計數徽章同一顆 `.badge`。
+              分頁本身可見時不顯示——那時未讀已經歸零，畫一個 0 是雜訊。 */}
+          Chat {unread > 0 && <span className="badge">{unread}</span>}
+        </button>
+        <button
+          className={`seg${tab === 'activity' ? ' on' : ''}`}
+          onClick={() => setTab('activity')}
+        >
+          Activity
+        </button>
+      </div>
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <Activity />
+        {tab === 'chat' ? <Chat /> : <Activity />}
       </div>
     </div>
   );
