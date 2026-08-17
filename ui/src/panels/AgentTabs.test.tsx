@@ -13,8 +13,11 @@ import { resetStores, seedProject } from '../test/fixtures.js';
  *
  * 版面契約有兩條，兩條都在這裡釘住：
  *
- *  1. **三態狀態卡（AgentStatus）恆頂**——它不是分頁的一部分，兩個分頁都在它下面。
- *     「AI 在不在」不該因為使用者切到某個分頁就看不到。
+ *  1. **三態狀態卡（AgentStatus）住在 Activity 分頁裡**（2026-08-17 使用者修訂：
+ *     「Agent ready 的顯示放到 activity 裡面，這樣 chat 空間更大」）。這是對舊
+ *     「恆頂」契約的**正式反轉**——三態不會從畫面上消失：header 的 AgentStrip
+ *     本來就恆在，左欄的卡是第二份，Chat 分頁把整張卡讓位給對話。
+ *     （舊契約下的 compact prop 同時退役——只剩一個落點就沒有瘦身版可言。）
  *  2. 分頁列樣式**沿用右欄 Captions⇄Properties 的 `.seg` / `.seg.on` 既有模式**，
  *     不另立第二套分頁語彙。
  */
@@ -57,25 +60,25 @@ describe('AI column tabs', () => {
     expect(on).toHaveLength(1);
   });
 
-  it('keeps the three-state status card above the tabs in BOTH tabs', () => {
-    // 恆頂，不隨分頁走。這是使用者定案的版面契約。
+  /**
+   * **狀態卡住進 Activity、Chat 整頁讓給對話**（2026-08-17 使用者修訂,取代舊
+   * 「恆頂+compact」兩條——修訂理由見檔頭）。以下四條是舊契約斷言的**反轉/改寫**,
+   * 不是放寬:Chat 側從「收斂的卡」變成「沒有卡」,Activity 側從「卡在分頁外」
+   * 變成「完整卡固定在分頁內頂部」。
+   */
+  it('the status card lives inside the Activity tab only', () => {
     seedProject();
     const { container } = render(<AgentPanel />);
+    // 預設分頁 Activity:卡在
     expect(container.querySelector('.ap-card')).not.toBeNull();
     fireEvent.click(tab(container, 'Chat'));
-    expect(container.querySelector('.ap-card')).not.toBeNull();
+    // Chat:整張卡不渲染,空間全給對話
+    expect(container.querySelector('.ap-card')).toBeNull();
     fireEvent.click(tab(container, 'Activity'));
     expect(container.querySelector('.ap-card')).not.toBeNull();
   });
 
-  /**
-   * **Activity 內容退出 Chat 頁**（2026-08-17 使用者定案 C）。
-   *
-   * 「AI 在不在恆頂可見」的定案**不動**——上面那條仍然要求兩個分頁都看得到 `.ap-card`。
-   * 改的是卡的**內容量**：最近三筆署名列與 `No edits yet.` 是 activity 內容，
-   * 在 Chat 分頁上是重複的（下面就是對話），所以 Chat 側只留收斂的三態單列。
-   */
-  it('C-compact: the recent-edits list is Activity-only, not on the Chat tab', () => {
+  it('the full card (recent edits + counts) is Activity-only', () => {
     seedProject();
     useActivity.setState({
       entries: [
@@ -85,17 +88,17 @@ describe('AI column tabs', () => {
     const { container } = render(<AgentPanel />);
 
     fireEvent.click(tab(container, 'Chat'));
-    // 三態仍在（恆頂契約），但最近三筆不在
-    expect(container.querySelector('.ap-card')).not.toBeNull();
-    expect(container.textContent).toContain('Agent ready');
     expect(container.querySelector('.ap-card-sign')).toBeNull();
+    expect(container.querySelector('.ap-card-counts')).toBeNull();
     expect(container.textContent).not.toContain('trimmed clip');
 
     fireEvent.click(tab(container, 'Activity'));
+    // 搬進分頁後卡是**完整版**(compact 已退役):署名列與讀數都在
     expect(container.querySelector('.ap-card-sign')).not.toBeNull();
+    expect(container.querySelector('.ap-card-counts')).not.toBeNull();
   });
 
-  it('C-compact: "No edits yet." belongs to Activity, not to an empty Chat', () => {
+  it('"No edits yet." belongs to Activity, not to an empty Chat', () => {
     seedProject();
     const { container } = render(<AgentPanel />);
     fireEvent.click(tab(container, 'Chat'));
@@ -104,21 +107,14 @@ describe('AI column tabs', () => {
     expect(container.textContent).toContain('No edits yet.');
   });
 
-  it('C-compact: the Chat-side status still carries the session counts', () => {
-    // 「狀態＋計數」的單列——收斂掉的是署名列，不是讀數。
-    seedProject();
-    const { container } = render(<AgentPanel />);
-    fireEvent.click(tab(container, 'Chat'));
-    expect(container.querySelector('.ap-card-counts')).not.toBeNull();
-  });
-
-  it('the status card sits above the tab bar in DOM order (it is not inside a tab)', () => {
+  it('the tab bar precedes the status card in DOM order (the card is inside a tab now)', () => {
+    // 舊契約的鏡像:卡從分頁外搬進 Activity 分頁,DOM 順序跟著反轉。
     seedProject();
     const { container } = render(<AgentPanel />);
     const cardEl = container.querySelector('.ap-card')!;
     const tabEl = tab(container, 'Chat');
-    // compareDocumentPosition: FOLLOWING(4) 代表 tabEl 在 cardEl 之後
-    expect(cardEl.compareDocumentPosition(tabEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // compareDocumentPosition: FOLLOWING(4) 代表 cardEl 在 tabEl 之後
+    expect(tabEl.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows the activity feed on the Activity tab', () => {
@@ -152,11 +148,10 @@ describe('AI column tabs', () => {
     const { container } = render(<AgentPanel />);
 
     /**
-     * **只看分頁本體**（`.panel-col` 裡最後那一段），不是整根欄。恆頂的索引卡自己
-     * 就有一份「最近三筆編輯」署名列，`trimmed clip` 必然也出現在那裡——拿整根欄的
-     * textContent 去問「切到 Chat 之後不得有 trimmed clip」等於在斷言「索引卡消失」，
-     * 而索引卡恆頂正是上面那條測試釘住的規格。這是 scope 精確化，不是放寬斷言
-     * （`AgentPanel.test.tsx` 的 B6 為了同一個理由做過同一件事）。
+     * **只看分頁本體**（`.panel-col` 裡最後那一段），不是整根欄。
+     * （這個 scope 是恆頂時代為了避開卡上的署名列而收的；2026-08-17 卡搬進
+     * Activity 分頁後,整欄斷言其實也會過,但 scope 收著不礙事且對未來
+     * 加回欄級元素更穩——保留。）
      */
     const body = () => container.querySelector('.panel-col > div:last-child')!.textContent ?? '';
 

@@ -2146,3 +2146,42 @@ pre-wrap 保留+送後縮回 51、AI 無引用卡、送出鈕圓形+accent 實�
 (探針以「不送出+草稿保留」驗,真換行由多行送出案證);:3845 現由
 另一 session(cloud-p0 worktree)佔用,本包驗收全程在 :3846,main 線
 的新 UI 要等該 session 釋出 port 或另起 port 看。
+
+## 補記:狀態卡搬進 Activity 分頁(2026-08-17)
+
+使用者定案:「Agent ready 的顯示放到 activity 裡面,這樣 chat 空間更大」
+——對同日早上「恆頂+compact」定案的**正式反轉**,主 session 自做(TDD)。
+
+**實作**:AgentPanel 分頁列升到欄頂;Activity 分頁內部=完整狀態卡
+(flex none 固定在頂)+活動流捲動;**Chat 分頁不渲染卡**,對話區直接
+接在分頁列下。理由:三態不消失——header AgentStrip 恆在且同源推導,
+卡是第二份。`compact` prop 活了一包即退役(卡只剩一個落點,永遠完整版)。
+HANDOFF/DESIGN.md 兩處定案敘述同步改寫。
+
+**TDD**:AgentTabs 四條契約斷言先反轉(恆頂→只在 Activity、DOM 順序
+鏡像、compact 兩條併為「完整卡 Activity-only」),紅 3/8 各紅其所→實作
+→65 條相關測試全綠;UI 總數 440→439(五條改寫為四條,規格反轉非弱化,
+檔內有記)。mutant:`inspector-agent-block` 重錨到分頁內渲染點(語意
+不變)、`agent-card-extras-always` 退役(目標碼消失)、新增
+`agent-card-on-chat`(Chat 分頁又冒出卡=修訂失守);兩隻各 1/1 驗殺,
+132 隻總數不變。
+
+**實機驗收**(:3846,CDP 兩主題各 4/4):Activity 卡在且分頁列在上、
+Chat 無卡無 No edits yet.、composer 仍在、**Chat 訊息區頂緣與分頁列
+底緣重合**(空間變大的直接證據:body 高 609/608px);截圖過目。
+
+**過程事件(如實記)**:包5 首次 gauntlet(`bt82tut6t`)顯示輪 server
+套件 1 failed/504——gauntlet 套件層跑兩次(顯示輪+判定輪),判定輪綠
+故印 PASS。追根:包3 的 ws-chat.test 存在真 flaky(~1/4 全跑),
+`connect()` 只等 full 不等**初始 chat**,游標可能在初始空清單抵達前
+讀取,`waitFor('chat', from)` 撈到初始空清單→斷言見 [](Conn 緩衝
+治了「訊息比 listener 早到」,漏了鏡像「游標比初始訊息早讀」)。修
+connect() 補等初始 chat;修後單檔 8/8+全套 2/2 綠(修前重現 2/6)。
+依「數字取最後編輯後乾淨全跑」紀律在合併樹重跑 gauntlet。
+
+**gauntlet(source:1021f39+包5+flake 修復,單次乾淨全跑,含顯示輪
+三套全綠)**:**990 passed**(shared 46/server 505/ui 439);UI 覆蓋率
+91.63%;隨機順序×2 PASS;錨點 132/132;**131/131 killed+1 等價對照**;
+其餘各層全 PASS;零新增依賴。分兩筆 commit(包5、flake 修復),兩個
+commit 點各有對應的 gauntlet 全綠(bt82tut6t 蓋包5 樹、本輪蓋合併樹)。
+本補記於完跑後寫入,prettier/docs-check 單獨複跑綠(如實記)。

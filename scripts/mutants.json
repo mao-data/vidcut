@@ -627,10 +627,10 @@
   {
     "id": "inspector-agent-block",
     "file": "ui/src/panels/AgentPanel.tsx",
-    "find": "        <AgentStatus compact={tab === 'chat'} />\n",
+    "find": "            <div style={{ flex: 'none' }}>\n              <AgentStatus />\n            </div>\n",
     "replace": "",
     "tests": "ui/src/panels/AgentPanel.test.tsx",
-    "note": "AI 區塊整塊不渲染 → B1..B7 必須抓到（2026-08-16 版面重構：從 Inspector 的未選取分支搬到 AI 專區 AgentPanel，錨點跟著搬。2026-08-17 composer 改版：AgentStatus 加了 compact prop，find 跟著更新——語意不變，仍然是「整塊卡不渲染」）"
+    "note": "AI 區塊整塊不渲染 → B1..B7 必須抓到(2026-08-16 搬到 AgentPanel;2026-08-17 晚間卡搬進 Activity 分頁,find 跟著重錨到分頁內的渲染點——語意不變,仍是「整塊卡不渲染」)"
   },
   {
     "id": "inspector-agent-connected",
@@ -1049,11 +1049,11 @@
     "note": "AI 訊息也套引用卡 → 兩側都成卡就是泡泡,正好是無泡泡定案要避免的(定案 B 只修訂使用者側);「只有一張卡且不含 AI 內容」的斷言必須抓到"
   },
   {
-    "id": "agent-card-extras-always",
+    "id": "agent-card-on-chat",
     "file": "ui/src/panels/AgentPanel.tsx",
-    "find": "      {!compact && (",
-    "replace": "      {true && (",
+    "find": "        {tab === 'chat' ? (\n          <Chat />\n        ) : (",
+    "replace": "        {tab === 'chat' ? (\n          <>\n            <AgentStatus />\n            <Chat />\n          </>\n        ) : (",
     "tests": "ui/src/panels/AgentTabs.test.tsx",
-    "note": "compact 失效 → 最近三筆署名列在 Chat 分頁又冒出來(activity 內容退出 Chat 頁的定案 C 整條失守);C-compact 的斷言必須抓到"
+    "note": "狀態卡在 Chat 分頁又冒出來 → 2026-08-17「卡只住 Activity、Chat 空間全給對話」的修訂整條失守;「Chat 分頁 .ap-card 為 null」的斷言必須抓到"
   }
 ]

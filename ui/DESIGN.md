@@ -662,17 +662,19 @@ content row. Recompute this before changing padding, type size, or ring size.
 
 ### AgentStatus index card (the embassy's second premises)
 
-`.ap-card` at the top of the AI column, above the activity feed — the two halves of
-one column because they are two scales of the same question: the card answers "what
-is happening now", the feed answers "what has been done so far", and a user who has
-to reassemble those from opposite edges of the screen is doing the interface's job.
+`.ap-card` pinned at the top of the **Activity tab**, above the activity feed — two
+scales of the same question in one place: the card answers "what is happening now",
+the feed answers "what has been done so far", and a user who has to reassemble those
+from opposite edges of the screen is doing the interface's job.
 
-**It is on screen whenever the column is** (user decision 2026-08-16). Until then the
-card lived in the Inspector's nothing-selected branch, so selecting any object hid
-it — which is why the deselect paths (`Esc`, a click on timeline blank space) used to
-be load-bearing for the embassy specifically. They still matter as an editing
-affordance, but the card no longer depends on them: whether the AI is there is not a
-question that should be answered only while the user happens to have nothing selected.
+**Where it lives has moved twice, both times by user decision.** 2026-08-16 pulled it
+out of the Inspector's nothing-selected branch (selecting any object used to hide
+it). 2026-08-17 moved it from "pinned above the column's tabs" into the Activity tab
+itself, so the Chat tab gives its full height to the conversation. Presence is not
+lost by this: the header AgentStrip is permanent and derives the same three states
+from the same store, so the card is the second copy, not the only one — which is
+precisely why it can live inside a tab. (The one-day-old `compact` variant retired
+with the move; a card with a single home is always the full card.)
 
 Same material as the tag and the **same hand** — `RING_PATH` is imported from
 `AgentStrip.tsx` rather than copied, because a second copy would silently diverge and
