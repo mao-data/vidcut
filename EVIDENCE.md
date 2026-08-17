@@ -1975,3 +1975,56 @@ deselect 路徑 diff 為空;兩主題 CDP 截圖過目。
 **已知事項(如實記)**:Activity 自帶的 Undo/Redo 列現坐 AI 欄中段(狀態卡
 與流水帳之間),截圖判斷成立,使用者可再調;shortcuts.ts 的 Esc 條目未提
 「Properties 回閒置提示」(onKey 未變,措辭候選);--wave-clip-* 仍無消費者。
+
+## 補記:header 整併+AI 欄調寬+減線+尺規刻度(2026-08-17)
+
+八項使用者逐項定案的微調,主 session 自做(未派 Opus):
+
+1. **主題切換器上 header(icon-only)**:新檔 ui/src/ThemeToggle.tsx,從
+   Properties 的 Shortcuts 彈出層搬出(舊落點「可發現性低」是記錄在案的已知
+   限制,正式解掉)。icon 顯示按下去會去的那一面(暗房給 Sun/紙給 Moon),
+   title 為唯一文字標籤。測試搬家 panels/themeToggle.test.tsx→
+   ui/src/ThemeToggle.test.tsx(5 條斷言;「標籤英文」原驗 textContent,
+   icon-only 為空,改驗 title 非空+無 CJK——意圖不變,檔內有記)。
+   theme-toggle-aria mutant 重錨到新檔,正規驗殺:帶突變 2 failed/還原 5 passed。
+2. **header 移除 `v0.1.0 · demo` 字樣**:連鎖三處如實記——header-shows-rev
+   mutant 因目標碼被定案移除而**退役(123→122)**;app-version.test B1 改斷
+   「標頭不顯示任何版本字樣」(not.toMatch semver,較原斷言更嚴);App.test
+   'mounts again' 的 `demo` 斷言改驗 `clip one`(專案掛載改由內容證明)。
+3. **AI 欄預設寬 325(+25%)**:panelResize.ts default 260→325;stores/view.ts
+   loadWidths 遷移——localStorage 存的舊預設 260 視為「未自訂」丟棄,已自訂
+   的其他值保留。
+4. **活動流行距收密**:Activity.tsx 與 AgentPanel.tsx 的流水帳列
+   padding '1px 0'+lineHeight 1.3。
+5. **紙版工具列 ghost 補漏**(使用者抓到「去匡沒做?」——da46842 的漏網):
+   成因是特異性,`[data-theme='paper'] button:not(.btn-primary):not(.ap-strip)`
+   (0,3,1) 蓋過 `.tl-toolbar` 基本規則 (0,2,0);theme.css 補紙版 scoped 三條
+   同級後出規則(icon-btn 兩型 transparent、seg.on 填 accent-soft)。
+6. **減線**:CaptionList 列間 1px 線移除(列辨識靠 padding 節奏與 hover/選取
+   底色);Timeline 軌道間線移除,gutter 側三格+音訊列同步(兩側 byte-identical
+   地無線)。
+7. **尺規底線降階**:--line-strong→--line(交叉角落格同步),保留為井內唯一
+   結構線。
+8. **尺規刻度**(AskUserQuestion 使用者選「4 格」):貼尺規帶底緣的豎線,
+   整秒主刻度 6px/--line,每格 4 等分小刻度 3px/55% 透明度,間距隨 tickStep
+   縮放自適應,不進軌道區。
+
+**過程事件(如實記)**:包內兩次中停 gauntlet(改動追加)各留下一隻突變中
+的殘留 mutant——`import-basename`(server/src/app.ts,防 path-traversal 的
+basename 被拆)與 `app-react185`(CaptionList.tsx)。均由「git status 對照
+包檔案清單→git diff 驗明→定點 python replace 還原(不用 git checkout,避免
+洗掉未 commit 改動)→`mutate.mjs --check` 122/122 復驗」收拾。最終數字一律
+取下方乾淨全跑,不取中途輪次。
+
+**gauntlet(source:ba1d5c3+本包工作樹,單次乾淨全跑,2026-08-17)**:
+888 passed(shared 46/server 465/ui 377);UI 覆蓋率 91.42%;隨機順序×2
+PASS;錨點 122/122;**121/121 killed+1 等價對照存活如預期**;文件引用/
+使用者面字串/秘密掃描全 PASS;零新增依賴。ui/DESIGN.md 的 Timeline region
+段落(「1px borders byte-identical」因減線不再成立)於 gauntlet 完跑後同步,
+prettier --check 與 docs-check 單獨複跑皆綠(如實記:該兩層的全跑數字涵蓋
+的是同步前內容)。
+
+**已知事項**:最終刻度特寫截圖因機器高負載(使用者自身程序 319% CPU、
+load 16.7)CDP 連續逾時未拍成,使用者已直接在 :3845 瀏覽器過目並核可
+(「可以了」);muted/frozen 的時間軸線索、scrollTargetFor/fit 未扣捲軸寬
+(Windows)等既有已知限制不變。

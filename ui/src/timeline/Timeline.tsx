@@ -691,10 +691,12 @@ export function Timeline() {
   const tickStep = pps >= 120 ? 0.5 : pps >= 40 ? 1 : pps >= 15 ? 5 : 10;
   const tickCount = Math.floor(total / tickStep) + 1;
 
+  // 軌道之間的分隔線 2026-08-16 使用者定案移除(減線)——軌的辨識靠 gutter 圖示
+  // 與 chip 本身;尺規底線(--line-strong)是結構線,保留。gutter 格的 border
+  // 要與這裡逐位元組同步(見 gutterCell 註解)。
   const rowStyle: CSSProperties = {
     position: 'relative',
     height: ROW_H,
-    borderBottom: '1px solid var(--line)',
   };
   const subRow: CSSProperties = { ...rowStyle, height: SUB_ROW_H };
   const chip: CSSProperties = {
@@ -784,22 +786,21 @@ export function Timeline() {
                 否則橫捲的 chip 或縱捲的尺規會蓋過它。 */}
             <div
               style={{
-                ...gutterCell(RULER_H, '1px solid var(--line-strong)'),
+                ...gutterCell(RULER_H, '1px solid var(--line)'),
                 position: 'sticky',
                 top: 0,
                 zIndex: 4,
               }}
             />
-            <div style={gutterCell(ROW_H, '1px solid var(--line)')}>
+            <div style={gutterCell(ROW_H, 'none')}>
               <Film size={13} aria-label="video track" />
             </div>
-            <div style={gutterCell(SUB_ROW_H, '1px solid var(--line)')}>
+            <div style={gutterCell(SUB_ROW_H, 'none')}>
               <Image size={13} aria-label="overlay track" />
             </div>
-            <div style={gutterCell(SUB_ROW_H, '1px solid var(--line)')}>
+            <div style={gutterCell(SUB_ROW_H, 'none')}>
               <Captions size={13} aria-label="caption track" />
             </div>
-            {/* 音訊軌與右邊一樣 borderBottom:none（最後一列不畫線） */}
             <div style={gutterCell(AUDIO_ROW_H, 'none')}>
               <AudioLines size={13} aria-label="audio track" />
             </div>
@@ -826,7 +827,8 @@ export function Timeline() {
                 zIndex: 2,
                 height: RULER_H,
                 background: 'var(--panel)',
-                borderBottom: '1px solid var(--line-strong)',
+                // 2026-08-16 使用者定案:時間線細緻一點——由 --line-strong 降一階
+                borderBottom: '1px solid var(--line)',
                 cursor: 'text',
               }}
               onClick={onRulerClick}
@@ -847,6 +849,29 @@ export function Timeline() {
                   >
                     {t}s
                   </span>
+                );
+              })}
+              {/* 刻度豎線(2026-08-16 使用者定案:主刻度短線+每格 4 等分小刻度)。
+                  主刻度 6px/--line、小刻度 3px/--line 再吃 0.55 透明度;全部貼
+                  尺規帶底緣、不往軌道區延伸(減線後的乾淨要守住)。間距跟著
+                  tickStep 走,縮放時整組自適應。 */}
+              {Array.from({ length: tickCount * 4 }, (_, i) => {
+                const t = (i * tickStep) / 4;
+                const major = i % 4 === 0;
+                return (
+                  <span
+                    key={`tick-${i}`}
+                    style={{
+                      position: 'absolute',
+                      left: timeToPx(t, pps),
+                      bottom: 0,
+                      width: 1,
+                      height: major ? 6 : 3,
+                      background: 'var(--line)',
+                      opacity: major ? 1 : 0.55,
+                      pointerEvents: 'none',
+                    }}
+                  />
                 );
               })}
             </div>
@@ -990,7 +1015,7 @@ export function Timeline() {
             </div>
             {/* audio 軌（全高青色波形；拖曳平移＋左右緣 trim） */}
             <div
-              style={{ ...rowStyle, height: AUDIO_ROW_H, borderBottom: 'none' }}
+              style={{ ...rowStyle, height: AUDIO_ROW_H }}
               className={aiAnim ? 'ai-anim' : undefined}
               data-tl-blank
             >

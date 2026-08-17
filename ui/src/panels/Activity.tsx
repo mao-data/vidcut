@@ -37,7 +37,9 @@ export function Activity() {
             style={{
               display: 'flex',
               gap: 8,
-              padding: '2px 0',
+              // 2026-08-16 使用者定案:AI 欄流水帳行距收密(padding 2→1、行高 1.3)
+              padding: '1px 0',
+              lineHeight: 1.3,
               color: e.source === 'ai' ? 'var(--who-ai)' : 'var(--who-you)',
             }}
           >

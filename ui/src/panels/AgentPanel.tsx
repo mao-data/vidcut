@@ -119,7 +119,9 @@ export function AgentStatus() {
                 display: 'flex',
                 gap: 8,
                 alignItems: 'baseline',
-                padding: '2px 0',
+                // 2026-08-16 使用者定案:AI 欄行距收密(與 Activity 流水帳同步)
+                padding: '1px 0',
+                lineHeight: 1.3,
                 fontSize: 11,
               }}
             >

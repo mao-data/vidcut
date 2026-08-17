@@ -3,7 +3,8 @@
 export type PanelSide = 'left' | 'right';
 
 export const PANEL = {
-  left: { min: 200, max: 420, default: 260 },
+  // left default 325:2026-08-16 使用者定案「AI 欄加寬 25%」(260→325)。
+  left: { min: 200, max: 420, default: 325 },
   right: { min: 240, max: 500, default: 320 },
 } as const;
 

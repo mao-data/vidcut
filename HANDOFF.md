@@ -140,7 +140,7 @@ UI 的 ExportMenu 沒有這個選項，目前只有 MCP 走得到。
 spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md)（brainstorm 含瀏覽器 mockup 比選，使用者逐步定案：C 現代 web 視覺 × 保守版面 × 峰值+RMS 波形）。
 
 - **設計系統 `ui/src/theme.css`**：CSS 變數 token 雙主題（`:root`=暗版預設、
-  `[data-theme='paper']` 覆寫塊=亮版；切換器在 Inspector 的 Shortcuts 彈出層，
+  `[data-theme='paper']` 覆寫塊=亮版；切換器在 header（`ui/src/ThemeToggle.tsx`，2026-08-16 自 Shortcuts 彈出層搬上——舊落點可發現性低），
   `stores/theme.ts` 管 localStorage/系統偏好）；**原生 button/select/input 直接被
   theme 接管**，元件端大量刪 inline style；lucide-react 取代 emoji 圖示。
   ⚠️ **色彩世界在 2026-08 經歷三代**（詳見 spec
@@ -367,7 +367,7 @@ ui/src/App.tsx            版面外殼：3 欄 ×2 列 grid（AI 欄 gridRow 1/3
 ui/src/shortcuts.ts       快捷鍵單一來源表（描述 App.tsx onKey 的實況＋Timeline 的 Ctrl+wheel；
                           Inspector 的 ShortcutHelp 彈出層由它生成——改 handler 必須同步此表）
 ui/src/motion.ts          GSAP 進入點（useGSAP + reduced-motion 判斷）
-ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合＋冪等展開 openLeft/openRight）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）/ agent（見下）/ theme（dark|paper 雙主題：localStorage `vidcutTheme` > prefers-color-scheme；dark 時**移除** html 的 data-theme 屬性以保證預設 DOM 不變，paper 時設 `data-theme="paper"` 觸發 theme.css 覆寫塊；模組載入即套用防首繪閃爍；波形 canvas 色由 timeline/waveform.ts 讀 `--wave-*` token 查表，ClipBlock/AudioChip 的 draw effect 依賴 theme 值故切換即重畫；切換器藏在 Inspector 的 Shortcuts 彈出層，即右欄 Properties 分頁）
+ui/src/stores/            project（patch 套用，含 captionCards）/ playback / selection / view（縮放吸附＋面板收合＋冪等展開 openLeft/openRight）/ activity / toast / editDraft（打字三段式草稿，見下）/ editFx（AI 編輯動畫窗，最後一次變更後 1.6s 收窗）/ agent（見下）/ theme（dark|paper 雙主題：localStorage `vidcutTheme` > prefers-color-scheme；dark 時**移除** html 的 data-theme 屬性以保證預設 DOM 不變，paper 時設 `data-theme="paper"` 觸發 theme.css 覆寫塊；模組載入即套用防首繪閃爍；波形 canvas 色由 timeline/waveform.ts 讀 `--wave-*` token 查表，ClipBlock/AudioChip 的 draw effect 依賴 theme 值故切換即重畫；切換器 2026-08-16 搬上 header＝`ui/src/ThemeToggle.tsx`）
 ui/src/stores/agent.ts    AI 存在感的狀態機（零視覺）：進行中工具呼叫集合（callId → tool/startedAt）、
                           三態純函數 agentPhase（offline/idle/working）、最新一筆 currentCall、
                           session 統計 sessionCounts。斷線由 project.setConnected(false) 清空
@@ -397,6 +397,8 @@ ui/src/player/sync.ts     播放中媒體元素的時鐘同步策略：小漂移
 ui/src/player/CaptionLayer.tsx 字幕預覽：有字卡 hash 就 <img> 直出（無 karaoke 時與匯出同一張圖），karaoke 疊 hl 卡 + clip-path（與匯出的一詞一卡**不**同源）；沒有 hash／幾何 fetch 失敗／圖檔 onError 才退回 DOM 近似 fallback，幾何 fetch 進行中是 return null（空白一幀，不是近似文字）
 ui/src/player/dragLayer.ts dragOverlay/dragCaption：畫布拖曳數學（純函數）——overlay 的 position 錨點不對稱（x=中心、y=上緣），這裡負責錨點↔bbox 左上角的雙向換算，呼叫 shared 的 snapBBox 做實際吸附 ★
 ui/src/timeline/          scale + dragMath + waveform（純函數）+ Timeline（trim/排序/選取/縮放/吸附/transport）+ Toolbar / ClipBlock / AudioChip / usePeaks
+ui/src/ThemeToggle.tsx    header 的日夜切換 icon 鈕（暗版給太陽、紙版給月亮＝按下去會去的
+                          那一面；aria-pressed=是否紙主題；2026-08-16 自 Shortcuts 彈出層搬上）
 ui/src/panels/            Inspector（右欄 Properties 分頁：Canvas fill／選取物件表單／Shortcuts
                           彈出層／閒置提示）/ AgentPanel（見下）/ Activity / ReviewBar /
                           ExportMenu / CaptionList（字幕列表）

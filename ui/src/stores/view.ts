@@ -9,8 +9,11 @@ function loadWidths(): { left: number; right: number } {
     const raw = localStorage.getItem(WIDTHS_KEY);
     if (raw) {
       const j = JSON.parse(raw) as { left?: number; right?: number };
+      // 遷移(2026-08-16):left 預設 260→325。存的值剛好等於**舊預設**視為
+      // 「沒自訂過」,吃新預設——否則改了預設的使用者永遠看不到(持久值優先)。
+      const left = j.left === 260 ? undefined : j.left;
       return {
-        left: Math.min(PANEL.left.max, Math.max(PANEL.left.min, j.left ?? PANEL.left.default)),
+        left: Math.min(PANEL.left.max, Math.max(PANEL.left.min, left ?? PANEL.left.default)),
         right: Math.min(PANEL.right.max, Math.max(PANEL.right.min, j.right ?? PANEL.right.default)),
       };
     }

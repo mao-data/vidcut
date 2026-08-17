@@ -184,8 +184,9 @@ export function CaptionList() {
               style={{
                 display: 'flex',
                 gap: 8,
+                // 每列間的分隔線 2026-08-16 使用者定案移除(減線)——列的辨識靠
+                // padding 節奏與 hover/選取底色,不靠格線。
                 padding: '4px 8px',
-                borderBottom: '1px solid var(--line)',
                 background: isSelected
                   ? 'var(--accent-soft)'
                   : isCurrent

@@ -52,7 +52,10 @@ describe('App', () => {
     act(() => {
       seedProject();
     });
-    expect(container.textContent).toContain('demo');
+    // 斷言意圖=「專案抵達後畫面真的長出專案內容」。原本驗 header 的專案名
+    // 'demo',2026-08-16 使用者定案把 `v{版本} · {專案名}` 從 header 移除,
+    // 改驗時間軸上的 clip 標籤(同樣只有專案掛載成功才會出現)。
+    expect(container.textContent).toContain('clip one');
   });
 
   // 舊斷言是 'Offline' → 'Connected'（header 的 ● 那組文字）。**經核准的規格變更**

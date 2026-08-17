@@ -13,6 +13,7 @@ import { AgentPanel } from './panels/AgentPanel.js';
 import { CaptionList } from './panels/CaptionList.js';
 import { ReviewBar } from './panels/ReviewBar.js';
 import { ExportMenu } from './panels/ExportMenu.js';
+import { ThemeToggle } from './ThemeToggle.js';
 import { PanelResizer } from './PanelResizer.js';
 import { AgentStrip } from './AgentStrip.js';
 import { sendCommand, sendContext } from './ws.js';
@@ -264,16 +265,15 @@ export function App() {
         >
           vidcut
         </b>
-        {/* 顯示的是 vidcut 軟體版本；專案修訂號屬於 Activity（那裡語境清楚不會誤讀） */}
-        <span className="tag">
-          v{__APP_VERSION__} · {doc?.name ?? '—'}
-        </span>
+        {/* `v{版本} · {專案名}` 字樣 2026-08-16 使用者定案移除——版本語境活動流
+            裡本來就有(v{n} 修訂號),header 只留品牌。 */}
         {/* 紙條取代了原本的「● Connected / Offline」：連線與否只是它三態中的一態
             （offline），另外兩態（idle / working）是這裡以前完全看不到的東西。
             點它＝去看活動流。活動流 2026-08-16 從右欄分頁搬進左邊的 AI 專區，
             所以這個 callback 現在展開的是左欄（紙條自己也會 `openLeft()`，
             兩邊都冪等；prop 留著是為了讓版面知識留在 App 這一層）。 */}
         <AgentStrip onOpenActivity={() => useView.getState().openLeft()} />
+        <ThemeToggle />
         <ExportMenu />
       </header>
 

@@ -1719,6 +1719,22 @@ a {
 .tl-toolbar .icon-btn:hover:not(:disabled) {
   background: var(--surface-2);
 }
+/* 紙版的 ghost 要再壓一次：上面那條 (0,2,0) 打不過主題層的
+ * `[data-theme='paper'] button:not(.btn-primary):not(.ap-strip)`（0,3,1，紙卡底）,
+ * 於是去框在紙上被默默蓋回去（2026-08-16 使用者抓到:整排仍有淡紙卡底,
+ * ▶ 最明顯）。用 button.icon-btn 湊到同級 (0,3,1)+後出線勝。 */
+[data-theme='paper'] .tl-toolbar button.icon-btn,
+[data-theme='paper'] .tl-toolbar label.icon-btn {
+  background: transparent;
+}
+[data-theme='paper'] .tl-toolbar button.icon-btn:hover:not(:disabled),
+[data-theme='paper'] .tl-toolbar label.icon-btn:hover {
+  background: var(--surface-2);
+}
+/* Snap 開啟態的填色同理被紙卡底規則蓋掉,再壓一次(ink 淡階=中性選取)。 */
+[data-theme='paper'] .tl-toolbar button.seg.on {
+  background: var(--accent-soft);
+}
 .tl-toolbar .seg.on {
   background: var(--accent-soft);
   font-weight: 600;

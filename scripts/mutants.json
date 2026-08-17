@@ -409,14 +409,6 @@
     "note": "進度改回版本化（灌爆版本號的原 bug）→ 歷史不含 render progress 的斷言必須抓到"
   },
   {
-    "id": "header-shows-rev",
-    "file": "ui/src/App.tsx",
-    "find": "          v{__APP_VERSION__} · {doc?.name ?? '—'}",
-    "replace": "          v{useProject.getState().version} · {doc?.name ?? '—'}",
-    "tests": "ui/src/app-version.test.tsx",
-    "note": "標頭改回顯示修訂號 → 語意化版本斷言必須抓到"
-  },
-  {
     "id": "paths-absolute",
     "file": "server/src/paths.ts",
     "find": "return isAbsolute(mediaPath) ? mediaPath : join(projectDir, mediaPath);",
@@ -930,10 +922,10 @@
   },
   {
     "id": "theme-toggle-aria",
-    "file": "ui/src/panels/Inspector.tsx",
-    "find": "        aria-pressed={on}",
-    "replace": "        aria-pressed={false}",
-    "tests": "ui/src/panels/themeToggle.test.tsx",
+    "file": "ui/src/ThemeToggle.tsx",
+    "find": "      aria-pressed={on}",
+    "replace": "      aria-pressed={false}",
+    "tests": "ui/src/ThemeToggle.test.tsx",
     "note": "aria-pressed 恆 false → 讀屏幕使用者永遠不知道目前是哪個主題；a11y 斷言必須抓到"
   },
   {

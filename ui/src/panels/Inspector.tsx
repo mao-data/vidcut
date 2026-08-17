@@ -1,13 +1,5 @@
 import { Fragment, useState, type ChangeEvent } from 'react';
-import {
-  AudioWaveform,
-  CircleHelp,
-  Paperclip,
-  Scissors,
-  Snowflake,
-  Sun,
-  Trash2,
-} from 'lucide-react';
+import { AudioWaveform, CircleHelp, Paperclip, Scissors, Snowflake, Trash2 } from 'lucide-react';
 import type { AudioItem, Command } from '@vidcut/shared';
 
 type AudioPatch = Partial<
@@ -16,7 +8,6 @@ type AudioPatch = Partial<
 import { useProject } from '../stores/project.js';
 import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
-import { useTheme } from '../stores/theme.js';
 import { sendCommand } from '../ws.js';
 import { SHORTCUTS } from '../shortcuts.js';
 
@@ -83,32 +74,10 @@ function ShortcutHelp() {
               <span>{s.label}</span>
             </Fragment>
           ))}
-          <ThemeToggle />
+          {/* 主題切換器曾借住這裡(「設定類」落點);2026-08-16 使用者定案搬上
+              header(ui/src/ThemeToggle.tsx)——彈出層裡的可發現性太低。 */}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * 主題切換（spec `2026-08-14-dual-theme-design.md` §4）。
- * 借住 Shortcuts 彈出層尾端——這是唯一一個既有的「設定類」落點，不必為它在
- * 頂欄多開一個常駐控制項。彈出層是兩欄 grid，所以要 `gridColumn: '1 / -1'` 橫跨。
- */
-function ThemeToggle() {
-  const theme = useTheme((s) => s.theme);
-  const setTheme = useTheme((s) => s.setTheme);
-  const on = theme === 'paper';
-  return (
-    <div className="panel-edge-t" style={{ gridColumn: '1 / -1', marginTop: 8 }}>
-      <button
-        className={`seg${on ? ' on' : ''}`}
-        aria-pressed={on}
-        onClick={() => setTheme(on ? 'dark' : 'paper')}
-        style={{ width: '100%', marginTop: 8 }}
-      >
-        <Sun size={13} /> Paper theme
-      </button>
     </div>
   );
 }

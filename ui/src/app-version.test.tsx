@@ -12,18 +12,22 @@ import * as ws from './ws.js';
  * 標頭顯示軟體版本（非修訂號）、進度讀旁路、Redo 入口。
  */
 
-describe('標頭版本語意（B1）', () => {
+describe('標頭版本語意（B1；2026-08-16 使用者定案修訂）', () => {
   beforeEach(() => {
     resetStores();
     seedProject();
   });
 
-  it('標頭顯示 vidcut 軟體版本，不顯示專案修訂號', () => {
+  // 原斷言是「顯示軟體 semver、不顯示修訂號」。2026-08-16 使用者定案把
+  // `v{版本} · {專案名}` 整個從 header 移除——「修訂號不上門面」這半條精神
+  // 續留並加嚴成「任何版本字樣都不上門面」;守這條的 header-shows-rev mutant
+  // 因目標碼消失一併退役(見 EVIDENCE.md 本日補記)。
+  it('標頭不顯示任何版本字樣（軟體版本與修訂號都不上門面）', () => {
     useProject.setState({ version: 149 });
     const { container } = render(<App />);
     const header = container.querySelector('header')!;
-    expect(header.textContent).toMatch(/v\d+\.\d+\.\d+/); // 語意化版本
-    expect(header.textContent).not.toContain('v149'); // 修訂號不上門面
+    expect(header.textContent).not.toMatch(/v\d+\.\d+\.\d+/);
+    expect(header.textContent).not.toContain('v149');
   });
 });
 

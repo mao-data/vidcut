@@ -432,8 +432,14 @@ handle width 6) which are drag math and screenshot-comparison surface, and
 that scrolls on both axes — vertical scroll is headroom for more-than-four tracks.
 A 32px track-header gutter (`GUTTER_W`) sticks to the left edge, one cell per track
 (Film / Image / Captions / AudioLines, size 13, `--text-3` on solid `--panel` —
-never the translucent well wash, chips scroll underneath it), row heights and 1px
-borders byte-identical to the track rows beside them. The ruler sticks to the top;
+never the translucent well wash, chips scroll underneath it), row heights
+byte-identical to the track rows beside them — and, like them, **borderless**: the
+2026-08-17 line-reduction pass removed the 1px separators between tracks on both
+sides of the gutter, so rows read by height rhythm and chip fill, not grid lines.
+The ruler keeps its bottom border as the one structural line of the well, demoted
+from `--line-strong` to `--line`, and carries tick marks on its bottom edge — 6px
+at each labeled second, 3px at 55% opacity at the quarter divisions — that never
+extend into the track area. The ruler sticks to the top;
 the corner cell sticks on both axes and carries the highest z. The gutter lives
 **outside** the content coordinate system: drag/seek/snap math anchors on the
 content layer, and every "visible width" consumer (fit, zoom anchor, AI
