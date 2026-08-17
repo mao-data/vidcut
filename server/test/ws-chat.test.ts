@@ -92,6 +92,13 @@ class Conn {
 async function connect(port: number): Promise<Conn> {
   const conn = new Conn(port);
   await conn.waitFor('full'); // 連上並收到初始狀態
+  // **也要等初始的 chat**(server 對新連線必送,空清單也送)。不等它的話,
+  // 測試接著讀 `ws.count` 當游標,而初始 chat 可能還在路上——之後
+  // `waitFor('chat', from)` 會先撈到這則初始空清單而不是等待中的廣播,
+  // 斷言就間歇性看到 []。(Conn 的緩衝治了「訊息比 listener 早到」,
+  // 這裡治的是它的鏡像:「游標比初始訊息早讀」。實測紅在不同 case 上、
+  // 約 1/4 全跑一次,2026-08-17 包5 驗收期間定位。)
+  await conn.waitFor('chat');
   return conn;
 }
 
