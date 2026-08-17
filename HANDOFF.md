@@ -423,12 +423,23 @@ ui/src/panels/AgentPanel.tsx AI 專區（左欄全高，使用者 2026-08-16 版
                           `claude mcp add …` 接回指令、session 讀數列、最近三筆署名列），
                           下半是 **Chat ⇄ Activity 兩個分頁**（分頁列沿用右欄的 `.seg`/`.seg.on`
                           既有模式）。**卡不再綁「未選取」**——它以前住在 Inspector 的閒置分支，
-                          選了東西就看不到；**卡也恆頂、不進分頁**，兩個分頁都在它下面
-ui/src/panels/Chat.tsx    Chat 分頁：訊息列表＋底部輸入列（Enter 送出、Shift+Enter 換行）。
-                          **不做聊天泡泡**（Two-Hands 體例）——靠署名分色區分：AI 走 `--who-ai`、
-                          使用者走 `--who-you`，與索引卡／活動流同一條規則同一組 token。
-                          新訊息自動捲到底（尊重 `motionOK()`）；離線時輸入 disabled 但草稿保留
-                          （草稿在 `stores/chat.ts`，見上）
+                          選了東西就看不到；**卡也恆頂、不進分頁**，兩個分頁都在它下面。
+                          **2026-08-17 定案 C：Activity 內容退出 Chat 頁**——`AgentStatus` 加
+                          `compact` prop（core=三態圈/狀態字/working 實時行/離線指令/session 讀數，
+                          extras=最近三筆署名列與 `No edits yet.`），由 AgentPanel 依當前分頁傳入：
+                          **Chat 分頁只給收斂的三態＋讀數，完整卡（含最近三筆）只在 Activity 分頁**。
+                          恆頂本身沒變，變的是 Chat 側的內容量
+ui/src/panels/Chat.tsx    Chat 分頁：訊息列表＋底部 composer。**2026-08-17 改版**：composer 從
+                          單行 input 換成 auto-grow `textarea`（3 行起跳、8 行封頂後內部捲，
+                          用 scrollHeight 在 layout effect 量），Enter 送出、**Shift+Enter 真的
+                          換行**（多行原樣經 WS/MCP 保存，列表 pre-wrap 照樣呈現）；送出鈕改
+                          **圓形 accent 實色主鈕**沉在輸入卡右下（`.chat-send`，對比 13.05 暗／
+                          14.14 紙）。**使用者訊息是淺色圓角引用卡**（`.chat-quote`，`--panel-2`）、
+                          **AI 訊息維持無框正文**——這是無泡泡定案的**局部修訂**（只有使用者側成卡，
+                          理由與稽核判準記在 `ui/DESIGN.md`）；**署名列兩側都保留**（a11y ＋ 左欄
+                          一致性），AI 走 `--who-ai`、使用者走 `--who-you`。
+                          新訊息自動捲到底（尊重 `motionOK()`）；離線時 textarea 與送出鈕都
+                          disabled 但草稿保留（草稿在 `stores/chat.ts`，見上）
 ```
 
 測試與稽核的基礎設施（不是產品程式碼，但改測試時一定會碰到）：

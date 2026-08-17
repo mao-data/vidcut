@@ -68,6 +68,50 @@ describe('AI column tabs', () => {
     expect(container.querySelector('.ap-card')).not.toBeNull();
   });
 
+  /**
+   * **Activity 內容退出 Chat 頁**（2026-08-17 使用者定案 C）。
+   *
+   * 「AI 在不在恆頂可見」的定案**不動**——上面那條仍然要求兩個分頁都看得到 `.ap-card`。
+   * 改的是卡的**內容量**：最近三筆署名列與 `No edits yet.` 是 activity 內容，
+   * 在 Chat 分頁上是重複的（下面就是對話），所以 Chat 側只留收斂的三態單列。
+   */
+  it('C-compact: the recent-edits list is Activity-only, not on the Chat tab', () => {
+    seedProject();
+    useActivity.setState({
+      entries: [
+        { version: 7, label: 'trimmed clip', source: 'ai', ts: '2026-01-01T00:00:00.000Z' },
+      ],
+    });
+    const { container } = render(<AgentPanel />);
+
+    fireEvent.click(tab(container, 'Chat'));
+    // 三態仍在（恆頂契約），但最近三筆不在
+    expect(container.querySelector('.ap-card')).not.toBeNull();
+    expect(container.textContent).toContain('Agent ready');
+    expect(container.querySelector('.ap-card-sign')).toBeNull();
+    expect(container.textContent).not.toContain('trimmed clip');
+
+    fireEvent.click(tab(container, 'Activity'));
+    expect(container.querySelector('.ap-card-sign')).not.toBeNull();
+  });
+
+  it('C-compact: "No edits yet." belongs to Activity, not to an empty Chat', () => {
+    seedProject();
+    const { container } = render(<AgentPanel />);
+    fireEvent.click(tab(container, 'Chat'));
+    expect(container.textContent).not.toContain('No edits yet.');
+    fireEvent.click(tab(container, 'Activity'));
+    expect(container.textContent).toContain('No edits yet.');
+  });
+
+  it('C-compact: the Chat-side status still carries the session counts', () => {
+    // 「狀態＋計數」的單列——收斂掉的是署名列，不是讀數。
+    seedProject();
+    const { container } = render(<AgentPanel />);
+    fireEvent.click(tab(container, 'Chat'));
+    expect(container.querySelector('.ap-card-counts')).not.toBeNull();
+  });
+
   it('the status card sits above the tab bar in DOM order (it is not inside a tab)', () => {
     seedProject();
     const { container } = render(<AgentPanel />);

@@ -6,6 +6,7 @@ colors:
   charcoal-stage: '#131315'
   charcoal-bg: '#1a1a1c'
   charcoal-panel: '#202023'
+  charcoal-panel-2: '#26262a'
   charcoal-card: '#2b2b2e'
   charcoal-frozen: '#2e2e31'
   charcoal-popover: '#2a2a2e'
@@ -25,6 +26,7 @@ colors:
   # ---- Paper (light, "storyboard paper desk"; values inherited from ../site/DESIGN.md) ----
   paper: '#ede8dc'
   paper-card: '#f7f3e9'
+  paper-card-2: '#efe9db'
   paper-note: '#fffdf6'
   paper-clip: '#e4dece'
   ink: '#26231d'
@@ -271,9 +273,17 @@ never branch on theme.
 ### Neutral
 
 - **Charcoal ladder** (dark): stage `#131315` → page `#1a1a1c` → panel `#202023` →
-  popover `#2a2a2e`, with timeline clips at `#2b2b2e` and frozen clips at `#2e2e31`.
+  panel-2 `#26262a` → popover `#2a2a2e`, with timeline clips at `#2b2b2e` and frozen
+  clips at `#2e2e31`.
 - **Paper ladder** (light): stage `#26231d` (unchanged) → page `#ede8dc` → panel
   `#f7f3e9` → popover `#fffdf6`, with clips at `#e4dece` and frozen clips at `#dcd9cd`.
+  **`--panel-2` (`#efe9db`) is the one rung that steps _down_ from the panel** rather
+  than up — on paper the only readable step is downward (same rule as `--surface`),
+  so it is not "between panel and popover" here the way it is in the dark.
+- **`--panel-2`** exists for the Chat composer and the user quote card only (see
+  Chat composer & the user quote card). It is not a general-purpose surface: it
+  carries no shadow and is not a float, which is what separates it from the popover
+  ground it sits next to in the dark ladder.
 - **Text ramp**: chalk / chalk-dim / chalk-faint against ink / graphite /
   graphite-faint. All three steps are semantic-grade in both themes except one
   documented ceiling (see The Popover Text Rule).
@@ -559,6 +569,45 @@ literally means "the connection is cut".
 - **Selected:** the marking-red ring in the dark theme (`--select-edge` `#c94f42`) and
   ink on paper; chips never gain a fill on selection.
 
+### Chat composer & the user quote card
+
+The Chat tab's composer is a **card, not a control row** (user decision 2026-08-17,
+after Descript Underlord and the ChatGPT/Cursor composer convention). It sits on
+`--panel-2` — a new ladder step between `--panel` and the popover ground, added for
+exactly two consumers, this card and the quote card below. Dark `#26262a`
+(text-1 11.87, text-2 6.06, text-3 4.56); paper `#efe9db` (12.94 / 7.77 / 5.48).
+Like the index card it cannot separate from `--panel` tonally (1.08 dark, 1.09
+paper), so its boundary is a **structural 1px `--line`**, not a lightness step.
+Note the paper value moves _down_ the ladder while the dark value moves _up_: same
+Surface-Overlay direction rule that governs `--surface`.
+
+The textarea starts at 3 rows and auto-grows on `scrollHeight` to an 8-row ceiling,
+then scrolls internally. The card owns the focus ring (`:focus-within`) because the
+send button lives inside it — one ring for the whole writing surface, on the standard
+2px/1px-offset spec (3px offset on paper).
+
+**The send button is the second solid-accent block in the app.** It is a round
+`--accent` fill with `--on-accent` glyph — the same two tokens as the Export button,
+so it follows both themes automatically. Measured: **13.05:1** dark (`#1a1a1c` on
+`#e3dfd4`), **14.14:1** paper (`#f7f3e9` on `#26231d`). **Round is a deliberate
+exception** to the square-objects rule: the no-rotate/square vocabulary governs
+_objects on the desk_, and this is a control at the composer's trailing edge where a
+circular send key is a cross-product convention. Its scarcity is preserved — a solid
+accent fill still means "the primary action here", and there is exactly one per surface.
+
+**The user message is a light quote card; the AI message stays unframed.** This is a
+**local amendment to the no-bubbles decision, not a reversal.** What bubbles cost is
+two-sided symmetry: two speech shapes pushed to opposite edges, eating the width of an
+already-narrow column. A single-sided card has none of that cost, and the two sides
+are genuinely different kinds of text — what the user said is _a quoted instruction_
+(short, scanned back for "what did I ask for"), what the AI said is _this panel's body
+copy_ (long, read straight through). The card is `--panel-2` with a 1px `--line` and
+card-grade corners, matching the composer, so "the things I typed" read as one family.
+**Signature rows survive on both sides**: the card says "this is quoted", it does not
+say who said it, and `AI` / `You` remains the attribution data the left column shares
+with the index card and the activity feed. Audit test: if the AI side ever gains a
+frame, this has become a bubble layout and the amendment is broken.
+
 ### Cards / Containers
 
 - **Panels** (`.panel-surface`) are solid `--panel`, 10px / 4px corners, separated by
@@ -720,6 +769,12 @@ copied into any new surface.
 - **Don't** use red for a selected tab, a badge, a button fill, or a panel fill — it
   reads as "a red UI accent" and the paper theme already had to correct exactly that
   mistake.
+- **Don't** frame the AI side of a chat message. The user-side quote card is a
+  deliberate single-sided amendment; framing both sides recreates the bubble layout
+  the no-bubbles decision exists to prevent.
+- **Don't** spend `--panel-2` on new surfaces without a decision. It was added for the
+  composer and the quote card; a third consumer would make it a general elevation
+  step, which the four-rung ladder deliberately does not have.
 - **Don't** exceed a 7px radius on any paper object, or ship a half-pixel chrome font size.
 - **Don't** copy the purple/cyan literals in `waveform.ts` into anything. They are a
   jsdom fallback that exists to prove the lookup mechanism, not a palette.

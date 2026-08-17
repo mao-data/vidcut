@@ -58,6 +58,15 @@
   /* 樓梯第二階：header／左右面板／時間軸容器的**實底**（不是透明疊層）。
    * 有了它，`--surface` 的白 6% 才有東西可以疊，層感不會被近黑底吃掉。 */
   --panel: #202023;
+  /* 樓梯第二階半：**面板之上、popover 之下**的實底。2026-08-17 Chat composer 改版
+   * 新增，消費者是 Chat 的輸入卡與使用者訊息的引用卡（`.chat-composer` /
+   * `.chat-quote`）——那兩塊要從面板上「浮一階」但又不是浮出層，所以不能吃
+   * `--popover-bg`（那是 float 語意，還帶陰影）。
+   * 中性炭階，R/G/B 相差 ≤4（守 The Room Is Colorless）。
+   * 實算：--text-1 11.87、--text-2 6.06、--text-3 4.56 —— 三階都 ≥4.5 語意可用。
+   * 對 --panel 只有 1.08（同 --ap-slate 對面板的處境），所以它的邊界跟索引卡一樣
+   * 靠 1px 結構線，不靠明度差。 */
+  --panel-2: #26262a;
   /* 預覽 stage 的襯底：全 UI 最暗處（見上面的 stage 例外規則） */
   --bg-stage: #131315;
   --surface: rgba(255, 255, 255, 0.06);
@@ -366,6 +375,14 @@
   --bg: #ede8dc;
   /* 面板：抬起來的紙卡（DESIGN.md「Paper Card」） */
   --panel: #f7f3e9;
+  /* 面板之上、popover 之下的那一階（暗版同名 token 的紙世界對應）。
+   * **方向與暗版相反**：暗版是往亮走一階（白 overlay 抬起深底），紙上唯一讀得出來
+   * 的一步是**往下**（同一條 The Surface-Overlay Direction 規則——紙卡上再貼白紙
+   * 看不見，壓一階米色才有「另一張紙」的感覺）。popover 在紙上是往上（#fffdf6），
+   * 所以這一階刻意不共用它。
+   * 實算：--text-1 12.94、--text-2 7.77、--text-3 5.48 —— 三階都 ≥4.5。
+   * 對 --panel 1.09，同暗版：邊界靠 1px 結構線。 */
+  --panel-2: #efe9db;
   /* stage 例外——見上面的硬性規則。刻意維持深色，不是漏改。
    * 這個值同時是 ink：預覽等於「貼在紙上的深色相紙」，紙世界裡最深的那階。 */
   --bg-stage: #26231d;
@@ -1822,6 +1839,109 @@ a {
   padding: 12px;
   /* 線型同 `.panel-edge-*`：1px 實線，兩主題共用 */
   border-bottom: 1px solid var(--line);
+}
+
+/* ============================================================
+ * Chat composer 與使用者引用卡（2026-08-17 使用者定案，Descript Underlord /
+ * ChatGPT composer 慣例）
+ *
+ * 三件事在這裡而不在元件 inline style：**都是 theme-dependent 的值**
+ * （DESIGN.md 的 Don't-Hardcode-Theme-Values 規則——inline style 贏過 author，
+ *  紙主題就只能靠 `!important` 追打）。
+ * ============================================================ */
+
+/* 輸入卡：composer 的外框。從面板浮**一階**（--panel-2）而不是浮出層，
+ * 圓角吃卡級（暗 9px／紙 4px），聚焦環由內部 textarea 的 :focus-within 帶起來。 */
+.chat-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--r-card);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+/* 聚焦環畫在**卡上**而不是 textarea 上：使用者的心智模型是「我在這張卡裡打字」，
+ * 而卡裡還有一顆送出鈕。用 :focus-within 讓兩者共用同一個環。
+ * 規格同全域 focus（2px 實線、1px offset；紙版 3px offset 在下面的 scoped 規則）。 */
+.chat-composer:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+[data-theme='paper'] .chat-composer:focus-within {
+  outline-offset: 3px;
+}
+/* 卡內的 textarea 自己**不要**第二層框與第二個環——它就是卡的內部。 */
+.chat-composer textarea {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  resize: none;
+}
+.chat-composer textarea:hover,
+.chat-composer textarea:disabled,
+.chat-composer textarea:disabled:hover {
+  background: transparent;
+  border: none;
+}
+.chat-composer textarea:focus-visible {
+  outline: none;
+}
+
+/* 送出鈕：**圓形 accent 實色主鈕**，沉在輸入卡右下。
+ * 這是 DESIGN.md「唯一實心亮塊＝主行動」語彙的第二個消費者（第一個是 Export），
+ * 走的是同一組 --accent / --on-accent，所以兩個主題自動跟著走。
+ * 實算對比：暗版 --on-accent #1a1a1c 對 --accent #e3dfd4 = 13.05:1；
+ * 紙版 --on-accent #f7f3e9 對 --accent #26231d = 14.14:1。兩版皆 ≥4.5。
+ * **圓形是這顆鈕的例外**（其餘 UI 一律方角）：它是 composer 的送出鍵，
+ * 圓形在這個位置是跨產品慣例（Descript / ChatGPT / Cursor），
+ * 且它不是「桌上的物件」而是控制項，不受 square-objects 規則管轄。 */
+.chat-send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 1px solid transparent;
+}
+.chat-send:hover:not(:disabled) {
+  background: var(--accent-hover-1);
+}
+/* disabled 走全域 button 的 45% opacity（不另外宣告），只把 hover 的抬升關掉。 */
+.chat-send:disabled {
+  background: var(--accent);
+}
+/* 紙版 scoped 補強（包2 `.tl-toolbar` 的同一類坑，2026-08-17 主 session 驗收抓到）：
+ * `[data-theme='paper'] button:not(.btn-primary):not(.ap-strip)`（0,3,1，紙卡底）
+ * 蓋過 `.chat-send`（0,1,0），送出鈕在紙上變成白底 ghost 而不是 accent 實色主鈕。
+ * 用 `.chat-composer button.chat-send` 湊到同級 (0,3,1) 且後出線。 */
+[data-theme='paper'] .chat-composer button.chat-send,
+[data-theme='paper'] .chat-composer button.chat-send:disabled {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+[data-theme='paper'] .chat-composer button.chat-send:hover:not(:disabled) {
+  background: var(--accent-hover-1);
+}
+
+/* 使用者訊息的**淺色圓角引用卡**（B 案：無泡泡定案的局部修訂）。
+ * 只有使用者側成卡，AI 側維持無框正文——理由與 DESIGN.md 的記錄一致：
+ * 使用者說的話是「引用進來的指令」，AI 說的話是這個面板的正文。
+ * 底走 --panel-2（與 composer 同一階＝「我打的字」這一族），
+ * 邊界靠 1px --line（它對 --panel 只有 1.08，撐不起邊界）。 */
+.chat-quote {
+  border-radius: var(--r-card);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  padding: 8px;
 }
 /* `.empty-note`（空狀態提示：「No captions yet.」「No changes yet」「No edits yet.」
  * ＋ Inspector 的「Select a clip…」引導句）。

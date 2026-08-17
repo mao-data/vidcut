@@ -627,10 +627,10 @@
   {
     "id": "inspector-agent-block",
     "file": "ui/src/panels/AgentPanel.tsx",
-    "find": "        <AgentStatus />\n",
+    "find": "        <AgentStatus compact={tab === 'chat'} />\n",
     "replace": "",
     "tests": "ui/src/panels/AgentPanel.test.tsx",
-    "note": "AI 區塊整塊不渲染 → B1..B7 必須抓到（2026-08-16 版面重構：從 Inspector 的未選取分支搬到 AI 專區 AgentPanel，錨點跟著搬）"
+    "note": "AI 區塊整塊不渲染 → B1..B7 必須抓到（2026-08-16 版面重構：從 Inspector 的未選取分支搬到 AI 專區 AgentPanel，錨點跟著搬。2026-08-17 composer 改版：AgentStatus 加了 compact prop，find 跟著更新——語意不變，仍然是「整塊卡不渲染」）"
   },
   {
     "id": "inspector-agent-connected",
@@ -1023,5 +1023,37 @@
     "replace": "    const firstLoad = prev.messages === NO_MESSAGES;",
     "tests": "ui/src/stores/chat.test.ts",
     "note": "首載判準退回 reference 推斷 → 空歷史專案 AI 開口第一句永遠不計未讀(2026-08-17 主 session 驗收抓到的原 bug);「空首載後第一則 AI 訊息計 1」的斷言必須抓到"
+  },
+  {
+    "id": "chat-shift-enter-sends",
+    "file": "ui/src/panels/Chat.tsx",
+    "find": "              if (e.key !== 'Enter' || e.shiftKey) return;",
+    "replace": "              if (e.key !== 'Enter') return;",
+    "tests": "ui/src/panels/Chat.test.tsx",
+    "note": "Shift+Enter 也送出 → composer 改成 textarea 之後就再也打不出換行(每次想斷行都變成送出半句話);「Shift+Enter 不送出」與 S8「換行原樣送出」的斷言必須抓到"
+  },
+  {
+    "id": "chat-autogrow-uncapped",
+    "file": "ui/src/panels/Chat.tsx",
+    "find": "Math.min(el.scrollHeight, MAX_H)",
+    "replace": "el.scrollHeight",
+    "tests": "ui/src/panels/Chat.test.tsx",
+    "note": "auto-grow 失去八行封頂 → 貼一長段字時輸入卡無限長高、把訊息列表整個擠出面板;S3 的封頂機制斷言必須抓到"
+  },
+  {
+    "id": "chat-quote-both-authors",
+    "file": "ui/src/panels/Chat.tsx",
+    "find": "className={m.author === 'user' ? 'chat-quote' : undefined}",
+    "replace": "className={'chat-quote'}",
+    "tests": "ui/src/panels/Chat.test.tsx",
+    "note": "AI 訊息也套引用卡 → 兩側都成卡就是泡泡,正好是無泡泡定案要避免的(定案 B 只修訂使用者側);「只有一張卡且不含 AI 內容」的斷言必須抓到"
+  },
+  {
+    "id": "agent-card-extras-always",
+    "file": "ui/src/panels/AgentPanel.tsx",
+    "find": "      {!compact && (",
+    "replace": "      {true && (",
+    "tests": "ui/src/panels/AgentTabs.test.tsx",
+    "note": "compact 失效 → 最近三筆署名列在 Chat 分頁又冒出來(activity 內容退出 Chat 頁的定案 C 整條失守);C-compact 的斷言必須抓到"
   }
 ]

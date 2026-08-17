@@ -2093,3 +2093,56 @@ snapshot 同理)。
 長期專案累積前值得定案;:3845 那台 server 仍跑舊碼,**要重啟才有聊天
 功能**;Chat 輸入是單行 `<input>`(註解提到 Shift+Enter 留給換行是
 措辭超前,實際單行——候選改進)。
+
+## 補記:Chat 面板改版——composer 放大+引用卡+狀態卡拆分(2026-08-17)
+
+使用者以競品截圖定案(參考 Descript Underlord/ChatGPT-Cursor composer
+慣例,經 WebSearch 研究後計劃、逐項拍板),Opus 實作、主 session 獨立驗收。
+
+**A. Composer**:`<input>` 換 auto-grow `<textarea>`(rows 3 起、
+`scrollHeight` 量測、8 行封頂 136px 後內捲;useLayoutEffect+先歸零再讀,
+刪字會縮);Enter 送出/Shift+Enter 真換行(順手解掉上一包「措辭超前」
+已知限制);圓形 28px accent 實色送出鈕(`--accent`/`--on-accent`,
+DESIGN.md「唯一實心亮塊」語彙第二個消費者;圓形為記錄在案的例外);
+輸入卡 `.chat-composer`(`--panel-2` 新 token+1px 線,聚焦環
+:focus-within 畫在卡上);placeholder 改指令式。**B. 引用卡**:使用者
+訊息 `.chat-quote`(`--panel-2`),AI 維持無框正文——「無泡泡」定案的
+單側修訂,理由與例外記進 DESIGN.md(新節+2 Don'ts);署名列兩側保留。
+**C. 狀態卡拆分**:AgentStatus 加 `compact` prop(core/extras,不拆
+元件避免三態推導分岔),Chat 分頁隱藏「最近三筆+No edits yet.」,
+恆頂定案不動。**D**:空狀態改邀請句。`--panel-2` 兩主題實算對比全
+≥4.5(暗 11.87/6.06/4.56;紙 12.94/7.77/5.48),對 `--panel` 僅
+~1.08,邊界靠 1px 結構線(與索引卡同法)。
+
+**Opus 測試**:+16 UI(RED 先行 11 紅各紅其所);斷言調整兩處均為
+加嚴/範圍精確化(input→textarea 由新測試 S1 釘死「textarea 存在且無
+input[type=text]」;「無泡泡」與「引用卡」斷言並存)。**Opus 自抓一隻
+假斷言**:`chat-autogrow-uncapped` 首輪存活——原 S3 只斷 maxHeight
+style 宣告面,看不見 JS clamp 被刪;改 stub scrollHeight 直接觀測
+Math.min(51 長/1000 壓 136)後擊殺,不接受存活。mutant 128→132
+(重錨 1+新 4),17/17 驗殺(含 5 隻既有 chat mutant 迴歸)。
+
+**主 session 驗收抓到一個真 bug(紙版送出鈕 ghost 化)**:
+`[data-theme='paper'] button:not(.btn-primary):not(.ap-strip)` (0,3,1)
+蓋掉 `.chat-send` (0,1,0),紙上送出鈕變白底 ghost——與包2 `.tl-toolbar`
+同類特異性坑,**首輪探針只驗形狀沒驗底色所以差點放過**;加嚴探針
+(底色必須等於 `--accent` 實算 rgb)紅→theme.css 補紙版 scoped 同級
+後出三條→綠。CDP 行為探針兩主題各 14/14:空狀態句、compact(Chat 無
+No edits yet./Activity 有)、textarea 初始 51px、20 行封頂 136+內捲、
+5 行 85px(真的隨內容長)、Shift+Enter 不送出草稿在、Enter 送多行+
+pre-wrap 保留+送後縮回 51、AI 無引用卡、送出鈕圓形+accent 實色——
+**auto-grow 與顏色都在真瀏覽器證實**(Opus 明列的兩個未驗項);兩主題
+截圖過目。紙輪首見的空狀態紅為探針狀態殘留(暗輪已寫入訊息),探針
+改為僅首輪驗空狀態(如實記)。
+
+**gauntlet(source:648a632+本包工作樹,單次乾淨全跑,2026-08-17)**:
+**991 passed**(shared 46/server 505/ui 440);UI 覆蓋率 91.62%;隨機
+順序×2 PASS;錨點 132/132;**131/131 killed+1 等價對照存活如預期**;
+其餘各層全 PASS;零新增依賴。本補記於完跑後寫入,prettier/docs-check
+單獨複跑綠(如實記)。
+
+**已知限制**:`LINE_H=17` 為 1.4×12 的取整,改字級/行高時 3/8 行目標
+會微漂(常數具名有註);Shift+Enter 的合成鍵盤事件不會真的插入換行
+(探針以「不送出+草稿保留」驗,真換行由多行送出案證);:3845 現由
+另一 session(cloud-p0 worktree)佔用,本包驗收全程在 :3846,main 線
+的新 UI 要等該 session 釋出 port 或另起 port 看。

@@ -1,18 +1,35 @@
-import { useEffect, useRef } from 'react';
-import { SendHorizontal } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { ArrowUp } from 'lucide-react';
 import { motionOK } from '../motion.js';
 import { useChat } from '../stores/chat.js';
 import { useProject } from '../stores/project.js';
 import { sendChatMessage } from '../ws.js';
 
 /**
+ * 三行起跳、八行封頂（2026-08-17 使用者定案 A）。
+ *
+ * 這兩個數字是**行數**不是像素：像素隨字級/行高走，寫死像素的話改了 12px 內文
+ * 就會變成「三行半」。`LINE_H` 是 composer 的 line-height（1.4 × 12px = 16.8，
+ * 取 17）＋ 卡的上下內距在 CSS 那層。`MAX_H` 只餵給 style 的 maxHeight，
+ * 真正的高度由 `autoGrow()` 用 scrollHeight 算。
+ */
+const ROWS_MIN = 3;
+const ROWS_MAX = 8;
+const LINE_H = 17;
+const MAX_H = ROWS_MAX * LINE_H;
+
+/**
  * Chat 分頁——人與 AI 的對話渠道（AI 欄的兩個分頁之一，另一個是 Activity）。
  *
- * **不做聊天泡泡**（Two-Hands 體例，見 `ui/DESIGN.md`）：泡泡是通訊軟體的語彙，
- * 在一個工作面板裡只會吃掉寬度、把兩句話推到兩邊。這裡沿用索引卡與活動流已經
- * 在用的那套——**靠署名分色**：AI 走 `--who-ai`（暗版蠟筆白／紙版 graphite）、
- * 使用者走 `--who-you`（紅蠟筆／紅鉛筆）。同一條規則、同一組 token，
- * 所以左欄三塊區域讀起來是同一份文件而不是三個小程式。
+ * **署名分色是主結構**（Two-Hands 體例，見 `ui/DESIGN.md`）：AI 走 `--who-ai`
+ * （暗版蠟筆白／紙版 graphite）、使用者走 `--who-you`（紅蠟筆／紅鉛筆）。
+ * 同一條規則、同一組 token，所以左欄三塊區域讀起來是同一份文件而不是三個小程式。
+ *
+ * **使用者訊息是淺色引用卡、AI 訊息維持無框正文**（2026-08-17 使用者定案 B）：
+ * 這是「無泡泡」定案的**局部修訂**，不是推翻——泡泡的問題是兩側對稱、把兩句話推到
+ * 兩邊、吃掉本來就窄的欄寬。單側引用卡沒有那個成本：使用者說的話是**引用進來的
+ * 指令**（短、要能一眼掃到），AI 說的話是這個面板的正文（長、要好讀）。
+ * 例外與理由同步記在 `ui/DESIGN.md`。
  *
  * **離線時輸入框 disabled 但草稿留著**：草稿住在 `stores/chat.ts` 而不是這裡的
  * `useState`——斷線會讓 `connected` 變、面板重渲染，切到 Activity 分頁再切回來
@@ -23,6 +40,25 @@ export function Chat() {
   const draft = useChat((s) => s.draft);
   const connected = useProject((s) => s.connected);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * auto-grow：**先歸零再讀 scrollHeight**。少了歸零那一步高度只會單向長大——
+   * scrollHeight 讀到的是「內容撐開後的高度」，而元素已經被上一次的 inline height
+   * 撐著，刪字時它讀回來的仍是舊高度。
+   *
+   * 用 `useLayoutEffect` 而不是 `useEffect`：這是量測 + 寫回幾何，跑在 paint 之前
+   * 才不會閃一格舊高度。跟著 `draft` 走（不是 onChange），所以草稿從 store 換回來
+   * （切分頁回來、重連）時高度也會對。
+   */
+  useLayoutEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    // jsdom 的 scrollHeight 恆為 0：那裡會退回 rows 給的自然高度（style.height 空字串），
+    // 不會把輸入框壓成 0 高。
+    if (el.scrollHeight > 0) el.style.height = `${Math.min(el.scrollHeight, MAX_H)}px`;
+  }, [draft]);
 
   // 掛著＝使用者正在看這個分頁 → 未讀歸零（AgentStrip 的徽章就是讀這個）。
   // 卸載（切走分頁／收合欄）恢復計數。
@@ -53,19 +89,25 @@ export function Chat() {
     <div className="panel-col">
       <div className="panel-body" ref={bodyRef} style={{ padding: 8 }}>
         {messages.length === 0 && (
+          // 空狀態**邀請動作**而不是陳述計數（2026-08-17 定案 D）：這片面板空著的時候
+          // 是使用者第一次面對它，「你有 0 則訊息」沒有告訴他能做什麼。
           <div className="empty-note" style={{ color: 'var(--text-3)' }}>
-            No messages yet
+            Ask the AI to make a change, or say hi.
           </div>
         )}
         {messages.map((m) => (
           <div
             key={m.id}
             style={{
-              // 一則訊息＝一列署名 + 內文，行距與活動流／索引卡同步（2026-08-16 定案）。
-              padding: '3px 0',
+              // 段落節奏（2026-08-17 定案 B）：訊息之間拉開成 8，一則訊息內部
+              // 署名到內文維持緊排。守 4 的倍數（DESIGN.md 的 spacing rhythm）。
+              marginBottom: 8,
               lineHeight: 1.4,
             }}
           >
+            {/* 署名列**兩側都保留**（定案 B 明列）：a11y 上它是這則訊息的作者，
+                視覺上它讓 Chat 與索引卡／活動流讀起來是同一份文件。
+                引用卡本身不足以取代它——卡只說「這是引用」，沒說是誰說的。 */}
             <span
               style={{
                 fontSize: 10,
@@ -77,41 +119,65 @@ export function Chat() {
               {m.author === 'ai' ? 'AI' : 'You'}
             </span>
             {/* 內文吃 --text-1（主文字階），署名才帶顏色：整段話都上色的話兩個人的
-                訊息會變成兩種顏色的牆，可讀性比署名分色差。`pre-wrap` 讓 AI 傳來的
-                換行照原樣呈現。 */}
-            <div style={{ color: 'var(--text-1)', whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                訊息會變成兩種顏色的牆，可讀性比署名分色差。`pre-wrap` 讓換行
+                （AI 傳來的、以及使用者 Shift+Enter 打的）照原樣呈現。
+                **使用者側多一層引用卡**（`.chat-quote`），AI 側無框——視覺定義與
+                理由在 theme.css 那條規則與 DESIGN.md。 */}
+            <div
+              className={m.author === 'user' ? 'chat-quote' : undefined}
+              style={{
+                color: 'var(--text-1)',
+                whiteSpace: 'pre-wrap',
+                marginTop: m.author === 'user' ? 4 : 0,
+              }}
+            >
+              {m.text}
+            </div>
           </div>
         ))}
       </div>
-      <div className="panel-bar" style={{ gap: 4, padding: 8 }}>
-        <input
-          type="text"
-          value={draft}
-          disabled={!connected}
-          // 離線時的 placeholder 說的是「為什麼不能打」而不是「你離線了」——
-          // 與索引卡 offline 態給接回指令是同一個態度。
-          placeholder={connected ? 'Message the agent…' : 'Offline — reconnecting…'}
-          onChange={(e) => useChat.getState().setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            // Enter 送出、Shift+Enter 留給換行。**stopPropagation 是必要的**：
-            // App 的全域快捷鍵 handler 雖然對 INPUT 早退，但這裡還有一層
-            // 「別讓 Enter 冒泡出去」的保險，語意上這顆鍵已經被消費掉了。
-            if (e.key !== 'Enter' || e.shiftKey) return;
-            e.preventDefault();
-            e.stopPropagation();
-            send();
-          }}
-          style={{ flex: 1, minWidth: 0 }}
-        />
-        <button
-          className="icon-btn"
-          onClick={send}
-          disabled={!connected}
-          title="Send"
-          aria-label="Send"
-        >
-          <SendHorizontal size={13} />
-        </button>
+      {/* composer 的外圈保留 `.panel-bar`（頂線與內距是面板體例），輸入卡是它裡面的
+          那張卡。`.panel-bar` 的預設 align-items:center 對單行控制列是對的，
+          這裡是會長高的卡，所以下面那層自己排。 */}
+      <div className="panel-bar" style={{ padding: 8 }}>
+        <div className="chat-composer" style={{ flex: 1, minWidth: 0 }}>
+          <textarea
+            ref={taRef}
+            rows={ROWS_MIN}
+            value={draft}
+            disabled={!connected}
+            // 離線時的 placeholder 說的是「為什麼不能打」而不是「你離線了」——
+            // 與索引卡 offline 態給接回指令是同一個態度。連線時的字換成**指令式**
+            // （2026-08-17 定案 A）：這個框不是聊天室，是叫 AI 改片子的地方。
+            placeholder={connected ? 'Tell the AI what to change…' : 'Offline — reconnecting…'}
+            onChange={(e) => useChat.getState().setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter 送出、Shift+Enter 留給換行——**現在 textarea 真的會換行**
+              // （單行 input 時代 Shift+Enter 只是「不送出」）。
+              // **stopPropagation 是必要的**：App 的全域快捷鍵 handler 雖然對
+              // 文字控制項早退，但這裡還有一層「別讓 Enter 冒泡出去」的保險，
+              // 語意上這顆鍵已經被消費掉了。
+              if (e.key !== 'Enter' || e.shiftKey) return;
+              e.preventDefault();
+              e.stopPropagation();
+              send();
+            }}
+            // 封頂與內部捲動：高度本身由 `autoGrow` 的 layout effect 寫，
+            // 這兩條只負責「長到八行就停下來、之後自己捲」。
+            style={{ maxHeight: MAX_H, overflowY: 'auto', lineHeight: `${LINE_H}px` }}
+          />
+          {/* 圓形 accent 實色主鈕，沉在卡的右下（`align-items: flex-end`）。
+              `aria-label` 是它的可及名稱——圖示鈕沒有文字內容。 */}
+          <button
+            className="chat-send"
+            onClick={send}
+            disabled={!connected}
+            title="Send"
+            aria-label="Send"
+          >
+            <ArrowUp size={13} />
+          </button>
+        </div>
       </div>
     </div>
   );

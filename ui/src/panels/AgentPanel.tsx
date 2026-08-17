@@ -33,8 +33,20 @@ import { Chat } from './Chat.js';
  *
  * **經過秒數在元件層算**（照 AgentStrip 的既有寫法）：store 只存 `startedAt`，
  * 每秒 set 一次 state 會把整棵樹重繪。`setInterval` 只在 working 掛、卸載即清。
+ *
+ * ---- `compact`（2026-08-17 使用者定案 C：Activity 內容退出 Chat 頁）----
+ *
+ * **「AI 在不在恆頂可見」的定案不動**——兩個分頁都還是看得到這張卡的三態與讀數。
+ * 改的是**卡帶多少 activity 內容**：底下那段「最近三筆署名列 ＋ No edits yet.」
+ * 是活動流的內容，在 Chat 分頁上等於把隔壁分頁的東西複述一次，而 Chat 分頁真正
+ * 該給的空間是對話本身。
+ *
+ * 所以拆成 core（三態圈 + 狀態字 + working 實時行 + 離線指令 + session 讀數）與
+ * extras（最近三筆／空狀態），`compact` 只關掉 extras。**不是拆成兩個元件**：
+ * 三態推導、interval、RING_PATH 這些都是 core 的，複製一份就會分岔
+ * （同一個理由寫在檔頭那條「RING_PATH 直接 import」）。
  */
-export function AgentStatus() {
+export function AgentStatus({ compact = false }: { compact?: boolean }) {
   const connected = useProject((s) => s.connected);
   const version = useProject((s) => s.version);
   const entries = useActivity((s) => s.entries);
@@ -106,65 +118,70 @@ export function AgentStatus() {
           </div>
         )}
       </div>
-      {/* `empty-note` 掛在**外層**而不是下面那個 `.tag` 上：`scripts/mutants.json` 的
+      {/* extras＝最近三筆署名列／空狀態。**Chat 分頁不給**（`compact`，見檔頭）：
+          那是 activity 內容，Chat 側只留上面收斂的三態＋讀數。
+
+          `empty-note` 掛在**外層**而不是下面那個 `.tag` 上：`scripts/mutants.json` 的
           `inspector-agent-empty` 錨在那一整行的字面值上（含 className 與文字），
           動它會讓突變測試的 find 落空。這段註解也刻意不複述那串字面值——
           複述會讓 find 命中兩次，`mutate --check` 同樣會紅。 */}
-      <div className={recent.length === 0 ? 'empty-note' : undefined} style={{ marginTop: 12 }}>
-        {recent.length === 0 ? (
-          <div className="tag">No edits yet.</div>
-        ) : (
-          recent.map((e) => (
-            <div
-              key={e.version}
-              style={{
-                display: 'flex',
-                gap: 8,
-                alignItems: 'baseline',
-                // 2026-08-16 使用者定案:AI 欄行距收密(與 Activity 流水帳同步)
-                padding: '1px 0',
-                lineHeight: 1.3,
-                fontSize: 11,
-              }}
-            >
-              {/* 署名分色走 --who-* token（暗版紫/藍、紙版 graphite/紅鉛筆）：
+      {!compact && (
+        <div className={recent.length === 0 ? 'empty-note' : undefined} style={{ marginTop: 12 }}>
+          {recent.length === 0 ? (
+            <div className="tag">No edits yet.</div>
+          ) : (
+            recent.map((e) => (
+              <div
+                key={e.version}
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'baseline',
+                  // 2026-08-16 使用者定案:AI 欄行距收密(與 Activity 流水帳同步)
+                  padding: '1px 0',
+                  lineHeight: 1.3,
+                  fontSize: 11,
+                }}
+              >
+                {/* 署名分色走 --who-* token（暗版紫/藍、紙版 graphite/紅鉛筆）：
                   與 Activity 面板同一條規則 */}
-              <span
-                style={{
-                  flex: 'none',
-                  width: 26,
-                  color: e.source === 'ai' ? 'var(--who-ai)' : 'var(--who-you)',
-                }}
-              >
-                {e.source === 'ai' ? 'AI' : 'you'}
-              </span>
-              <span
-                style={{
-                  color: 'var(--text-2)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {e.label}
-              </span>
-              {/* 尾端署名。**同色不同階**：跟左邊那格吃同一個 --who-* token，
+                <span
+                  style={{
+                    flex: 'none',
+                    width: 26,
+                    color: e.source === 'ai' ? 'var(--who-ai)' : 'var(--who-you)',
+                  }}
+                >
+                  {e.source === 'ai' ? 'AI' : 'you'}
+                </span>
+                <span
+                  style={{
+                    color: 'var(--text-2)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {e.label}
+                </span>
+                {/* 尾端署名。**同色不同階**：跟左邊那格吃同一個 --who-* token，
                   靠 CSS 的 opacity 退階，不另立第三種顏色也不用手寫體
                   （DESIGN.md 的 No-Handwriting-In-App 規則）。 */}
-              <span
-                className="ap-card-sign"
-                style={{
-                  marginLeft: 'auto',
-                  flex: 'none',
-                  color: e.source === 'ai' ? 'var(--who-ai)' : 'var(--who-you)',
-                }}
-              >
-                {e.source === 'ai' ? '—AI' : '—you'}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
+                <span
+                  className="ap-card-sign"
+                  style={{
+                    marginLeft: 'auto',
+                    flex: 'none',
+                    color: e.source === 'ai' ? 'var(--who-ai)' : 'var(--who-you)',
+                  }}
+                >
+                  {e.source === 'ai' ? '—AI' : '—you'}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -180,6 +197,9 @@ export function AgentStatus() {
  * **索引卡恆頂、不進分頁**（使用者定案）：「AI 在不在」是這個產品的核心迴路狀態，
  * 不該因為使用者切到某個分頁就消失。它以前被「有沒有選取東西」蓋掉過一次
  * （見 AgentStatus 的檔頭），那個教訓在這裡就是「也不要被分頁蓋掉」。
+ * **2026-08-17 定案 C 只瘦身、不搬走**：Chat 分頁上的卡收斂成「三態＋讀數」，
+ * 最近三筆署名列留給 Activity 分頁（`compact` prop，理由見 AgentStatus 檔頭）。
+ * 恆頂這件事本身沒有變。
  *
  * **分頁列沿用右欄 Captions⇄Properties 的 `.seg` / `.seg.on`**，不另立第二套分頁
  * 語彙——同一個 app 裡兩種分頁長相不同的話，使用者得學兩次。
@@ -194,7 +214,10 @@ export function AgentPanel() {
   return (
     <div className="panel-col">
       <div style={{ flex: 'none' }}>
-        <AgentStatus />
+        {/* 卡恆頂不變；**Chat 分頁給收斂版**（2026-08-17 定案 C）——最近三筆是
+            activity 內容，放在對話上方等於複述隔壁分頁。分頁 state 本來就在這裡，
+            所以由這一層決定，`AgentStatus` 自己不知道有分頁這回事。 */}
+        <AgentStatus compact={tab === 'chat'} />
       </div>
       <div className="panel-bar" style={{ gap: 4, padding: '8px 12px', flex: 'none' }}>
         <button className={`seg${tab === 'chat' ? ' on' : ''}`} onClick={() => setTab('chat')}>
