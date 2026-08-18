@@ -1055,5 +1055,21 @@
     "replace": "        {tab === 'chat' ? (\n          <>\n            <AgentStatus />\n            <Chat />\n          </>\n        ) : (",
     "tests": "ui/src/panels/AgentTabs.test.tsx",
     "note": "狀態卡在 Chat 分頁又冒出來 → 2026-08-17「卡只住 Activity、Chat 空間全給對話」的修訂整條失守;「Chat 分頁 .ap-card 為 null」的斷言必須抓到"
+  },
+  {
+    "id": "chat-align-user-right",
+    "file": "ui/src/panels/Chat.tsx",
+    "find": "              alignItems: m.author === 'user' ? 'flex-end' : 'flex-start',",
+    "replace": "              alignItems: 'flex-start',",
+    "tests": "ui/src/panels/Chat.test.tsx",
+    "note": "人右/AI 左的對齊被抹平 → 兩邊全靠左,2026-08-18 競品式對齊定案失守;alignItems 接線斷言必須抓到"
+  },
+  {
+    "id": "chat-tabs-collapse-wire",
+    "file": "ui/src/panels/AgentPanel.tsx",
+    "find": "          onClick={() => useView.getState().toggleLeft()}",
+    "replace": "          onClick={() => {}}",
+    "tests": "ui/src/panels/AgentTabs.test.tsx",
+    "note": "收合鈕搬進分頁列時 onClick 斷線 → 鈕在但按了沒反應;「點擊後 leftOpen=false」的行為斷言必須抓到"
   }
 ]

@@ -572,7 +572,14 @@ literally means "the connection is cut".
 ### Chat composer & the user quote card
 
 The Chat tab's composer is a **card, not a control row** (user decision 2026-08-17,
-after Descript Underlord and the ChatGPT/Cursor composer convention). It sits on
+after Descript Underlord and the ChatGPT/Cursor composer convention). 2026-08-18 it
+also gained **breathing room**: the `.panel-bar` separator above it retired, and the
+card floats on 12px margins off the column's bottom and sides (8px toward the list) —
+the glued-to-the-bottom-edge look was the user's complaint, and the competitor set
+uniformly floats its composer. Corners are **14px, a chat-family exception** shared
+with the quote card (same decision, "rounder"): the global `--r-card` scale is
+untouched, and the value is theme-invariant because the softness is chat vocabulary,
+not a paper/dark material difference. It sits on
 `--panel-2` — a new ladder step between `--panel` and the popover ground, added for
 exactly two consumers, this card and the quote card below. Dark `#26262a`
 (text-1 11.87, text-2 6.06, text-3 4.56); paper `#efe9db` (12.94 / 7.77 / 5.48).
@@ -602,7 +609,15 @@ already-narrow column. A single-sided card has none of that cost, and the two si
 are genuinely different kinds of text — what the user said is _a quoted instruction_
 (short, scanned back for "what did I ask for"), what the AI said is _this panel's body
 copy_ (long, read straight through). The card is `--panel-2` with a 1px `--line` and
-card-grade corners, matching the composer, so "the things I typed" read as one family.
+the chat-family 14px corners, matching the composer, so "the things I typed" read as
+one family. 2026-08-18 the two sides also took the cross-product **alignment split**:
+user rows align right (the quote card capped at 85% width — a full-width card cannot
+read as "right"), AI rows stay left and full-width. Alignment is the second author
+cue after signature colour, which is exactly what the not-colour-alone a11y guidance
+asks for. The AI column's own tabs are **text links with a hairline divider**
+(`.tab-link` / `.tab-divider`, user decision 2026-08-18) — the right column keeps its
+`.seg` segments; the divergence is deliberate: one is a work-panel segment control,
+the other is a chat product's light tab row.
 **Signature rows survive on both sides**: the card says "this is quoted", it does not
 say who said it, and `AI` / `You` remains the attribution data the left column shares
 with the index card and the activity feed. Audit test: if the AI side ever gains a

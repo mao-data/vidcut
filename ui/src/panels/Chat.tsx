@@ -103,6 +103,11 @@ export function Chat() {
               // 署名到內文維持緊排。守 4 的倍數（DESIGN.md 的 spacing rhythm）。
               marginBottom: 8,
               lineHeight: 1.4,
+              // 人右、AI 左（2026-08-18 使用者定案,聊天介面通用慣例）:
+              // 對齊差是除署名色外的第二個作者線索(a11y:不只靠顏色分邊)。
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: m.author === 'user' ? 'flex-end' : 'flex-start',
             }}
           >
             {/* 署名列**兩側都保留**（定案 B 明列）：a11y 上它是這則訊息的作者，
@@ -129,6 +134,8 @@ export function Chat() {
                 color: 'var(--text-1)',
                 whiteSpace: 'pre-wrap',
                 marginTop: m.author === 'user' ? 4 : 0,
+                // 引用卡不吃滿寬:全寬的「靠右」讀不出靠右(AI 正文維持全寬)。
+                maxWidth: m.author === 'user' ? '85%' : undefined,
               }}
             >
               {m.text}
@@ -136,11 +143,11 @@ export function Chat() {
           </div>
         ))}
       </div>
-      {/* composer 的外圈保留 `.panel-bar`（頂線與內距是面板體例），輸入卡是它裡面的
-          那張卡。`.panel-bar` 的預設 align-items:center 對單行控制列是對的，
-          這裡是會長高的卡，所以下面那層自己排。 */}
-      <div className="panel-bar" style={{ padding: 8 }}>
-        <div className="chat-composer" style={{ flex: 1, minWidth: 0 }}>
+      {/* composer 外圈 2026-08-18 使用者定案改**無分隔線的呼吸邊距**(競品慣例:
+          ChatGPT/Cursor 的輸入卡浮在欄底、不壓線不貼邊)——`.panel-bar` 退場,
+          四周 12px、對列表側 8px(「輸入框太下面」的主因就是貼死底緣+壓線)。 */}
+      <div style={{ padding: '8px 12px 12px', flex: 'none' }}>
+        <div className="chat-composer" style={{ minWidth: 0 }}>
           <textarea
             ref={taRef}
             rows={ROWS_MIN}

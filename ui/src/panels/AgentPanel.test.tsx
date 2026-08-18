@@ -57,7 +57,9 @@ describe('agent status (AI column)', () => {
   it('B1/B2: shows the agent block, connected when the socket is up', () => {
     seedProject(); // seedProject 會 setConnected(true)
     const { container } = render(<AgentPanel />);
-    expect(container.textContent).toContain('AI agent');
+    // 2026-08-18 使用者自改收編:「AI agent」panel-head 標題移除(欄頂空間上收),
+    // 「區塊存在」改由卡本體 .ap-card 證明——斷言對象換,強度不減。
+    expect(container.querySelector('.ap-card')).not.toBeNull();
     expect(container.textContent).toContain('Agent ready');
     expect(container.textContent).not.toContain('No agent');
   });
@@ -129,7 +131,8 @@ describe('agent status (AI column)', () => {
     seedProject();
     useSelection.getState().select({ kind: 'clip', id: 'c1' });
     const { container } = render(<AgentPanel />);
-    expect(container.textContent).toContain('AI agent');
+    // 「AI agent」標題已移除(2026-08-18,同 B1/B2 的註),區塊存在改驗卡本體。
+    expect(container.querySelector('.ap-card')).not.toBeNull();
     expect(container.textContent).toContain('No edits yet.');
   });
 

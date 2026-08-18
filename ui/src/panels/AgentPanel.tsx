@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { PanelLeftClose } from 'lucide-react';
 import { useProject } from '../stores/project.js';
+import { useView } from '../stores/view.js';
 import { useActivity } from '../stores/activity.js';
 import { useAgent, agentPhase, currentCall, sessionCounts } from '../stores/agent.js';
 // 索引卡與 header 標籤共用同一隻手（`RING_PATH`）與同一份格式化（`formatElapsed`）。
@@ -61,9 +63,6 @@ export function AgentStatus() {
 
   return (
     <div className="panel-section">
-      <div className="panel-head" style={{ marginBottom: 8 }}>
-        AI agent
-      </div>
       <div className={`ap-card${phase === 'offline' ? ' offline' : ''}`}>
         {/* 手繪圈：`#ap-pencil` 濁度濾鏡的 defs 由 header 的 AgentStrip 內嵌，
             SVG filter id 是 **document 級**可及的，所以這裡直接 url(#ap-pencil)
@@ -190,8 +189,11 @@ export function AgentStatus() {
  * （恆頂時代的教訓「別被分頁蓋掉」由 AgentStrip 承接；compact prop 同時退役——
  * 卡只剩一個落點，沒有瘦身版可言。）
  *
- * **分頁列沿用右欄 Captions⇄Properties 的 `.seg` / `.seg.on`**，不另立第二套分頁
- * 語彙——同一個 app 裡兩種分頁長相不同的話，使用者得學兩次。
+ * **分頁列是文字型切換**（2026-08-18 使用者定案:「不要匡起來,用｜來分開」,
+ * 取代「沿用右欄 .seg」的舊契約）:兩顆透明底文字鈕(`.tab-link`,當前 `.on`
+ * 靠字重+文字階分)夾一條樣式化豎線(`.tab-divider`);右端收合鈕(從舊「AI」
+ * 頭列搬來)。右欄 Captions⇄Properties 維持 .seg 不動——兩欄分頁長相自此刻意
+ * 不同:右欄是工作面板的段控,左欄是聊天產品的輕分頁。
  *
  * 版面用 flex 直向：分頁列是固定高度的頭（`flex: none`），分頁內容吃掉剩餘
  * 高度並自己捲（兩個分頁內部都是 `.panel-col` + `.panel-body`，給它 `minHeight: 0`
@@ -202,17 +204,40 @@ export function AgentPanel() {
   const unread = useChat((s) => s.unread);
   return (
     <div className="panel-col">
-      <div className="panel-bar" style={{ gap: 4, padding: '8px 12px', flex: 'none' }}>
-        <button className={`seg${tab === 'chat' ? ' on' : ''}`} onClick={() => setTab('chat')}>
+      {/* 文字型分頁列(2026-08-18 使用者定案:「不要匡起來,用｜來分開」)——
+          不用右欄的 .seg 框鈕;分隔線是**樣式化豎線**而非全形「｜」字面值
+          (i18n 檢查掃 CJK 字面值,而且樣式線的粗細/顏色可控)。
+          右端=收合鈕(從舊「AI」頭列搬來,title 不變讓 verify:panels 免改;
+          那一列同時陣亡,欄頂空間全數上收)。 */}
+      <div
+        className="chat-tabs"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '10px 12px 4px',
+          flex: 'none',
+        }}
+      >
+        <button className={`tab-link${tab === 'chat' ? ' on' : ''}`} onClick={() => setTab('chat')}>
           {/* 未讀徽章與右欄 Captions 分頁的計數徽章同一顆 `.badge`。
               分頁本身可見時不顯示——那時未讀已經歸零，畫一個 0 是雜訊。 */}
           Chat {unread > 0 && <span className="badge">{unread}</span>}
         </button>
+        <span className="tab-divider" aria-hidden="true" />
         <button
-          className={`seg${tab === 'activity' ? ' on' : ''}`}
+          className={`tab-link${tab === 'activity' ? ' on' : ''}`}
           onClick={() => setTab('activity')}
         >
           Activity
+        </button>
+        <button
+          className="icon-btn panel-collapse"
+          style={{ marginLeft: 'auto' }}
+          onClick={() => useView.getState().toggleLeft()}
+          title="Collapse AI panel"
+        >
+          <PanelLeftClose size={13} />
         </button>
       </div>
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>

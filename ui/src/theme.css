@@ -1851,13 +1851,16 @@ a {
  * ============================================================ */
 
 /* 輸入卡：composer 的外框。從面板浮**一階**（--panel-2）而不是浮出層，
- * 圓角吃卡級（暗 9px／紙 4px），聚焦環由內部 textarea 的 :focus-within 帶起來。 */
+ * 聚焦環由內部 textarea 的 :focus-within 帶起來。
+ * 圓角 14px 是 **chat 專屬例外**（2026-08-18 使用者定案「圓角再圓一點」，
+ * 對齊聊天產品慣例）——不動 --r-card 的全域階；兩主題同值，因為這裡的
+ * 「軟」是聊天語彙不是紙/暗材質差。引用卡 `.chat-quote` 同值成一族。 */
 .chat-composer {
   display: flex;
   align-items: flex-end;
   gap: 8px;
   padding: 8px;
-  border-radius: var(--r-card);
+  border-radius: 14px;
   background: var(--panel-2);
   border: 1px solid var(--line);
 }
@@ -1938,10 +1941,44 @@ a {
  * 底走 --panel-2（與 composer 同一階＝「我打的字」這一族），
  * 邊界靠 1px --line（它對 --panel 只有 1.08，撐不起邊界）。 */
 .chat-quote {
-  border-radius: var(--r-card);
+  border-radius: 14px; /* chat 專屬圓角,與 .chat-composer 同族(見上) */
   background: var(--panel-2);
   border: 1px solid var(--line);
-  padding: 8px;
+  padding: 8px 10px;
+}
+
+/* ============================================================
+ * AI 欄的文字型分頁列（2026-08-18 使用者定案:「不要匡起來,用｜來分開」）
+ * ============================================================ */
+/* 文字鈕:透明底、無框——當前分頁靠**字重+文字階**分,不靠框。
+ * 紙版通用鈕規則 (0,3,1) 會給白底,下面有 scoped 補強(同 .chat-send 的坑)。 */
+.chat-tabs button.tab-link {
+  background: transparent;
+  border-color: transparent;
+  padding: 2px 4px;
+  color: var(--text-3);
+  font-weight: 400;
+}
+.chat-tabs button.tab-link:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text-2);
+}
+.chat-tabs button.tab-link.on {
+  color: var(--text-1);
+  font-weight: 600;
+}
+/* 分隔線:樣式化豎線(不用全形「｜」字面值——i18n 檢查掃 CJK,且線的
+ * 粗細/顏色要可控)。高度取分頁字高的視覺中段。 */
+.chat-tabs .tab-divider {
+  width: 1px;
+  height: 12px;
+  background: var(--line);
+  flex: none;
+}
+/* 紙版 scoped 補強(第三次同型坑:通用鈕規則 (0,3,1) 蓋 transparent)。 */
+[data-theme='paper'] .chat-tabs button.tab-link,
+[data-theme='paper'] .chat-tabs button.tab-link:hover:not(:disabled) {
+  background: transparent;
 }
 /* `.empty-note`（空狀態提示：「No captions yet.」「No changes yet」「No edits yet.」
  * ＋ Inspector 的「Select a clip…」引導句）。

@@ -104,6 +104,24 @@ describe('Chat panel: message list', () => {
     expect(cards[0]!.textContent).not.toContain('theirs');
   });
 
+  it('aligns user messages right and AI messages left (2026-08-18 user decision)', () => {
+    // 競品慣例(ChatGPT/通用聊天 UI):人右、AI 左——對齊差是除色彩外的
+    // 第二個作者線索(a11y 指南也要求不只靠顏色分邊)。
+    // jsdom 不算版面,驗 inline style 的 alignItems 接線。
+    seedProject();
+    act(() => useChat.getState().receive([msg('a', 'user', 'mine'), msg('b', 'ai', 'theirs')]));
+    const { container } = render(<Chat />);
+    const rowOf = (text: string) =>
+      Array.from(container.querySelectorAll<HTMLElement>('.panel-body > div')).find((d) =>
+        d.textContent?.includes(text),
+      )!;
+    expect(rowOf('mine').style.alignItems).toBe('flex-end');
+    expect(rowOf('theirs').style.alignItems).toBe('flex-start');
+    // 引用卡不吃滿寬(靠右才讀得出來;全寬的「靠右」沒有意義)
+    const quote = container.querySelector<HTMLElement>('.chat-quote')!;
+    expect(quote.style.maxWidth).toBe('85%');
+  });
+
   it('keeps the signature row on both authors (a11y + left-column consistency)', () => {
     seedProject();
     act(() => useChat.getState().receive([msg('a', 'user', 'mine'), msg('b', 'ai', 'theirs')]));

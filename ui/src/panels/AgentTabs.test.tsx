@@ -5,6 +5,7 @@ import { AgentPanel } from './AgentPanel.js';
 import { useChat, NO_MESSAGES } from '../stores/chat.js';
 import { useAgent, NO_CALLS } from '../stores/agent.js';
 import { useActivity } from '../stores/activity.js';
+import { useView } from '../stores/view.js';
 import * as ws from '../ws.js';
 import { resetStores, seedProject } from '../test/fixtures.js';
 
@@ -18,8 +19,11 @@ import { resetStores, seedProject } from '../test/fixtures.js';
  *     「恆頂」契約的**正式反轉**——三態不會從畫面上消失：header 的 AgentStrip
  *     本來就恆在，左欄的卡是第二份，Chat 分頁把整張卡讓位給對話。
  *     （舊契約下的 compact prop 同時退役——只剩一個落點就沒有瘦身版可言。）
- *  2. 分頁列樣式**沿用右欄 Captions⇄Properties 的 `.seg` / `.seg.on` 既有模式**，
- *     不另立第二套分頁語彙。
+ *  2. 分頁列是**文字型切換**（2026-08-18 使用者定案：「chat 跟 activity 不要匡起來,
+ *     用｜來分開」）——不用右欄的 `.seg` 框鈕,兩個純文字鈕（`.tab-link`,當前帶
+ *     `.on`）中間一條細分隔線（`.tab-divider`,樣式化的豎線,刻意**不用全形「｜」
+ *     字面值**——i18n 檢查掃 CJK 字面值,而且樣式線的粗細/顏色可控）。
+ *     這取代了舊「沿用 .seg」契約。
  */
 
 function msg(id: string, author: ChatMessage['author'], text: string): ChatMessage {
@@ -35,9 +39,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-/** 依可見文字找分頁鈕。 */
+/** 依可見文字找分頁鈕（文字型分頁,2026-08-18 起是 `.tab-link`）。 */
 function tab(container: HTMLElement, label: string): HTMLButtonElement {
-  const el = Array.from(container.querySelectorAll('button.seg')).find((b) =>
+  const el = Array.from(container.querySelectorAll('button.tab-link')).find((b) =>
     b.textContent?.includes(label),
   );
   if (!el) throw new Error(`no tab: ${label}`);
@@ -52,12 +56,31 @@ describe('AI column tabs', () => {
     expect(tab(container, 'Activity')).toBeTruthy();
   });
 
-  it('uses the same segmented-control pattern as the right column (.seg / .seg.on)', () => {
+  it('text tabs with a divider, not segmented boxes (2026-08-18 user decision)', () => {
     seedProject();
     const { container } = render(<AgentPanel />);
-    // 選中的那顆帶 .on，另一顆不帶——與 App 的 Captions⇄Properties 同一套。
-    const on = container.querySelectorAll('button.seg.on');
-    expect(on).toHaveLength(1);
+    // 框鈕退場:AI 欄裡不得再有 .seg
+    expect(container.querySelectorAll('button.seg')).toHaveLength(0);
+    // 文字鈕兩顆,當前那顆帶 .on
+    expect(container.querySelectorAll('button.tab-link')).toHaveLength(2);
+    expect(container.querySelectorAll('button.tab-link.on')).toHaveLength(1);
+    // 中間有一條樣式化分隔線(aria-hidden:純視覺,讀屏不該唸它)
+    const divider = container.querySelector('.tab-divider');
+    expect(divider).not.toBeNull();
+    expect(divider!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('the collapse button lives at the right end of the tab row (moved from the old AI header)', () => {
+    // 2026-08-18 定案 D:左欄頂的「AI」列拿掉,收合鈕搬進分頁列右端。
+    // title 維持 "Collapse AI panel"——verify:panels 的 e2e 靠它找鈕。
+    seedProject();
+    useView.setState({ leftOpen: true });
+    const { container } = render(<AgentPanel />);
+    const btn = container.querySelector<HTMLButtonElement>('button[title="Collapse AI panel"]');
+    expect(btn).not.toBeNull();
+    // 不只存在,接線也要對:點了真的收合(搬家丟了 onClick 這種事不該靠 e2e 才抓到)
+    fireEvent.click(btn!);
+    expect(useView.getState().leftOpen).toBe(false);
   });
 
   /**

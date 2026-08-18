@@ -2185,3 +2185,44 @@ connect() 補等初始 chat;修後單檔 8/8+全套 2/2 綠(修前重現 2/6)。
 其餘各層全 PASS;零新增依賴。分兩筆 commit(包5、flake 修復),兩個
 commit 點各有對應的 gauntlet 全綠(bt82tut6t 蓋包5 樹、本輪蓋合併樹)。
 本補記於完跑後寫入,prettier/docs-check 單獨複跑綠(如實記)。
+
+## 補記:Chat 競品化第二輪——文字分頁+人右AI左+composer 呼吸(2026-08-18)
+
+使用者四項定案(經 WebSearch 研究競品慣例後拍板),主 session 自做(TDD,
+紅 13 條先行);含**使用者自改收編**(AgentStatus 的「AI agent」panel-head
+標題由使用者自行移除,收進本包,錨點復驗 132/132 未受影響)。
+
+**A. 文字型分頁列**:`.seg` 框鈕退場,`.tab-link` 透明底文字鈕(當前
+`.on` 靠字重+文字階)+`.tab-divider` 樣式化豎線(刻意不用全形「｜」
+字面值——i18n 層掃 CJK 字面值,且樣式線粗細/顏色可控);右欄 .seg 不動,
+兩欄分頁刻意分化。紙版第三次同型特異性坑(通用鈕規則 (0,3,1) 蓋
+transparent)以 scoped 同級後出規則先行補上。**B. 左欄頂「AI」列移除**:
+收合鈕搬進分頁列右端(title 不變,verify:panels 免改),新增「點擊後
+leftOpen=false」行為斷言(不只驗存在,防搬家斷線)。**C. 人右 AI 左**:
+訊息列 alignItems 依 author(引用卡 max-width 85%——全寬的靠右讀不出
+靠右),AI 正文靠左全寬;對齊差=署名色外的第二作者線索(a11y 不只靠
+顏色)。**D. composer 呼吸+更圓**:`.panel-bar` 分隔線退場,輸入卡四周
+12px(對列表 8px)不再貼死欄底;composer/引用卡圓角升為 chat 專屬 14px
+(--r-card 全域階不動,兩主題同值,DESIGN.md 記為 chat 語彙例外)。
+
+**測試**:441(+2 淨:分頁樣式契約改寫、收合鈕行為、對齊各一條;
+AgentPanel 兩條 `toContain('AI agent')` 隨使用者自改改驗 `.ap-card`
+本體——對象換強度不減,檔內有記)。**mutant 132→134**:新
+`chat-align-user-right`(對齊抹平)、`chat-tabs-collapse-wire`(收合鈕
+onClick 斷線),各 1/1 正規驗殺;既有錨點全數未失配。
+
+**實機驗收**(:3846,CDP 兩主題各 9/9):無 .seg/兩顆 tab-link/1px
+豎線、舊 AI 頭列不在、收合→0px 展開→325px、user 卡右縫 8px+左留白
+193px、AI 正文左縫 8px、卡寬 124≤85%、圓角 14px、底部呼吸 12px+
+不在 .panel-bar;兩主題截圖過目。verify:panels 全綠(title 未變免改)。
+
+**gauntlet(source:3763e0f+本包工作樹,單次乾淨全跑,顯示輪三套
+全綠)**:**992 passed**(shared 46/server 505/ui 441);UI 覆蓋率
+91.64%;隨機順序×2 PASS;錨點 134/134;**133/133 killed+1 等價對照**;
+其餘各層全 PASS;零新增依賴。本補記於完跑後寫入,prettier/docs-check
+單獨複跑綠(如實記)。
+
+**已知事項**:impeccable hook 於 App.tsx 標記既有的
+`rgba(248,113,113,0.4)`(danger toast 邊框)為 palette 外字面值——
+非本包引入,未動,留使用者裁決;分頁文字鈕的 hover 只變文字階不帶底
+(刻意,輕分頁語彙)。

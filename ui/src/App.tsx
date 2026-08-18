@@ -334,24 +334,9 @@ export function App() {
                 flexDirection: 'column',
               }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '8px 12px 0',
-                  flex: 'none',
-                }}
-              >
-                <span className="panel-head">AI</span>
-                <button
-                  className="icon-btn panel-collapse"
-                  onClick={() => useView.getState().toggleLeft()}
-                  title="Collapse AI panel"
-                >
-                  <PanelLeftClose size={13} />
-                </button>
-              </div>
-              {/* 索引卡在上、活動流在下，兩段共用一根全高的欄（見 AgentPanel）。
+              {/* 「AI」頭列 2026-08-18 使用者定案移除(空間上收)——收合鈕搬進
+                  AgentPanel 的分頁列右端(title 不變,verify:panels 免改)。
+                  索引卡在上、活動流在下，兩段共用一根全高的欄（見 AgentPanel）。
                   `minHeight: 0` 是活動流捲得起來的前提——flex 子項預設
                   `min-height: auto` 會被內容撐開，整欄一起長高而不是內部捲動。 */}
               <div style={{ flex: 1, minHeight: 0 }}>

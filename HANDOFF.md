@@ -421,8 +421,10 @@ ui/src/panels/AgentPanel.tsx AI 專區（左欄全高，使用者 2026-08-16 版
                           ＝大使館第二件實體的琥珀終端索引卡（三態同 AgentStrip 的
                           agentPhase 推導、RING_PATH 直接 import 共用同一隻手、離線給
                           `claude mcp add …` 接回指令、session 讀數列、最近三筆署名列），
-                          下半是 **Chat ⇄ Activity 兩個分頁**（分頁列沿用右欄的 `.seg`/`.seg.on`
-                          既有模式）。**卡不再綁「未選取」**——它以前住在 Inspector 的閒置分支，
+                          下半是 **Chat ⇄ Activity 兩個分頁**（**2026-08-18 改文字型分頁**:
+                          `.tab-link` 透明底文字鈕+`.tab-divider` 樣式化豎線,取代 `.seg` 框鈕;
+                          右端=收合鈕,從已移除的「AI」頭列搬來,title 不變;右欄維持 .seg,
+                          兩欄分頁刻意不同）。**卡不再綁「未選取」**——它以前住在 Inspector 的閒置分支，
                           選了東西就看不到。**2026-08-17 晚間修訂：卡整張住進 Activity 分頁**
                           （固定在分頁內頂部、活動流在下面捲），**Chat 分頁不渲染卡、空間全給
                           對話**——取代同日早上的「恆頂+compact」定案（compact prop 已退役，
@@ -436,7 +438,10 @@ ui/src/panels/Chat.tsx    Chat 分頁：訊息列表＋底部 composer。**2026-
                           14.14 紙）。**使用者訊息是淺色圓角引用卡**（`.chat-quote`，`--panel-2`）、
                           **AI 訊息維持無框正文**——這是無泡泡定案的**局部修訂**（只有使用者側成卡，
                           理由與稽核判準記在 `ui/DESIGN.md`）；**署名列兩側都保留**（a11y ＋ 左欄
-                          一致性），AI 走 `--who-ai`、使用者走 `--who-you`。
+                          一致性），AI 走 `--who-ai`、使用者走 `--who-you`。**2026-08-18 再修**:
+                          人右/AI 左對齊（引用卡 max-width 85%,alignItems 依 author）;composer
+                          去 `.panel-bar` 分隔線、四周 12px 呼吸邊距不再貼底;composer 與引用卡
+                          圓角升為 chat 專屬 14px（全域 --r-card 不動）。
                           新訊息自動捲到底（尊重 `motionOK()`）；離線時 textarea 與送出鈕都
                           disabled 但草稿保留（草稿在 `stores/chat.ts`，見上）
 ```
