@@ -77,7 +77,7 @@ overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1
 | `origin` | `mao-data/vidcut`                     | AGPL-3.0-only | 開源線。`main`、`caption-wysiwyg` |
 | `pro`    | `mao-data/vidcut-pro`（永久 private） | 專有          | 商業線。`cloud-p0`                |
 
-**Pro 賣的是「雲端 ＋ 字幕能力」。** 商業線不只有 `cloud/`，還包含整組進階字幕能力：
+**Pro 賣的是「雲端 ＋ 字幕能力 ＋ 動態圖形」。** 商業線不只有 `cloud/`，還包含整組進階字幕與圖形能力：
 
 | 只在 Pro                                          | 開源版（`main`）現況                      |
 | ------------------------------------------------- | ----------------------------------------- |
@@ -86,6 +86,7 @@ overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1
 | typewriter 逐字揭示                               | 無                                        |
 | 字幕進退場動畫（in/out motion）                   | 無                                        |
 | 樣式 preset ×5、shadow／background／letterSpacing | 無                                        |
+| Mograph 動態圖形（7 模板：名條／章節卡／計數器／強調圈註／長條圖／圓環／倒數） | 無     |
 
 **這是產品決策，不是待辦。** 不要「順手把 Skia 補進開源版」——那一步不可逆（AGPL ＋
 公開 repo），而且直接送掉 Pro 的差異化。開源版的字幕**就是停在 Pillow 這一代**。
