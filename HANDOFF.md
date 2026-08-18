@@ -437,9 +437,11 @@ ui/src/panels/Chat.tsx    Chat 分頁：訊息列表＋底部 composer。**2026-
                           **圓形 accent 實色主鈕**沉在輸入卡右下（`.chat-send`，對比 13.05 暗／
                           14.14 紙）。**使用者訊息是淺色圓角引用卡**（`.chat-quote`，`--panel-2`）、
                           **AI 訊息維持無框正文**——這是無泡泡定案的**局部修訂**（只有使用者側成卡，
-                          理由與稽核判準記在 `ui/DESIGN.md`）；**署名列兩側都保留**（a11y ＋ 左欄
-                          一致性），AI 走 `--who-ai`、使用者走 `--who-you`。**2026-08-18 再修**:
-                          人右/AI 左對齊（引用卡 max-width 85%,alignItems 依 author）;composer
+                          理由與稽核判準記在 `ui/DESIGN.md`）。**2026-08-18 再修**:
+                          人右/AI 左對齊（引用卡 max-width 85%,alignItems 依 author）;
+                          **署名列退場**（同日定案:「不用放 you 或 AI」——對齊+單側卡已說明
+                          作者,視覺字樣移除;讀屏靠訊息列 aria-label,--who-* 只剩索引卡/
+                          活動流在用）;composer
                           去 `.panel-bar` 分隔線、四周 12px 呼吸邊距不再貼底;composer 與引用卡
                           圓角升為 chat 專屬 14px（全域 --r-card 不動）。
                           新訊息自動捲到底（尊重 `motionOK()`）；離線時 textarea 與送出鈕都

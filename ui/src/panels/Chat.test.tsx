@@ -70,15 +70,18 @@ describe('Chat panel: message list', () => {
     expect(container.textContent).toContain('done');
   });
 
-  it('attributes each message by author (Two-Hands: signatures, not bubbles)', () => {
+  it('attributes each message by aria-label, with no visible You/AI label', () => {
+    // 2026-08-18 使用者定案:「講話不用放 you 或 AI,只要對話框就好」——
+    // 視覺作者線索交給對齊(人右/AI 左)+單側引用卡;署名列與 --who-* 分色
+    // 自 Chat 退場(索引卡/活動流仍用)。讀屏不能只靠版面,作者改掛 aria-label。
     seedProject();
     act(() => useChat.getState().receive([msg('a', 'user', 'mine'), msg('b', 'ai', 'theirs')]));
     const { container } = render(<Chat />);
-    // 署名分色是用 --who-* token 表達的（暗版蠟筆白/紅蠟筆）。jsdom 讀不到 CSS，
-    // 但 inline style 的 var() 引用讀得到——驗的是「有沒有接上對的 token」。
-    const html = container.innerHTML;
-    expect(html).toContain('var(--who-ai)');
-    expect(html).toContain('var(--who-you)');
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('You');
+    expect(text).not.toMatch(/\bAI\b/);
+    const rows = Array.from(container.querySelectorAll('.panel-body > div[aria-label]'));
+    expect(rows.map((r) => r.getAttribute('aria-label'))).toEqual(['You', 'AI']);
   });
 
   it('does not render chat bubbles (design decision: signature-coloured rows)', () => {
@@ -122,14 +125,8 @@ describe('Chat panel: message list', () => {
     expect(quote.style.maxWidth).toBe('85%');
   });
 
-  it('keeps the signature row on both authors (a11y + left-column consistency)', () => {
-    seedProject();
-    act(() => useChat.getState().receive([msg('a', 'user', 'mine'), msg('b', 'ai', 'theirs')]));
-    const { container } = render(<Chat />);
-    const text = container.textContent ?? '';
-    expect(text).toContain('You');
-    expect(text).toContain('AI');
-  });
+  // (舊測試「keeps the signature row on both authors」於 2026-08-18 隨定案移除:
+  //  署名列整個退場,作者歸屬由上面那條 aria-label 測試接手——不是弱化,是規格反轉。)
 
   it('renders multi-line text verbatim (pre-wrap, so Shift+Enter newlines survive)', () => {
     seedProject();

@@ -2226,3 +2226,33 @@ onClick 斷線),各 1/1 正規驗殺;既有錨點全數未失配。
 `rgba(248,113,113,0.4)`(danger toast 邊框)為 palette 外字面值——
 非本包引入,未動,留使用者裁決;分頁文字鈕的 hover 只變文字階不帶底
 (刻意,輕分頁語彙)。
+
+## 補記:Chat 署名字樣退場(2026-08-18)
+
+使用者定案:「講話不用放 you 或 AI,只要對話框就好」——署名列自 Chat
+移除(取代前一包才立的「署名列兩側保留」,一日壽命規則如實記)。視覺
+作者線索=對齊(人右/AI 左)+單側引用卡,已足;**讀屏不能只靠版面**,
+作者改掛訊息列 `aria-label`(You/AI),語意不丟。`--who-*` 分色 token
+只剩索引卡/活動流在用,Chat 退出。主 session 自做(TDD:aria 測試先紅
+1/28 → 實作 → 28/28)。
+
+**測試**:ui 441→440(署名列測試依規格移除、aria-label 測試接手——
+規格反轉非弱化,檔內有記;「--who-* token 接線」測試改寫為「無可見
+You/AI 字樣+aria 逐列正確」)。**mutant 135 隻**(+`chat-msg-aria-author`:
+aria-label 被拔=作者變成明眼人限定;1/1 驗殺,帶突變紅/還原綠)。
+
+**實機驗收**(:3846,CDP 兩主題):訊息區零 You/AI 署名 span、5 列
+aria-label 值恰為 {You, AI};截圖過目(純對話框,右卡左文)。DESIGN.md
+署名段落改寫(含兩條稽核判準:AI 側永不得有框、訊息列永不得丟
+aria-label);HANDOFF 同步。
+
+**gauntlet(source:2eecb97+本包工作樹,單次乾淨全跑,顯示輪三套
+全綠)**:**991 passed**(shared 46/server 505/ui 440);UI 覆蓋率
+91.62%;隨機順序×2 PASS;錨點 135/135;**134/134 killed+1 等價對照**;
+其餘各層全 PASS;零新增依賴。本補記於完跑後寫入,prettier/docs-check
+單獨複跑綠(如實記)。
+
+**環境事件(如實記)**:main 於本包進行中被另一 session 推進一筆
+`2eecb97`(CLAUDE.md 補 Mograph 行,docs only,無檔案交集);該 commit
+的表格未過 prettier(乾淨 checkout 會 format:check 紅),本包順手以
+獨立 style commit 補格式(純空白 diff)。

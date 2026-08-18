@@ -1071,5 +1071,13 @@
     "replace": "          onClick={() => {}}",
     "tests": "ui/src/panels/AgentTabs.test.tsx",
     "note": "收合鈕搬進分頁列時 onClick 斷線 → 鈕在但按了沒反應;「點擊後 leftOpen=false」的行為斷言必須抓到"
+  },
+  {
+    "id": "chat-msg-aria-author",
+    "file": "ui/src/panels/Chat.tsx",
+    "find": "            aria-label={m.author === 'ai' ? 'AI' : 'You'}\n",
+    "replace": "",
+    "tests": "ui/src/panels/Chat.test.tsx",
+    "note": "訊息列的 aria-label 被拔 → 署名字樣移除後讀屏完全無從得知作者(視覺線索是版面,AT 讀不到);aria-label 斷言必須抓到"
   }
 ]

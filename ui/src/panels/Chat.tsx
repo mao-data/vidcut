@@ -98,42 +98,30 @@ export function Chat() {
         {messages.map((m) => (
           <div
             key={m.id}
+            // 署名列 2026-08-18 使用者定案移除(「講話不用放 you 或 AI,只要
+            // 對話框就好」):視覺作者線索=對齊(人右/AI 左)+單側引用卡。
+            // 讀屏不能只靠版面——作者掛在 aria-label,語意不丟。
+            aria-label={m.author === 'ai' ? 'AI' : 'You'}
             style={{
-              // 段落節奏（2026-08-17 定案 B）：訊息之間拉開成 8，一則訊息內部
-              // 署名到內文維持緊排。守 4 的倍數（DESIGN.md 的 spacing rhythm）。
+              // 段落節奏（2026-08-17 定案 B）:訊息之間拉開成 8。守 4 的倍數
+              // （DESIGN.md 的 spacing rhythm）。
               marginBottom: 8,
               lineHeight: 1.4,
-              // 人右、AI 左（2026-08-18 使用者定案,聊天介面通用慣例）:
-              // 對齊差是除署名色外的第二個作者線索(a11y:不只靠顏色分邊)。
+              // 人右、AI 左（2026-08-18 使用者定案,聊天介面通用慣例）
               display: 'flex',
               flexDirection: 'column',
               alignItems: m.author === 'user' ? 'flex-end' : 'flex-start',
             }}
           >
-            {/* 署名列**兩側都保留**（定案 B 明列）：a11y 上它是這則訊息的作者，
-                視覺上它讓 Chat 與索引卡／活動流讀起來是同一份文件。
-                引用卡本身不足以取代它——卡只說「這是引用」，沒說是誰說的。 */}
-            <span
-              style={{
-                fontSize: 10,
-                letterSpacing: '0.09em',
-                textTransform: 'uppercase',
-                color: m.author === 'ai' ? 'var(--who-ai)' : 'var(--who-you)',
-              }}
-            >
-              {m.author === 'ai' ? 'AI' : 'You'}
-            </span>
-            {/* 內文吃 --text-1（主文字階），署名才帶顏色：整段話都上色的話兩個人的
-                訊息會變成兩種顏色的牆，可讀性比署名分色差。`pre-wrap` 讓換行
-                （AI 傳來的、以及使用者 Shift+Enter 打的）照原樣呈現。
-                **使用者側多一層引用卡**（`.chat-quote`），AI 側無框——視覺定義與
+            {/* 內文吃 --text-1（主文字階）。`pre-wrap` 讓換行（AI 傳來的、以及
+                使用者 Shift+Enter 打的）照原樣呈現。
+                **使用者側是引用卡**（`.chat-quote`），AI 側無框——視覺定義與
                 理由在 theme.css 那條規則與 DESIGN.md。 */}
             <div
               className={m.author === 'user' ? 'chat-quote' : undefined}
               style={{
                 color: 'var(--text-1)',
                 whiteSpace: 'pre-wrap',
-                marginTop: m.author === 'user' ? 4 : 0,
                 // 引用卡不吃滿寬:全寬的「靠右」讀不出靠右(AI 正文維持全寬)。
                 maxWidth: m.author === 'user' ? '85%' : undefined,
               }}

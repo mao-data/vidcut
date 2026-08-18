@@ -612,16 +612,20 @@ copy_ (long, read straight through). The card is `--panel-2` with a 1px `--line`
 the chat-family 14px corners, matching the composer, so "the things I typed" read as
 one family. 2026-08-18 the two sides also took the cross-product **alignment split**:
 user rows align right (the quote card capped at 85% width — a full-width card cannot
-read as "right"), AI rows stay left and full-width. Alignment is the second author
-cue after signature colour, which is exactly what the not-colour-alone a11y guidance
-asks for. The AI column's own tabs are **text links with a hairline divider**
-(`.tab-link` / `.tab-divider`, user decision 2026-08-18) — the right column keeps its
-`.seg` segments; the divergence is deliberate: one is a work-panel segment control,
-the other is a chat product's light tab row.
-**Signature rows survive on both sides**: the card says "this is quoted", it does not
-say who said it, and `AI` / `You` remains the attribution data the left column shares
-with the index card and the activity feed. Audit test: if the AI side ever gains a
-frame, this has become a bubble layout and the amendment is broken.
+read as "right"), AI rows stay left and full-width. The AI column's own tabs are
+**text links with a hairline divider** (`.tab-link` / `.tab-divider`, user decision
+2026-08-18) — the right column keeps its `.seg` segments; the divergence is
+deliberate: one is a work-panel segment control, the other is a chat product's light
+tab row.
+**Signature rows retired from Chat** (user decision, same day, superseding the
+"survive on both sides" rule that stood for one day): with the alignment split and
+the one-sided frame, a visible `AI` / `You` label was saying what the layout already
+says. The attribution did not leave the DOM — each message row carries it as an
+`aria-label`, because assistive tech cannot read alignment. The `--who-*` signature
+colours remain the vocabulary of the index card and the activity feed; Chat simply
+no longer participates. Audit tests: if the AI side ever gains a frame, this has
+become a bubble layout; if a message row ever loses its `aria-label`, authorship has
+become sighted-only.
 
 ### Cards / Containers
 
