@@ -21,7 +21,7 @@ import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
 import { useView } from '../stores/view.js';
 import { sendCommand } from '../ws.js';
-import { pxToTime, snapTime, tickLabel, tickStepFor, timeToPx } from './scale.js';
+import { pxToTime, snapTime, tickLabel, tickPlanFor, timeToPx } from './scale.js';
 import {
   trimIn,
   trimOut,
@@ -810,9 +810,11 @@ export function Timeline() {
     return (orig?.left ?? 0) + (moveDrag.pointerX - moveDrag.startX);
   })();
 
-  // 尺規刻度密度隨縮放調整（門檻表與 m:ss 標籤格式化住在 scale.ts，Plan 9 Task 1）
-  const tickStep = tickStepFor(pps);
-  const tickCount = Math.floor(total / tickStep) + 1;
+  // 尺規刻度密度隨縮放調整：CapCut 式像素密度自適應（標籤永遠 >=80px 間距，
+  // 縮放時步距自動變粗變細；細分點視空間插在標籤之間）——計畫邏輯住在 scale.ts。
+  const { labelStepSec, dotStepSec } = tickPlanFor(pps);
+  const labelCount = Math.floor(total / labelStepSec) + 1;
+  const dotCount = dotStepSec ? Math.floor(total / dotStepSec) + 1 : 0;
 
   // 軌道之間的分隔線 2026-08-16 使用者定案移除(減線)——軌的辨識靠 gutter 圖示
   // 與 chip 本身;尺規底線(--line-strong)是結構線,保留。gutter 格的 border
@@ -956,8 +958,8 @@ export function Timeline() {
               }}
               onClick={onRulerClick}
             >
-              {Array.from({ length: tickCount }, (_, i) => {
-                const t = i * tickStep;
+              {Array.from({ length: labelCount }, (_, i) => {
+                const t = i * labelStepSec;
                 return (
                   <span
                     key={t}
@@ -974,13 +976,12 @@ export function Timeline() {
                   </span>
                 );
               })}
-              {/* 刻度豎線(2026-08-16 使用者定案:主刻度短線+每格 4 等分小刻度)。
-                  主刻度 6px/--line、小刻度 3px/--line 再吃 0.55 透明度;全部貼
-                  尺規帶底緣、不往軌道區延伸(減線後的乾淨要守住)。間距跟著
-                  tickStep 走,縮放時整組自適應。 */}
-              {Array.from({ length: tickCount * 4 }, (_, i) => {
-                const t = (i * tickStep) / 4;
-                const major = i % 4 === 0;
+              {/* 主刻度豎線(2026-08-16 使用者定案:主刻度短線)。6px/--line,貼尺規
+                  帶底緣、不往軌道區延伸(減線後的乾淨要守住)。間距跟著 labelStepSec
+                  走——CapCut 式像素密度自適應後,標籤永遠 >=80px 間距,這條線只在
+                  「有標籤」的位置畫,不再是固定 4 等分。 */}
+              {Array.from({ length: labelCount }, (_, i) => {
+                const t = i * labelStepSec;
                 return (
                   <span
                     key={`tick-${i}`}
@@ -989,14 +990,42 @@ export function Timeline() {
                       left: timeToPx(t, pps),
                       bottom: 0,
                       width: 1,
-                      height: major ? 6 : 3,
+                      height: 6,
                       background: 'var(--line)',
-                      opacity: major ? 1 : 0.55,
                       pointerEvents: 'none',
                     }}
                   />
                 );
               })}
+              {/* 細分點：CapCut 式——縮放時不加更多文字,只在標籤之間補低對比的
+                  細分點(2px 短線),密度視空間自動決定(dotStepSec 見 scale.ts)。
+                  跳過與標籤重合的位置(labelStepSec 的整數倍),避免點疊在主刻度上。 */}
+              {dotStepSec
+                ? Array.from({ length: dotCount }, (_, i) => {
+                    const t = i * dotStepSec;
+                    // dotStepSec 恆為 labelStepSec 的整除（/5 或 /2，見 tickPlanFor），
+                    // 用點數 i 對「每幾點一個標籤」取模，避免浮點誤差讓 t%labelStepSec
+                    // 在邊界抖動、誤判成不重合。
+                    const dotsPerLabel = Math.round(labelStepSec / dotStepSec);
+                    const onLabel = i % dotsPerLabel === 0;
+                    if (onLabel) return null;
+                    return (
+                      <span
+                        key={`dot-${i}`}
+                        style={{
+                          position: 'absolute',
+                          left: timeToPx(t, pps),
+                          bottom: 0,
+                          width: 1,
+                          height: 3,
+                          background: 'var(--line)',
+                          opacity: 0.55,
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    );
+                  })
+                : null}
             </div>
             {/* video 主軌。`data-tl-blank`＝這條軌道的空處也算空白（見 onBlankClick）。 */}
             <div style={rowStyle} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>

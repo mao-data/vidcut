@@ -2,8 +2,9 @@ export const DEFAULT_PX_PER_SECOND = 60;
 export const MIN_PX_PER_SECOND = 5;
 /**
  * 最小刻度=1 秒（使用者明示需求，Plan 9 範圍裁決 #2）。
- * 舊值 400 只是「原本能縮多細」，沒有語意約束；120 恰好停在 tickStepFor 的
- * 1s 檔門檻頂（pps>=40 才進 1s 檔，120 遠在門檻之上，不是巧合卡在邊界）。
+ * 舊值 400 只是「原本能縮多細」，沒有語意約束；120 恰好讓 `tickPlanFor` 在
+ * 最大縮放時解出 labelStepSec=1（120px >= MIN_LABEL_SPACING_PX=80），
+ * 不是巧合卡在邊界。
  */
 export const MAX_PX_PER_SECOND = 120;
 /** 吸附的像素容忍度（CapCut 慣例約 8px） */
@@ -94,17 +95,45 @@ export function zoomBoundsFor(
 }
 
 /**
- * 尺規刻度密度隨縮放調整（Plan 9 範圍裁決 #3：往下延伸到 300s 檔）。
- * 門檻由粗到細:pps>=40→1s、>=15→5s、>=5→10s、>=1.5→30s、>=0.5→60s、其餘→300s。
- * 舊表的 0.5s 檔（pps>=120）在新上限 MAX_PX_PER_SECOND=120 下不可達，故刪除。
+ * 標籤最小像素間距（CapCut 式：任何縮放下標籤密度視覺恆定，不像舊制那樣在
+ * 40px～120px 之間隨 pps 位置擺動）。門檻式尺規（`tickStepFor`）已退休，
+ * 換成從「候選 nice step」裡挑最小滿足門檻的那個。
  */
-export function tickStepFor(pps: number): number {
-  if (pps >= 40) return 1;
-  if (pps >= 15) return 5;
-  if (pps >= 5) return 10;
-  if (pps >= 1.5) return 30;
-  if (pps >= 0.5) return 60;
-  return 300;
+export const MIN_LABEL_SPACING_PX = 80;
+/** 細分點的最小像素間距，低於這個門檻寧可不畫點，也不要點密到糊成一片。 */
+export const MIN_DOT_SPACING_PX = 10;
+
+/** 候選刻度秒數：由細到粗，涵蓋 1 秒（使用者明示的最細需求）到 1 小時。 */
+const NICE_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+
+export interface TickPlan {
+  labelStepSec: number;
+  dotStepSec?: number;
+}
+
+/**
+ * 尺規刻度計畫（CapCut 式像素密度自適應，取代門檻式 `tickStepFor`）。
+ * 標籤永遠挑「像素間距 >= MIN_LABEL_SPACING_PX」的最小 nice step——縮小時
+ * 步距自動變粗，但視覺密度（標籤間距）在任何 pps 下都收斂在同一個下限附近，
+ * 不會像舊制那樣在門檻邊界兩側從 ~40px 跳到 ~120px。
+ * 標籤之間再視空間插入細分點（無文字，純刻度）：優先 /5 等分，太窄就退而
+ * 求其次 /2，兩者都不滿足像素門檻就不畫點（寧缺勿密）。
+ */
+export function tickPlanFor(pps: number): TickPlan {
+  const labelStepSec =
+    NICE_STEPS.find((step) => step * pps >= MIN_LABEL_SPACING_PX) ??
+    NICE_STEPS[NICE_STEPS.length - 1]!;
+
+  const fifth = labelStepSec / 5;
+  const half = labelStepSec / 2;
+  let dotStepSec: number | undefined;
+  if (fifth * pps >= MIN_DOT_SPACING_PX) {
+    dotStepSec = fifth;
+  } else if (half * pps >= MIN_DOT_SPACING_PX) {
+    dotStepSec = half;
+  }
+
+  return dotStepSec === undefined ? { labelStepSec } : { labelStepSec, dotStepSec };
 }
 
 /**

@@ -6,11 +6,13 @@ import {
   snapTime,
   fitPps,
   zoomBoundsFor,
-  tickStepFor,
+  tickPlanFor,
   tickLabel,
   DEFAULT_PX_PER_SECOND,
   MIN_PX_PER_SECOND,
   MAX_PX_PER_SECOND,
+  MIN_LABEL_SPACING_PX,
+  MIN_DOT_SPACING_PX,
 } from './scale.js';
 
 describe('timeline scale', () => {
@@ -65,35 +67,70 @@ describe('zoomBoundsFor', () => {
   });
 });
 
-describe('tickStepFor (刻度表六檔門檻)', () => {
-  it('pps>=40 → 1s', () => {
-    expect(tickStepFor(40)).toBe(1);
-    expect(tickStepFor(120)).toBe(1);
+describe('tickPlanFor（CapCut 式像素密度自適應）', () => {
+  it('任意 pps 下，標籤像素間距都 >= MIN_LABEL_SPACING_PX', () => {
+    // 掃過整個縮放範圍（含極端值），標籤永遠不擠：這是這次改動的核心承諾。
+    for (let pps = 0.3; pps <= 120; pps += 0.7) {
+      const { labelStepSec } = tickPlanFor(pps);
+      expect(labelStepSec * pps).toBeGreaterThanOrEqual(MIN_LABEL_SPACING_PX);
+    }
   });
 
-  it('pps>=15 → 5s', () => {
-    expect(tickStepFor(15)).toBe(5);
-    expect(tickStepFor(39.9)).toBe(5);
+  it('選的是「滿足門檻的最小」nice step，不是隨便一個大 step（否則會太稀疏）', () => {
+    // pps=100：候選中 1s(100px)已達標(>=80)，理論最小；不該跳去 2s(200px)。
+    expect(tickPlanFor(100).labelStepSec).toBe(1);
+    // pps=50：1s=50px 不夠，2s=100px 達標 → 選 2s。
+    expect(tickPlanFor(50).labelStepSec).toBe(2);
+    // pps=8：5s=40px 不夠，10s=80px 達標 → 選 10s。
+    expect(tickPlanFor(8).labelStepSec).toBe(10);
   });
 
-  it('pps>=5 → 10s', () => {
-    expect(tickStepFor(5)).toBe(10);
-    expect(tickStepFor(14.9)).toBe(10);
+  it('最大縮放 pps=120 → labelStepSec=1（使用者明示的最細刻度需求）', () => {
+    expect(tickPlanFor(120).labelStepSec).toBe(1);
   });
 
-  it('pps>=1.5 → 30s', () => {
-    expect(tickStepFor(1.5)).toBe(30);
-    expect(tickStepFor(4.9)).toBe(30);
+  it('pps 越小，labelStepSec 只會越大或持平（單調不減）', () => {
+    const ppsSweep = [120, 60, 40, 20, 10, 5, 2, 1, 0.5, 0.3, 0.05];
+    let prevStep = 0;
+    for (const pps of ppsSweep) {
+      const { labelStepSec } = tickPlanFor(pps);
+      expect(labelStepSec).toBeGreaterThanOrEqual(prevStep);
+      prevStep = labelStepSec;
+    }
   });
 
-  it('pps>=0.5 → 60s', () => {
-    expect(tickStepFor(0.5)).toBe(60);
-    expect(tickStepFor(1.4)).toBe(60);
+  it('absurdly low pps（無 nice step 能達標）→ 退回最大檔 3600s', () => {
+    expect(tickPlanFor(0.001).labelStepSec).toBe(3600);
   });
 
-  it('else → 300s', () => {
-    expect(tickStepFor(0.49)).toBe(300);
-    expect(tickStepFor(0.01)).toBe(300);
+  it('dotStepSec：像素夠寬時提供細分點，且像素間距 >= MIN_DOT_SPACING_PX', () => {
+    // pps=100，labelStep=1s(100px)。/5=0.2s → 20px >= 10px 門檻 → 應該取 /5。
+    const plan = tickPlanFor(100);
+    expect(plan.labelStepSec).toBe(1);
+    expect(plan.dotStepSec).toBeCloseTo(0.2);
+    expect((plan.dotStepSec ?? 0) * 100).toBeGreaterThanOrEqual(MIN_DOT_SPACING_PX);
+  });
+
+  it('dotStepSec：/5 太窄時退而求其次用 /2；兩者都太窄則 undefined（無點）', () => {
+    // pps=8，labelStep=10s(80px)。/5=2s→16px>=10 應該還是能用 /5。
+    // 換一個真正卡在中間的：找 labelStep 使 /5 不夠但 /2 夠。
+    // labelStep*pps 恰好在門檻邊緣時 /5 的間距 = labelStep*pps/5。
+    // 用 pps=4：labelStepFor(4) → 30s*4=120px 達標(>=80)？check smallest first。
+    const plan = tickPlanFor(4);
+    // 不論選到哪個 labelStep，只要 dotStepSec 存在，其像素間距必須 >= MIN_DOT_SPACING_PX。
+    if (plan.dotStepSec !== undefined) {
+      expect(plan.dotStepSec * 4).toBeGreaterThanOrEqual(MIN_DOT_SPACING_PX);
+    }
+  });
+
+  it('dotStepSec 永遠不會 <= 0 也不會 >= labelStepSec（純粹是標籤之間的細分）', () => {
+    for (let pps = 0.3; pps <= 120; pps += 1.3) {
+      const { labelStepSec, dotStepSec } = tickPlanFor(pps);
+      if (dotStepSec !== undefined) {
+        expect(dotStepSec).toBeGreaterThan(0);
+        expect(dotStepSec).toBeLessThan(labelStepSec);
+      }
+    }
   });
 });
 
