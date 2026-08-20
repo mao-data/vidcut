@@ -49,8 +49,15 @@ export function snapTime(
   return best;
 }
 
+/** `zoomBoundsFor`/`fitPps` 共用的尺規留白（左右各扣一點，避免整條頂到容器邊緣）。 */
+export const FIT_PADDING_PX = 40;
+
 /** 讓整條時間軸剛好塞進容器寬度（Shift+Z）。 */
-export function fitPps(totalSeconds: number, containerWidth: number, padding = 40): number {
+export function fitPps(
+  totalSeconds: number,
+  containerWidth: number,
+  padding = FIT_PADDING_PX,
+): number {
   if (totalSeconds <= 0) return DEFAULT_PX_PER_SECOND;
   return clampPps((containerWidth - padding) / totalSeconds);
 }
@@ -72,7 +79,7 @@ export function fitPps(totalSeconds: number, containerWidth: number, padding = 4
 export function zoomBoundsFor(
   totalSeconds: number,
   viewportWidth: number,
-  padding = 40,
+  padding = FIT_PADDING_PX,
 ): ZoomBounds {
   const max = MAX_PX_PER_SECOND;
   if (totalSeconds <= 0) return { min: MIN_PX_PER_SECOND, max };
@@ -81,10 +88,9 @@ export function zoomBoundsFor(
   const rawFit = usableWidth / totalSeconds;
   if (!Number.isFinite(rawFit) || rawFit <= 0) return { min: MIN_PX_PER_SECOND, max };
 
-  const min = Math.min(rawFit, MIN_PX_PER_SECOND);
-  // 防呆:min 理論上不可能超過 max(rawFit 再大也被 Math.min(_, 5) 蓋住、
-  // 5 < 120),但視窗極端值時保底不讓 min > max。
-  return { min: Math.min(min, max), max };
+  // rawFit 再大也被 Math.min(_, 5) 蓋住、5 < MAX_PX_PER_SECOND(120),
+  // min 不可能超過 max,不需要再夾一次。
+  return { min: Math.min(rawFit, MIN_PX_PER_SECOND), max };
 }
 
 /**

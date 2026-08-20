@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import {
   clampPps,
   DEFAULT_PX_PER_SECOND,
-  fitPps,
+  FIT_PADDING_PX,
   MAX_PX_PER_SECOND,
   MIN_PX_PER_SECOND,
   zoomBoundsFor,
@@ -120,9 +120,15 @@ export const useView = create<ViewState>((set, get) => ({
   openRight: () => {
     if (!get().rightOpen) set({ rightOpen: true });
   },
-  fit: (totalSeconds, containerWidth) =>
-    set({
-      zoomBounds: zoomBoundsFor(totalSeconds, containerWidth),
-      pxPerSecond: fitPps(totalSeconds, containerWidth),
-    }),
+  fit: (totalSeconds, containerWidth) => {
+    // ⚠️ 不能借用 fitPps()——它內部的 clampPps 吃的是靜態 DEFAULT_BOUNDS
+    // （下限 5），長專案的 rawFit 會被拉回 5，跟這裡剛算出的動態 zoomBounds
+    // 互相矛盾（review round 1 抓到：長專案 fit 後 pxPerSecond 停在 5，
+    // 不是 zoomBoundsFor 算出的 ≈0.69，整個「剛好入鏡」的目標落空）。
+    // 用同一份 bounds 夾同一個 raw fit 值，兩者才會一致。
+    const bounds = zoomBoundsFor(totalSeconds, containerWidth);
+    const rawFit =
+      totalSeconds <= 0 ? DEFAULT_PX_PER_SECOND : (containerWidth - FIT_PADDING_PX) / totalSeconds;
+    set({ zoomBounds: bounds, pxPerSecond: clampPps(rawFit, bounds) });
+  },
 }));

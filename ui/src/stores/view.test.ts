@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useView } from './view.js';
+import { zoomBoundsFor } from '../timeline/scale.js';
 
 /**
  * 涵蓋兩個冪等展開：
@@ -75,5 +76,30 @@ describe('useView.openLeft（冪等展開）', () => {
     useView.getState().openLeft();
     expect(notified).toBe(0);
     un();
+  });
+});
+
+/**
+ * Review round 1 抓到的迴歸：`fit()` 曾經只更新 `zoomBounds` 卻用
+ * `fitPps()`（內部走靜態 DEFAULT_BOUNDS，下限 5）算 `pxPerSecond`，
+ * 長專案「整片剛好入鏡」的目標被吃掉——算出 min≈0.69 卻落地在 5。
+ * `fit()` 現在必須用它剛算好的**同一份動態 bounds**去夾同一個 raw fit 值。
+ */
+describe('useView.fit（長專案要真正整片入鏡，不被靜態下限攔住）', () => {
+  it('長專案(1687s @ 1200px)：fit 後 pxPerSecond 落在 zoomBoundsFor().min（遠低於舊 MIN=5）', () => {
+    const { min } = zoomBoundsFor(1687, 1200);
+    expect(min).toBeLessThan(5); // 前提：這個案例本來就該低於舊靜態下限
+    useView.getState().fit(1687, 1200);
+    expect(useView.getState().pxPerSecond).toBeCloseTo(min, 5);
+    expect(useView.getState().zoomBounds.min).toBeCloseTo(min, 5);
+    // 整個專案真的塞進視窗（扣掉左右留白）
+    const totalPx = 1687 * useView.getState().pxPerSecond;
+    expect(totalPx).toBeLessThanOrEqual(1200);
+  });
+
+  it('短專案(10s @ 640px)：fit 後下限仍是 5，pxPerSecond 用整片入鏡值(60)', () => {
+    useView.getState().fit(10, 640);
+    expect(useView.getState().zoomBounds.min).toBe(5);
+    expect(useView.getState().pxPerSecond).toBe(60); // (640-40)/10
   });
 });
