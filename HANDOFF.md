@@ -324,6 +324,13 @@ shared/src/timeline.ts    純時間軸計算（locate/overlayWindow…）
 shared/src/captions.ts    逐字稿→字幕分頁、逐詞高亮索引、ASR 時間戳修正、karaokeClip（兩卡 clip-path）、tokenSeparator（斷詞規則）（純函數）★
 shared/src/snap.ts        snapBBox：畫布拖曳吸附純函數（水平置中/垂直置中/上下 5% 安全邊距，16px 半徑，只認 bbox 不認錨點）
 shared/src/subtitles.ts   serializeSrt / serializeVtt：字幕檔序列化純函數（時間基準＝成品時間軸，零換算）
+shared/src/filmstrip.ts   filmstripPlan：filmstrip sprite 取樣計畫純函數（server ingest 組 ffmpeg 參數／UI
+                          ClipBlock 換算 background-position 共用同一份算式）——短片逐秒一格，長片單列寬度
+                          撞上 JPEG 編碼器 65500px 上限時把格數夾在上限內、改用 <1 的 fps 均勻降頻取樣
+shared/src/proxyPlan.ts   proxyPlan：ingest A2（proxy）判準純函數，只吃 probe 靜態欄位；三種結果
+                          `skip`（來源已是 web-compatible H.264 短 GOP，不產 proxy）／`remux`（影像合格、
+                          只換容器，`-c copy` 不重編碼）／`transcode`（其餘情況，含任何判準欄位缺席或
+                          量不出來——保守原則）
 shared/src/index.ts       shared 的對外出口（server/ui 都從 @vidcut/shared 匯入）
 server/src/store.ts       ProjectStore：唯一真相來源、immer patch、history、undo/redo（真的有 #redoStack）、原子存檔
 server/src/chatStore.ts   ChatStore：每專案一份 chat.json（與 project.json 同目錄）的人⇄AI 聊天記錄。
@@ -341,8 +348,17 @@ server/src/mcp.ts         MCP 工具註冊 + /mcp 掛載（工具清單以本檔
                           發 agentActivity——**只攔執行，工具面逐位元組不變**（snapshot 守著）★
 server/src/paths.ts       resolveMediaPath：素材路徑語意（相對＝專案內／絕對＝零複製外部引用）★
 server/src/sourceFolder.ts scanSourceFolder：素材夾掃描（白名單副檔名、排除隱藏檔、不遞迴）
-server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）；ingestMedia 接受絕對路徑；
-                          純音訊素材跳過 proxy/filmstrip 只產 peaks（無 proxyPath/filmstripPath）
+server/src/ingest.ts      三階段 ingest（Plan 8，2026-08-20）：**A0**（`prepareMedia`+`registerMedia`，
+                          probe＋登記，同步秒級）→**A1**（filmstrip+peaks，一次 `updateMediaDerived`
+                          原子落盤）→**A2**（proxy，判準來自 `proxyPlan`：`skip` 來源已是瀏覽器可播
+                          的 H.264＝`proxyPath` 永遠不會出現、`remux` 只換容器不重編碼、`transcode`
+                          走現行完整參數）。A1/A2 由 `enqueueDerivedStages` 丟進模組級序列背景佇列，
+                          `ingestMedia`（人的路徑與 MCP `import_media` 共用）**回傳時只有 A0** 完成，
+                          衍生檔陸續在背景升級；單一素材背景失敗只 console.error＋該素材留在 A0 狀態
+                          （不拋、不重試、不拖累其他素材）。需要三階段全部完成才回傳的呼叫端（demo
+                          建置、期待衍生檔齊全的測試）改用 `ingestMediaFully`（同步 await 到底，
+                          失敗會 throw）。ingestMedia 接受絕對路徑；純音訊素材沒有視訊流，A2 整段
+                          跳過、A1 只產 peaks（無 proxyPath/filmstripPath）
 server/src/render.ts      project.json → ffmpeg filter_complex 成品 + blur/定格/音訊混音/匯出選項/封面 ★
 server/src/asr.ts         whisper.cpp 介接：時間軸混音→wav→逐詞時間戳（含 DTW 取用）★
 server/scripts/text_card.py  文字 → 透明 PNG 字卡（Pillow，含逐詞著色與貪婪換行；`--worker` 常駐模式一次回 base+全高亮兩張卡＋逐詞 bbox；「7ms/張 vs 逐次 spawn 50–70ms」是 text_card.py:26 記的實測、未重驗）

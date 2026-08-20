@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { AudioChip } from './AudioChip.js';
 import * as waveform from './waveform.js';
+import { __resetPeaksCacheForTests } from './usePeaks.js';
 import { demoProject, resetStores } from '../test/fixtures.js';
 
 /**
@@ -26,6 +27,7 @@ async function settle(): Promise<void> {
 
 beforeEach(() => {
   resetStores();
+  __resetPeaksCacheForTests();
 });
 
 afterEach(() => {
