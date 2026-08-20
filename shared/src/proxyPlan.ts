@@ -50,6 +50,7 @@ export function proxyPlan(p: ProxyPlanInput): ProxyMode {
     p.keyframeIntervalSec <= MAX_KEYFRAME_INTERVAL_SEC;
 
   if (!videoOk) return 'transcode';
-  if (p.container !== undefined && MP4_CONTAINERS.has(p.container)) return 'skip';
+  if (p.container === undefined) return 'transcode';
+  if (MP4_CONTAINERS.has(p.container)) return 'skip';
   return 'remux';
 }

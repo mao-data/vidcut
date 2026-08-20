@@ -67,4 +67,8 @@ describe('proxyPlan', () => {
       }),
     ).toBe('transcode');
   });
+
+  it('僅 container 缺席、其餘全綠 → transcode（保守；不可誤判成 remux）', () => {
+    expect(proxyPlan({ ...baseline, container: undefined })).toBe('transcode');
+  });
 });
