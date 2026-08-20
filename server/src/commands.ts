@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid';
+import { isAbsolute } from 'node:path';
 import type {
   AudioItem,
   Command,
@@ -69,6 +70,26 @@ function optNum(label: string, v: unknown): FieldIssue {
 /** 回第一個有問題的欄位（全部合格回 null）。 */
 function firstIssue(...issues: FieldIssue[]): FieldIssue {
   return issues.find((e) => e !== null) ?? null;
+}
+
+/**
+ * derived 檔路徑（proxyPath/filmstripPath/peaksPath）的形狀檢查：必須是**專案內相對路徑**。
+ * 這些檔案永遠是伺服器自己轉檔產出、寫在專案資料夾底下（見 ingest.ts 的
+ * `join(derivedRel, 'proxy.mp4')` 等），不是使用者指定的外部引用——與
+ * `MediaAsset.path` 允許絕對路徑（零複製匯入外部原始檔，見 paths.ts 的
+ * `resolveMediaPath`）是不同語意，不要沿用那邊「絕對路徑合法」的規則。
+ * 擋 `..` 是為了不讓 derived 路徑逃出專案資料夾（路徑穿越）。
+ */
+function derivedPathIssue(label: string, v: string | undefined): FieldIssue {
+  if (v === undefined) return null;
+  if (typeof v !== 'string' || v.length === 0) {
+    return `${label} must be a non-empty string (got ${shown(v)})`;
+  }
+  if (isAbsolute(v)) return `${label} must be project-relative, not absolute (got ${v})`;
+  if (v.split(/[/\\]/).includes('..')) {
+    return `${label} must not contain ".." (path traversal): ${v}`;
+  }
+  return null;
 }
 
 /**
@@ -441,6 +462,42 @@ export function applyCommand(
       return ok(
         store.mutate(source, `import ${a.path}`, (d) => {
           d.media.push(a);
+        }),
+      );
+    }
+    // ⚠️ 內部命令,刻意不進 MCP 工具面(鐵則三的顯式豁免)：這個命令是背景 ingest
+    // pipeline（Plan 8 的 A1 filmstrip/peaks、A2 proxy 階段）寫回 derived 檔路徑的
+    // 唯一管道,呼叫端固定是 server 內部的 ingest 流程(Task 3,`applyCommand('human', ...)`),
+    // 不是人或 AI 在編輯時會下的指令——AI 沒有正當理由去指定「這支素材的 proxy 檔
+    // 存在這裡」，那個路徑是伺服器跑完轉檔才知道的產物，不是使用者意圖。與
+    // registerMedia 不同的是 registerMedia 有 import_media 這個聚合工具間接觸達
+    // （見 mcp-docs-sync.test.ts 的 MCP_EXEMPT_COMMANDS），這個命令連間接路徑都沒有
+    // ——background 階段完成後直接呼叫 applyCommand，不經過任何 MCP 工具。
+    // 不要「補上」對應的 registerTool：這不是漏做第三步，是刻意在第二步停下。
+    case 'updateMediaDerived': {
+      const media = store.doc.media.find((m) => m.id === cmd.mediaId);
+      if (!media) return { ok: false, error: `media not found: ${cmd.mediaId}` };
+      const p = cmd.patch;
+      const pathErr =
+        derivedPathIssue('proxyPath', p.proxyPath) ??
+        derivedPathIssue('filmstripPath', p.filmstripPath) ??
+        derivedPathIssue('peaksPath', p.peaksPath);
+      if (pathErr) return { ok: false, error: pathErr };
+      if (p.filmstripTiles !== undefined) {
+        if (!Number.isInteger(p.filmstripTiles) || p.filmstripTiles <= 0) {
+          return {
+            ok: false,
+            error: `filmstripTiles must be a positive integer (got ${shown(p.filmstripTiles)})`,
+          };
+        }
+      }
+      return ok(
+        store.mutate(source, `update media derived: ${cmd.mediaId}`, (d) => {
+          const m = d.media.find((x) => x.id === cmd.mediaId)!;
+          if (p.proxyPath !== undefined) m.proxyPath = p.proxyPath;
+          if (p.filmstripPath !== undefined) m.filmstripPath = p.filmstripPath;
+          if (p.filmstripTiles !== undefined) m.filmstripTiles = p.filmstripTiles;
+          if (p.peaksPath !== undefined) m.peaksPath = p.peaksPath;
         }),
       );
     }

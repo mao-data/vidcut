@@ -330,6 +330,21 @@ export type Command =
    * patch path 是 `media` 不是 `tracks`／`canvas`，所以不進 undo 堆疊（見 store 的 isUndoable）。
    */
   | { name: 'registerMedia'; asset: MediaAsset }
+  /**
+   * 寫入背景 ingest 階段（A1 filmstrip/peaks、A2 proxy）算出來的 derived 檔欄位。
+   * 與 registerMedia 同一種「內部命令」：async 重活留在 ingest pipeline（Plan 8），
+   * 這裡只做同步的登記。**不進 MCP 工具面**——理由見 commands.ts 該 case 的註解。
+   *
+   * 逐欄可選（Partial）：background 分階段完成，一次只帶算好的那幾個欄位，
+   * 沒帶到的欄位維持原值（不是清成 undefined）。
+   */
+  | {
+      name: 'updateMediaDerived';
+      mediaId: string;
+      patch: Partial<
+        Pick<MediaAsset, 'proxyPath' | 'filmstripPath' | 'filmstripTiles' | 'peaksPath'>
+      >;
+    }
   /** 設定封面圖。抽幀的 async 前置留在 `render.ts` 的 `renderCoverImage`；理由同 registerMedia。 */
   | { name: 'setCover'; path: string }
   | { name: 'undo'; steps?: number }
