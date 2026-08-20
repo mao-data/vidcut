@@ -3,6 +3,7 @@ import { createEmptyProject, totalDuration, type Command, type Project } from '@
 import { useProject } from '../stores/project.js';
 import { useSelection } from '../stores/selection.js';
 import { usePlayback } from '../stores/playback.js';
+import { MAX_PX_PER_SECOND, MIN_PX_PER_SECOND } from '../timeline/scale.js';
 import { useView } from '../stores/view.js';
 import { useActivity } from '../stores/activity.js';
 import { __resetCaptionGeoCacheForTests } from '../player/CaptionLayer.js';
@@ -109,6 +110,12 @@ export function resetStores(): void {
     leftOpen: true,
     rightOpen: true,
     userZoomed: false,
+    // Plan 9 新增欄位：不重置會讓某個測試 fit()/setZoomBounds()/resize 觸發算出的
+    // 動態 clamp bounds 洩漏給同檔案後面呼叫 zoomBy/setPxPerSecond/fit 的測試——
+    // 這些都讀 get().zoomBounds 去 clampPps，殘留的窄 bounds 會讓後面的斷言算錯
+    // （review round 1 抓到：與 store 初始值 `{min: MIN_PX_PER_SECOND, max:
+    // MAX_PX_PER_SECOND}` 保持一致，見 view.ts create() 的預設值）。
+    zoomBounds: { min: MIN_PX_PER_SECOND, max: MAX_PX_PER_SECOND },
   });
   // activity 是模組級狀態，Inspector 的 AI 區塊與 Activity 面板都讀它。
   // ⚠️ 這行目前「不可達」：實務上每個測試都會走 seedProject()，而

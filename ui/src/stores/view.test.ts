@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useView } from './view.js';
-import { zoomBoundsFor } from '../timeline/scale.js';
+import { MAX_PX_PER_SECOND, MIN_PX_PER_SECOND, zoomBoundsFor } from '../timeline/scale.js';
 
 /**
  * 涵蓋兩個冪等展開：
@@ -12,7 +12,17 @@ import { zoomBoundsFor } from '../timeline/scale.js';
  */
 
 beforeEach(() => {
-  useView.setState({ leftOpen: true, rightOpen: true });
+  // 這個檔案不走 test/fixtures.ts 的 resetStores()（不需要 seedProject 那一整套），
+  // 但這裡的 `fit()` describe 區塊會真的把 zoomBounds 改成非預設值（例如
+  // min≈0.69）——module 級 store 沒有測試框架自動歸零，不重置就會洩漏給後面
+  // 的 `userZoomed` 區塊：`zoomBy`/`setPxPerSecond` 都吃 get().zoomBounds 做
+  // clampPps，殘留的窄 bounds 會讓那邊的斷言在不知情的 clamp 規則下通過或失敗
+  // （review round 1 抓到，見 test/fixtures.ts 的 resetStores 同款修正）。
+  useView.setState({
+    leftOpen: true,
+    rightOpen: true,
+    zoomBounds: { min: MIN_PX_PER_SECOND, max: MAX_PX_PER_SECOND },
+  });
 });
 
 describe('useView.openRight（冪等展開）', () => {

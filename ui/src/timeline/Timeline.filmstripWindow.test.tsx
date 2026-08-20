@@ -23,6 +23,15 @@ import { demoProject, seedProject, resetStores } from '../test/fixtures.js';
  * 真實渲染邏輯（`importOriginal` 拿真的元件），只加一個呼叫計數器。
  */
 
+// 這個檔案的四個案例都掛整棵 Timeline 真元件樹、渲染到 69–97 個真 filmstrip-tile
+// div（見下方 seedLongClip + 各案例的手算窗界），不是隔離的純函數測試。單獨跑
+// 每案例 <1s，但 vitest 預設檔案級平行時，這個檔案常與其他重量元件測試檔
+// （App.test.tsx、Timeline.test.tsx 等）同時佔用 CPU，實測在 shuffle seed=1/2
+// 下第一個案例卡到 5895ms，撞穿預設 5000ms 逾時（其餘三案例也逼近 4000–4500ms，
+// 同一個成因）——是 CPU 排隊時間，不是掛住或邏輯錯誤（獨立跑穩定 <1s／案例）。
+// 只放寬這個檔案的逾時，不動全域設定，避免真正掛住的測試被這個數字蓋掉。
+vi.setConfig({ testTimeout: 15000 });
+
 let clipBlockRenderCount = 0;
 
 vi.mock('./ClipBlock.js', async (importOriginal) => {
