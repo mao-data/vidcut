@@ -8,7 +8,6 @@ import {
   trimSpanIn,
   trimSpanOut,
   trimAudioIn,
-  filmstripBgOffset,
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 
@@ -165,30 +164,8 @@ describe('trimAudioIn (音訊左緣：start/in/duration 連動，右緣不動)',
   });
 });
 
-describe('filmstripBgOffset（filmstrip 背景位移，見 2026-08-20 長片超出 JPEG 上限的修法）', () => {
-  it('無 secPerTile（舊資產）：每秒一格，行為與修法之前逐位元組一致', () => {
-    expect(filmstripBgOffset(10, 45)).toBe(-450); // -(10 * 45)
-  });
-
-  it('secPerTile=1（顯式帶入）：與省略時等價', () => {
-    expect(filmstripBgOffset(10, 45, 1)).toBe(filmstripBgOffset(10, 45));
-  });
-
-  it('長片降頻取樣（secPerTile>1）：位移依實際格數換算，不是每秒一格', () => {
-    // 例：1685s 影片被夾到 457 格 → secPerTile = 1685/457 ≈ 3.687
-    const secPerTile = 1685 / 457;
-    const inSec = 100;
-    expect(filmstripBgOffset(inSec, 142, secPerTile)).toBeCloseTo(-((inSec / secPerTile) * 142), 6);
-    // 且必然比「誤用每秒一格」算出的位移小（格數少，位移該小）
-    expect(Math.abs(filmstripBgOffset(inSec, 142, secPerTile))).toBeLessThan(
-      Math.abs(filmstripBgOffset(inSec, 142, 1)),
-    );
-  });
-
-  it('in=0 恆為 0，與 secPerTile 無關', () => {
-    // 沿用既有算式 -(x) 在 x=0 時的浮點行為（-0），用 toBeCloseTo 而非 toBe(0)
-    // 避免對這個與此次修法無關的細節做過嚴的斷言（-0 === 0 語意上是同一個值）
-    expect(filmstripBgOffset(0, 45)).toBeCloseTo(0);
-    expect(filmstripBgOffset(0, 45, 3.687)).toBeCloseTo(0);
-  });
-});
+// filmstripBgOffset（單一 background-image 紋理位移）已隨 Plan 9 Task 3 退役——
+// ClipBlock 改成時間對齊的逐格 div 渲染（見 filmstripTiles.ts 與其測試）。
+// 這裡不是「測試被刪」，是「被測數學本身不存在了」：新模型的等價覆蓋在
+// filmstripTiles.test.ts（secPerTileFor 的舊資產回退、zoom-in/out 取樣、
+// windowing、sprite 邊緣 clamp）。

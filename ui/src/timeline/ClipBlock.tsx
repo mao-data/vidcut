@@ -2,7 +2,7 @@ import { memo, type PointerEvent } from 'react';
 import { Snowflake } from 'lucide-react';
 import type { Project, VideoClip } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
-import { filmstripBgOffset } from './dragMath.js';
+import { filmstripTilesFor, secPerTileFor, type VisibleRange } from './filmstripTiles.js';
 
 /** 主軌列高(filmstrip 滿版)。2026-08-16 使用者多輪定案收斂:
  * 主軌=其他軌的 2 倍,同日兩輪放寬 60→64→70(=2×35)。之後想再調,改這
@@ -24,6 +24,7 @@ export const ClipBlock = memo(function ClipBlock({
   onSelect,
   fx = '',
   fxDelay,
+  visibleRange,
 }: {
   p: Project;
   clip: VideoClip;
@@ -41,6 +42,9 @@ export const ClipBlock = memo(function ClipBlock({
   /** AI 動畫層附加 class（' fx-enter' / ' fx-glow-a|b'）與骨牌進場延遲 */
   fx?: string;
   fxDelay?: number;
+  /** 目前捲動視窗覆蓋的內容座標區間（含 buffer，Timeline 傳下來、已量化）。
+   * 缺省＝不裁窗（渲染全部格）——測試與極簡呼叫端不必每次都造一個視窗。 */
+  visibleRange?: VisibleRange;
 }) {
   const media = p.media.find((m) => m.id === clip.mediaId);
   const w = timeToPx(clip.duration, pps);
@@ -51,13 +55,27 @@ export const ClipBlock = memo(function ClipBlock({
   // (音量狀態仍在 Inspector);frozen 的平線指示移除(Snowflake 圖示仍在)。
   const filmstrip = media?.filmstripPath ? `/media/${media.filmstripPath}` : undefined;
   const frameW = media ? ((ROW_H - 4) * media.probe.width) / media.probe.height : 45;
-  // 每格代表幾秒：filmstripTiles 缺席 = 舊資產（本欄位加入之前 ingest 的）= 每秒一格，
-  // filmstripBgOffset 內建回退成 1。有值時（長片會被 filmstripPlan 降頻取樣、格數
+  // 每格代表幾秒：filmstripTiles 缺席 = 舊資產（本欄位加入之前 ingest 的）= 每秒一格
+  // （secPerTileFor 內建回退）。有值時（長片會被 filmstripPlan 降頻取樣、格數
   // < duration）要用實際格數換算，否則長片的 filmstrip 會對不上 clip.in
   // （見 shared/src/filmstrip.ts 的 bug 說明）。
-  const secPerTile =
-    media && media.filmstripTiles ? media.probe.duration / media.filmstripTiles : undefined;
-  const bgOffset = filmstripBgOffset(clip.in, frameW, secPerTile);
+  const secPerTile = media ? secPerTileFor(media.probe.duration, media.filmstripTiles) : 1;
+  // Plan 9 範圍裁決 #5：時間對齊逐格渲染（取代舊的單一 background-image 紋理）+
+  // #6 windowing（visibleRange 缺省＝不裁窗）。frozen 或無 filmstrip 維持底色
+  // （現行為，見下方 JSX），不生成任何 tile。
+  const tiles =
+    filmstrip && !clip.frozen && media
+      ? filmstripTilesFor(
+          clip.in,
+          clip.duration,
+          pps,
+          frameW,
+          secPerTile,
+          media.filmstripTiles ?? Math.ceil(media.probe.duration),
+          leftPx,
+          visibleRange,
+        )
+      : [];
   return (
     <div
       className={'clipblk' + fx}
@@ -100,18 +118,39 @@ export const ClipBlock = memo(function ClipBlock({
           : null),
       }}
     >
-      {/* filmstrip 縮圖滿版(波形帶已依使用者定案移除,見上方註解) */}
+      {/* filmstrip 縮圖滿版(波形帶已依使用者定案移除,見上方註解)。
+          Plan 9 範圍裁決 #5：時間對齊逐格 div，取代單一 background-image 紋理——
+          每格固定寬 frameW，各自用 backgroundPosition 裁出 sprite 的第 tileIndex 張。
+          底色（frozen／無 filmstrip）鋪在容器層，逐格 div 疊在上面（tiles 為空陣列
+          時容器底色照樣顯示，行為與舊版一致）。 */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
-          backgroundImage: clip.frozen || !filmstrip ? undefined : `url(${filmstrip})`,
-          backgroundPosition: `${bgOffset}px 0`,
-          backgroundSize: 'auto 100%',
-          backgroundRepeat: 'repeat-x',
           backgroundColor: clip.frozen ? 'var(--clip-frozen-bg)' : undefined,
+          overflow: 'hidden',
         }}
-      />
+      >
+        {filmstrip &&
+          !clip.frozen &&
+          tiles.map((t, i) => (
+            <div
+              key={`${t.x}-${t.tileIndex}-${i}`}
+              data-testid="filmstrip-tile"
+              style={{
+                position: 'absolute',
+                left: t.x,
+                top: 0,
+                width: t.w,
+                height: '100%',
+                backgroundImage: `url(${filmstrip})`,
+                backgroundPosition: `${-t.tileIndex * frameW}px 0`,
+                backgroundSize: 'auto 100%',
+                backgroundRepeat: 'no-repeat',
+              }}
+            />
+          ))}
+      </div>
       <div
         className="handle"
         style={{ left: 0 }}

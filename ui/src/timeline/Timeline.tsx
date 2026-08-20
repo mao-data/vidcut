@@ -34,6 +34,7 @@ import {
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 import { ClipBlock, ROW_H } from './ClipBlock.js';
+import { quantizeVisibleRange, type VisibleRange } from './filmstripTiles.js';
 import { AudioChip, AUDIO_ROW_H } from './AudioChip.js';
 import { TimelineToolbar } from './Toolbar.js';
 import { useEditFx } from '../stores/editFx.js';
@@ -298,6 +299,48 @@ export function Timeline() {
       zoomScroll.current = null;
     }
   }, [pps]);
+
+  /**
+   * filmstrip windowing 的可視範圍（Plan 9 範圍裁決 #6）。ClipBlock 只渲染與這個
+   * 範圍相交的 tile——120pps 下一支 1687s 的 clip 會有 ~5200 格，DOM 絕不能全塞。
+   *
+   * - 範圍＝scroll 容器目前可見的 content 座標 [scrollLeft, scrollLeft+clientWidth]，
+   *   前後各加一屏 buffer（捲動時提前把下一屏準備好，不會捲到一半看到空白）。
+   * - **quantize 到 256px 網格**：不量化的話每個 scroll pixel 都會產生新的
+   *   `{start,end}` 物件，讓每一個 memo 化的 ClipBlock 在每一幀都因為 props 參考
+   *   改變而重渲染整排片段（quantizeVisibleRange 的用途正是擋這個）。
+   * - **rAF 節流**：scroll 事件本身可能每幀觸發多次，用一個 pending rAF id
+   *   把同一幀內的多次 scroll 收斂成一次 state 更新。
+   * - pps/width 改變（zoom、fit）時容器的 scrollLeft 可能沒變但可視內容已經不同
+   *   （例如 fit 把整條時間軸縮進同一個 scrollLeft=0），所以量測也綁在 `pps` 依賴上，
+   *   讓縮放落地後立刻重算一次範圍，不必等下一次使用者捲動才更新窗口。
+   */
+  const [visibleRange, setVisibleRange] = useState<VisibleRange | null>(null);
+  const visRafRef = useRef<number | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => {
+      visRafRef.current = null;
+      const viewportW = Math.max(0, el.clientWidth - GUTTER_W);
+      const buffer = viewportW; // 前後各一屏 buffer（範圍裁決 #6）
+      const raw: VisibleRange = {
+        start: el.scrollLeft - buffer,
+        end: el.scrollLeft + viewportW + buffer,
+      };
+      setVisibleRange(quantizeVisibleRange(raw));
+    };
+    const onScroll = () => {
+      if (visRafRef.current !== null) return; // 同一幀內的多次 scroll 只排一次
+      visRafRef.current = requestAnimationFrame(measure);
+    };
+    measure(); // 掛載/pps 變化時立刻算一次，不必等第一次 scroll 事件
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (visRafRef.current !== null) cancelAnimationFrame(visRafRef.current);
+    };
+  }, [hasDoc, pps]);
 
   // 供 Shift+Z（fit）取容器寬度
   useEffect(() => {
@@ -963,6 +1006,7 @@ export function Timeline() {
                     onTrimStart={onTrimStart}
                     onMoveStart={onMoveStart}
                     onSelect={onSelect}
+                    visibleRange={visibleRange ?? undefined}
                   />
                 );
               })}
