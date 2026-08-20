@@ -62,7 +62,7 @@
 依 [`docs/research/2026-07-29-capcut-gap-analysis.md`](docs/research/2026-07-29-capcut-gap-analysis.md) 的 Tier 1 全數實作：
 
 - **粗剪主力**：S/Ctrl+B 播放頭分割、Q/W 刪除播放頭左/右（磁性軌自動閉合）、F 定格幀。
-- **時間軸手感**：Ctrl+滾輪以游標為錨縮放、吸附（片段邊界/playhead/整秒，黃線指示，N 開關）、Shift+Z 全覽、工具列 ±/Fit/吸附鈕、刻度密度隨縮放調整。
+- **時間軸手感**：Ctrl+滾輪以游標為錨縮放、吸附（片段邊界/playhead/整秒，黃線指示，N 開關）、Shift+Z 全覽、工具列 ±/Fit/吸附鈕、刻度密度隨縮放調整（`tickStepFor` 六檔：pps≥40→1s、≥15→5s、≥5→10s、≥1.5→30s、≥0.5→60s、其餘→300s；60 秒以上標籤改 `m:ss`，見下方 Plan 9）。
 - **快捷鍵**：空白播放暫停、←/→ 逐幀（Shift 加速 10 幀）、Cmd+Z 復原。**在輸入框內打字時全部停用**。
 - **音訊軌完成**：片段右鍵抽出聲音（片段轉靜音）、音量/淡入淡出/ducking（播放時自動壓低影片原聲到 0.25）、渲染走 amix 並截到成片長度。
 - **Canvas blur 填充**：橫素材放進 9:16 時用模糊放大填滿代替黑邊（渲染 boxblur + 預覽端獨立背景層）。
@@ -177,6 +177,55 @@ spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/s
 （`ui/e2e/panel-affordance.mjs`）在真瀏覽器裡驗左右展開鈕可點、與收合鈕同高、
 不被 ExportMenu 下拉蓋住、捲動後仍可點。**它驗的是「按得到」，不是「好不好按」**——
 手感那半仍然只能靠人。
+
+## Plan 9：時間軸縮放批——CapCut 式自適應 + 時間對齊縮圖（2026-08-21）
+
+目標：匯入/載入自動 zoom-to-fit、放大上限=最小刻度 1 秒、filmstrip 任何縮放級距都可見且與時間對齊、順手修掉上傳完成時的畫面跳動。
+
+- **zoom 下限不再是寫死的常數**：`MIN_PX_PER_SECOND=5` 這個字面值**只是短專案的下限**，
+  不再是全域下限。`ui/src/timeline/scale.ts` 新增 `zoomBoundsFor(totalSeconds, viewportWidth)`
+  → `{min, max}`：`max` 恆為 `MAX_PX_PER_SECOND`（**已從 400 降為 120**——120 恰好停在
+  `tickStepFor` 的 1s 檔門檻頂，即「使用者可縮到的最細刻度=1 秒」，逐格微調需求出現前
+  不開回 400，見計畫 P1 記帳）；`min = min(rawFit(total, viewport), 5)`，長專案（例：
+  1687 秒在 1200px 視窗）下探到「整個專案剛好入鏡」（可能遠低於 5，如 ≈0.69px/s），
+  短專案維持 5（保留縮小看留白的空間）。`clampPps(v, bounds?)` 參數化吃動態 bounds，
+  缺省仍吃靜態 `DEFAULT_BOUNDS`（向後相容，非全部呼叫端都需要動態界限）。
+  刻度表往下延伸到 300s 檔（門檻：pps≥40→1s、≥15→5s、≥5→10s、≥1.5→30s、≥0.5→60s、
+  其餘→300s），60 秒以上標籤改 `m:ss`（`tickLabel`）。
+- **自動 fit 政策**（`ui/src/stores/view.ts` 的 `fit`/`setZoomBounds`/`userZoomed` 旗標 +
+  `Timeline.tsx` 的訂閱層）：(a) 專案載入（WS full doc）→ fit；(b) 總時長變化（加/刪
+  clip）且使用者自上次 fit 後**未手動縮放**→ 重新 fit（`userZoomed` 由 wheel/`zoomBy`/
+  `setPxPerSecond` 設 true，`fit()` 清 false）；(c) **拖曳進行中絕不自動 fit**（`prevTotal`
+  在拖曳中刻意不更新，讓拖曳結束後用舊值重新比對、補上被延後的 fit，不是遺忘）；
+  (d) resize（`ResizeObserver`）重算 clamp，若使用者未手動縮放過也一併重 fit；
+  (e) 手動 Fit 按鈕/Shift+Z 行為不變。上傳完成的 `addClip` 落在 (b)——原本的畫面跳動
+  變成「一次到位的重取景」。**v1 不做補間動畫**（fit 是一個 layout pass 到位；150ms
+  補間與 wheel-zoom 的 scroll 補償如何協調列 P1 記帳，風險>收益暫緩）。
+- **filmstrip 從「單一 background 紋理」改為時間對齊的逐格 div**（`ui/src/timeline/
+filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（`frameW`，維持
+  素材長寬比）不吃 pps，只在「一格恰好等於畫面上一秒」時才對齊——zoom-out 出現重複
+  紋理錯位、zoom-in 單格被拉伸出可辨識範圍、clip 寬 < 一格時整條 filmstrip 直接消失。
+  新模型每格是獨立 div，固定寬 `frameW`，第 i 格中心時間 `t_i = clip.in + (i+0.5)·
+(frameW/pps)`，`tileIndex = round(t_i/secPerTile)` 對 sprite 做 `backgroundPosition`
+  裁切——zoom-out 自然變成「每 N 格取樣一張」、zoom-in 自然變成「同格連續重複」，
+  任何縮放級距都是完整縮圖且與時間軸對齊；`w < frameW` 時仍渲染單格（裁右緣），
+  消失 bug 因此不再可能發生。**視窗裁剪（windowing）**：ClipBlock 只渲染捲動視窗內
+  的格（Timeline 把 scrollLeft/viewport 寬傳下去），避免 zoom-in 時格數爆炸（120pps
+  × 1687s ≈ 5000 格）；scroll 走 rAF 節流更新。舊資產相容：`filmstripTiles` 缺席
+  （這個欄位加入之前 ingest 的專案）→ `secPerTileFor` 回退每秒一格，與舊版
+  `filmstripBgOffset` 的回退語意一致；filmstrip 尚未生成（分階段 ingest 過渡態）→
+  維持底色不變。**`dragMath.ts` 的 `filmstripBgOffset` 已隨舊渲染路徑退役刪除**
+  （grep 確認無其他消費者後才刪）；`shared/src/filmstrip.ts` 的 `filmstripPlan`
+  （產格邏輯，server ingest 端）沒動，變的只是 UI 端怎麼消費那些格。
+- **blur 背景 video 換 src 閘門**（`ui/src/player/Player.tsx`）：背景模糊填充那顆
+  `<video>`（`scale(1.15)`）原本只比對 src 字串是否相同，proxyPath 晚到（A2 背景
+  transcode）就會重載閃一下；現在改成與主 A/B video 同款的 **`clipId` 閘門**——
+  素材身分不變就不換 src，proxyPath 之後補到也不重載。與 zoom/filmstrip 無關，
+  是這批「順手修掉的另一半畫面跳動」，對開源線同樣成立。
+- **驗證**：既有 `Timeline.wheelzoom.test.tsx` 等單元測試斷言已跟著新界限/新 fit
+  行為改寫（不是刪測試）；真瀏覽器 `npm run verify:canvas`／`verify:panels` 覆盤
+  drag/snap/overlay 幾何——**兩支對 zoom 幾何改動零假設**，全綠且不需要改寫任何
+  script 期望值（腳本本來就不依賴特定 pps 起始值，量的是相對幾何與畫布縮放矩陣）。
 
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
@@ -430,7 +479,12 @@ ui/src/player/            planAt（純函數大腦）+ Player（A/B 引擎，量
 ui/src/player/sync.ts     播放中媒體元素的時鐘同步策略：小漂移調 playbackRate 追趕（不中斷、無雜音），大漂移（≥0.25s）才硬 seek
 ui/src/player/CaptionLayer.tsx 字幕預覽：有字卡 hash 就 <img> 直出（無 karaoke 時與匯出同一張圖），karaoke 疊 hl 卡 + clip-path（與匯出的一詞一卡**不**同源）；沒有 hash／幾何 fetch 失敗／圖檔 onError 才退回 DOM 近似 fallback，幾何 fetch 進行中是 return null（空白一幀，不是近似文字）
 ui/src/player/dragLayer.ts dragOverlay/dragCaption：畫布拖曳數學（純函數）——overlay 的 position 錨點不對稱（x=中心、y=上緣），這裡負責錨點↔bbox 左上角的雙向換算，呼叫 shared 的 snapBBox 做實際吸附 ★
-ui/src/timeline/          scale + dragMath + waveform（純函數）+ Timeline（trim/排序/選取/縮放/吸附/transport）+ Toolbar / ClipBlock / AudioChip / usePeaks
+ui/src/timeline/          scale（含 zoomBoundsFor 動態上下限、tickStepFor/tickLabel 刻度表）
+                          + dragMath（trim/reorder；filmstripBgOffset 已隨 Plan 9 退役刪除）
+                          + filmstripTiles（時間對齊逐格渲染數學+windowing，Plan 9 新增）
+                          + waveform（純函數）+ Timeline（trim/排序/選取/縮放/吸附/transport/
+                          自動 fit 訂閱層）+ Toolbar / ClipBlock（filmstrip 逐格 div 消費端）/
+                          AudioChip / usePeaks
 ui/src/ThemeToggle.tsx    header 的日夜切換 icon 鈕（暗版給太陽、紙版給月亮＝按下去會去的
                           那一面；aria-pressed=是否紙主題；2026-08-16 自 Shortcuts 彈出層搬上）
 ui/src/panels/            Inspector（右欄 Properties 分頁：Canvas fill／選取物件表單／Shortcuts
