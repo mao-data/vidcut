@@ -21,7 +21,7 @@ import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
 import { useView } from '../stores/view.js';
 import { sendCommand } from '../ws.js';
-import { pxToTime, snapTime, timeToPx } from './scale.js';
+import { pxToTime, snapTime, tickLabel, tickStepFor, timeToPx } from './scale.js';
 import {
   trimIn,
   trimOut,
@@ -687,8 +687,8 @@ export function Timeline() {
     return (orig?.left ?? 0) + (moveDrag.pointerX - moveDrag.startX);
   })();
 
-  // 尺規刻度密度隨縮放調整
-  const tickStep = pps >= 120 ? 0.5 : pps >= 40 ? 1 : pps >= 15 ? 5 : 10;
+  // 尺規刻度密度隨縮放調整（門檻表與 m:ss 標籤格式化住在 scale.ts，Plan 9 Task 1）
+  const tickStep = tickStepFor(pps);
   const tickCount = Math.floor(total / tickStep) + 1;
 
   // 軌道之間的分隔線 2026-08-16 使用者定案移除(減線)——軌的辨識靠 gutter 圖示
@@ -847,7 +847,7 @@ export function Timeline() {
                       color: 'var(--text-3)',
                     }}
                   >
-                    {t}s
+                    {tickLabel(t)}
                   </span>
                 );
               })}
