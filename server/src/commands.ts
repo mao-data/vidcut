@@ -492,13 +492,20 @@ export function applyCommand(
         }
       }
       return ok(
-        store.mutate(source, `update media derived: ${cmd.mediaId}`, (d) => {
-          const m = d.media.find((x) => x.id === cmd.mediaId)!;
-          if (p.proxyPath !== undefined) m.proxyPath = p.proxyPath;
-          if (p.filmstripPath !== undefined) m.filmstripPath = p.filmstripPath;
-          if (p.filmstripTiles !== undefined) m.filmstripTiles = p.filmstripTiles;
-          if (p.peaksPath !== undefined) m.peaksPath = p.peaksPath;
-        }),
+        store.mutate(
+          source,
+          `update media derived: ${cmd.mediaId}`,
+          (d) => {
+            const m = d.media.find((x) => x.id === cmd.mediaId)!;
+            if (p.proxyPath !== undefined) m.proxyPath = p.proxyPath;
+            if (p.filmstripPath !== undefined) m.filmstripPath = p.filmstripPath;
+            if (p.filmstripTiles !== undefined) m.filmstripTiles = p.filmstripTiles;
+            if (p.peaksPath !== undefined) m.peaksPath = p.peaksPath;
+          },
+          // 系統對既有素材補記的衍生事實，不是這輪審核想撤銷的編輯意圖——見
+          // HistoryEntry.excludeFromRevert 與 revertSince 的註解（Plan 8 review round 1）。
+          { excludeFromRevert: true },
+        ),
       );
     }
     case 'setCover': {
