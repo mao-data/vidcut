@@ -72,6 +72,40 @@ describe('ReviewManager', () => {
     expect(store.doc.tracks.video[0]!.duration).toBe(before); // 回滾到 sinceVersion
   });
 
+  // Plan 8 final review F3：background ingest（A1/A2）在審核期間補寫 updateMediaDerived
+  // （source==='human'，見 ingest.ts）不該讓 AI 讀到「使用者改了東西」的幻覺——那只是
+  // 背景轉檔完成的既成事實，不是審核期間的人類編輯意圖。
+  it('background updateMediaDerived during a review does not appear in humanChanges; a real human edit still does', async () => {
+    const store = await seeded();
+    // 先登記一支素材，讓 updateMediaDerived 有目標可以補寫
+    applyCommand(store, 'human', {
+      name: 'registerMedia',
+      asset: {
+        id: 'm2',
+        path: 'b.mp4',
+        probe: { duration: 4, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+      },
+    });
+    const rm = new ReviewManager(store);
+    const p = rm.request('please check');
+
+    // 審核期間：background A1 完成，補寫 filmstrip（不是使用者做的）
+    const derived = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm2',
+      patch: { filmstripPath: 'derived/m2/filmstrip.jpg', filmstripTiles: 4 },
+    });
+    expect(derived.ok).toBe(true);
+    // 審核期間：使用者也真的改了一刀（真人編輯）
+    applyCommand(store, 'human', { name: 'updateClip', clipId: 'c1', patch: { duration: 3 } });
+
+    rm.resolve(rm.activeId!, 'approved');
+    const result = await p;
+    expect(result.outcome).toBe('approved');
+    expect(result.humanChanges.some((h) => h.label.includes('update media derived'))).toBe(false);
+    expect(result.humanChanges.some((h) => h.label === 'edit A')).toBe(true);
+  });
+
   it('resolve with wrong id returns false', async () => {
     const store = await seeded();
     const rm = new ReviewManager(store);

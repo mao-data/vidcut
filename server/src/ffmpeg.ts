@@ -36,7 +36,19 @@ interface FfprobeStream {
   tags?: Record<string, string>;
 }
 
-export async function probe(file: string): Promise<ProbeInfo> {
+export interface ProbeOpts {
+  /**
+   * 量測 keyframe（I-frame）平均間距（見 probeKeyframeInterval）。**預設關閉**
+   * （Plan 8 final review F4）：這是額外一次 ffprobe 呼叫，掃前 60 秒封包流，
+   * 只有 A0（`prepareMedia`）決定 `proxyPlan`（remux vs transcode）需要這個數字；
+   * render 路徑的 `withProbedChannels`（render.ts）只要 `audioChannels`，卻因為
+   * 舊版 `probe()` 無條件量測而白白扛了這筆成本——渲染時延不該被一個它用不到的
+   * 量測拖慢。只有呼叫端明確要求才做。
+   */
+  keyframes?: boolean;
+}
+
+export async function probe(file: string, opts: ProbeOpts = {}): Promise<ProbeInfo> {
   const { stdout } = await run('ffprobe', [
     '-v',
     'error',
@@ -59,7 +71,7 @@ export async function probe(file: string): Promise<ProbeInfo> {
       Number(v.tags?.rotate ?? 0))
     : 0;
   const container = data.format.format_name?.split(',')[0];
-  const keyframeIntervalSec = v ? await probeKeyframeInterval(file) : undefined;
+  const keyframeIntervalSec = v && opts.keyframes ? await probeKeyframeInterval(file) : undefined;
   return {
     duration: Number(data.format.duration ?? 0),
     width: v?.width ?? 0,

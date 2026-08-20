@@ -17,7 +17,7 @@ import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import type { TextCardService } from './textCards.js';
 import { CHAT_MAX_LEN, type ChatStore } from './chatStore.js';
-import { aiWrite } from './aiWrite.js';
+import { aiWrite, isStale } from './aiWrite.js';
 import { prepareMedia, enqueueDerivedStages } from './ingest.js';
 import { extractFrame } from './frame.js';
 import { renderCoverImage, render } from './render.js';
@@ -507,9 +507,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '(word timestamps are timeline seconds) for picking segments or laying out captions yourself.' +
         'For small edits use the fine-grained tools (update_clip / update_caption / update_overlay / add_overlay / ' +
         'remove_overlay / remove_audio) rather than resending a whole set_*. ' +
-        'Pass ifVersion on writes to avoid clobbering an edit the user just made; ' +
+        'Pass ifVersion on writes to avoid clobbering an edit the user just made; note that background media ' +
+        'ingest (filmstrip/peaks/proxy finishing after import_media returns) can also bump the version on its own ' +
+        '— that does not count as a user edit, so a stale rejection means someone (or something) else really did ' +
+        'change the document meanwhile, not just that the version moved. ' +
         'writes are rejected while a review is in progress (import_media, set_cover and render included — they are ' +
-        'writes too), and if the review is rejected, every change made since it was requested is rolled back in one go.' +
+        'writes too), and if the review is rejected, changes made since it was requested are rolled back in one go ' +
+        '— except derived-file bookkeeping (filmstrip/peaks/proxy fields finishing in the background), which is not ' +
+        'an edit and survives the rollback.' +
         'A write that replies "no-op" means the command was valid but no field actually changed — usually the values ' +
         'sent match the current state.' +
         'The patch for update_clip / update_caption / update_overlay / update_audio is matched strictly: a misspelled ' +
@@ -647,9 +652,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
       annotations: { readOnlyHint: true },
     },
     async ({ sinceVersion }) => {
+      // Plan 8 final review F3：排除 excludeFromRevert（background ingest 的
+      // updateMediaDerived）——那不是使用者的編輯意圖，見 reviews.ts 同一處註解。
       const changes = store
         .history()
-        .filter((h) => h.version > sinceVersion && h.source === 'human')
+        .filter((h) => h.version > sinceVersion && h.source === 'human' && !h.excludeFromRevert)
         .map((h) => ({ version: h.version, label: h.label, ts: h.ts }));
       return result(
         { sinceVersion, currentVersion: store.version, humanChanges: changes },
@@ -843,8 +850,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
       // 早期守衛：這個工具以前直接 store.mutate，兩層都沒走，所以**審核進行中照樣能把
       // 素材塞進專案**（實測 11 → 12 筆）。真正的守衛在下面的 aiWrite；這裡先擋一次
       // 純粹是為了在 review 進行中時完全不碰檔案系統（不跑那次註定寫不進去的 probe）。
+      // 過期判定與 aiWrite 共用同一支 isStale（Plan 8 final review F2）：background
+      // ingest 的 updateMediaDerived 推進 store.version 不算使用者動過文件，否則
+      // import_media 自己也會在這裡誤判成「使用者剛改過」而白白拒絕。
       if (store.doc.review !== null) return err('error: a review is in progress');
-      if (ifVersion !== undefined && ifVersion !== store.version)
+      if (ifVersion !== undefined && isStale(store, ifVersion))
         return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
       try {
         // Plan 8：prepareMedia 現在只做 A0（probe + 組裸 asset），秒級。
@@ -1510,8 +1520,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         'Ask the user to review the current timeline in the browser UI. Blocks until approved / rejected / timed out ' +
         '(15 minutes by default), and returns the outcome plus whatever the human changed during the review. ' +
-        '⚠️ When the outcome is rejected, **every change made since this call is rolled back in one go** (back to the ' +
-        'version as it was when the review was requested) — it is not merely a "rejected" answer. ' +
+        '⚠️ When the outcome is rejected, changes made since this call are rolled back in one go (back to the ' +
+        'version as it was when the review was requested) — it is not merely a "rejected" answer. Derived-file ' +
+        'bookkeeping (filmstrip/peaks/proxy fields finishing in the background) is excluded from the rollback: ' +
+        'that is not an edit, so it survives. ' +
         'While the review is open every write of yours is refused and only the user can edit; writes resume once it ' +
         'is approved or rejected. ' +
         'Calling it again before the previous round finishes closes that round as a timeout.',

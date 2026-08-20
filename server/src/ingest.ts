@@ -50,7 +50,10 @@ export async function prepareMedia(
   if (existing) return { existingId: existing.id };
 
   const abs = resolveMediaPath(projectDir, relPath);
-  const info = await probe(abs);
+  // keyframes:true——A2 的 proxyPlan（remux vs transcode）判準需要 keyframeIntervalSec；
+  // 這是唯一該扛這筆額外 ffprobe 成本的呼叫端（Plan 8 final review F4，見 ffmpeg.ts
+  // 的 ProbeOpts 註解：render 路徑的 probe() 用不到這個數字，不該預設量測）。
+  const info = await probe(abs, { keyframes: true });
   const audioOnly = info.hasVideo === false;
   if (audioOnly && !info.hasAudio) throw new Error(`no usable stream in ${relPath}`);
 

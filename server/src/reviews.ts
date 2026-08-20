@@ -65,10 +65,14 @@ export class ReviewManager {
     clearTimeout(p.timer);
     this.#pending = null;
 
-    // 自 review 開始以來的人類變更（審核期間只有 human 能寫）
+    // 自 review 開始以來的人類變更（審核期間只有 human 能寫）。
+    // Plan 8 final review F3：updateMediaDerived（background ingest A1/A2）也是
+    // source==='human'（見 ingest.ts），但那不是使用者的編輯意圖，只是背景轉檔完成
+    // 的既成事實——排除 excludeFromRevert，否則 AI 讀回 humanChanges 會看到「使用者
+    // 改了 filmstripPath」這種幻覺編輯（見 HistoryEntry.excludeFromRevert 的註解）。
     const humanChanges: HistoryBrief[] = this.#store
       .history()
-      .filter((h) => h.version > p.sinceVersion && h.source === 'human')
+      .filter((h) => h.version > p.sinceVersion && h.source === 'human' && !h.excludeFromRevert)
       .map((h) => ({ version: h.version, label: h.label, source: h.source, ts: h.ts }));
 
     // 清 review 狀態

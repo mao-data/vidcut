@@ -27,8 +27,10 @@ export interface HistoryEntry {
    * 機制會重跑那個階段（A1/A2 刻意不重試），素材因此永久降級。
    *
    * 與 `#replaying`／`runWithoutUndo` 是**正交**的兩個旗標：後者管「要不要進使用者的
-   * undo/redo 堆疊」，這個管「審核退回要不要反轉它」——`updateMediaDerived` 兩者都要
-   * （它兩邊都不該進：不是使用者能 Cmd+Z 的操作，也不是審核想撤銷的「這輪 AI 做的事」）。
+   * undo/redo 堆疊」，這個管「審核退回要不要反轉它」。`updateMediaDerived` 兩邊都不進，
+   * 但只有**這個**是靠明講的 `excludeFromRevert` 選項；undo 排除是**白拿的**——
+   * 它動的是 `media` 路徑，`isUndoable()` 只認 `tracks`／`canvas` 開頭的 patch，
+   * 媒體補丁天生就落在 undo 範圍外，不需要（也沒有）額外旗標去關掉它。
    */
   excludeFromRevert?: boolean;
 }
