@@ -154,6 +154,10 @@ const probeOutput = z
     rotation: z.number(),
     hasVideo: z.boolean().optional().describe('false = audio-only media'),
     audioChannels: z.number().optional(),
+    codec: z.string().optional(),
+    pixFmt: z.string().optional(),
+    container: z.string().optional(),
+    keyframeIntervalSec: z.number().optional(),
   })
   .describe('ffprobe result');
 

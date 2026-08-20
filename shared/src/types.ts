@@ -12,6 +12,14 @@ export interface ProbeInfo {
   hasVideo?: boolean;
   /** 音訊聲道數。渲染據此對 mono 顯式升 stereo（amix 隱式升混會 −3dB）。舊檔可能缺。 */
   audioChannels?: number;
+  /** 視訊 codec（ffprobe codec_name，例：h264/hevc）。無視訊或舊檔缺席。 */
+  codec?: string;
+  /** 視訊像素格式（ffprobe pix_fmt，例：yuv420p/yuv420p10le）。無視訊或舊檔缺席。 */
+  pixFmt?: string;
+  /** 容器格式（ffprobe format_name 取第一段，例：mov/matroska）。舊檔缺席。 */
+  container?: string;
+  /** 開頭 keyframe 平均間距（秒，只量前 60 秒）。無視訊、量測失敗或舊檔缺席。 */
+  keyframeIntervalSec?: number;
 }
 
 export interface MediaAsset {

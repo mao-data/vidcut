@@ -549,6 +549,12 @@
               "audioChannels": {
                 "type": "number"
               },
+              "codec": {
+                "type": "string"
+              },
+              "container": {
+                "type": "string"
+              },
               "duration": {
                 "type": "number"
               },
@@ -564,6 +570,12 @@
               },
               "height": {
                 "type": "number"
+              },
+              "keyframeIntervalSec": {
+                "type": "number"
+              },
+              "pixFmt": {
+                "type": "string"
               },
               "rotation": {
                 "type": "number"
