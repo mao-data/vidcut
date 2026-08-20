@@ -49,6 +49,13 @@ interface ViewState {
    * 重新 fit）是 Task 2 的政策範圍，這裡只負責「clamp 吃得到動態值」。
    */
   zoomBounds: ZoomBounds;
+  /**
+   * 使用者自上次 fit 後有沒有手動縮放過（Plan 9 範圍裁決 #4，Task 2 的自動 fit
+   * 政策靠它判斷「加/刪 clip 後要不要重新 fit」）。`zoomBy`／`setPxPerSecond`
+   * 設為 true；`fit()`（含手動 Shift+Z 與自動 fit——兩者共用同一個方法，沒有
+   * 「這次 fit 是自動的」這種分別）一律清回 false。
+   */
+  userZoomed: boolean;
   /** 吸附開關（N） */
   snapEnabled: boolean;
   /** 左（AI 專區）/右（字幕·屬性）面板收合狀態。不持久化。 */
@@ -90,6 +97,7 @@ interface ViewState {
 export const useView = create<ViewState>((set, get) => ({
   pxPerSecond: DEFAULT_PX_PER_SECOND,
   zoomBounds: { min: MIN_PX_PER_SECOND, max: MAX_PX_PER_SECOND },
+  userZoomed: false,
   snapEnabled: true,
   leftOpen: true,
   rightOpen: true,
@@ -105,8 +113,9 @@ export const useView = create<ViewState>((set, get) => ({
     set(side === 'left' ? { leftWidth: width } : { rightWidth: width });
     saveWidths(next.leftWidth, next.rightWidth);
   },
-  setPxPerSecond: (v) => set({ pxPerSecond: clampPps(v, get().zoomBounds) }),
-  zoomBy: (factor) => set({ pxPerSecond: clampPps(get().pxPerSecond * factor, get().zoomBounds) }),
+  setPxPerSecond: (v) => set({ pxPerSecond: clampPps(v, get().zoomBounds), userZoomed: true }),
+  zoomBy: (factor) =>
+    set({ pxPerSecond: clampPps(get().pxPerSecond * factor, get().zoomBounds), userZoomed: true }),
   setZoomBounds: (totalSeconds, viewportWidth) => {
     const bounds = zoomBoundsFor(totalSeconds, viewportWidth);
     set({ zoomBounds: bounds, pxPerSecond: clampPps(get().pxPerSecond, bounds) });
@@ -129,6 +138,6 @@ export const useView = create<ViewState>((set, get) => ({
     const bounds = zoomBoundsFor(totalSeconds, containerWidth);
     const rawFit =
       totalSeconds <= 0 ? DEFAULT_PX_PER_SECOND : (containerWidth - FIT_PADDING_PX) / totalSeconds;
-    set({ zoomBounds: bounds, pxPerSecond: clampPps(rawFit, bounds) });
+    set({ zoomBounds: bounds, pxPerSecond: clampPps(rawFit, bounds), userZoomed: false });
   },
 }));

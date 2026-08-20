@@ -309,6 +309,74 @@ export function Timeline() {
       useView.getState().fit(totalDuration(doc), el.clientWidth - GUTTER_W);
   }, [doc]);
 
+  /**
+   * 自動 fit 政策（Plan 9 範圍裁決 #4）。
+   *
+   * - `hasFitOnLoad` 分辨「這是專案第一次抵達」(a) 與「同一個 doc 之後的 patch」(b)：
+   *   `doc` 每次 patch 都會換新 reference，這顆 effect 的 deps 是 `[doc]` 所以每次
+   *   patch 都會重跑一次——若不記「有沒有 fit 過」，(a) 會在每次 patch 都重跑一次
+   *   等同於「每次改動都 fit」，跟 (b) 的「只在**總時長**變化時 fit」政策矛盾。
+   * - `prevTotal` 記上一次看到的總時長，只有它變了才算「(b) 加/刪 clip」；
+   *   同總時長的 patch（例如純改字幕文字）不觸發。
+   * - (c) 拖曳中絕不 fit：`drag.current` 是同步 ref，這裡直接讀，不需要額外的
+   *   響應式「isDragging」狀態——拖曳開始本身不會讓這顆 effect 重跑（它的 deps
+   *   只有 doc），只有在「拖曳中途 doc 剛好也變了」時才會跑到這裡，讀 ref 拿到
+   *   的是當下最新值。**拖曳中跳過時刻意不更新 `prevTotal`**：讓這次的總時長
+   *   變化保持「待處理」，拖曳結束後下一次 doc 變化（哪怕總時長沒再變）會用
+   *   舊的 `prevTotal` 重新比對出差異、補上這次錯過的 fit——不是遺忘，是延後。
+   * - fit 觸發時清掉 pending 的 wheel-zoom 捲動補償（`zoomScroll.current`）：
+   *   否則下一輪 pps 落地的 layout effect 會用縮放前算好的舊補償值去蓋掉
+   *   fit 剛設定的 scrollLeft，两者互相打架。
+   */
+  const hasFitOnLoad = useRef(false);
+  const prevTotal = useRef<number | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !doc) return;
+    if (drag.current) return; // (c) 拖曳中絕不 fit；prevTotal 刻意不動，見上方註解
+
+    const total = totalDuration(doc);
+    const isLoad = !hasFitOnLoad.current;
+    const totalChanged = prevTotal.current !== null && prevTotal.current !== total;
+    prevTotal.current = total;
+
+    if (!isLoad && !totalChanged) return; // 純內容變化（例如改字幕文字），不是 (a)/(b) 的範圍
+    if (!isLoad && useView.getState().userZoomed) return; // (b) 使用者縮放過就不搶
+
+    hasFitOnLoad.current = true;
+    zoomScroll.current = null; // 與 wheel-zoom 的捲動補償互斥
+    useView.getState().fit(total, el.clientWidth - GUTTER_W);
+  }, [doc]);
+
+  /**
+   * (d) 視窗 resize：重算 zoomBounds；未手動縮放過時一併重新 fit。
+   * deps 是 `hasDoc`、不是 `[]`：Timeline 在專案抵達前 `return null`（見下方
+   * `!doc`），首渲染沒有 DOM，空 deps 的那唯一一次 effect 拿到的 `scrollRef.current`
+   * 是 null，`observe()` 永遠掛不上——與上面 Ctrl+wheel listener 的掛載時序陷阱
+   * 同一個坑（ui-verification.md 的 useRef+空 deps 陷阱；`Timeline.autofit.test`
+   * 就是靠先 render 再 seed 的時序守著這裡）。ResizeObserver 本身會在容器尺寸變化
+   * 時持續觸發，不需要隨 pps 重新 attach；callback 內一律用 `useProject.getState()`/
+   * `useView.getState()` 讀最新值，避免閉包捕捉舊 doc。
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const d = useProject.getState().doc;
+      if (!d) return;
+      const total = totalDuration(d);
+      const width = el.clientWidth - GUTTER_W;
+      if (useView.getState().userZoomed) {
+        useView.getState().setZoomBounds(total, width);
+      } else {
+        zoomScroll.current = null; // 與 wheel-zoom 的捲動補償互斥
+        useView.getState().fit(total, width);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasDoc]);
+
   // AI 變更在視窗外 → 平滑捲過去（reduced-motion 時直接跳）
   useEffect(() => {
     if (!fxStamp) return;

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, vi, afterEach } from 'vitest';
 import { render, act, fireEvent } from '@testing-library/react';
 import type { Command } from '@vidcut/shared';
 import { Timeline } from './Timeline.js';
@@ -13,9 +13,25 @@ import { demoProject, seedProject, resetStores } from '../test/fixtures.js';
  * 拖曳測試的座標換算：測試把 pxPerSecond 固定為 40，所以 1 秒 = 40px。
  * jsdom 沒有版面，getBoundingClientRect 一律回 0——絕對時間軌的拖曳只看
  * 「位移量」（clientX 差），不受影響；主軌重排序需要 rect，另以 stub 提供。
+ *
+ * Plan 9 Task 2 之後 Timeline 掛載會自動 fit 一次（範圍裁決 #4a：專案載入 → fit），
+ * 讀的是 scroll 容器的 `clientWidth`——jsdom 沒有版面，這個值恆為 0，若不 stub，
+ * 掛載時的自動 fit 會把 pxPerSecond 夾到動態下限（≈0），蓋掉這裡假設的 40。
+ * `demoProject()` 總長固定 10s，反推 clientWidth=472 能讓 `(472-32-40)/10=40`，
+ * 剛好落在這份測試原本假設的 PPS 上——GUTTER_W/FIT_PADDING_PX 見 scale.ts/Timeline.tsx。
  */
 const PPS = 40;
 const sec = (px: number) => px / PPS;
+const STUB_CLIENT_WIDTH = 472;
+
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get() {
+      return STUB_CLIENT_WIDTH;
+    },
+  });
+});
 
 let sent: Command[];
 

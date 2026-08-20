@@ -103,7 +103,13 @@ export function resetStores(): void {
   useProject.setState({ doc: null, version: 0, connected: false, captionCards: {} });
   useSelection.setState({ selected: null });
   usePlayback.setState({ time: 0, playing: false, total: 0 });
-  useView.setState({ pxPerSecond: 40, snapEnabled: false, leftOpen: true, rightOpen: true });
+  useView.setState({
+    pxPerSecond: 40,
+    snapEnabled: false,
+    leftOpen: true,
+    rightOpen: true,
+    userZoomed: false,
+  });
   // activity 是模組級狀態，Inspector 的 AI 區塊與 Activity 面板都讀它。
   // ⚠️ 這行目前「不可達」：實務上每個測試都會走 seedProject()，而
   // applyServerMsg({type:'full'}) 會 `useActivity.seed(msg.history)`（見

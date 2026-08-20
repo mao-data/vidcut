@@ -103,3 +103,34 @@ describe('useView.fit（長專案要真正整片入鏡，不被靜態下限攔�
     expect(useView.getState().pxPerSecond).toBe(60); // (640-40)/10
   });
 });
+
+/**
+ * `userZoomed` 旗標（Plan 9 Task 2）：Timeline 層的自動 fit 政策要靠它判斷
+ * 「使用者自上次 fit 後有沒有手動縮放過」。這裡只測旗標本身的讀寫語意，
+ * 「誰在什麼時機讀它去決定要不要 fit」是 Timeline.autofit.test.tsx 的範圍。
+ */
+describe('useView.userZoomed（手動縮放旗標）', () => {
+  beforeEach(() => {
+    useView.setState({ userZoomed: false, pxPerSecond: 40 });
+  });
+
+  it('初始為 false', () => {
+    expect(useView.getState().userZoomed).toBe(false);
+  });
+
+  it('zoomBy 設為 true', () => {
+    useView.getState().zoomBy(1.2);
+    expect(useView.getState().userZoomed).toBe(true);
+  });
+
+  it('setPxPerSecond 設為 true', () => {
+    useView.getState().setPxPerSecond(80);
+    expect(useView.getState().userZoomed).toBe(true);
+  });
+
+  it('fit() 清回 false（即使呼叫前是 true）', () => {
+    useView.setState({ userZoomed: true });
+    useView.getState().fit(10, 640);
+    expect(useView.getState().userZoomed).toBe(false);
+  });
+});
