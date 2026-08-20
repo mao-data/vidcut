@@ -18,10 +18,11 @@ import type { ReviewManager } from './reviews.js';
 import type { TextCardService } from './textCards.js';
 import { CHAT_MAX_LEN, type ChatStore } from './chatStore.js';
 import { aiWrite } from './aiWrite.js';
-import { prepareMedia } from './ingest.js';
+import { prepareMedia, enqueueDerivedStages } from './ingest.js';
 import { extractFrame } from './frame.js';
 import { renderCoverImage, render } from './render.js';
 import { listSource } from './sourceFolder.js';
+import { resolveMediaPath } from './paths.js';
 import { resolveTextCommand } from './textOverlays.js';
 import { CARD_LIMITS } from './cardBudget.js';
 import { emitAgentActivity, nextCallId } from './agentActivity.js';
@@ -815,10 +816,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'import_media',
     {
       description:
-        'Register a media file and build its derivatives (proxy/filmstrip/peaks). relPath may be relative to the ' +
-        'project, or an absolute path outside it (referenced in place — nothing is copied). Audio-only files ' +
-        '(mp3/wav…) can be imported directly: proxy/filmstrip are skipped, only peaks are built, and they are usable ' +
-        'on the audio track (set_audio) only. Returns a mediaId.',
+        'Register a media file. relPath may be relative to the project, or an absolute path outside it ' +
+        '(referenced in place — nothing is copied). Returns as soon as the media is usable (probed and registered) ' +
+        '— preview, get_frame, and render already work off the original file at this point. The proxy, filmstrip ' +
+        'thumbnail strip, and audio peaks keep upgrading in the background afterward and do not block this call or ' +
+        'any subsequent tool. Audio-only files (mp3/wav…) can be imported directly: they are usable on the audio ' +
+        'track (set_audio) only, and only get peaks in the background (no proxy/filmstrip — there is no video ' +
+        'stream to derive them from).',
       outputSchema: {
         mediaId: z.string(),
         probe: probeOutput,
@@ -836,13 +840,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
       },
     },
     async ({ relPath, label, meta, ifVersion }) => {
-      // 早期守衛：proxy/filmstrip 是分鐘級的 ffmpeg 工作，別為了一個註定寫不進去的
-      // 登記先跑完。真正的守衛在下面的 aiWrite——這個工具以前直接 store.mutate，
-      // 兩層都沒走，所以**審核進行中照樣能把素材塞進專案**（實測 11 → 12 筆）。
+      // 早期守衛：這個工具以前直接 store.mutate，兩層都沒走，所以**審核進行中照樣能把
+      // 素材塞進專案**（實測 11 → 12 筆）。真正的守衛在下面的 aiWrite；這裡先擋一次
+      // 純粹是為了在 review 進行中時完全不碰檔案系統（不跑那次註定寫不進去的 probe）。
       if (store.doc.review !== null) return err('error: a review is in progress');
       if (ifVersion !== undefined && ifVersion !== store.version)
         return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
       try {
+        // Plan 8：prepareMedia 現在只做 A0（probe + 組裸 asset），秒級。
         const prepared = await prepareMedia(store, projectDir, relPath, { label, meta });
         if ('existingId' in prepared) {
           const m = store.doc.media.find((x) => x.id === prepared.existingId)!;
@@ -854,6 +859,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
         const w = aiWrite(store, { name: 'registerMedia', asset: prepared.asset }, ifVersion);
         if (!w.ok) return err(writeResultText(w));
         const m = prepared.asset;
+        // A1（filmstrip+peaks）/A2（proxy）丟進背景佇列，不等待——與 ingestMedia
+        // 共用同一條模組級序列佇列（見 ingest.ts 的 enqueueDerivedStages 註解）。
+        const abs = resolveMediaPath(projectDir, relPath);
+        enqueueDerivedStages(store, projectDir, m.id, abs, m.probe);
         return result(
           { mediaId: m.id, probe: m.probe, version: w.version },
           `imported ${relPath} as ${m.id} (${m.probe.duration.toFixed(1)}s)`,

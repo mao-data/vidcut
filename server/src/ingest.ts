@@ -2,8 +2,8 @@ import { mkdir, readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { nanoid } from 'nanoid';
-import type { MediaAsset } from '@vidcut/shared';
-import { filmstripPlan } from '@vidcut/shared';
+import type { MediaAsset, ProbeInfo } from '@vidcut/shared';
+import { filmstripPlan, proxyPlan } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 import { applyCommand } from './commands.js';
@@ -22,9 +22,11 @@ const PEAK_SAMPLE_RATE = 8000;
 export type PreparedMedia = { existingId: string } | { asset: MediaAsset };
 
 /**
- * 產出衍生檔（proxy / filmstrip / peaks）並組出 MediaAsset——**但不寫文件**。
- * 登記交給 `registerMedia` 命令（見 shared 的 Command 註解）：async 的重活留在這裡，
- * 命令層保持同步，於是 AI 那條路可以用 aiWrite 吃到審核鎖。
+ * A0：probe 來源檔 + 組出**待登記**的裸 asset——**不寫文件、不跑任何衍生檔 ffmpeg**。
+ * 秒級：只有一次 ffprobe（含 `probeKeyframeInterval` 的第二次 ffprobe，見 `ffmpeg.ts`）。
+ * 登記交給 `registerMedia` 命令（見 shared 的 Command 註解）：這裡保持同步，於是 AI
+ * 那條路可以用 aiWrite 吃到審核鎖。filmstrip/peaks（A1）與 proxy（A2）由呼叫端接著
+ * 丟進背景佇列（見 `runDerivedStages`／`enqueueDerivedStages`）。
  *
  * 冪等：同一支檔重複呼叫回既有 id，而且**在跑任何 ffmpeg 之前**就判斷完。
  * 判斷用的是**解析後的絕對路徑**，不是字串相等——`doc.media` 裡相對路徑代表專案內、
@@ -32,7 +34,10 @@ export type PreparedMedia = { existingId: string } | { asset: MediaAsset };
  * （`sourceFolder.ts` 的 `imported` 早就是這樣比了，這裡以前沒跟上：list_source 說
  * 「已匯入」，import_media 卻還是幫你多建一筆。）
  *
- * 詳見 spec §8.1。
+ * 純音訊素材（`info.hasVideo === false`）沒有視訊流可做 proxy/filmstrip，仍然只在 A1
+ * 產 peaks；此處只需在探測階段就確認至少有一個可用串流。
+ *
+ * 詳見 spec §8.1；三階段拆分見 docs/superpowers/plans/2026-08-20-fast-ingest.md。
  */
 export async function prepareMedia(
   store: ProjectStore,
@@ -46,16 +51,170 @@ export async function prepareMedia(
 
   const abs = resolveMediaPath(projectDir, relPath);
   const info = await probe(abs);
-  const id = nanoid(8);
-  const derivedRel = join('derived', id);
-  const derivedAbs = join(projectDir, derivedRel);
-  // 純音訊素材：沒有視訊流可做 proxy/filmstrip，只產 peaks（音訊軌播放直接用原始檔）。
-  // 這道判定刻意排在 mkdir 之前——無可用串流時直接丟錯，不留下空的 derived/ 目錄。
   const audioOnly = info.hasVideo === false;
   if (audioOnly && !info.hasAudio) throw new Error(`no usable stream in ${relPath}`);
+
+  const id = nanoid(8);
+  const asset: MediaAsset = {
+    id,
+    path: relPath,
+    probe: info,
+    ...(opts.label ? { label: opts.label } : {}),
+    ...(opts.meta ? { meta: opts.meta } : {}),
+  };
+  return { asset };
+}
+
+/**
+ * A1：filmstrip（非純音訊）+ peaks——寫進 `derived/<mediaId>/`，完成後透過
+ * `updateMediaDerived` 落盤。失敗**不拋、不清目錄**：呼叫端（背景佇列）只需要
+ * console.error，素材本身（A0 已登記的原檔）照樣可用，見 Plan 8 範圍裁決 §2。
+ *
+ * 直接呼叫（不經佇列）時失敗會拋出——`ingestMediaFully` 靠這個把失敗傳上去。
+ */
+async function runFilmstripAndPeaks(
+  store: ProjectStore,
+  projectDir: string,
+  mediaId: string,
+  abs: string,
+  info: ProbeInfo,
+): Promise<void> {
+  const derivedRel = join('derived', mediaId);
+  const derivedAbs = join(projectDir, derivedRel);
+  const audioOnly = info.hasVideo === false;
   await mkdir(derivedAbs, { recursive: true });
+
+  let filmstripTiles: number | undefined;
+  if (!audioOnly) {
+    // filmstrip —— 單列 sprite，格數與取樣頻率由 filmstripPlan 決定。
+    // 短片（≲7.7 分鐘 16:9）逐秒一格，跟以前行為一致；長片單列寬度會撞上
+    // JPEG 編碼器 65500px 上限（實測 exit 234），filmstripPlan 把格數夾在
+    // 上限內、改用 <1 的 fps 均勻降頻取樣，覆蓋整支影片而不是只取前段。
+    const { tiles, fps } = filmstripPlan({
+      durationSec: info.duration,
+      width: info.width,
+      height: info.height,
+    });
+    filmstripTiles = tiles;
+    await runFfmpeg([
+      '-i',
+      abs,
+      '-vf',
+      // fps 用 toFixed 避免極小值被序列化成科學記號（ffmpeg 的 fps 濾鏡吃不了 1e-7）
+      `fps=${fps.toFixed(6)},scale=-2:80,tile=${tiles}x1`,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '3',
+      join(derivedAbs, 'filmstrip.jpg'),
+    ]);
+  }
+
+  // peaks —— 8kHz mono s16le → 160 樣本/桶 max|amp| 正規化 0–1
+  const pcmDir = await mkdtemp(join(tmpdir(), 'vidcut-pcm-'));
+  // a.pcm 只是算 peaks 的中間產物，peaks.json 寫完就沒用了。用 finally 而不是把 rm
+  // 排在最後一行：中途任何一步丟錯（ffmpeg 失敗、peaks.json 寫不進去）都必須清掉，
+  // 否則每匯入一支素材就在系統 temp 漏一個目錄，且永遠不會自己消失。
   try {
-    // 1. proxy —— spec §8.1 精確參數；無音軌補 anullsrc
+    const pcmFile = join(pcmDir, 'a.pcm');
+    // 峰值來源：原檔有音軌就直接吃原檔；沒有音軌（靜音影片）以前是吃 proxy 補的
+    // anullsrc 靜音軌，但 A1 先於 A2 執行，這時 proxy 還沒產——改成自己用 anullsrc
+    // 合成同樣時長的靜音來源，效果一致（peaks 全 0），且不必等 A2。
+    const pcmArgs = info.hasAudio
+      ? ['-i', abs]
+      : [
+          '-f',
+          'lavfi',
+          '-i',
+          `anullsrc=r=${PEAK_SAMPLE_RATE}:cl=mono`,
+          '-t',
+          String(info.duration),
+        ];
+    await runFfmpeg([
+      ...pcmArgs,
+      '-ac',
+      '1',
+      '-ar',
+      String(PEAK_SAMPLE_RATE),
+      '-f',
+      's16le',
+      pcmFile,
+    ]);
+    const pcm = await readFile(pcmFile);
+    // 每桶同時取 max（峰值包絡）與 RMS（能量核心）——雙層波形靠這兩個陣列
+    const peaks: number[] = [];
+    const rms: number[] = [];
+    const step = PEAK_SAMPLES_PER_BUCKET * 2; // 2 bytes/sample
+    for (let i = 0; i + 1 < pcm.length; i += step) {
+      let max = 0;
+      let sumSq = 0;
+      let n = 0;
+      for (let j = i; j < Math.min(i + step, pcm.length - 1); j += 2) {
+        const v = pcm.readInt16LE(j);
+        max = Math.max(max, Math.abs(v));
+        sumSq += v * v;
+        n++;
+      }
+      peaks.push(Number((max / 32768).toFixed(4)));
+      rms.push(Number((Math.sqrt(sumSq / Math.max(1, n)) / 32768).toFixed(4)));
+    }
+    await writeFile(
+      join(derivedAbs, 'peaks.json'),
+      JSON.stringify({
+        samplesPerBucket: PEAK_SAMPLES_PER_BUCKET,
+        sampleRate: PEAK_SAMPLE_RATE,
+        peaks,
+        rms,
+      }),
+    );
+  } finally {
+    await rm(pcmDir, { recursive: true, force: true });
+  }
+
+  const patch: Pick<MediaAsset, 'peaksPath' | 'filmstripPath' | 'filmstripTiles'> = {
+    peaksPath: join(derivedRel, 'peaks.json'),
+    ...(audioOnly ? {} : { filmstripPath: join(derivedRel, 'filmstrip.jpg'), filmstripTiles }),
+  };
+  const r = applyCommand(store, 'human', { name: 'updateMediaDerived', mediaId, patch });
+  if (!r.ok) throw new Error(`updateMediaDerived (A1) ${mediaId}: ${r.error}`);
+}
+
+/**
+ * A2：proxy——判準來自 `proxyPlan`（shared）。純音訊素材沒有視訊流，整段跳過。
+ * `skip`：不產任何檔案，`proxyPath` 永遠缺席。`remux`：`-c copy` 秒級封裝進
+ * mp4（容器不對，但影像層面已經是 web-compatible）。`transcode`：現行完整參數。
+ */
+async function runProxy(
+  store: ProjectStore,
+  projectDir: string,
+  mediaId: string,
+  abs: string,
+  info: ProbeInfo,
+): Promise<void> {
+  if (info.hasVideo === false) return; // 純音訊：無視訊流，不產 proxy
+
+  const mode = proxyPlan({
+    codec: info.codec,
+    pixFmt: info.pixFmt,
+    container: info.container,
+    width: info.width,
+    height: info.height,
+    fps: info.fps,
+    keyframeIntervalSec: info.keyframeIntervalSec,
+  });
+  if (mode === 'skip') return; // 來源已是瀏覽器可播的 H.264，播放/抽幀直接吃原檔
+
+  const derivedRel = join('derived', mediaId);
+  const derivedAbs = join(projectDir, derivedRel);
+  await mkdir(derivedAbs, { recursive: true });
+  const proxyRel = join(derivedRel, 'proxy.mp4');
+  const proxyAbs = join(derivedAbs, 'proxy.mp4');
+
+  if (mode === 'remux') {
+    // 影像層面已合格，只是容器不對（例如 mkv 裝 h264）——秒級封裝，不重編碼。
+    await runFfmpeg(['-i', abs, '-c', 'copy', '-movflags', '+faststart', proxyAbs]);
+  } else {
+    // transcode：spec §8.1 精確參數；無音軌補 anullsrc
     const proxyArgs = ['-i', abs];
     if (!info.hasAudio) proxyArgs.push('-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo');
     proxyArgs.push(
@@ -87,114 +246,89 @@ export async function prepareMedia(
       '2',
     );
     if (!info.hasAudio) proxyArgs.push('-shortest');
-    proxyArgs.push('-movflags', '+faststart', join(derivedAbs, 'proxy.mp4'));
-    // filmstrip 實際格數——audioOnly 時不會產 filmstrip，此變數留在外層純粹是為了
-    // 讓下面組 asset 那段能讀到（audioOnly 分支永遠不消費它）。
-    let filmstripTiles: number | undefined;
-    if (!audioOnly) {
-      await runFfmpeg(proxyArgs);
-
-      // 2. filmstrip —— 單列 sprite，格數與取樣頻率由 filmstripPlan 決定。
-      // 短片（≲7.7 分鐘 16:9）逐秒一格，跟以前行為一致；長片單列寬度會撞上
-      // JPEG 編碼器 65500px 上限（實測 exit 234），filmstripPlan 把格數夾在
-      // 上限內、改用 <1 的 fps 均勻降頻取樣，覆蓋整支影片而不是只取前段。
-      const { tiles, fps } = filmstripPlan({
-        durationSec: info.duration,
-        width: info.width,
-        height: info.height,
-      });
-      filmstripTiles = tiles;
-      await runFfmpeg([
-        '-i',
-        abs,
-        '-vf',
-        // fps 用 toFixed 避免極小值被序列化成科學記號（ffmpeg 的 fps 濾鏡吃不了 1e-7）
-        `fps=${fps.toFixed(6)},scale=-2:80,tile=${tiles}x1`,
-        '-frames:v',
-        '1',
-        '-q:v',
-        '3',
-        join(derivedAbs, 'filmstrip.jpg'),
-      ]);
-    }
-
-    // 3. peaks —— 8kHz mono s16le → 160 樣本/桶 max|amp| 正規化 0–1
-    const pcmDir = await mkdtemp(join(tmpdir(), 'vidcut-pcm-'));
-    // a.pcm 只是算 peaks 的中間產物，peaks.json 寫完就沒用了。用 finally 而不是把 rm
-    // 排在最後一行：中途任何一步丟錯（ffmpeg 失敗、peaks.json 寫不進去）都必須清掉，
-    // 否則每匯入一支素材就在系統 temp 漏一個目錄，且永遠不會自己消失。
-    try {
-      const pcmFile = join(pcmDir, 'a.pcm');
-      const pcmSrc = info.hasAudio ? abs : join(derivedAbs, 'proxy.mp4'); // 無音軌用 proxy 的靜音軌
-      await runFfmpeg([
-        '-i',
-        pcmSrc,
-        '-ac',
-        '1',
-        '-ar',
-        String(PEAK_SAMPLE_RATE),
-        '-f',
-        's16le',
-        pcmFile,
-      ]);
-      const pcm = await readFile(pcmFile);
-      // 每桶同時取 max（峰值包絡）與 RMS（能量核心）——雙層波形靠這兩個陣列
-      const peaks: number[] = [];
-      const rms: number[] = [];
-      const step = PEAK_SAMPLES_PER_BUCKET * 2; // 2 bytes/sample
-      for (let i = 0; i + 1 < pcm.length; i += step) {
-        let max = 0;
-        let sumSq = 0;
-        let n = 0;
-        for (let j = i; j < Math.min(i + step, pcm.length - 1); j += 2) {
-          const v = pcm.readInt16LE(j);
-          max = Math.max(max, Math.abs(v));
-          sumSq += v * v;
-          n++;
-        }
-        peaks.push(Number((max / 32768).toFixed(4)));
-        rms.push(Number((Math.sqrt(sumSq / Math.max(1, n)) / 32768).toFixed(4)));
-      }
-      await writeFile(
-        join(derivedAbs, 'peaks.json'),
-        JSON.stringify({
-          samplesPerBucket: PEAK_SAMPLES_PER_BUCKET,
-          sampleRate: PEAK_SAMPLE_RATE,
-          peaks,
-          rms,
-        }),
-      );
-    } finally {
-      await rm(pcmDir, { recursive: true, force: true });
-    }
-
-    // 4. 組出待登記的 asset（寫文件是呼叫端的事，見函式註解）
-    const asset: MediaAsset = {
-      id,
-      path: relPath,
-      ...(audioOnly
-        ? {}
-        : {
-            proxyPath: join(derivedRel, 'proxy.mp4'),
-            filmstripPath: join(derivedRel, 'filmstrip.jpg'),
-            filmstripTiles,
-          }),
-      peaksPath: join(derivedRel, 'peaks.json'),
-      probe: info,
-      ...(opts.label ? { label: opts.label } : {}),
-      ...(opts.meta ? { meta: opts.meta } : {}),
-    };
-    return { asset };
-  } catch (e) {
-    await rm(derivedAbs, { recursive: true, force: true });
-    throw e;
+    proxyArgs.push('-movflags', '+faststart', proxyAbs);
+    await runFfmpeg(proxyArgs);
   }
+
+  const r = applyCommand(store, 'human', {
+    name: 'updateMediaDerived',
+    mediaId,
+    patch: { proxyPath: proxyRel },
+  });
+  if (!r.ok) throw new Error(`updateMediaDerived (A2) ${mediaId}: ${r.error}`);
 }
 
 /**
- * 人的路徑：產衍生檔 + 登記，回 mediaId。走 `applyCommand` 而不是 aiWrite——
- * HTTP 上傳與 demo 建置都是使用者自己的動作，不該被他自己的審核擋住。
- * AI 那條路（MCP 的 import_media）自己組 prepareMedia + aiWrite，才吃得到審核鎖。
+ * 依序跑 A1（filmstrip+peaks）→ A2（proxy），**直接拋出**任何一階段的失敗。
+ * 給 `ingestMediaFully` 與背景佇列共用：前者要「衍生失敗就整體失敗」，後者
+ * 自己接住錯誤改成 console.error（見 `enqueueDerivedStages`）。
+ */
+async function runDerivedStages(
+  store: ProjectStore,
+  projectDir: string,
+  mediaId: string,
+  abs: string,
+  info: ProbeInfo,
+): Promise<void> {
+  await runFilmstripAndPeaks(store, projectDir, mediaId, abs, info);
+  await runProxy(store, projectDir, mediaId, abs, info);
+}
+
+// 背景衍生階段的模組級序列佇列：ffmpeg 不並行（與 app.ts `/api/import` 逐支序列處理
+// 同一款紀律），同一素材 A1 先於 A2（`runDerivedStages` 內部順序），不同素材之間也
+// 序列跑，避免多支素材的背景轉檔互搶 CPU、拖慢使用者當下正在剪的那一支。
+// 鏈本身**永不 reject**（見 .then 的兩個分支都導回 undefined）：某支素材的背景階段
+// 失敗不會卡死後面排隊的素材。
+let derivedQueue: Promise<void> = Promise.resolve();
+
+/**
+ * 把一支素材的背景衍生階段（A1→A2）排進模組級佇列。**不等待**——呼叫端（`ingestMedia`
+ * 與 MCP 的 `import_media`，見 `mcp.ts`）在這裡就回傳，讓 A0 的秒級體感成立。失敗只
+ * `console.error`，不重試（P1 再談），素材本身在 A0 就已經可用。
+ *
+ * export 是因為 `import_media`（AI 路徑）自己組 `prepareMedia` + `aiWrite`，不經過
+ * `ingestMedia`，登記成功後要用**同一條**模組級佇列排背景階段——兩條路徑各開一條佇列
+ * 會讓人的匯入與 AI 的匯入的 ffmpeg 互相並行，違反「ffmpeg 不並行」的紀律。
+ */
+export function enqueueDerivedStages(
+  store: ProjectStore,
+  projectDir: string,
+  mediaId: string,
+  abs: string,
+  info: ProbeInfo,
+): void {
+  derivedQueue = derivedQueue.then(
+    () =>
+      runDerivedStages(store, projectDir, mediaId, abs, info).catch((e: unknown) => {
+        console.error(
+          `ingest: background derive failed for media ${mediaId} (${abs}): ${(e as Error).message}`,
+        );
+      }),
+    // 前一個任務不會 reject（上面那個 .catch 已經接住），這個分支理論上到不了，
+    // 純粹是防禦性地維持「鏈永不斷」的不變量。
+    () => undefined,
+  );
+}
+
+/**
+ * 測試專用：等佇列排空到「呼叫當下已入列的工作全部跑完」。**不保證**等到之後才
+ * enqueue 的工作——回傳的是當下這個 tick 的 `derivedQueue` 參照，跟著它 await 到底。
+ * 生產程式碼不需要這個（背景階段本來就不等），只有測試需要觀察「A0 回傳後，佇列排空
+ * 三欄位是否齊全」。
+ */
+export async function waitForIngestQueue(): Promise<void> {
+  await derivedQueue;
+}
+
+/**
+ * 人的路徑：A0（probe + 登記，回 mediaId）——衍生檔（filmstrip/peaks/proxy）丟進
+ * 背景佇列，不等待。走 `applyCommand` 而不是 aiWrite——HTTP 上傳與 demo 建置都是
+ * 使用者自己的動作，不該被他自己的審核擋住。AI 那條路（MCP 的 import_media）自己組
+ * `prepareMedia` + `aiWrite`，才吃得到審核鎖，登記成功後同樣把背景階段排進這條佇列。
+ *
+ * ⚠️ **語意變更**（Plan 8）：以前這個函式回傳時 proxy/filmstrip/peaks 全部就緒；
+ * 現在回傳時**只有** A0 的原始 probe 資料。需要三者齊全的呼叫端（demo 建置、既有測試）
+ * 請改用 `ingestMediaFully`。
  */
 export async function ingestMedia(
   store: ProjectStore,
@@ -206,5 +340,27 @@ export async function ingestMedia(
   if ('existingId' in prepared) return prepared.existingId;
   const r = applyCommand(store, 'human', { name: 'registerMedia', asset: prepared.asset });
   if (!r.ok) throw new Error(`import ${relPath}: ${r.error}`);
+  const abs = resolveMediaPath(projectDir, relPath);
+  enqueueDerivedStages(store, projectDir, prepared.asset.id, abs, prepared.asset.probe);
+  return prepared.asset.id;
+}
+
+/**
+ * 三階段全部 await 完成才回傳：demo 建置與既有測試預期衍生檔（proxy/filmstrip/peaks）
+ * 匯入完就已齊全，這條走完整同步等待，**衍生階段失敗會 throw**（不是背景佇列那種
+ * console.error 靜默）——demo 要的是完整產物，測試也需要明確的失敗訊號。
+ */
+export async function ingestMediaFully(
+  store: ProjectStore,
+  projectDir: string,
+  relPath: string,
+  opts: IngestOpts = {},
+): Promise<string> {
+  const prepared = await prepareMedia(store, projectDir, relPath, opts);
+  if ('existingId' in prepared) return prepared.existingId;
+  const r = applyCommand(store, 'human', { name: 'registerMedia', asset: prepared.asset });
+  if (!r.ok) throw new Error(`import ${relPath}: ${r.error}`);
+  const abs = resolveMediaPath(projectDir, relPath);
+  await runDerivedStages(store, projectDir, prepared.asset.id, abs, prepared.asset.probe);
   return prepared.asset.id;
 }

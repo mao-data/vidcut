@@ -506,7 +506,7 @@
       }
     },
     {
-      "description": "Register a media file and build its derivatives (proxy/filmstrip/peaks). relPath may be relative to the project, or an absolute path outside it (referenced in place — nothing is copied). Audio-only files (mp3/wav…) can be imported directly: proxy/filmstrip are skipped, only peaks are built, and they are usable on the audio track (set_audio) only. Returns a mediaId.",
+      "description": "Register a media file. relPath may be relative to the project, or an absolute path outside it (referenced in place — nothing is copied). Returns as soon as the media is usable (probed and registered) — preview, get_frame, and render already work off the original file at this point. The proxy, filmstrip thumbnail strip, and audio peaks keep upgrading in the background afterward and do not block this call or any subsequent tool. Audio-only files (mp3/wav…) can be imported directly: they are usable on the audio track (set_audio) only, and only get peaks in the background (no proxy/filmstrip — there is no video stream to derive them from).",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
