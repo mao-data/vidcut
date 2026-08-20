@@ -206,6 +206,66 @@ describe('Player', () => {
 });
 
 /**
+ * blur 背景 video 閘門（Plan 9 Task 4）：背景層曾經比對 `bg.src.endsWith(plan.active.src)`
+ * ——src 是 mediaUrl(media) = proxyPath ?? path，proxyPath 由背景 ingest（A2）晚到才補進
+ * doc。同一顆 clip 播放中，proxyPath 一到，src 字串換了，背景 video 就重新載入（可見的閃爍/
+ * 重新緩衝），即使畫面內容其實沒變。主 A/B video 早就是用 clipId 判斷（mountedClip.current
+ * `!==` plan.active.clipId），同一顆 clip 播放中絕不重載——背景層要套同一款身分閘門。
+ */
+describe('Player blur 背景 video 閘門', () => {
+  beforeEach(() => {
+    resetStores();
+  });
+
+  function withBlurFit(doc: ReturnType<typeof demoProject>) {
+    doc.canvas = { ...doc.canvas, fit: 'blur' };
+    return doc;
+  }
+
+  it('同一顆 clip 播放中，proxyPath 晚到（src 字串換了）：背景 video src 不變', () => {
+    const doc = withBlurFit(demoProject());
+    seedProject(doc, 1);
+    const { container } = render(<Player />);
+    seek(2); // c1（m1）窗內，觸發背景層首次掛載
+
+    const bg = container.querySelectorAll('video')[0]!;
+    const before = bg.getAttribute('src');
+    expect(before).toContain('m1'); // 前提成立：背景層確實對到 m1 的來源
+
+    // 背景 ingest（A2）晚到：同一顆 media（m1）補上 proxyPath，src 字串因此改變，
+    // 但 clip 身分（c1）沒有變——這正是曾經觸發跳動重載的情境。
+    const patched = demoProject();
+    patched.canvas = { ...patched.canvas, fit: 'blur' };
+    patched.media[0] = { ...patched.media[0]!, proxyPath: 'derived/m1/proxy2.mp4' };
+    act(() => {
+      seedProject(patched, 2);
+    });
+    seek(2.1); // 同一顆 clip 內小幅推進，觸發 effect 重跑
+
+    expect(bg.getAttribute('src')).toBe(before); // 不得重載
+  });
+
+  it('切到不同 clip：背景 video src 照樣更新', () => {
+    const doc = withBlurFit(demoProject());
+    seedProject(doc, 1);
+    const { container } = render(<Player />);
+    seek(2); // c1（m1）；plan.next=c2 會被無條件 premount 進 spare（與 playing 無關）
+
+    const bg = container.querySelectorAll('video')[0]!;
+    const before = bg.getAttribute('src');
+    expect(before).toContain('m1');
+
+    seek(7); // c2（m2，frozen）—— 不同 clip。因為 c2 已 premount 進 spare，主 A/B
+    // video 這一輪 effect 走的是「交換可見性」early return（不重載，見 Player.tsx
+    // 240–248），bg 區塊要下一輪 effect 才會跑——這裡再推進一次時間，模擬播放中
+    // 持續有 tick 觸發 effect 的真實情況（同一 clip 內的小幅位移即可，不需要真的播放）。
+    seek(7.01);
+    expect(bg.getAttribute('src')).not.toBe(before);
+    expect(bg.getAttribute('src')).toContain('m2');
+  });
+});
+
+/**
  * 畫布拖曳（Task 15 fix round 1，Finding 3）：pending 覆蓋不只是防「放手閃回原位」，
  * 還修正一個更嚴重的問題——doc 還沒追上拖曳結果前，若立刻再拖同一項一次，第二次的
  * 起點必須讀 pending（上一次放手的結果），不能讀 doc（這時 doc 仍是拖曳前的舊值），

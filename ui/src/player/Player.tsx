@@ -70,6 +70,8 @@ export function Player() {
   const vBg = useRef<HTMLVideoElement>(null);
   const activeIsA = useRef(true);
   const mountedClip = useRef<{ a: string | null; b: string | null }>({ a: null, b: null });
+  /** 背景模糊層目前掛載的 clipId——與主 A/B video 同款身分閘門，src 只在換 clip 時才寫。 */
+  const mountedBgClip = useRef<string | null>(null);
   /** 音訊軌：每個 AudioItem 一個隱藏 <audio>（元素常駐、進出活躍窗才 play/pause） */
   const audioEls = useRef(new Map<string, HTMLAudioElement>());
   const blurFill = doc?.canvas.fit === 'blur';
@@ -291,10 +293,17 @@ export function Player() {
       if (clipEnd - time < PRELAUNCH && spare.paused) void spare.play().catch(() => {});
     }
 
-    // blur 背景層：跟著 active 來源，容忍 0.3s 漂移（模糊看不出來）
+    // blur 背景層：跟著 active 來源，容忍 0.3s 漂移（模糊看不出來）。
+    // src 只在 clip 身分（clipId）真的換了才寫——與主 A/B video 同款閘門（見上方
+    // mountedClip 的比較）。曾經比對的是 src 字串（plan.active.src = proxyPath ?? path），
+    // 背景 ingest（A2）晚到補上 proxyPath 會讓字串換了但 clip 沒換，重載造成可見的
+    // 閃爍/重新緩衝（Plan 9 Task 4）。
     const bg = vBg.current;
     if (blurFill && bg) {
-      if (!bg.src.endsWith(plan.active.src)) bg.src = plan.active.src;
+      if (mountedBgClip.current !== plan.active.clipId) {
+        bg.src = plan.active.src;
+        mountedBgClip.current = plan.active.clipId;
+      }
       if (playing) {
         const s = syncAction(plan.active.sourceTime - bg.currentTime);
         if (s.kind === 'seek') bg.currentTime = plan.active.sourceTime;
