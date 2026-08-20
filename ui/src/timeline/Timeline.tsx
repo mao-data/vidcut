@@ -306,9 +306,15 @@ export function Timeline() {
    *
    * - 範圍＝scroll 容器目前可見的 content 座標 [scrollLeft, scrollLeft+clientWidth]，
    *   前後各加一屏 buffer（捲動時提前把下一屏準備好，不會捲到一半看到空白）。
-   * - **quantize 到 256px 網格**：不量化的話每個 scroll pixel 都會產生新的
-   *   `{start,end}` 物件，讓每一個 memo 化的 ClipBlock 在每一幀都因為 props 參考
-   *   改變而重渲染整排片段（quantizeVisibleRange 的用途正是擋這個）。
+   * - **quantize 到 256px 網格**：把同一個 256px 量子內的多次捲動收斂成同一組
+   *   `{start,end}` **數值**。但 `quantizeVisibleRange` 本身每次呼叫仍回傳新物件
+   *   （純函數，見其測試）——真正擋掉 memo 化 ClipBlock 重渲染的是下面
+   *   `setVisibleRange` 的 functional updater：數值沒變就回傳 `prev`（同一個物件
+   *   參考），React 的 `Object.is` bail-out 才會生效，這一輪 state 更新完全不
+   *   commit，subtree 不重渲染。少了這層，就算數值量化過，每次 setState 傳入的
+   *   仍是新物件，還是會逐幀 commit、逐幀 shallow-compare 出「prop 變了」
+   *   （review round 1 Critical 1 抓到：舊版直接 `setVisibleRange(quantized)`，
+   *   量化只擋住了「窗口該不該動」，沒擋住「React 該不該重渲染」）。
    * - **rAF 節流**：scroll 事件本身可能每幀觸發多次，用一個 pending rAF id
    *   把同一幀內的多次 scroll 收斂成一次 state 更新。
    * - pps/width 改變（zoom、fit）時容器的 scrollLeft 可能沒變但可視內容已經不同
@@ -328,7 +334,13 @@ export function Timeline() {
         start: el.scrollLeft - buffer,
         end: el.scrollLeft + viewportW + buffer,
       };
-      setVisibleRange(quantizeVisibleRange(raw));
+      const next = quantizeVisibleRange(raw);
+      // 數值沒變就回傳 `prev`（同一個物件參考）——React 對 functional updater
+      // 回傳值做 `Object.is` 比較，相等就整輪 bail out，不 commit、不重渲染
+      // subtree。這是真正擋住 memo 化 ClipBlock 逐幀重渲染的那一層（見上方註解）。
+      setVisibleRange((prev) =>
+        prev && prev.start === next.start && prev.end === next.end ? prev : next,
+      );
     };
     const onScroll = () => {
       if (visRafRef.current !== null) return; // 同一幀內的多次 scroll 只排一次

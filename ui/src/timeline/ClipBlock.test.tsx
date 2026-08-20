@@ -133,7 +133,8 @@ describe('ClipBlock filmstrip：windowing（視窗外格不進 DOM）', () => {
       />,
     );
     const fullCount = full.container.querySelectorAll('[data-testid="filmstrip-tile"]').length;
-    expect(fullCount).toBeGreaterThan(10);
+    // frameW = (70-4)*1080/1920 = 37.125 → totalSlots = ceil(2400/37.125) = 65
+    expect(fullCount).toBe(65);
 
     const windowed = render(
       <ClipBlock
@@ -150,12 +151,18 @@ describe('ClipBlock filmstrip：windowing（視窗外格不進 DOM）', () => {
         visibleRange={{ start: 0, end: 100 }}
       />,
     );
-    const windowedCount = windowed.container.querySelectorAll(
+    const windowedTiles = windowed.container.querySelectorAll<HTMLElement>(
       '[data-testid="filmstrip-tile"]',
-    ).length;
-
-    expect(windowedCount).toBeLessThan(fullCount);
-    expect(windowedCount).toBeGreaterThan(0);
+    );
+    // review round 1 Important 4：只斷言「比全部少」放不住視窗算錯幾百 px 的
+    // 回歸——這裡照 filmstripTilesFor 的算式手算精確值：visibleRange=[0,100]，
+    // firstSlot=floor(0/37.125)=0、lastSlot=floor(100/37.125)=2 → 恰好 3 格，
+    // x=[0, 37.125, 74.25]。
+    expect(windowedTiles).toHaveLength(3);
+    const xs = Array.from(windowedTiles)
+      .map((el) => parseFloat(el.style.left))
+      .sort((a, b) => a - b);
+    expect(xs).toEqual([0, 37.125, 74.25]);
   });
 
   it('clip 完全落在 visibleRange 之外 → 不渲染任何 tile', () => {

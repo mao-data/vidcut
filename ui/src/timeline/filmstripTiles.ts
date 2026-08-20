@@ -90,6 +90,11 @@ export function filmstripTilesFor(
   const totalSlots = Math.max(1, Math.ceil(clipWidthPx / frameW));
 
   // windowing：只算與 visibleRange 相交的格 index 範圍，其餘不生成（不進 DOM）。
+  // slot i 覆蓋半開區間 [i·frameW, (i+1)·frameW)——與 relEnd 相交的最大 slot index
+  // 是 floor(relEnd/frameW)，不是 ceil：例如 frameW=10、relEnd=305，slot 30 覆蓋
+  // [300,310) 確實含 305（floor(305/10)=30，正確）；slot 31 覆蓋 [310,320)，整段
+  // 在 relEnd 之後、不相交，但 ceil(305/10)=31 會多算進來，每次都多渲染一格
+  // （review round 1 Important 3：ceil 是 off-by-one，不是刻意的保守 over-render）。
   let firstSlot = 0;
   let lastSlot = totalSlots - 1;
   if (visibleRange) {
@@ -98,7 +103,7 @@ export function filmstripTilesFor(
     // clip 與可視窗完全不相交 → 空陣列。
     if (relEnd < 0 || relStart > clipWidthPx) return [];
     firstSlot = Math.max(0, Math.floor(relStart / frameW));
-    lastSlot = Math.min(totalSlots - 1, Math.ceil(relEnd / frameW));
+    lastSlot = Math.min(totalSlots - 1, Math.floor(relEnd / frameW));
   }
 
   const out: FilmstripTile[] = [];

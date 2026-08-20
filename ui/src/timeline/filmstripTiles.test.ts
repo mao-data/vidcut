@@ -83,14 +83,26 @@ describe('filmstripTilesFor：sprite 邊緣 clamp', () => {
 });
 
 describe('filmstripTilesFor：windowing（可視範圍相交）', () => {
-  it('視窗外的格不生成', () => {
+  it('視窗外的格不生成，且邊界 slot 精確（floor 語意，非 ceil）', () => {
     // clip: in=0, duration=100s, pps=10, frameW=10 → clipWidthPx=1000px, 100 slots
-    // clipLeftPx=0, visibleRange=[200,300] → 只應該回傳與 [200,300] 相交的 slot
+    // clipLeftPx=0, visibleRange=[200,300] → firstSlot=floor(200/10)=20,
+    // lastSlot=floor(300/10)=30（300 恰好是 slot 30 的左緣，floor/ceil 在這個
+    // 邊界值上剛好一致，故這條斷言本身不能證偽 ceil；下一條非邊界值的測試才能）。
     const tiles = filmstripTilesFor(0, 100, 10, 10, 1, 100, 0, { start: 200, end: 300 });
-    // slot i 覆蓋 [i*10, i*10+10)；與 [200,300] 相交的是 slot 20..30
-    expect(tiles.every((t) => t.x >= 190 && t.x <= 300)).toBe(true);
-    expect(tiles.length).toBeLessThan(100); // 遠少於全部 100 格
-    expect(tiles.length).toBeGreaterThan(0);
+    expect(tiles.map((t) => t.x)).toEqual(
+      Array.from({ length: 30 - 20 + 1 }, (_, i) => (20 + i) * 10),
+    );
+    expect(tiles).toHaveLength(11); // slot 20..30 含頭尾
+  });
+
+  it('relEnd 落在 slot 中段（非邊界）→ 不多算超出視窗的下一格（Important 3 迴歸）', () => {
+    // frameW=10, relEnd=305（slot 30 覆蓋 [300,310) 含 305；slot 31 覆蓋 [310,320)
+    // 完全在 305 之後，不該出現）。floor(305/10)=30 正確；ceil(305/10)=31 是舊 bug
+    // 會多渲染一格。
+    const tiles = filmstripTilesFor(0, 100, 10, 10, 1, 100, 0, { start: 0, end: 305 });
+    const lastX = Math.max(...tiles.map((t) => t.x));
+    expect(lastX).toBe(300); // slot 30 的 x；不是 310（slot 31，ceil 的產物）
+    expect(tiles.some((t) => t.x === 310)).toBe(false);
   });
 
   it('clip 完全在視窗外 → 回傳空陣列', () => {
@@ -99,15 +111,15 @@ describe('filmstripTilesFor：windowing（可視範圍相交）', () => {
     expect(tiles).toEqual([]);
   });
 
-  it('clipLeftPx 平移後，windowing 仍正確對齊絕對座標', () => {
-    // clip 起點在內容座標 1000px 處，clip 內部 slot 0 的絕對位置是 [1000,1010)
+  it('clipLeftPx 平移後，windowing 仍正確對齊絕對座標（精確 slot 範圍）', () => {
+    // clip 起點在內容座標 1000px 處。visibleRange=[1000,1020] → 相對 clip 座標
+    // relStart=0, relEnd=20 → firstSlot=floor(0/10)=0, lastSlot=floor(20/10)=2
+    // （20 恰好是 slot 2 的左緣，floor/ceil 在此邊界一致——slot 0,1,2 三格皆合法）。
     const tiles = filmstripTilesFor(0, 100, 10, 10, 1, 100, 1000, {
       start: 1000,
       end: 1020,
     });
-    // 應該只取到 clip 內 slot 0、slot 1（也可能含 slot 2 因為 ceil），x 是「相對 clip」座標
-    expect(tiles.every((t) => t.x <= 20)).toBe(true);
-    expect(tiles.some((t) => t.x === 0)).toBe(true);
+    expect(tiles.map((t) => t.x)).toEqual([0, 10, 20]);
   });
 
   it('未提供 visibleRange 時渲染全部格（呼叫端可選擇不裁窗）', () => {
@@ -116,7 +128,7 @@ describe('filmstripTilesFor：windowing（可視範圍相交）', () => {
   });
 });
 
-describe('quantizeVisibleRange（scroll 節流用：避免逐幀 thrash memoized ClipBlock）', () => {
+describe('quantizeVisibleRange（scroll 節流用的量化數學——純函數本身只保證數值穩定，不保證物件參考）', () => {
   it('把範圍向外擴到最近的 step 網格', () => {
     expect(quantizeVisibleRange({ start: 300, end: 700 }, 256)).toEqual({ start: 256, end: 768 });
   });
@@ -128,9 +140,24 @@ describe('quantizeVisibleRange（scroll 節流用：避免逐幀 thrash memoized
     });
   });
 
-  it('小幅捲動（同一 step 內）量化後範圍不變 → 不會觸發下游 re-render', () => {
+  it('小幅捲動（同一 step 內）量化後數值相等', () => {
     const a = quantizeVisibleRange({ start: 300, end: 700 }, 256);
     const b = quantizeVisibleRange({ start: 310, end: 705 }, 256);
-    expect(a).toEqual(b);
+    expect(a).toEqual(b); // 值相等（toEqual），不是同一個物件
+  });
+
+  it('⚠️ 即使數值相等，quantizeVisibleRange 本身每次呼叫仍回傳新物件（review round 1 Critical 2）', () => {
+    // 這條測試存在的理由：上一條「小幅捲動」測試用 toEqual（值相等）看起來像在
+    // 保證「不會觸發下游 re-render」，但 React 的 setState bail-out 比的是
+    // Object.is（參考相等），toEqual 綠燈跟「擋掉 re-render」完全是兩件事——
+    // 光看這個檔案的測試，量化函數本身從未、也不該去擋參考相等；真正的
+    // bail-out 必須發生在呼叫端的 setState 那一層（見 Timeline.tsx 的
+    // `setVisibleRange((prev) => ... ? prev : next)`），quantizeVisibleRange
+    // 只負責把數值收斂到同一個網格，讓那一層有機會判斷「數值沒變」。
+    // 「memo 化元件不會逐幀重渲染」這個屬性由 Timeline 層級的
+    // render-count spy 測試守著（見 Timeline.filmstripWindow.test.tsx）。
+    const a = quantizeVisibleRange({ start: 300, end: 700 }, 256);
+    const b = quantizeVisibleRange({ start: 310, end: 705 }, 256);
+    expect(a).not.toBe(b);
   });
 });
