@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { nanoid } from 'nanoid';
 import type { MediaAsset } from '@vidcut/shared';
+import { filmstripPlan } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 import { applyCommand } from './commands.js';
@@ -87,16 +88,28 @@ export async function prepareMedia(
     );
     if (!info.hasAudio) proxyArgs.push('-shortest');
     proxyArgs.push('-movflags', '+faststart', join(derivedAbs, 'proxy.mp4'));
+    // filmstrip 實際格數——audioOnly 時不會產 filmstrip，此變數留在外層純粹是為了
+    // 讓下面組 asset 那段能讀到（audioOnly 分支永遠不消費它）。
+    let filmstripTiles: number | undefined;
     if (!audioOnly) {
       await runFfmpeg(proxyArgs);
 
-      // 2. filmstrip —— 每秒 1 幀單列 sprite
-      const frames = Math.max(1, Math.ceil(info.duration));
+      // 2. filmstrip —— 單列 sprite，格數與取樣頻率由 filmstripPlan 決定。
+      // 短片（≲7.7 分鐘 16:9）逐秒一格，跟以前行為一致；長片單列寬度會撞上
+      // JPEG 編碼器 65500px 上限（實測 exit 234），filmstripPlan 把格數夾在
+      // 上限內、改用 <1 的 fps 均勻降頻取樣，覆蓋整支影片而不是只取前段。
+      const { tiles, fps } = filmstripPlan({
+        durationSec: info.duration,
+        width: info.width,
+        height: info.height,
+      });
+      filmstripTiles = tiles;
       await runFfmpeg([
         '-i',
         abs,
         '-vf',
-        `fps=1,scale=-2:80,tile=${frames}x1`,
+        // fps 用 toFixed 避免極小值被序列化成科學記號（ffmpeg 的 fps 濾鏡吃不了 1e-7）
+        `fps=${fps.toFixed(6)},scale=-2:80,tile=${tiles}x1`,
         '-frames:v',
         '1',
         '-q:v',
@@ -164,6 +177,7 @@ export async function prepareMedia(
         : {
             proxyPath: join(derivedRel, 'proxy.mp4'),
             filmstripPath: join(derivedRel, 'filmstrip.jpg'),
+            filmstripTiles,
           }),
       peaksPath: join(derivedRel, 'peaks.json'),
       probe: info,

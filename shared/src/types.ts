@@ -20,6 +20,12 @@ export interface MediaAsset {
   path: string;
   proxyPath?: string;
   filmstripPath?: string;
+  /**
+   * filmstrip sprite 實際格數（ffmpeg tile=Nx1 的 N，見 `filmstripPlan`）。
+   * 長片會被 JPEG 65500px 上限夾住、格數 < ceil(duration)（降頻取樣，非逐秒一格）。
+   * 缺席 = 舊資產（本欄位加入之前 ingest 的）= 每秒一格，換算時以 1 秒/格回退。
+   */
+  filmstripTiles?: number;
   peaksPath?: string;
   probe: ProbeInfo;
   label?: string;

@@ -2,6 +2,7 @@ import { memo, type PointerEvent } from 'react';
 import { Snowflake } from 'lucide-react';
 import type { Project, VideoClip } from '@vidcut/shared';
 import { timeToPx } from './scale.js';
+import { filmstripBgOffset } from './dragMath.js';
 
 /** 主軌列高(filmstrip 滿版)。2026-08-16 使用者多輪定案收斂:
  * 主軌=其他軌的 2 倍,同日兩輪放寬 60→64→70(=2×35)。之後想再調,改這
@@ -50,7 +51,13 @@ export const ClipBlock = memo(function ClipBlock({
   // (音量狀態仍在 Inspector);frozen 的平線指示移除(Snowflake 圖示仍在)。
   const filmstrip = media?.filmstripPath ? `/media/${media.filmstripPath}` : undefined;
   const frameW = media ? ((ROW_H - 4) * media.probe.width) / media.probe.height : 45;
-  const bgOffset = -(clip.in * frameW);
+  // 每格代表幾秒：filmstripTiles 缺席 = 舊資產（本欄位加入之前 ingest 的）= 每秒一格，
+  // filmstripBgOffset 內建回退成 1。有值時（長片會被 filmstripPlan 降頻取樣、格數
+  // < duration）要用實際格數換算，否則長片的 filmstrip 會對不上 clip.in
+  // （見 shared/src/filmstrip.ts 的 bug 說明）。
+  const secPerTile =
+    media && media.filmstripTiles ? media.probe.duration / media.filmstripTiles : undefined;
+  const bgOffset = filmstripBgOffset(clip.in, frameW, secPerTile);
   return (
     <div
       className={'clipblk' + fx}

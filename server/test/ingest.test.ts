@@ -41,6 +41,8 @@ describe('ingestMedia', () => {
     expect(proxy.hasAudio).toBe(true);
 
     expect((await stat(join(dir, asset.filmstripPath!))).size).toBeGreaterThan(0);
+    // 短片（遠低於 JPEG 65500px 上限的天花板）逐秒一格，與 filmstripPlan 的短片分支一致
+    expect(asset.filmstripTiles).toBe(Math.ceil(asset.probe.duration));
 
     const peaks = JSON.parse(await readFile(join(dir, asset.peaksPath!), 'utf8')) as {
       samplesPerBucket: number;
