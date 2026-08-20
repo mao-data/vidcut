@@ -309,7 +309,7 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
   **已不成立**：`server/src/store.ts` 有真的 `#redoStack`、`redo(source, steps)` 方法、
   「有新編輯就清空 redo（分叉）」的處理，`Command` 有 `redo` variant，MCP 也有 `redo` 工具。
 - request_review 用「阻塞 + UI 核准 + 保活 + 逾時」；**elicitation URL mode**（Claude Code 直接彈瀏覽器審核頁）列為後續增強——因無法自動驗證故未做，可用 v2 SDK `@modelcontextprotocol/server` + codemod 遷移時一起上。
-- 退回（reject）目前回滾「review 開啟後的全部變更」到 sinceVersion；若人在審核期間也改了東西會一起被回滾（reject = 丟掉這一輪）。
+- 退回（reject）目前回滾「review 開啟後的全部變更」到 sinceVersion；若人在審核期間也改了東西會一起被回滾（reject = 丟掉這一輪）。**例外（Plan 8）**：background ingest（A1/A2）用 `updateMediaDerived` 補寫的 proxy/filmstrip/peaks 欄位帶 `excludeFromRevert`，不算這輪要撤銷的編輯意圖，退回後仍存活（見 `server/src/store.ts` 的 `revertSince`）。
 - Safari 未測（開發用 Chrome）。
 - MCP 用 v1 SDK（`server/package.json` 宣告 `^1.30.0`，本 worktree 實裝 1.30.0）；v2（2.0.0）
   功能更多但在本專案起步時（2026-07 底）才剛發布，之後可用官方 codemod 升級。**尚未升級。**
@@ -353,7 +353,10 @@ server/src/ingest.ts      三階段 ingest（Plan 8，2026-08-20）：**A0**（`
                           原子落盤）→**A2**（proxy，判準來自 `proxyPlan`：`skip` 來源已是瀏覽器可播
                           的 H.264＝`proxyPath` 永遠不會出現、`remux` 只換容器不重編碼、`transcode`
                           走現行完整參數）。A1/A2 由 `enqueueDerivedStages` 丟進模組級序列背景佇列，
-                          `ingestMedia`（人的路徑與 MCP `import_media` 共用）**回傳時只有 A0** 完成，
+                          `ingestMedia`（人的路徑；MCP `import_media` 不呼叫它，而是自己組
+                          `prepareMedia`+`aiWrite`+`enqueueDerivedStages` 以吃到審核鎖——兩條
+                          路徑共用的是背景衍生階段那條模組級序列**佇列**，不是這個函式）
+                          **回傳時只有 A0** 完成，
                           衍生檔陸續在背景升級；單一素材背景失敗只 console.error＋該素材留在 A0 狀態
                           （不拋、不重試、不拖累其他素材）。需要三階段全部完成才回傳的呼叫端（demo
                           建置、期待衍生檔齊全的測試）改用 `ingestMediaFully`（同步 await 到底，

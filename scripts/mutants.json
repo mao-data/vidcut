@@ -1071,5 +1071,21 @@
     "replace": "",
     "tests": "ui/src/panels/Chat.test.tsx",
     "note": "訊息列的 aria-label 被拔 → 署名字樣移除後讀屏完全無從得知作者(視覺線索是版面,AT 讀不到);aria-label 斷言必須抓到"
+  },
+  {
+    "id": "proxyplan-container-always-skip",
+    "file": "shared/src/proxyPlan.ts",
+    "find": "  if (MP4_CONTAINERS.has(p.container)) return 'skip';",
+    "replace": "  if (true) return 'skip';",
+    "tests": "shared/src/proxyPlan.test.ts",
+    "note": "容器白名單判斷永遠成立 → 非 mp4/mov 容器（如 matroska）也被誤判 skip，跳過需要的 remux；container=matroska 的 remux 斷言必須抓到（Plan 8 final review F8）"
+  },
+  {
+    "id": "store-revert-includes-derived",
+    "file": "server/src/store.ts",
+    "find": "    const entries = this.#history.filter((h) => h.version > version && !h.excludeFromRevert);",
+    "replace": "    const entries = this.#history.filter((h) => h.version > version);",
+    "tests": "server/test/store-undo.test.ts",
+    "note": "revertSince 不再跳過 excludeFromRevert 的 entry → background ingest（A1/A2）補寫的 updateMediaDerived 被連坐反轉，衍生欄位在退回後消失；「background ingest 補寫的衍生欄位在退回後仍存活」的斷言必須抓到（Plan 8 final review F8）"
   }
 ]
