@@ -7,7 +7,7 @@ import { useSelection } from './stores/selection.js';
 import { useView } from './stores/view.js';
 import { useToast } from './stores/toast.js';
 import * as ws from './ws.js';
-import { seedProject, resetStores } from './test/fixtures.js';
+import { seedProject, resetStores, demoProject } from './test/fixtures.js';
 
 let sent: Command[];
 
@@ -381,6 +381,24 @@ describe('App', () => {
 
       it('overlay（絕對時間）選取：] 送 updateOverlay 把右緣修到 playhead', () => {
         // start=1，deltaSec = 3-(1+3) = -1 → duration 3-1=2
+        act(() => {
+          useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
+        });
+        press(']');
+        expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovAbs', patch: { duration: 2 } }]);
+      });
+
+      it('overlay（到片尾，duration:null）選取：] 材料化成具體 duration（review round 1 Important 1：不能是 no-op）', () => {
+        // 對齊 Timeline.tsx onPointerUp 'ov'/'out' 分支的既有語意（範圍裁決 4）：
+        // out 把手拖曳會把 to-end overlay「材料化」成具體數字，[/]鍵盤路徑必須鏡射
+        // 這個行為，不能因為 o.duration===null 就把算出來的 span 丟掉、送一個永遠
+        // 是 no-op 的 { duration: null } patch。
+        // ovAbs 改成 to-end：start=1 duration=null，總長 10（demoProject 的 c1+c2）
+        // → effectiveSpan = 10-1 = 9，右緣=10。deltaSec = 3-(1+9) = -7 → span 9-7=2。
+        const doc = demoProject();
+        const ov = doc.tracks.overlays.find((o) => o.id === 'ovAbs')!;
+        ov.duration = null;
+        seedProject(doc);
         act(() => {
           useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
         });

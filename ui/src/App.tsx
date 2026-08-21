@@ -149,10 +149,16 @@ function trimSelectedToPlayhead(edge: 'in' | 'out', playhead: number): void {
       });
     }
   } else {
+    // out 緣：與 in 緣不對稱（範圍裁決 4，鏡射 Timeline.tsx onPointerUp 'ov'/'out'
+    // 分支）——to-end overlay（o.duration===null）在這裡永遠**材料化**成具體數字，
+    // 不是保持 null。review round 1 Important 1 抓到的錯誤：先前這裡沿用了 in 緣
+    // 的「null 保護」，讓 `patch: { duration: null }` 送出去變成保證的 no-op
+    // （updateOverlay 對 `undefined` 才是「不改」，`null` 是合法值、真的會把
+    // duration 寫成 null——但既然算出來的 span 本來就是具體數字，寫 null 純粹是
+    // 丟掉這次修剪結果，不是「維持 to-end」）。
     const deltaSec = playhead - (win.start + effectiveSpan);
     const { duration: span } = trimSpanOut({ duration: effectiveSpan }, deltaSec);
-    const duration = o.duration === null ? null : Number(span.toFixed(3));
-    sendCommand({ name: 'updateOverlay', id: o.id, patch: { duration } });
+    sendCommand({ name: 'updateOverlay', id: o.id, patch: { duration: Number(span.toFixed(3)) } });
   }
 }
 
