@@ -462,6 +462,32 @@ describe('App', () => {
         press(']');
         expect(usePlayback.getState().time).toBe(3);
       });
+
+      /**
+       * final-review Fix 2：Timeline 的 `drag` ref 是 component-local，
+       * `trimSelectedToPlayhead` 沒有辦法知道使用者手上正在拖著把手——`]`/`[`
+       * 會在同一個手勢中間再送一次衝突的命令。修法是共用旗標（`usePlayback` 的
+       * `dragActive`），Timeline 在拖曳啟動時設它、`teardownDrag` 時清掉，
+       * App 的 `[`/`]` handler 讀它決定要不要 no-op。
+       */
+      it('拖曳進行中（dragActive=true）：] 不送任何命令（避免同一手勢送出第二個衝突命令）', () => {
+        act(() => {
+          useSelection.getState().select({ kind: 'clip', id: 'c1' });
+          usePlayback.getState().setDragActive(true);
+        });
+        press(']');
+        expect(sent).toEqual([]);
+      });
+
+      it('拖曳結束（setDragActive(false)）後：] 恢復正常送出命令', () => {
+        act(() => {
+          useSelection.getState().select({ kind: 'clip', id: 'c1' });
+          usePlayback.getState().setDragActive(true);
+          usePlayback.getState().setDragActive(false);
+        });
+        press(']');
+        expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { duration: 3 } }]);
+      });
     });
   });
 

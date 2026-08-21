@@ -575,6 +575,75 @@ describe('pointercancel 拆卸（fix round 1 C1/C2）', () => {
     // committed 值，不會卡在墊高的 12（正常路徑的保底行為）。
     expect(usePlayback.getState().total).toBe(10);
   });
+
+  it('主軌 trim-out 把 total 墊高、playhead 跟到超前值後 pointercancel：playhead 被夾回還原後的 total（final-review Fix 1）', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip two')); // c2 起點=6 duration=4 右緣=10
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // +2s：c2 duration 4→6，右緣 12，超過 committed total=10 → total 墊高、playhead 跟到 12
+      fireEvent.pointerMove(right!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().time).toBe(12); // playhead 已追到墊高後的邊
+    act(() => {
+      fireEvent.pointerCancel(right!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    // total 還原到 10（既有行為）；playhead 不能被留在還原後的 total 之外——
+    // 沒有 doc echo 兜底，放著不管就永久卡在 12 > 10，play 會立刻因 tick() clamp 判定播畢。
+    expect(usePlayback.getState().total).toBe(10);
+    expect(usePlayback.getState().time).toBeLessThanOrEqual(10);
+    expect(usePlayback.getState().time).toBe(10);
+  });
+});
+
+describe('dragActive 旗標（final-review Fix 2）', () => {
+  it('trim 拖曳啟動：dragActive 翻 true', () => {
+    const { container } = render(<Timeline />);
+    expect(usePlayback.getState().dragActive).toBe(false);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().dragActive).toBe(true);
+  });
+
+  it('move 拖曳（非 trim）啟動：dragActive 也翻 true（任何進行中的拖曳都該抑制鍵盤 trim）', () => {
+    const { container } = render(<Timeline />);
+    const chip = chipByText(container, 'first line');
+    act(() => {
+      fireEvent.pointerDown(chip, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().dragActive).toBe(true);
+  });
+
+  it('pointerup 後：dragActive 復位為 false', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().dragActive).toBe(true);
+    act(() => {
+      fireEvent.pointerUp(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().dragActive).toBe(false);
+  });
+
+  it('pointercancel 後：dragActive 也復位為 false（teardownDrag 是共用路徑）', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().dragActive).toBe(true);
+    act(() => {
+      fireEvent.pointerCancel(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().dragActive).toBe(false);
+  });
 });
 
 describe('badge 邊界 clamp（fix round 1 I3）', () => {

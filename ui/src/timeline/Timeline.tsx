@@ -266,12 +266,31 @@ export function Timeline() {
     gestureOrigTotal.current = usePlayback.getState().total;
     if (usePlayback.getState().playing) usePlayback.getState().pause();
   };
+
   /**
-   * fix round 1 C1/C2：`onPointerUp`／`onPointerCancel` 共用的拆卸——取消未 flush
-   * 的 rAF、解除吸附排除旗標、還原手勢開始時的 total（保底；正常放手路徑很快會被
-   * 隨後的 doc echo 覆寫，這裡先還原不影響最終值），並清掉 `drag.current` 與
-   * snap 線。清之前先把 drag 狀態存下來回傳——onPointerUp 靠這個回傳值決定要不要
-   * commit，onPointerCancel 則丟棄它（只拆不 commit）。
+   * final-review Fix 2：五個拖曳啟動 handler（trim/move/aud/cap/ov）共用的入口——
+   * 標記 `dragActive`，讓 App 的 `[`/`]` 鍵盤 trim 在拖曳進行中 no-op（不送出與
+   * 拖曳同一手勢衝突的第二個命令）。**任何**拖曳模式都要設，不只 trim：move 拖曳
+   * 也會在放手時送 `reorderClips`，鍵盤 trim 這時介入一樣是衝突命令。
+   */
+  const beginDrag = () => usePlayback.getState().setDragActive(true);
+  /**
+   * fix round 1 C1/C2；final-review Fix 1/Fix 2：`onPointerUp`／`onPointerCancel`
+   * 共用的拆卸——取消未 flush 的 rAF、解除吸附排除旗標、還原手勢開始時的 total
+   * （保底；正常放手路徑很快會被隨後的 doc echo 覆寫，這裡先還原不影響最終值），
+   * 並清掉 `drag.current`、snap 線與 `dragActive` 旗標（App 的 `[`/`]` 鍵盤 trim
+   * 靠它避免在拖曳進行中送出第二個衝突命令）。清之前先把 drag 狀態存下來回傳——
+   * onPointerUp 靠這個回傳值決定要不要 commit，onPointerCancel 則丟棄它（只拆不
+   * commit）。
+   *
+   * final-review Fix 1：total 還原後，若 playhead 還停在還原後的 total 之外
+   * （trim-follow 期間把 total 墊高、playhead 追過去，但這次拆卸沒有隨後的 doc
+   * echo 兜底——pointercancel 就是這種情況），要把它夾回來。不然 playhead 永久卡
+   * 在一個「大於 total」的時間：`usePlayback.tick()` 判斷播畢用的是
+   * `t >= total`，time 已經 > total 時第一次 play() 會立刻在下一幀被判定播畢，
+   * 使用者看起來像「按了播放沒反應」，得手動 seek 一次才能自癒。用
+   * `usePlayback.seek()`（既有 clamp 到 [0,total] 的機制）而不是直接 `set`，
+   * 與其餘寫入 time 的路徑一致。
    */
   const teardownDrag = (): DragState => {
     const d = drag.current;
@@ -279,9 +298,14 @@ export function Timeline() {
     setSnapLine(null);
     cancelFollow();
     trimFollowing.current = false;
+    usePlayback.getState().setDragActive(false);
     if (gestureOrigTotal.current !== null) {
-      usePlayback.getState().setTotal(gestureOrigTotal.current);
+      const restoredTotal = gestureOrigTotal.current;
+      usePlayback.getState().setTotal(restoredTotal);
       gestureOrigTotal.current = null;
+      if (usePlayback.getState().time > restoredTotal) {
+        usePlayback.getState().seek(restoredTotal);
+      }
     }
     return d;
   };
@@ -295,6 +319,7 @@ export function Timeline() {
 
   const onTrimStart = useCallback((e: PointerEvent, clip: VideoClip, edge: 'in' | 'out') => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    beginDrag();
     startTrimFollow();
     drag.current = {
       mode: edge === 'in' ? 'trim-in' : 'trim-out',
@@ -306,6 +331,7 @@ export function Timeline() {
 
   const onMoveStart = useCallback((e: PointerEvent, clip: VideoClip) => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    beginDrag();
     drag.current = {
       mode: 'move',
       clipId: clip.id,
@@ -317,6 +343,7 @@ export function Timeline() {
 
   const onAudDrag = useCallback((e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    beginDrag();
     useSelection.getState().select({ kind: 'audio', id: a.id });
     if (edge !== 'move') startTrimFollow();
     const media = useProject.getState().doc?.media.find((m) => m.id === a.mediaId);
@@ -675,6 +702,7 @@ export function Timeline() {
     const c = doc.tracks.captions.find((x) => x.id === id);
     if (!c) return;
     capture(e);
+    beginDrag();
     useSelection.getState().select({ kind: 'caption', id });
     if (edge !== 'move') startTrimFollow();
     const pd = pending.current;
@@ -690,6 +718,7 @@ export function Timeline() {
     const win = o && overlayWindow(doc, o);
     if (!o || !win) return;
     capture(e);
+    beginDrag();
     useSelection.getState().select({ kind: 'overlay', id });
     if (edge !== 'move') startTrimFollow();
     const orig = {

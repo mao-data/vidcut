@@ -327,9 +327,16 @@ export function App() {
         // Q/W 是 ripple 刪除、動全時間軸；[/] 只動選取項本身，是一次性命令
         // （不像拖曳把手要跑 startTrimFollow/teardownDrag 那套 rAF 跟隨機制——
         // playhead 已經停在修剪點上，trim 完不必再 seek）。無選取時 no-op。
+        // final-review Fix 2：Timeline 的 `drag` ref 是 component-local，App 沒有
+        // 別的管道知道使用者手上正抓著把手——若不擋，拖曳進行中按 `[`/`]` 會在同一
+        // 手勢中間再送一次衝突的命令（例如拖著 out 把手時按 `]`，兩個 updateClip
+        // 前後夾擊同一個 clip）。`usePlayback.dragActive` 由 Timeline 的每個拖曳
+        // 啟動 handler 設 true，`teardownDrag`（pointerup/pointercancel 共用）清回
+        // false，這裡讀它決定要不要 no-op。
         case '[':
         case ']':
           e.preventDefault();
+          if (usePlayback.getState().dragActive) break;
           trimSelectedToPlayhead(key === '[' ? 'in' : 'out', at);
           break;
       }

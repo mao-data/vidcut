@@ -103,7 +103,7 @@ export function seedProject(doc: Project = demoProject(), version = 1): Project 
 export function resetStores(): void {
   useProject.setState({ doc: null, version: 0, connected: false, captionCards: {} });
   useSelection.setState({ selected: null });
-  usePlayback.setState({ time: 0, playing: false, total: 0 });
+  usePlayback.setState({ time: 0, playing: false, total: 0, dragActive: false });
   useView.setState({
     pxPerSecond: 40,
     snapEnabled: false,

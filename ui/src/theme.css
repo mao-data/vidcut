@@ -2153,9 +2153,12 @@ a {
   cursor: ew-resize;
   z-index: 2;
   background: transparent;
-  transition:
-    background 0.12s ease,
-    width 0.12s ease;
+  /* final-review Fix 3：width 曾一併帶過渡（選取態把手 6px→12px 漸變放大），
+   * 但代價是選取後立刻去抓外溢那 6px 命中區會撲空長達 120ms（寬度還在動畫中，
+   * 熱區還沒到位）。選取是「立刻可抓」的承諾（見上面 Plan 11 Task 1 範圍裁決 3⚠️
+   * 的說明），命中區必須跟著 class 切換同幀到位，不能用動畫拖慢；背景色變化不影響
+   * 命中區，維持過渡沒有這個問題。 */
+  transition: background 0.12s ease;
 }
 .clipblk:hover .handle {
   background: var(--tint-28);

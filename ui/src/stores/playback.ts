@@ -11,6 +11,18 @@ interface PlaybackState {
   seek: (t: number) => void;
   /** 主時鐘推進：from + dt，撞到片尾自動暫停 */
   tick: (from: number, dt: number) => void;
+  /**
+   * final-review Fix 2：Timeline 是否有進行中的 pointer 拖曳（任何一種 drag
+   * mode——trim/move/cap/aud/ov，不只 trim）。Timeline 元件的 `drag` ref 是
+   * component-local，App 的 `[`/`]` 鍵盤 trim handler 沒有別的管道知道「使用者
+   * 手上正抓著把手」，若不設防會在同一個手勢中間再送一次衝突的命令。放在
+   * `usePlayback`（而不是新開一個 store）是因為拖曳狀態本來就是播放/時間軸手勢
+   * 的一部分，Timeline 與 App 兩邊本來就已經 import 這個 store。
+   * Timeline 在每個拖曳啟動 handler（onTrimStart/onMoveStart/onAudDrag/…）設
+   * true，`teardownDrag`（onPointerUp／onPointerCancel 共用）一律清回 false。
+   */
+  dragActive: boolean;
+  setDragActive: (v: boolean) => void;
 }
 
 export const usePlayback = create<PlaybackState>((set, get) => ({
@@ -26,4 +38,6 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
     if (t >= get().total) set({ time: get().total, playing: false });
     else set({ time: t });
   },
+  dragActive: false,
+  setDragActive: (v) => set({ dragActive: v }),
 }));
