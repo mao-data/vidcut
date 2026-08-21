@@ -27,11 +27,13 @@
 ### Task 1: shared 型別與 `setPublish` 命令
 
 **Files:**
+
 - Modify: `shared/src/types.ts`（RenderState 附近，約 174–207 行）
 - Modify: `server/src/commands.ts`（`case 'setCover'` 之後，約 447 行起）
 - Test: `server/test/publish.test.ts`（新檔，本 task 先放命令層測試）
 
 **Interfaces:**
+
 - Consumes: 既有 `ProjectStore`、`applyCommand`、`store.mutate`。
 - Produces（後續 task 依賴的名字，一字不差）：
   - `type PublishPlatform = 'tiktok' | 'youtube' | 'instagram' | 'facebook'`
@@ -184,10 +186,12 @@ git commit -m "feat(publish): setPublish command + PublishInfo types (P0 publish
 ### Task 2: `publish.ts` 純函數（平台警告、文案轉文字、上傳連結表）
 
 **Files:**
+
 - Create: `server/src/publish.ts`
 - Test: `server/test/publish.test.ts`（追加）
 
 **Interfaces:**
+
 - Consumes: Task 1 的 `PublishPlatform`、`PublishKind`、`PublishMeta`。
 - Produces:
   - `UPLOAD_URLS: Record<PublishPlatform, string>`
@@ -326,7 +330,9 @@ export function platformWarnings(
     );
   }
   if (bytes > lim.maxBytes) {
-    out.push(`file is ${(bytes / 2 ** 30).toFixed(1)} GiB, over the ${lim.maxBytes / 2 ** 30} GiB limit`);
+    out.push(
+      `file is ${(bytes / 2 ** 30).toFixed(1)} GiB, over the ${lim.maxBytes / 2 ** 30} GiB limit`,
+    );
   }
   return out;
 }
@@ -358,10 +364,12 @@ git commit -m "feat(publish): platform limit warnings + metadata text (pure help
 ### Task 3: `buildPublishPackage`（檔案打包）
 
 **Files:**
+
 - Modify: `server/src/publish.ts`
 - Test: `server/test/publish.test.ts`（追加）
 
 **Interfaces:**
+
 - Consumes: Task 2 全部；`serializeSrt`（`@vidcut/shared`，`shared/src/subtitles.ts:29`）、`totalDuration`（`@vidcut/shared`）、`resolveMediaPath` 不需要（成品在專案內）。
 - Produces: `buildPublishPackage(projectDir: string, doc: Project, meta: Partial<Record<PublishPlatform, PublishMeta>>): Promise<PublishInfo>`
   - 前置不滿足時 throw：無平台 → `'give at least one platform'`；`doc.render.status !== 'done'` 或無 `lastOutput` 或檔案不在 → `'render first: no finished output to package'`。
@@ -424,9 +432,9 @@ describe('buildPublishPackage', () => {
     expect(info.warnings.some((w) => w.startsWith('youtube:'))).toBe(true);
     expect(info.warnings.some((w) => w.startsWith('tiktok:'))).toBe(false);
     expect(info.warnings.some((w) => w.startsWith('facebook:'))).toBe(false);
-    const manifest = JSON.parse(
-      await readFile(join(dir, info.dir, 'manifest.json'), 'utf8'),
-    ) as { platforms: Record<string, { uploadUrl: string; kind: string }> };
+    const manifest = JSON.parse(await readFile(join(dir, info.dir, 'manifest.json'), 'utf8')) as {
+      platforms: Record<string, { uploadUrl: string; kind: string }>;
+    };
     expect(manifest.platforms.tiktok!.uploadUrl).toBe(UPLOAD_URLS.tiktok);
     expect(manifest.platforms.facebook!.kind).toBe('video');
     expect(manifest.platforms.youtube!.kind).toBe('short');
@@ -493,8 +501,7 @@ export async function buildPublishPackage(
     throw new Error('give at least one platform (tiktok / youtube / instagram / facebook)');
   const out = doc.render.status === 'done' ? doc.render.lastOutput : undefined;
   const srcVideo = out ? join(projectDir, out) : '';
-  if (!out || !existsSync(srcVideo))
-    throw new Error('render first: no finished output to package');
+  if (!out || !existsSync(srcVideo)) throw new Error('render first: no finished output to package');
 
   const stamp = basename(out, '.mp4');
   const dirRel = join('output', 'publish', stamp);
@@ -573,11 +580,13 @@ git commit -m "feat(publish): buildPublishPackage — copy render output + srt +
 ### Task 4: MCP 工具 `export_publish_package`（鐵則三步的第三步）
 
 **Files:**
+
 - Modify: `server/src/mcp.ts`（`render` 工具附近註冊新工具；`instructions` 字串追加一句）
 - Modify: `server/test/__snapshots__/`（mcp-surface-snapshot，讀 diff 後 `-u`）
 - Test: `server/test/mcp-publish.test.ts`（新檔）
 
 **Interfaces:**
+
 - Consumes: Task 3 的 `buildPublishPackage`、`UPLOAD_URLS`；mcp.ts 既有 helpers `err` / `result` / `errResult` / `writeResultText`、`aiWrite`。
 - Produces: MCP 工具 `export_publish_package`，input `{ tiktok?, youtube?, instagram?, facebook?: {title?, body, hashtags?, kind?}, ifVersion? }`，structured output `{ version, dir, files, warnings }`。
 
@@ -699,67 +708,69 @@ import type { PublishInfo, PublishMeta, PublishPlatform } from '@vidcut/shared';
 在 `render` 工具註冊之後加（zod schema 放同檔既有 schema 區也可）：
 
 ```ts
-  const publishMetaInput = z.object({
-    title: z.string().optional().describe('YouTube/Facebook title; TikTok/Instagram ignore it'),
-    body: z.string().describe('caption / description text'),
-    hashtags: z.array(z.string()).optional().describe('without the leading #'),
-    kind: z
-      .enum(['short', 'video'])
-      .optional()
-      .describe(
-        'target form — affects the duration/size warnings only. Defaults: youtube→short, facebook→video; ' +
-          'tiktok/instagram are always short. Pass video for a long-form YouTube/Facebook upload.',
-      ),
-  });
+const publishMetaInput = z.object({
+  title: z.string().optional().describe('YouTube/Facebook title; TikTok/Instagram ignore it'),
+  body: z.string().describe('caption / description text'),
+  hashtags: z.array(z.string()).optional().describe('without the leading #'),
+  kind: z
+    .enum(['short', 'video'])
+    .optional()
+    .describe(
+      'target form — affects the duration/size warnings only. Defaults: youtube→short, facebook→video; ' +
+        'tiktok/instagram are always short. Pass video for a long-form YouTube/Facebook upload.',
+    ),
+});
 
-  server.registerTool(
-    'export_publish_package',
-    {
-      description:
-        'Package the finished render for manual upload: copies the output video plus cover and .srt into ' +
-        'output/publish/<stamp>/, writes one text file per platform from the metadata you provide, and records ' +
-        'per-platform duration/size warnings in manifest.json. No social platform API is called — the user ' +
-        'uploads by hand (per-platform upload URLs are in the reply). Requires a completed render, and at least ' +
-        'one platform. Re-running replaces the package for that render.',
-      outputSchema: {
-        version: z.number(),
-        dir: z.string().describe('package directory, relative to the project folder'),
-        files: z.array(z.string()),
-        warnings: z.array(z.string()).describe('per-platform duration/size warnings; empty when clean'),
-      },
-      inputSchema: {
-        tiktok: publishMetaInput.optional(),
-        youtube: publishMetaInput.optional(),
-        instagram: publishMetaInput.optional(),
-        facebook: publishMetaInput.optional(),
-        ifVersion: z.number().optional(),
-      },
+server.registerTool(
+  'export_publish_package',
+  {
+    description:
+      'Package the finished render for manual upload: copies the output video plus cover and .srt into ' +
+      'output/publish/<stamp>/, writes one text file per platform from the metadata you provide, and records ' +
+      'per-platform duration/size warnings in manifest.json. No social platform API is called — the user ' +
+      'uploads by hand (per-platform upload URLs are in the reply). Requires a completed render, and at least ' +
+      'one platform. Re-running replaces the package for that render.',
+    outputSchema: {
+      version: z.number(),
+      dir: z.string().describe('package directory, relative to the project folder'),
+      files: z.array(z.string()),
+      warnings: z
+        .array(z.string())
+        .describe('per-platform duration/size warnings; empty when clean'),
     },
-    async ({ tiktok, youtube, instagram, facebook, ifVersion }) => {
-      // 比照 auto_caption：真正的守衛在 aiWrite，這裡先擋掉注定失敗的呼叫，免得白做檔案工作。
-      if (store.doc.review !== null) return err('error: a review is in progress');
-      const meta: Partial<Record<PublishPlatform, PublishMeta>> = {
-        ...(tiktok ? { tiktok } : {}),
-        ...(youtube ? { youtube } : {}),
-        ...(instagram ? { instagram } : {}),
-        ...(facebook ? { facebook } : {}),
-      };
-      let info: PublishInfo;
-      try {
-        info = await buildPublishPackage(projectDir, store.doc, meta);
-      } catch (e) {
-        return err(`error: ${(e as Error).message}`);
-      }
-      const w = aiWrite(store, { name: 'setPublish', info }, ifVersion);
-      if (!w.ok) return err(writeResultText(w));
-      const urls = info.platforms.map((p) => `${p}: ${UPLOAD_URLS[p]}`).join(' | ');
-      return result(
-        { version: w.version, dir: info.dir, files: info.files, warnings: info.warnings },
-        `${writeResultText(w)} | packaged ${info.files.length} file(s) into ${info.dir} — upload at ${urls}` +
-          (info.warnings.length > 0 ? `\n⚠️ ${info.warnings.join('; ')}` : ''),
-      );
+    inputSchema: {
+      tiktok: publishMetaInput.optional(),
+      youtube: publishMetaInput.optional(),
+      instagram: publishMetaInput.optional(),
+      facebook: publishMetaInput.optional(),
+      ifVersion: z.number().optional(),
     },
-  );
+  },
+  async ({ tiktok, youtube, instagram, facebook, ifVersion }) => {
+    // 比照 auto_caption：真正的守衛在 aiWrite，這裡先擋掉注定失敗的呼叫，免得白做檔案工作。
+    if (store.doc.review !== null) return err('error: a review is in progress');
+    const meta: Partial<Record<PublishPlatform, PublishMeta>> = {
+      ...(tiktok ? { tiktok } : {}),
+      ...(youtube ? { youtube } : {}),
+      ...(instagram ? { instagram } : {}),
+      ...(facebook ? { facebook } : {}),
+    };
+    let info: PublishInfo;
+    try {
+      info = await buildPublishPackage(projectDir, store.doc, meta);
+    } catch (e) {
+      return err(`error: ${(e as Error).message}`);
+    }
+    const w = aiWrite(store, { name: 'setPublish', info }, ifVersion);
+    if (!w.ok) return err(writeResultText(w));
+    const urls = info.platforms.map((p) => `${p}: ${UPLOAD_URLS[p]}`).join(' | ');
+    return result(
+      { version: w.version, dir: info.dir, files: info.files, warnings: info.warnings },
+      `${writeResultText(w)} | packaged ${info.files.length} file(s) into ${info.dir} — upload at ${urls}` +
+        (info.warnings.length > 0 ? `\n⚠️ ${info.warnings.join('; ')}` : ''),
+    );
+  },
+);
 ```
 
 （已核實：`McpDeps.projectDir` 是必填 `string`（`server/src/mcp.ts:31`），不需 guard。）
@@ -796,10 +807,12 @@ git commit -m "feat(publish): export_publish_package MCP tool + instructions"
 ### Task 5: UI — ExportMenu 顯示上傳連結與發佈包
 
 **Files:**
+
 - Modify: `ui/src/panels/ExportMenu.tsx`
 - Test: `ui/src/panels/ExportMenu.test.tsx`（新檔）
 
 **Interfaces:**
+
 - Consumes: `useProject((s) => s.doc?.render)` 既有；Task 1 的 `render.publish`。
 - Produces: 純顯示，無新 API。UI 不提供「建立發佈包」按鈕（文案來自 AI；人要打包就在 Chat 請 AI 做——這是 spec 的刻意取捨）。
 
@@ -861,9 +874,7 @@ describe('ExportMenu — publish section', () => {
     });
     const { container } = rtlRender(<ExportMenu />);
     openMenu(container);
-    expect(
-      container.querySelector('a[href="/media/output/publish/r1/video.mp4"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('a[href="/media/output/publish/r1/video.mp4"]')).not.toBeNull();
     expect(container.textContent).toContain('over the 600s guideline');
   });
 
@@ -887,46 +898,53 @@ Expected: FAIL —— 找不到上傳連結。
 `ui/src/panels/ExportMenu.tsx`——popover 內、既有 `render?.status === 'done' && render.lastOutput` 連結區塊之後加：
 
 ```tsx
-          {render?.status === 'done' && (
-            <>
-              <span className="panel-head">Upload</span>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <a className="tag" href="https://www.tiktok.com/tiktokstudio/upload" target="_blank" rel="noreferrer">
-                  TikTok
-                </a>
-                <a className="tag" href="https://studio.youtube.com/" target="_blank" rel="noreferrer">
-                  YouTube
-                </a>
-                <a className="tag" href="https://www.instagram.com/" target="_blank" rel="noreferrer">
-                  Instagram
-                </a>
-                <a className="tag" href="https://www.facebook.com/" target="_blank" rel="noreferrer">
-                  Facebook
-                </a>
-              </div>
-              {render.publish && (
-                <>
-                  <span className="panel-head">Publish package</span>
-                  {render.publish.files.map((f) => (
-                    <a
-                      key={f}
-                      href={`/media/${f}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ fontSize: 12 }}
-                    >
-                      {f.split('/').pop()}
-                    </a>
-                  ))}
-                  {render.publish.warnings.map((w) => (
-                    <span key={w} style={{ fontSize: 12, opacity: 0.85 }}>
-                      ⚠ {w}
-                    </span>
-                  ))}
-                </>
-              )}
-            </>
-          )}
+{
+  render?.status === 'done' && (
+    <>
+      <span className="panel-head">Upload</span>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <a
+          className="tag"
+          href="https://www.tiktok.com/tiktokstudio/upload"
+          target="_blank"
+          rel="noreferrer"
+        >
+          TikTok
+        </a>
+        <a className="tag" href="https://studio.youtube.com/" target="_blank" rel="noreferrer">
+          YouTube
+        </a>
+        <a className="tag" href="https://www.instagram.com/" target="_blank" rel="noreferrer">
+          Instagram
+        </a>
+        <a className="tag" href="https://www.facebook.com/" target="_blank" rel="noreferrer">
+          Facebook
+        </a>
+      </div>
+      {render.publish && (
+        <>
+          <span className="panel-head">Publish package</span>
+          {render.publish.files.map((f) => (
+            <a
+              key={f}
+              href={`/media/${f}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 12 }}
+            >
+              {f.split('/').pop()}
+            </a>
+          ))}
+          {render.publish.warnings.map((w) => (
+            <span key={w} style={{ fontSize: 12, opacity: 0.85 }}>
+              ⚠ {w}
+            </span>
+          ))}
+        </>
+      )}
+    </>
+  );
+}
 ```
 
 （上傳連結刻意寫死在 UI，不從 server 拿——它們與 `publish.ts` 的 `UPLOAD_URLS` 同值；改連結時兩處一起改，manifest 內以 server 版為準。）
@@ -949,6 +967,7 @@ git commit -m "feat(publish): upload links + publish package listing in ExportMe
 ### Task 6: 文件（PUBLISH.md、HANDOFF、交叉參考）與全量驗證
 
 **Files:**
+
 - Create: `docs/PUBLISH.md`
 - Modify: `HANDOFF.md`（檔案職責清單加 `publish.ts` 一行）
 - Modify: `CLAUDE.md`（交叉參考段加 PUBLISH.md 一行）
@@ -979,12 +998,12 @@ render 完成後，AI 呼叫 `export_publish_package` 並附各平台文案：
 - 重跑會整個目錄重建，舊平台檔不殘留。
 - 建議搭配 `render` 的 `subtitles: 'sidecar'`——畫面乾淨、字幕交給平台（會自動翻譯）。
 
-| 平台 | 上傳頁 | 警告門檻 |
-|---|---|---|
-| TikTok | https://www.tiktok.com/tiktokstudio/upload | >600s、>4 GiB |
-| YouTube | https://studio.youtube.com/ | short：>180s（超過就不算 Shorts）；video：>12 小時；>256 GiB |
-| Instagram | https://www.instagram.com/ | >180s（Reels 一般帳號）、>1 GiB |
-| Facebook | https://www.facebook.com/ | short（Reels）：>90s、>4 GiB；video：>240 分鐘、>10 GiB |
+| 平台      | 上傳頁                                     | 警告門檻                                                     |
+| --------- | ------------------------------------------ | ------------------------------------------------------------ |
+| TikTok    | https://www.tiktok.com/tiktokstudio/upload | >600s、>4 GiB                                                |
+| YouTube   | https://studio.youtube.com/                | short：>180s（超過就不算 Shorts）；video：>12 小時；>256 GiB |
+| Instagram | https://www.instagram.com/                 | >180s（Reels 一般帳號）、>1 GiB                              |
+| Facebook  | https://www.facebook.com/                  | short（Reels）：>90s、>4 GiB；video：>240 分鐘、>10 GiB      |
 
 UI：Export 下拉在 render 完成後顯示四個上傳頁連結；打包後列出包內檔案與警告。
 
@@ -1016,6 +1035,7 @@ OAuth 皆走雲端，不進開源 repo。見調研報告的分階段建議。
 npm run typecheck && npm run lint && npm run format:check
 npm test
 ```
+
 Expected: 全綠。（要跑 `bash scripts/gauntlet.sh` 也可以，但**跑的時候不要 commit**。）
 
 - [ ] **Step 4: commit 前文件審查**

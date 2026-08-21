@@ -157,9 +157,9 @@ describe('buildPublishPackage', () => {
     expect(info.warnings.some((w) => w.startsWith('youtube:'))).toBe(true);
     expect(info.warnings.some((w) => w.startsWith('tiktok:'))).toBe(false);
     expect(info.warnings.some((w) => w.startsWith('facebook:'))).toBe(false);
-    const manifest = JSON.parse(
-      await readFile(join(dir, info.dir, 'manifest.json'), 'utf8'),
-    ) as { platforms: Record<string, { uploadUrl: string; kind: string }> };
+    const manifest = JSON.parse(await readFile(join(dir, info.dir, 'manifest.json'), 'utf8')) as {
+      platforms: Record<string, { uploadUrl: string; kind: string }>;
+    };
     expect(manifest.platforms.tiktok!.uploadUrl).toBe(UPLOAD_URLS.tiktok);
     expect(manifest.platforms.facebook!.kind).toBe('video');
     expect(manifest.platforms.youtube!.kind).toBe('short');

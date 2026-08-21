@@ -27,8 +27,8 @@ export type PublishPlatform = 'tiktok' | 'youtube' | 'instagram' | 'facebook';
 /** 目標形式：短片（Shorts/Reels）或一般影片（長片）。 */
 export type PublishKind = 'short' | 'video';
 export interface PublishMeta {
-  title?: string;      // YouTube/Facebook 用；TikTok/IG 忽略
-  body: string;        // caption / description
+  title?: string; // YouTube/Facebook 用；TikTok/IG 忽略
+  body: string; // caption / description
   hashtags?: string[]; // 不帶 #
   /**
    * 只影響警告門檻與 manifest 標記，不影響檔案內容。
@@ -38,12 +38,12 @@ export interface PublishMeta {
   kind?: PublishKind;
 }
 export interface PublishInfo {
-  dir: string;                  // 相對專案資料夾，output/publish/<stamp>
+  dir: string; // 相對專案資料夾，output/publish/<stamp>
   stamp: string;
   platforms: PublishPlatform[];
-  files: string[];              // 相對專案資料夾
-  warnings: string[];           // "tiktok: …" 格式
-  createdAt: string;            // ISO 8601
+  files: string[]; // 相對專案資料夾
+  warnings: string[]; // "tiktok: …" 格式
+  createdAt: string; // ISO 8601
 }
 ```
 
@@ -55,26 +55,26 @@ export interface PublishInfo {
 
 ## 發佈包內容（output/publish/<stamp>/）
 
-| 檔案 | 來源 | 條件 |
-|---|---|---|
-| `video.mp4` | `output/<stamp>.mp4` 複本 | 必有（render done 才能打包） |
-| `cover.jpg` | `render.coverPath` 複本 | 有封面才有 |
-| `subtitles.srt` | `serializeSrt(captions)` | 有字幕才有 |
-| `<platform>.txt` | `metaToText(meta)`：title、空行、body、空行、`#tag` 列 | 每個帶了 meta 的平台一個 |
-| `manifest.json` | 打包摘要：影片秒數/bytes、各平台 uploadUrl＋warnings＋textFile | 必有 |
+| 檔案             | 來源                                                           | 條件                         |
+| ---------------- | -------------------------------------------------------------- | ---------------------------- |
+| `video.mp4`      | `output/<stamp>.mp4` 複本                                      | 必有（render done 才能打包） |
+| `cover.jpg`      | `render.coverPath` 複本                                        | 有封面才有                   |
+| `subtitles.srt`  | `serializeSrt(captions)`                                       | 有字幕才有                   |
+| `<platform>.txt` | `metaToText(meta)`：title、空行、body、空行、`#tag` 列         | 每個帶了 meta 的平台一個     |
+| `manifest.json`  | 打包摘要：影片秒數/bytes、各平台 uploadUrl＋warnings＋textFile | 必有                         |
 
 ## 平台檢查（警告，不擋）
 
 門檻按（platform, kind）查表；平台不支援該 kind 時退回它唯一的 kind：
 
-| 平台 | kind | maxSeconds | maxBytes | 上傳連結 |
-|---|---|---|---|---|
-| tiktok | short（唯一） | 600（網頁上傳保守值） | 4 GiB | `https://www.tiktok.com/tiktokstudio/upload` |
-| youtube | short（預設） | 180（超過就不算 Shorts） | 256 GiB | `https://studio.youtube.com/` |
-| youtube | video | 43200（12 小時） | 256 GiB | 同上 |
-| instagram | short（唯一） | 180（Reels 一般帳號） | 1 GiB | `https://www.instagram.com/` |
-| facebook | short（Reels） | 90 | 4 GiB | `https://www.facebook.com/` |
-| facebook | video（預設） | 14400（240 分鐘） | 10 GiB | 同上 |
+| 平台      | kind           | maxSeconds               | maxBytes | 上傳連結                                     |
+| --------- | -------------- | ------------------------ | -------- | -------------------------------------------- |
+| tiktok    | short（唯一）  | 600（網頁上傳保守值）    | 4 GiB    | `https://www.tiktok.com/tiktokstudio/upload` |
+| youtube   | short（預設）  | 180（超過就不算 Shorts） | 256 GiB  | `https://studio.youtube.com/`                |
+| youtube   | video          | 43200（12 小時）         | 256 GiB  | 同上                                         |
+| instagram | short（唯一）  | 180（Reels 一般帳號）    | 1 GiB    | `https://www.instagram.com/`                 |
+| facebook  | short（Reels） | 90                       | 4 GiB    | `https://www.facebook.com/`                  |
+| facebook  | video（預設）  | 14400（240 分鐘）        | 10 GiB   | 同上                                         |
 
 超限只產生 warning 字串（進 manifest、MCP 回覆、UI），不會讓打包失敗——
 長片本來就是合法目標（YouTube/Facebook 一般影片）。manifest 每平台記 `kind`。

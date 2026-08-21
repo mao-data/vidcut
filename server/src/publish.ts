@@ -4,7 +4,13 @@
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import type { PublishKind, PublishMeta, PublishPlatform, Project, PublishInfo } from '@vidcut/shared';
+import type {
+  PublishKind,
+  PublishMeta,
+  PublishPlatform,
+  Project,
+  PublishInfo,
+} from '@vidcut/shared';
 import { serializeSrt, totalDuration } from '@vidcut/shared';
 
 export const UPLOAD_URLS: Record<PublishPlatform, string> = {
@@ -60,7 +66,9 @@ export function platformWarnings(
     );
   }
   if (bytes > lim.maxBytes) {
-    out.push(`file is ${(bytes / 2 ** 30).toFixed(1)} GiB, over the ${lim.maxBytes / 2 ** 30} GiB limit`);
+    out.push(
+      `file is ${(bytes / 2 ** 30).toFixed(1)} GiB, over the ${lim.maxBytes / 2 ** 30} GiB limit`,
+    );
   }
   return out;
 }
@@ -92,8 +100,7 @@ export async function buildPublishPackage(
     throw new Error('give at least one platform (tiktok / youtube / instagram / facebook)');
   const out = doc.render.status === 'done' ? doc.render.lastOutput : undefined;
   const srcVideo = out ? join(projectDir, out) : '';
-  if (!out || !existsSync(srcVideo))
-    throw new Error('render first: no finished output to package');
+  if (!out || !existsSync(srcVideo)) throw new Error('render first: no finished output to package');
 
   const stamp = basename(out, '.mp4');
   const dirRel = join('output', 'publish', stamp);
