@@ -42,6 +42,7 @@ import {
   type DragBadgeState,
 } from './DragBadge.js';
 import { quantizeVisibleRange, type VisibleRange } from './filmstripTiles.js';
+import { overlapSegments, type OverlapSegment } from './overlap.js';
 import { AudioChip, AUDIO_ROW_H } from './AudioChip.js';
 import { TimelineToolbar } from './Toolbar.js';
 import { useEditFx } from '../stores/editFx.js';
@@ -1162,6 +1163,44 @@ export function Timeline() {
       }
     : null;
 
+  /**
+   * Plan 11 Task 4（裁決 7）：同軌重疊視覺提示——絕對時間軌（overlay／caption／
+   * audio）上兩個項目時間重疊時，沿重疊子區間畫一條 2px danger 線在 chip 頂緣。
+   * 純視覺、不阻擋操作（重疊可能是刻意的，如 BGM 疊 SFX）；主軌是磁性排列結構上
+   * 不會重疊，不適用。
+   *
+   * 拖曳中的即時預覽：這裡吃的是**已提交的 doc**（`o.start`/`c.start`/`a.start`
+   * 等原始欄位），不接 `drag.current`/`pending.current` 的預覽覆蓋——拖曳中這條線
+   * 會維持在拖曳前的位置、放手後才跳到新位置。理由：重疊提示只是提醒，不是
+   * 拖曳操作本身依賴的回饋（badge／chip 本身已經即時跟手），沒必要為了這條線
+   * 另外接一層預覽狀態機。
+   */
+  const overlayOverlaps: OverlapSegment[] = overlapSegments(
+    doc.tracks.overlays
+      .map((o) => {
+        const win = overlayWindow(doc, o);
+        return win ? { id: o.id, start: win.start, end: win.end } : null;
+      })
+      .filter((w): w is OverlapSegment => w !== null),
+  );
+  const captionOverlaps: OverlapSegment[] = overlapSegments(
+    doc.tracks.captions.map((c) => ({ id: c.id, start: c.start, end: c.start + c.duration })),
+  );
+  const audioOverlaps: OverlapSegment[] = overlapSegments(
+    doc.tracks.audio.map((a) => ({ id: a.id, start: a.start, end: a.start + a.duration })),
+  );
+  /** danger 線的共用 style：left/width/top 由呼叫端算好帶入。 */
+  const overlapLineStyle = (leftPx: number, widthPx: number, topPx: number): CSSProperties => ({
+    position: 'absolute',
+    left: leftPx,
+    width: widthPx,
+    top: topPx,
+    height: 2,
+    background: 'var(--danger)',
+    pointerEvents: 'none',
+    zIndex: 16, // 高於選取態 chip 的 zIndex:15——重疊提示要蓋在最上面才看得到
+  });
+
   // 尺規刻度密度隨縮放調整：CapCut 式像素密度自適應（標籤永遠 >=80px 間距，
   // 縮放時步距自動變粗變細；細分點視空間插在標籤之間）——計畫邏輯住在 scale.ts。
   const { labelStepSec, dotStepSec } = tickPlanFor(pps);
@@ -1609,6 +1648,42 @@ export function Timeline() {
                 );
               })}
             </div>
+            {/* Plan 11 Task 4（裁決 7）：同軌重疊視覺提示——沿重疊子區間畫 2px danger
+                線在該軌 chip 的頂緣（chip 本身 `top:2`，這裡對齊同一個 top）。純視覺、
+                不阻擋操作；主軌磁性排列不會重疊，不畫。 */}
+            {overlayOverlaps.map((seg, i) => (
+              <div
+                key={`ov-overlap-${i}`}
+                className="overlap-line"
+                style={overlapLineStyle(
+                  timeToPx(seg.start, pps),
+                  timeToPx(seg.end - seg.start, pps),
+                  OVERLAY_ROW_TOP + 2,
+                )}
+              />
+            ))}
+            {captionOverlaps.map((seg, i) => (
+              <div
+                key={`cap-overlap-${i}`}
+                className="overlap-line"
+                style={overlapLineStyle(
+                  timeToPx(seg.start, pps),
+                  timeToPx(seg.end - seg.start, pps),
+                  CAPTION_ROW_TOP + 2,
+                )}
+              />
+            ))}
+            {audioOverlaps.map((seg, i) => (
+              <div
+                key={`aud-overlap-${i}`}
+                className="overlap-line"
+                style={overlapLineStyle(
+                  timeToPx(seg.start, pps),
+                  timeToPx(seg.end - seg.start, pps),
+                  AUDIO_ROW_TOP + 2,
+                )}
+              />
+            ))}
             {/* 吸附指示線 */}
             {snapLine !== null && (
               <div
