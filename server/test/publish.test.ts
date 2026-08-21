@@ -46,3 +46,61 @@ describe('setPublish command', () => {
     expect(r).toEqual({ ok: false, error: 'nothing to undo' });
   });
 });
+
+import { metaToText, platformWarnings, resolveKind, UPLOAD_URLS } from '../src/publish.js';
+
+describe('resolveKind', () => {
+  it('defaults: youtube→short, facebook→video', () => {
+    expect(resolveKind('youtube')).toBe('short');
+    expect(resolveKind('facebook')).toBe('video');
+  });
+  it('honours an explicit kind the platform supports', () => {
+    expect(resolveKind('youtube', 'video')).toBe('video');
+    expect(resolveKind('facebook', 'short')).toBe('short');
+  });
+  it('tiktok/instagram only have short (video falls back)', () => {
+    expect(resolveKind('tiktok', 'video')).toBe('short');
+    expect(resolveKind('instagram', 'video')).toBe('short');
+  });
+});
+
+describe('platformWarnings', () => {
+  it('is empty within limits', () => {
+    expect(platformWarnings('tiktok', 'short', 60, 10_000_000)).toEqual([]);
+  });
+  it('warns when a YouTube short exceeds 180s', () => {
+    const w = platformWarnings('youtube', 'short', 181, 10_000_000);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('180');
+  });
+  it('a long YouTube video is clean (kind video lifts the Shorts limit)', () => {
+    expect(platformWarnings('youtube', 'video', 3600, 10_000_000)).toEqual([]);
+  });
+  it('facebook video allows 240min but warns beyond', () => {
+    expect(platformWarnings('facebook', 'video', 14_000, 10_000_000)).toEqual([]);
+    expect(platformWarnings('facebook', 'video', 15_000, 10_000_000)).toHaveLength(1);
+  });
+  it('facebook reels (short) warns over 90s', () => {
+    expect(platformWarnings('facebook', 'short', 91, 10_000_000)).toHaveLength(1);
+  });
+  it('warns on oversize file for instagram (1 GiB)', () => {
+    const w = platformWarnings('instagram', 'short', 60, 2 * 2 ** 30);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('GiB');
+  });
+});
+
+describe('metaToText', () => {
+  it('joins title, body and hashtags with blank lines', () => {
+    expect(metaToText({ title: 'T', body: 'B', hashtags: ['a', 'b'] })).toBe('T\n\nB\n\n#a #b');
+  });
+  it('omits missing title and hashtags', () => {
+    expect(metaToText({ body: 'only body' })).toBe('only body');
+  });
+});
+
+describe('UPLOAD_URLS', () => {
+  it('covers every platform', () => {
+    expect(Object.keys(UPLOAD_URLS).sort()).toEqual(['facebook', 'instagram', 'tiktok', 'youtube']);
+  });
+});
