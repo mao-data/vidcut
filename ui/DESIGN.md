@@ -435,8 +435,9 @@ block padding, control-row gaps), 12 (panel/card padding, header horizontal), 16
 where 4 would burst the row. Odd values (3/5/7) are all normalized away. Two classes
 of exception are not padding and do not follow the ramp: **geometry constants**
 (`ROW_H` 70, `SUB_ROW_H` 35, `AUDIO_ROW_H` 35, `GUTTER_W` 32, `TRACKS_VIEW_H` 200,
-handle width 6) which are drag math and screenshot-comparison surface, and
-**video-world values** which are project data.
+handle hit-width 6 unselected / 12 selected — see Chips → Trim handles) which are
+drag math and screenshot-comparison surface, and **video-world values** which are
+project data.
 
 **Timeline region.** The tracks sit in a fixed-height well (`TRACKS_VIEW_H` 200)
 that scrolls on both axes — vertical scroll is headroom for more-than-four tracks.
@@ -568,6 +569,58 @@ literally means "the connection is cut".
   `#1c5e3c` with `#6ee7b7` text (5.07); 0.35 / 0.45 stroke.
 - **Selected:** the marking-red ring in the dark theme (`--select-edge` `#c94f42`) and
   ink on paper; chips never gain a fill on selection.
+
+**Trim handles (Plan 11, supersedes the 2026-08-16 hover-only geometry).** The
+`.handle` rule is shared by all four trim-capable tracks — ClipBlock, AudioChip, the
+Timeline-rendered caption chip, and the overlay chip — so one CSS change moves every
+track at once; that sharing is the batch's deliberate leverage point, not an
+accident. Two states:
+
+- **Unselected:** unchanged from before — invisible by default (a permanently-visible
+  white bar at every clip boundary read as broken UI), 6px hit-width, fades in on
+  `.clipblk:hover` (`--tint-28`) and brightens further on direct `.handle:hover`
+  (`--tint-50`). This is the CapCut convention: hover the clip, then the edge.
+- **Selected — persistent, not hover-gated.** Selecting a clip means the user is
+  actively working it, so its handles are visible and grabbable immediately: 12px
+  hit-width **straddling the boundary**, not sitting inside it — 6px inside the chip,
+  6px overflowing outward. (A first cut grew the 12px entirely inward from the
+  boundary; on a narrow chip that crushed the remaining draggable body to ~4px, so
+  the outward-straddling split replaced it.) The overflow is computed at the call
+  site (`Timeline.tsx`'s `handleOffset`, mirrored in `ClipBlock.tsx`/`AudioChip.tsx`)
+  as an inline negative offset — the shared `.handle` rule only owns width and paint,
+  never position. A 2px grip mark (`--tint-50`, one step brighter than the `--tint-28`
+  handle fill) sits centered in the handle to read as "grabbable," not decorative.
+  **Narrow-clip overflow:** below 28px chip width, both selected handles overflow
+  outward and clear each other — they used to overlap and fight for the pointer.
+  **Selected chips also raise to `zIndex: 15`** (`ClipBlock.tsx`/`AudioChip.tsx`) so
+  the overflowing handles paint over neighboring chips instead of going underneath
+  them.
+- **Danger (source-limit) state:** when a main-track out-handle is dragged to the
+  clip's source-media limit (`probe.duration`, via `dragMath`'s max check), the
+  handle repaints in `--danger` — same geometry, only the fill and grip color change
+  (`.handle.danger`: `--tint-28`/`--tint-50` swapped for `color-mix(--danger, ...)`
+  at the same two alpha stops). It only ever applies to the out-handle; the in-handle
+  is unaffected. Pairs with the DragBadge showing `max` (below) so "can't pull this
+  further" has both a color and a text signal instead of silently clamping.
+
+**DragBadge.** One component, shared by every drag gesture on the timeline (trim and
+move alike — not a per-track widget), rendered at the Timeline's top layer rather
+than inside any chip, so it never inherits chip corner radius or fill. It follows the
+pointer/handle 1:1 with no CSS transition (the timeline's standing rule for anything
+under an active drag). Content is gesture-dependent: trims show `duration (±delta)`
+(e.g. `3.2s (−0.8s)`, switching to `m:ss` at 60s), moves show the clip's new start
+time; a trim pinned at the source limit appends `max`. It disappears on pointer-up —
+the badge is drag feedback, not a persistent readout.
+
+**Overlap lines (absolute-time tracks only — overlay/caption/audio).** When two
+items on the same track share time, a 2px `--danger` line is drawn along the
+overlapping sub-interval on the chip's top edge, `zIndex: 16` (one above the selected
+chip's 15, so the line always paints on top). Purely a visual nudge, not a block —
+overlap is sometimes intentional (BGM under a sound effect) — so it never disables
+the drag. It reads the **committed doc**, not the in-flight drag preview: during a
+drag the line stays where it was and only jumps to its new position on pointer-up.
+The main track is exempt — its ripple layout is structurally non-overlapping, so the
+check doesn't apply there.
 
 ### Chat composer & the user quote card
 

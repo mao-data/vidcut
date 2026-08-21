@@ -74,10 +74,10 @@
   {
     "id": "tl-anchor-offset",
     "file": "ui/src/timeline/Timeline.tsx",
-    "find": "          const offset = Number((d.preview.absStart - clipStart).toFixed(3));",
-    "replace": "          const offset = Number(d.preview.absStart.toFixed(3));",
+    "find": "            // 錨定式：換算回相對片段起點的 offset（保持跟隨片段；可為負＝先於片段出現）\n            const idx = doc.tracks.video.findIndex((c) => c.id === d.orig.anchorClipId);\n            const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;\n            const offset = Number((d.preview.absStart - clipStart).toFixed(3));",
+    "replace": "            // 錨定式：換算回相對片段起點的 offset（保持跟隨片段；可為負＝先於片段出現）\n            const idx = doc.tracks.video.findIndex((c) => c.id === d.orig.anchorClipId);\n            const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;\n            const offset = Number(d.preview.absStart.toFixed(3));",
     "tests": "ui/src/timeline/Timeline.test.tsx",
-    "note": "錨定 offset 忘了扣掉片段起點 → 錨定式疊圖斷言必須抓到（find 隨 main 拿掉 Math.max(0,…) 夾制而更新，offset 現在可為負＝疊圖先於片段出現）"
+    "note": "錨定 offset 忘了扣掉片段起點 → 錨定式疊圖斷言必須抓到（find 隨 main 拿掉 Math.max(0,…) 夾制而更新，offset 現在可為負＝疊圖先於片段出現）。Plan 11 Task 1 在 in 把手路徑複製了同一行 offset 算式（註解已說明「沿用上面 move 路徑同一套算式」），find 若只鎖那一行會在檔案裡命中兩次；Task 5 把 find/replace 都往前擴到含 move 分支專屬的那句註解（該註解只出現在 move 分支開頭），恢復唯一命中，鎖定的仍是同一顆 move 分支 mutant，語意不變。"
   },
   {
     "id": "tl-audio-trim-link",

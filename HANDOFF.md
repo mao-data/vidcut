@@ -170,7 +170,8 @@ spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/s
 **headless 截圖打通後（chromium --headless=new）親眼驗過**：版面/波形/字幕分頁/匯出鈕都正確渲染。過程中抓到並修掉一個真 bug：
 
 - **zustand v5 selector 禁止回傳新 reference**。`useProject((s) => s.doc?.tracks.captions ?? [])` 的 `?? []` 在 doc=null（每次冷載入）觸發同步無限重渲染 → React #185 → 整個 app 白屏。dev 分頁靠 HMR 熱更新遮住了它（更新時 doc 已非 null）。修法：fallback 用模組級常數（`NO_CAPTIONS`）。**以後寫 selector 一律不得在裡面創建新陣列/物件。**
-- 波形顯示用 sqrt 感知縮放（實測素材正規化振幅常 <0.3，線性會退化成細線）；trim handle 改 hover 才浮現。
+- 波形顯示用 sqrt 感知縮放（實測素材正規化振幅常 <0.3，線性會退化成細線）；trim handle 改 hover 才浮現
+  （2026-08-16 定案，**已被 Plan 11 取代**——選取項改常駐可見，見下方 Plan 11 節）。
 
 **仍待使用者驗收（體感類）**：動效手感（審核條/分頁/收合）、hover 細節、真素材上的波形觀感。舊專案想要 RMS 波形需重 ingest，不重跑也能用（單層）。
 ⬆️ 其中**收合/展開控制項的「可用性」已經不是未驗證項目了**：`npm run verify:panels`
@@ -226,6 +227,63 @@ filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（
   行為改寫（不是刪測試）；真瀏覽器 `npm run verify:canvas`／`verify:panels` 覆盤
   drag/snap/overlay 幾何——**兩支對 zoom 幾何改動零假設**，全綠且不需要改寫任何
   script 期望值（腳本本來就不依賴特定 pps 起始值，量的是相對幾何與畫布縮放矩陣）。
+
+## Plan 11：修剪直觀化批——CapCut 式 trim 手感,全軌道一致（2026-08-22）
+
+目標：修剪時「盲剪」（trim 從不呼叫 seek、拖曳中零數字回饋）、把手 hover 才現且
+窄片互疊、overlay/mograph 完全沒有把手、無 trim 鍵盤路徑、絕對時間軌重疊無提示
+——這五個缺口的根治。純 UI 批，**`server/` 全程零改動**（Task 1–4 對
+`git diff fa088b7..HEAD --stat -- server/` 已驗證為空，Task 5 覆核仍空）。
+
+- **播放器跟隨修剪邊**（Task 2）：trim 拖曳中 playhead 用 rAF 節流 seek 到被拖那條
+  邊的時間軸位置（in 把手＝clip 起點、out 把手＝clip 終點；audio/caption/overlay
+  同理）——`Timeline.tsx` 的 `scheduleFollow`/`trimFollowing`/`followRaf` 機制，一幀
+  最多一次 seek，永遠吃最新值。放手後 playhead 停在該邊、不彈回。暫停態才跟隨；
+  播放中開始 trim 先自動暫停。`trimFollowing` 旗標拖曳期間排除 playhead 進吸附候選
+  （不然 playhead 鏡射被拖的邊會自己吸自己、鎖住）。與 `verify:wysiwyg` 無涉（不碰
+  渲染管線）。此機制沿用既有的 caption span 拖曳（`mode: 'cap'`）本來就有的
+  `scheduleFollow` 呼叫，Task 1–4 只是把它從「caption 專用」擴大成四軌共用——不是
+  新發明一套節流。
+- **拖曳中數字 badge**（Task 2，新 `ui/src/timeline/DragBadge.tsx`）：浮動小標籤跟著
+  把手，內容 `時長 (±增減)`（如 `3.2s (−0.8s)`；≥60s 用 `m:ss`；主軌拖到來源上限
+  時附加 `max`）,move 拖曳顯示新起點時間。單一元件全軌道共用，繪製在 Timeline 頂層
+  （不進 chip 內）,不吃 CSS transition（拖曳中 1:1 跟手）,放手即消失。
+- **把手升級**（Task 1，變更 2026-08-16 hover-only 幾何定案）：選取的項目把手常駐
+  可見（不再 hover 才現）,命中區 6px→**選取項 12px、跨在片段邊界正中央**（chip 內
+  6px＋chip 外溢 6px,不是舊版「純向內長滿 12px」——那樣窄片可移動帶會被壓到只剩
+  ~4px）,中央疊 2px grip 紋提示可抓;窄片（chip 寬 <28px）選取後兩把手向外溢出、
+  互不重疊;選取 chip 同時抬升到 `zIndex: 15`,讓外溢的把手蓋在鄰近 chip 之上。
+  未選取項維持原 hover-only 行為不動。完整定案細節與 CSS 落點見
+  `ui/DESIGN.md`「Chips → Trim handles」——那裡是這條規則的權威來源。
+- **overlay/mograph 補 trim 把手**（Task 1）：與 caption chip 同款,沿用既有
+  `trimSpanIn`/`trimSpanOut` 純函數（anchor 模式 offset 換算沿用現行 move 的處理）。
+  「to end」overlay（`duration: null`）只有 in 把手,拖 out 把手時先落地為具體
+  duration（與 Inspector 的「到結尾」勾選互通）。命令仍是放手一發 `updateOverlay`。
+- **來源長度上限的視覺語言**（Task 3）：主軌 out 把手拖到 source 盡頭
+  （`probe.duration`,`dragMath` 既有 clamp 上補視覺）時,把手變 `--danger` 色
+  （geometry 不變,只覆蓋顏色）+ badge 顯示 `max`——「拉不動」從沉默變可見。
+- **`[`/`]` 鍵盤 trim**（Task 3）：把**選取項**的 in/out 修到目前 playhead（四種
+  軌道通用；主軌走 `trimIn`/`trimOut`,其餘走 `trimSpan` 系）,與既有 Q/W（ripple
+  刪除,動全時間軸）語意區隔清楚——`[`/`]` 只動選取項。無選取時 no-op；輸入框聚焦
+  時不觸發（`App.tsx` 鍵盤 handler）。Shortcuts 彈出層同步更新。
+- **同軌重疊視覺提示**（Task 4,絕對時間軌：overlay/caption/audio）：同軌兩項時間
+  重疊時,重疊子區間在 chip 頂緣畫 2px `--danger` 線（`zIndex: 16`,蓋過選取 chip 的
+  15）。純視覺,不阻擋操作——重疊有時是刻意的（如 BGM 疊音效）。讀的是**已提交的
+  doc**,不接拖曳中的預覽覆蓋：拖曳中這條線停在拖曳前的位置,放手後才跳到新位置
+  （純函數 `overlap.ts` 的 `overlapSegments`,memo 過)。主軌天生結構性 ripple 不會
+  重疊,不適用此檢查。
+- **sendContext 節流**（Task 5 覆核,非本批新增行為）：`App.tsx` 的
+  `sendContext`（回報 AI `get_editor_context` 用的編輯脈絡）訂閱 `usePlayback`/
+  `useSelection`,每次變動重設 150ms 防抖計時器。trim-follow 拖曳透過
+  `scheduleFollow`→`usePlayback.seek()` 觸發這條路徑,但 `seek()` 本身已被 rAF 節流
+  到一幀最多一次——這與拖曳中已存在的 caption span 拖曳走的是同一條防抖路徑,不是
+  這批新增的流量型態。真正不驅動這條路徑的是 clip move 拖曳（只動本地
+  `pointerX`/`rerender`,不碰 `usePlayback`/`useSelection`）,move 拖曳期間反而完全
+  不產生 `sendContext` 呼叫。
+- **驗證**：`npm run verify:panels`／`verify:canvas` 對這批把手幾何改動零假設,兩支
+  皆全綠、未改寫任何 script 期望值（把手改動沒有落在這兩支腳本量測的路徑上：
+  panels 驗的是面板收合/展開/下拉不重疊,canvas 驗的是 overlay 拖曳與畫布縮放矩陣,
+  皆不觸碰時間軸片段把手）。
 
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
