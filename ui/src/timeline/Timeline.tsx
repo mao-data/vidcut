@@ -433,6 +433,15 @@ export function Timeline() {
     if (!el) return;
     const onWheel = (e: globalThis.WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
+      // 終審 fix round：拖曳中絕不 zoom，同 auto-fit 的守門模式（Timeline.tsx
+      // `if (drag.current) return; // (c) 拖曳中絕不 fit`）。pointer capture 不會
+      // 壓下 scroll 容器上的 wheel 事件，ctrl/⌘+滾輪（或 macOS 觸控板 pinch，
+      // 合成帶 ctrlKey:true 的 wheel）中途換 pps 會讓 trim-in 的
+      // `deltaSec = pxToTime(e.clientX - d.startX, pps)` 用新 pps 誤讀舊 pps
+      // 量出的位移、把手瞬間跳離手指；`scrollLeftAtDragStart` 也是舊佈局下量的
+      // 像素值，換 pps 後跟新佈局對不上。拖曳中整個 wheel zoom 變 no-op（CapCut
+      // 同樣行為），不需要額外還原邏輯。
+      if (drag.current) return;
       e.preventDefault();
       const content = contentRef.current;
       if (!content) return;

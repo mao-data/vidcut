@@ -287,10 +287,11 @@ filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（
 
 ## Plan 12：前把手直接操縱批——主軌 trim-in 邊釘手指下、player 首幀即時跟（2026-08-21）
 
-目標：主軌前（in）把手拖曳時畫面內容跟著捲動、被拖的邊本身反而在螢幕上漂移
-（CapCut 等競品是「邊釘住不動、素材在邊後面讓位」）；player 在 trim-in 拖曳期間
-完全不跟——放手才看到新首幀；in=0（素材用盡）與 audio out 頂到來源長度上限都是
-silent clamp，沒有任何視覺信號。純 UI 批,**`server/` 全程零改動**（`git diff
+目標：修 Plan 11 收尾後仍殘留的三個缺口——主軌前（in）把手拖曳時畫面內容跟著
+捲動、被拖的邊本身反而在螢幕上漂移（CapCut 等競品是「邊釘住不動、素材在邊後面
+讓位」）；player 在 trim-in 拖曳期間完全不跟——放手才看到新首幀；in=0（素材用盡）
+與 audio out 頂到來源長度上限都是 silent clamp，沒有任何視覺信號。**這三個缺口
+的根治**（下方各條即交付後的現況）。純 UI 批,**`server/` 全程零改動**（`git diff
 aae6e75..HEAD --stat -- server/` 為空,含 Task 1–3；MCP 未觸及,不需同步 `mcp.ts`）。
 
 - **主軌 trim-in 捲動補償**（Task 1）：拖曳中每幀把 `scrollLeft` **絕對重算**成

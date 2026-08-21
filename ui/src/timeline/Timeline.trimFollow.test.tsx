@@ -871,6 +871,92 @@ describe('主軌 trim-in 捲動補償——邊釘手指下（Plan 12 Task 1，�
   });
 });
 
+describe('拖曳中 wheel zoom 守門（Plan 12 終審 fix round：ctrl/⌘+wheel 在拖曳中須為 no-op）', () => {
+  /**
+   * 終審發現：wheel listener 只檢查 ctrlKey/metaKey，沒檢查 drag.current。
+   * pointer capture 不會壓下 scroll 容器上的 wheel 事件，所以 trim 拖曳中
+   * Ctrl+滾輪（或 macOS 觸控板 pinch，合成帶 ctrlKey:true 的 wheel）仍能觸發
+   * `zoomBy`，把 pps 中途換掉——`deltaSec = pxToTime(e.clientX - d.startX, pps)`
+   * 用新 pps 去解讀舊 pps 量出的位移，把手瞬間跳離手指；`scrollLeftAtDragStart`
+   * 也是舊佈局下量的像素值，換了 pps 後跟新佈局對不上。修法與既有的 auto-fit
+   * 守門（`if (drag.current) return; // (c) 拖曳中絕不 fit`，Timeline.tsx:566）
+   * 同一個模式：拖曳中整個 wheel zoom 變 no-op（CapCut 同樣行為）。
+   */
+  function scroller(container: HTMLElement): HTMLDivElement {
+    const el = container.querySelector('div[style*="overflow: auto"]');
+    if (!el) throw new Error('scroller not found');
+    return el as HTMLDivElement;
+  }
+
+  it('主軌 trim-in 拖曳中：ctrlKey wheel 不改變 pps（no-op）', () => {
+    const { container } = render(<Timeline />);
+    const well = scroller(container);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    const before = useView.getState().pxPerSecond;
+    act(() => {
+      well.dispatchEvent(
+        new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(useView.getState().pxPerSecond).toBe(before);
+  });
+
+  it('主軌 trim-in 拖曳中：ctrlKey wheel 不影響 scrollLeft 補償基準（後續 move 算出的 scrollLeft 不受干擾）', () => {
+    const { container } = render(<Timeline />);
+    const well = scroller(container);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      well.dispatchEvent(
+        new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true }),
+      );
+    });
+    act(() => {
+      // +1s（40px，pps 仍是 40，wheel 沒改成功）：scrollLeft 應正常補償到 40
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(well.scrollLeft).toBe(40);
+  });
+
+  it('主軌 trim-in 拖曳中：ctrlKey wheel 不影響 badge 顯示的時長（游標不動，badge 值不該漂）', () => {
+    const { container } = render(<Timeline />);
+    const well = scroller(container);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true }); // dur 6→7
+    });
+    expect(container.textContent).toContain('7.0s (+1.0s)');
+    act(() => {
+      // 游標本身沒有移動，只是中途插入一次 ctrl+wheel——badge 不應該因為 pps
+      // 中途換掉而重算出不同的值（終審描述的具體症狀：7.0s→6.5s）
+      well.dispatchEvent(
+        new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(container.textContent).toContain('7.0s (+1.0s)');
+  });
+
+  it('控制組：沒有拖曳時，同一個 ctrlKey wheel 事件仍然會縮放（守門只擋拖曳中，不是關掉整個功能）', () => {
+    const { container } = render(<Timeline />);
+    const well = scroller(container);
+    const before = useView.getState().pxPerSecond;
+    act(() => {
+      well.dispatchEvent(
+        new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(useView.getState().pxPerSecond).toBeGreaterThan(before);
+  });
+});
+
 describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () => {
   it('trim-in 拖曳中，rAF flush 後 usePlayback.trimPreview 帶 clipId+新 in', () => {
     const { container } = render(<Timeline />);
