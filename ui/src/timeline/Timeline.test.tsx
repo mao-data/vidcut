@@ -251,6 +251,29 @@ describe('Timeline drags', () => {
       expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovToEnd', patch: { duration: 6 } }]);
     });
 
+    it('a to-end overlay: zero-movement out-handle click sends no command and leaves duration null (review round 1 Critical 2)', () => {
+      // 純點擊（pointerdown→move 同座標→pointerup，deltaSec===0）不該把 to-end
+      // 材料化——鏡射 in 把手的 null 保護。之前的實作在 deltaSec===0 時仍會算出
+      // 一個具體的 effectiveSpan，release guard（preview.span !== orig.span，
+      // number !== null）因此誤判成「有變化」而發出 updateOverlay。
+      const doc = demoProject();
+      doc.tracks.overlays.push({
+        id: 'ovToEnd',
+        imagePath: 'assets/lower.png',
+        start: 5,
+        duration: null,
+        position: { x: 0.5, y: 0.9, scale: 1 },
+      });
+      seedProject(doc);
+      const { container } = render(<Timeline />);
+      const [, right] = handles(chipByText(container, 'lower.png'));
+      drag(right!, 100, 100); // 零位移
+      expect(sent).toEqual([]);
+      expect(
+        useProject.getState().doc!.tracks.overlays.find((o) => o.id === 'ovToEnd')!.duration,
+      ).toBeNull();
+    });
+
     it('a to-end overlay in-handle drag works normally and does not materialize duration', () => {
       // in 把手只動 start，null duration 不受影響（「to end」語意仍是到片尾）
       const doc = demoProject();

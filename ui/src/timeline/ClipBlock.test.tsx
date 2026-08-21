@@ -287,7 +287,7 @@ describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', (
     expect(chip.className.split(' ')).toContain('selected');
   });
 
-  it('選取但寬片（>=28px）：把手仍貼齊邊界，不外溢', () => {
+  it('選取且寬片（>=28px）：12px 命中區跨在邊界正中央（6px 內+6px 外），不是貼齊邊界內縮（review round 1 Important 1）', () => {
     const p = demoProject();
     const { container } = render(
       <ClipBlock
@@ -304,8 +304,37 @@ describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', (
       />,
     );
     const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.style.left).toBe('0px');
-    expect(right!.style.right).toBe('0px');
+    // -6px：12px 寬的把手中心對齊邊界，一半（6px）留在 chip 內、一半溢出 chip 外——
+    // 若仍是「從 left:0 往內長 12px」（review 前的舊算式），這裡會是 0px，
+    // 28px 窄片的可移動帶就只剩 ~4px（Important 1 抓到的問題）。
+    expect(left!.style.left).toBe('-6px');
+    expect(right!.style.right).toBe('-6px');
+  });
+
+  it('選取且寬片：移動帶（chip 內側未被把手蓋住的區間）維持 [6, w-6]，跟未選取時同尺寸', () => {
+    const p = demoProject();
+    const w = 80; // 2s*40pps
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={{ ...p.tracks.video[0], duration: 2 }}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    // 把手內緣＝chip-relative 座標：left 把手內緣＝leftOffset+12(寬)＝-6+12=6；
+    // right 把手內緣＝w-(rightOffset+12)＝80-(-6+12)=74＝w-6。
+    const leftInnerEdge = parseFloat(left!.style.left) + 12;
+    const rightInnerEdge = w - (parseFloat(right!.style.right) + 12);
+    expect(leftInnerEdge).toBe(6);
+    expect(rightInnerEdge).toBe(w - 6);
   });
 
   it('選取且窄片（<28px）：兩把手向外溢出，互不重疊', () => {
@@ -352,5 +381,66 @@ describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', (
     const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
     expect(left!.style.left).toBe('0px');
     expect(right!.style.right).toBe('0px');
+  });
+
+  /**
+   * review round 1 Critical 1：主軌片段是頭尾相接的（無間隙），窄片選取後外溢的
+   * out 把手會伸進「下一個 DOM 序在後的 sibling」的地盤。沒有 z-index 抬升時，
+   * 那個後到的 sibling（實色底、不透明）會蓋在外溢把手上面，偷走 pointer 事件——
+   * 使用者點得到的其實是下一個片段的移動熱區，抓不到被蓋住的 out 把手。
+   *
+   * 這個 UI 是單選模型（selectedId，見 stores/selection.ts），所以修法是把「選取的
+   * 那一個」抬升到相鄰 chip 之上即可，不必處理多選同時抬升的情境。
+   *
+   * jsdom 沒有真的 layout/paint，`elementsFromPoint` 也未實作，量不到「滑鼠點下去
+   * 命中的是哪個元素」；能斷言、且直接對應到「為什麼會蓋住」這個因果的是：兩個
+   * chip 在同一個 DOM 父層（同一個 stacking context）裡，選取的那個 computed
+   * z-index 嚴格大於未選取那個——足以讓瀏覽器的疊層演算法把它排到後面那個 sibling
+   * 之上，不受 DOM 順序影響。
+   */
+  it('相鄰窄片：選取的那個 z-index 抬升到未選取 sibling 之上（Critical 1）', () => {
+    const p = demoProject();
+    // 兩段窄 clip（各 20px < 28px 門檻），並排渲染在同一個容器（同一個 stacking
+    // context），模擬主軌頭尾相接、後一個 sibling 會在 DOM 順序上蓋在前一個之上。
+    const clipA = { ...p.tracks.video[0], id: 'nA', duration: 0.5 };
+    const clipB = { ...p.tracks.video[0], id: 'nB', duration: 0.5 };
+    const { container } = render(
+      <div>
+        <ClipBlock
+          p={p}
+          clip={clipA}
+          leftPx={0}
+          pps={40}
+          selected={true}
+          animate={false}
+          floating={false}
+          onTrimStart={noop}
+          onMoveStart={noop}
+          onSelect={noop}
+        />
+        <ClipBlock
+          p={p}
+          clip={clipB}
+          leftPx={20}
+          pps={40}
+          selected={false}
+          animate={false}
+          floating={false}
+          onTrimStart={noop}
+          onMoveStart={noop}
+          onSelect={noop}
+        />
+      </div>,
+    );
+    const chips = Array.from(container.querySelectorAll<HTMLElement>('.clipblk'));
+    expect(chips).toHaveLength(2);
+    const [selectedChip, unselectedChip] = chips;
+    const selectedZ = Number(selectedChip!.style.zIndex);
+    const unselectedZ =
+      unselectedChip!.style.zIndex === '' ? 0 : Number(unselectedChip!.style.zIndex);
+    expect(selectedChip!.className).toContain('selected');
+    expect(selectedZ).toBeGreaterThan(unselectedZ);
+    // 低於 floating（拖曳中）的 20——正在拖的那個永遠最上面，不被選取態蓋過。
+    expect(selectedZ).toBeLessThan(20);
   });
 });

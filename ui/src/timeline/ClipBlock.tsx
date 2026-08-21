@@ -48,12 +48,16 @@ export const ClipBlock = memo(function ClipBlock({
 }) {
   const media = p.media.find((m) => m.id === clip.mediaId);
   const w = timeToPx(clip.duration, pps);
-  // Plan 11 Task 1（範圍裁決 3c）：窄片（<28px）選取後把手要外溢出 chip 邊界才抓得到，
-  // 兩把手各自外推到讓 12px 命中區彼此不重疊（各推出「缺口的一半」，缺口=28-w）。
-  // 未選取或寬片時維持貼齊（inline `left:0`/`right:0`，行為不變）。
+  // Plan 11 Task 1（範圍裁決 3b/3c，review round 1 Important 1 修正）：算式與
+  // Timeline.tsx 的 `handleOffset` 同款（三處手動同步——ClipBlock／AudioChip／
+  // Timeline 的 caption+overlay chip，改一處記得改另外兩處）：選取態命中區 12px
+  // 跨邊界置中（基準 -6），窄片（<28px）再疊加向外推的量，讓移動帶維持 [6, w-6]
+  // 不縮水。未選取維持貼齊（inline `left:0`/`right:0`，行為不變）。
   const NARROW_THRESHOLD = 28;
-  const overflowOffset =
-    selected && w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0;
+  const SELECTED_HANDLE_W = 12;
+  const overflowOffset = selected
+    ? -SELECTED_HANDLE_W / 2 + (w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0)
+    : 0;
   // 2026-08-16 使用者定案:主軌**不顯示**波形帶,filmstrip 吃滿列高。
   // 波形機制(clipWave 查表/--wave-clip-* token/繪製器)完整保留——音訊軌仍用,
   // 要復原只需掛回 canvas+draw effect(參考 AudioChip.tsx 的現行寫法)。
@@ -106,6 +110,12 @@ export const ClipBlock = memo(function ClipBlock({
         // （它有自己的 overflow:hidden + 同樣的 borderRadius），這裡改成 visible
         // 純粹是為了讓把手（與其外溢的 negative left/right）不被裁掉。
         overflow: 'visible',
+        // review round 1 Critical 1：選取態抬升到相鄰 chip 之上，這樣窄片外溢的
+        // out 把手（負 right，蓋到下一個 DOM 序在後的 sibling 頭上）才不會被那個
+        // sibling 的實色底吃走 pointer 事件——這個 UI 是單選（selectedId 模型，見
+        // stores/selection.ts），永遠最多一個 chip 需要抬升，不會有兩個 15 互搶。
+        // 低於 floating 的 20（正在拖曳的那個永遠最上面）。
+        zIndex: selected ? 15 : undefined,
         cursor: floating ? 'grabbing' : 'grab',
         background: 'var(--card)',
         // 選取＝紅蠟筆圈起來的那一格（--select-edge）。刻意不吃 --accent：

@@ -693,6 +693,12 @@ export function Timeline() {
             span: d.orig.span === null ? null : rightEdge - absStart,
           };
           setSnapLine(snapped !== raw.start ? absStart : null);
+        } else if (d.orig.span === null && deltaSec === 0) {
+          // review round 1 Critical 2：zero-movement pointerdown→up（單純點擊 out
+          // 把手，沒有真的拖）不該把 to-end overlay 材料化——鏡射 in 把手的 null
+          // 保護。真的有位移才往下算出具體數字（見下面 else 分支）。
+          d.preview = { absStart: d.orig.absStart, span: null };
+          setSnapLine(null);
         } else {
           const raw = trimSpanOut({ duration: effectiveSpan }, deltaSec);
           const snappedEdge = maybeSnap(d.orig.absStart + raw.duration);
@@ -937,13 +943,26 @@ export function Timeline() {
     cursor: 'pointer',
   };
   /**
-   * Plan 11 Task 1（範圍裁決 3c）：窄片（<28px）選取後把手外溢座標，caption／overlay
-   * chip 共用同一個門檻與算式（ClipBlock／AudioChip 各自持有一份同款的，因為那兩個
-   * 是獨立元件檔；這裡是 Timeline 內部直接畫 DOM，就地算即可）。
+   * Plan 11 Task 1（範圍裁決 3b/3c，review round 1 Important 1 修正）：
+   * caption／overlay chip 共用同一個門檻與算式（ClipBlock／AudioChip 各自持有一份
+   * 同款的——見那兩個檔案裡同名常數旁的註解，三處手動保持同步；這裡是 Timeline
+   * 內部直接畫 DOM，就地算即可）。
+   *
+   * 選取態命中區＝12px **跨在邊界正中央**（6px 在 chip 內、6px 在 chip 外），不是
+   * 從邊界往內長 12px——round 1 Important 1 抓到舊版「12px 從 left:0 往內長」會把
+   * 28px 窄片的可移動帶壓成 ~4px。基準偏移固定 -6（把 12px 寬的把手中心對齊邊界），
+   * 窄片（<28px）時再疊加向外推的量（算式與 review 前相同，只是現在疊加在 -6 基準
+   * 上，不是疊加在 0 上）——這樣「移動帶＝chip 內側 [6, w-6]」永遠不變，跟未選取時
+   * 的 [6, w-6] 完全同尺寸，符合「move band 回到今天的大小」的裁決。
    */
   const NARROW_THRESHOLD = 28;
-  const handleOffset = (w: number, isSel: boolean): number =>
-    isSel && w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0;
+  const SELECTED_HANDLE_W = 12;
+  const handleOffset = (w: number, isSel: boolean): number => {
+    if (!isSel) return 0;
+    const centered = -SELECTED_HANDLE_W / 2; // 邊界跨中：一半在內、一半在外
+    const narrowPush = w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0;
+    return centered + narrowPush;
+  };
 
   /**
    * 軌頭欄的一格。高度與 borderBottom 必須跟右邊對應那一列**逐位元組相同**，
@@ -1201,8 +1220,12 @@ export function Timeline() {
                         ...(of.delay != null ? { animationDelay: `${of.delay}ms` } : {}),
                         left: timeToPx(win.start, pps),
                         width: ovWidthPx,
-                        // Plan 11 Task 1（範圍裁決 3c）：窄片選取時把手要溢出，這層不能再裁掉它
+                        // Plan 11 Task 1（範圍裁決 3c）：選取時把手要溢出（置中命中區
+                        // 恆有 6px 溢出，窄片再更多），這層不能再裁掉它
                         ...(ovOffset !== 0 ? { overflow: 'visible' } : null),
+                        // review round 1 Critical 1：選取態抬升到相鄰 chip 之上，
+                        // 理由同 ClipBlock（單選模型，最多一個 chip 需要抬升）。
+                        zIndex: isSel ? 15 : undefined,
                         color: 'var(--ok-text)',
                         background: 'var(--ok-chip-bg)', // 實色底(2026-08-16:chip 不透底)
                         boxShadow: isSel
@@ -1268,8 +1291,11 @@ export function Timeline() {
                       ...(cf.delay != null ? { animationDelay: `${cf.delay}ms` } : {}),
                       left: timeToPx(view.start, pps),
                       width: capWidthPx,
-                      // Plan 11 Task 1（範圍裁決 3c）：窄片選取時把手要溢出，這層不能再裁掉它
+                      // Plan 11 Task 1（範圍裁決 3c）：選取時把手要溢出，這層不能再裁掉它
                       ...(capOffset !== 0 ? { overflow: 'visible' } : null),
+                      // review round 1 Critical 1：選取態抬升到相鄰 chip 之上，
+                      // 理由同 ClipBlock（單選模型，最多一個 chip 需要抬升）。
+                      zIndex: isSel ? 15 : undefined,
                       // chip 專屬文字階(--accent-text 在加濃底上不足 4.5,見 theme.css)
                       color: 'var(--accent-chip-text)',
                       background: 'var(--accent-chip-bg)', // 實色底(2026-08-16:chip 不透底)

@@ -2163,10 +2163,14 @@ a {
 .clipblk .handle:hover {
   background: var(--tint-50);
 }
-/* 選取態：常駐可見＋命中區放大到 12px（範圍裁決 3b）。背景用 --tint-28（與 hover
- * 淡入同一階，不發明新色）；中央疊一條 grip 紋（--tint-50，比背景更亮一階）表示
- * 「這是可以抓的把手」，不是裝飾線——寬度固定 2px、高度吃滿，`background-clip:
- * content-box` 讓它畫在 handle 正中央而不必額外算 left。 */
+/* 選取態：常駐可見＋命中區放大到 12px（範圍裁決 3b，review round 1 Important 1
+ * 修正：12px **跨在片段邊界正中央**，6px 在 chip 內、6px 在 chip 外——不是舊版
+ * 「從邊界往內長滿 12px」，那樣會把窄片的可移動帶壓到只剩 ~4px。外溢的那 6px
+ * 靠使用端 inline `left`/`right` 的偏移算出（Timeline.tsx 的 `handleOffset`／
+ * ClipBlock.tsx／AudioChip.tsx 的同款算式），這條規則只負責寬度與視覺，不管位置。
+ * 背景用 --tint-28（與 hover 淡入同一階，不發明新色）；中央疊一條 grip 紋
+ * （--tint-50，比背景更亮一階）表示「這是可以抓的把手」，不是裝飾線——寬度固定
+ * 2px、`left:5px` 相對 handle 自身置中，與 handle 的絕對頁面位置無關。 */
 .clipblk.selected .handle {
   width: 12px;
   background: var(--tint-28);

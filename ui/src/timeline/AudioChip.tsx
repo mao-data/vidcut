@@ -32,10 +32,14 @@ export const AudioChip = memo(function AudioChip({
   const peaks = useWaveform(media?.peaksPath);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const w = timeToPx(a.duration, pps);
-  // Plan 11 Task 1（範圍裁決 3c）：同 ClipBlock 的窄片外溢算式，四端共用同一個門檻。
+  // Plan 11 Task 1（範圍裁決 3b/3c，review round 1 Important 1 修正）：同
+  // ClipBlock／Timeline 的 `handleOffset` 算式（三處手動同步，見 ClipBlock.tsx
+  // 同名常數旁的註解）——選取態命中區 12px 跨邊界置中，窄片再疊加外推量。
   const NARROW_THRESHOLD = 28;
-  const overflowOffset =
-    selected && w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0;
+  const SELECTED_HANDLE_W = 12;
+  const overflowOffset = selected
+    ? -SELECTED_HANDLE_W / 2 + (w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0)
+    : 0;
   // 理由同 ClipBlock：canvas 不吃 CSS 變數，主題換了要自己重畫
   const theme = useTheme((s) => s.theme);
 
@@ -61,6 +65,9 @@ export const AudioChip = memo(function AudioChip({
         // Plan 11 Task 1（範圍裁決 3c）：不再裁 overflow——canvas 本身用 inset:0，
         // 不會超出 chip 邊界，圓角裁切不靠這層；讓出空間給選取窄片時外溢的把手。
         overflow: 'visible',
+        // review round 1 Critical 1：同 ClipBlock，選取態抬升到相鄰 chip 之上
+        // （這條軌沒有 floating 拖曳態的 20，15 已經是這裡的最高值）。
+        zIndex: selected ? 15 : undefined,
         cursor: 'grab',
         // 實色底(2026-08-16 使用者定案:時間軸 chip 不透底),值見 theme.css 的 chip-bg 註解
         background: 'var(--audio-chip-bg)',
