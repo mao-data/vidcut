@@ -238,3 +238,119 @@ describe('ClipBlock filmstrip：windowing（視窗外格不進 DOM）', () => {
     expect(minRight).toBeGreaterThan(minLeft);
   });
 });
+
+/**
+ * Plan 11 Task 1（裁決 3）：選取項把手常駐 + 命中區放大 + 窄片外溢。
+ * `.handle` 是 ClipBlock／AudioChip／Timeline 字幕軌／overlay 軌四端共用的規則
+ * （theme.css），選取態靠 chip 的 `selected` class 觸發（不是 inline style），
+ * 這裡只驗證 ClipBlock 有沒有把 `selected` prop 正確轉成那個 class、以及窄片時
+ * 有沒有算出外溢座標。
+ */
+describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', () => {
+  it('未選取：chip 沒有 selected class（維持現行 hover-only 行為）', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={p.tracks.video[0]}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const chip = container.querySelector('.clipblk')!;
+    expect(chip.className.split(' ')).not.toContain('selected');
+  });
+
+  it('選取：chip 帶 selected class（.handle 常駐可見/命中區放大靠這個 class 觸發）', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={p.tracks.video[0]}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const chip = container.querySelector('.clipblk')!;
+    expect(chip.className.split(' ')).toContain('selected');
+  });
+
+  it('選取但寬片（>=28px）：把手仍貼齊邊界，不外溢', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={{ ...p.tracks.video[0], duration: 2 }} // 2s*40pps=80px，遠大於 28px
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.style.left).toBe('0px');
+    expect(right!.style.right).toBe('0px');
+  });
+
+  it('選取且窄片（<28px）：兩把手向外溢出，互不重疊', () => {
+    const p = demoProject();
+    // duration 0.5s * pps 40 = 20px < 28px
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={{ ...p.tracks.video[0], duration: 0.5 }}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    // 外溢＝負偏移（不再是貼齊的 0px）
+    const leftPx = parseFloat(left!.style.left);
+    const rightPx = parseFloat(right!.style.right);
+    expect(leftPx).toBeLessThan(0);
+    expect(rightPx).toBeLessThan(0);
+  });
+
+  it('未選取窄片：即使寬度 <28px 也不外溢（外溢只在選取時發生）', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={{ ...p.tracks.video[0], duration: 0.5 }}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.style.left).toBe('0px');
+    expect(right!.style.right).toBe('0px');
+  });
+});

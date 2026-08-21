@@ -2134,9 +2134,17 @@ a {
 
 /* 時間軸 trim handle：預設隱形（常駐白條在片段交界看起來像破圖），
  * hover 到片段才浮現、直接 hover 到 handle 最亮（CapCut 慣例）。
- * 寬 6 是**拖曳熱區**（四個使用端 ClipBlock／AudioChip／Timeline 字幕軌左右緣共用同一個
- * 數字），不是留白——動它會改變使用者抓得到 trim 的範圍。左右哪一邊由使用端的
- * inline `left: 0` / `right: 0` 決定，那是位置、留在元件裡。 */
+ * 寬 6 是**拖曳熱區**（四個使用端 ClipBlock／AudioChip／Timeline 字幕軌／overlay 軌
+ * 左右緣共用同一個數字），不是留白——動它會改變使用者抓得到 trim 的範圍。左右哪一邊
+ * 由使用端的 inline `left: 0` / `right: 0` 決定，那是位置、留在元件裡。
+ *
+ * Plan 11 Task 1（範圍裁決 3⚠️，變更 2026-08-16 幾何定案，已向使用者揭示）：
+ * **選取的項目把手常駐可見**，不再靠 hover——選取即代表「使用者正在處理這個項目」，
+ * 這時把手應該立刻看得到、抓得到，不必先 hover 到片段。未選取項維持原行為不動。
+ * 觸發方式是 chip 的 `selected` class（`.clipblk.selected`），不是新 prop 傳給
+ * `.handle` 本身——四個使用端（ClipBlock／AudioChip／Timeline 的 caption／overlay
+ * chip）本來就已經在 className 上組字串，加一個 class 是最小改動，且讓 `.handle`
+ * 這條共用規則繼續共用（這正是本批要利用的槓桿）。 */
 .handle {
   position: absolute;
   top: 0;
@@ -2145,12 +2153,35 @@ a {
   cursor: ew-resize;
   z-index: 2;
   background: transparent;
-  transition: background 0.12s ease;
+  transition:
+    background 0.12s ease,
+    width 0.12s ease;
 }
 .clipblk:hover .handle {
   background: var(--tint-28);
 }
 .clipblk .handle:hover {
+  background: var(--tint-50);
+}
+/* 選取態：常駐可見＋命中區放大到 12px（範圍裁決 3b）。背景用 --tint-28（與 hover
+ * 淡入同一階，不發明新色）；中央疊一條 grip 紋（--tint-50，比背景更亮一階）表示
+ * 「這是可以抓的把手」，不是裝飾線——寬度固定 2px、高度吃滿，`background-clip:
+ * content-box` 讓它畫在 handle 正中央而不必額外算 left。 */
+.clipblk.selected .handle {
+  width: 12px;
+  background: var(--tint-28);
+}
+.clipblk.selected .handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--tint-50);
+}
+.clipblk.selected .handle:hover {
   background: var(--tint-50);
 }
 

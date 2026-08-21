@@ -32,6 +32,10 @@ export const AudioChip = memo(function AudioChip({
   const peaks = useWaveform(media?.peaksPath);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const w = timeToPx(a.duration, pps);
+  // Plan 11 Task 1（範圍裁決 3c）：同 ClipBlock 的窄片外溢算式，四端共用同一個門檻。
+  const NARROW_THRESHOLD = 28;
+  const overflowOffset =
+    selected && w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0;
   // 理由同 ClipBlock：canvas 不吃 CSS 變數，主題換了要自己重畫
   const theme = useTheme((s) => s.theme);
 
@@ -43,7 +47,7 @@ export const AudioChip = memo(function AudioChip({
 
   return (
     <div
-      className={'clipblk' + fx}
+      className={'clipblk' + (selected ? ' selected' : '') + fx}
       onPointerDown={(e) => onDragStart(e, a, 'move')}
       title={`${a.label ?? a.mediaId} vol=${a.volume}${a.ducking ? ' (ducking)' : ''}`}
       style={{
@@ -54,7 +58,9 @@ export const AudioChip = memo(function AudioChip({
         height: AUDIO_ROW_H - 4,
         top: 2,
         borderRadius: 6,
-        overflow: 'hidden',
+        // Plan 11 Task 1（範圍裁決 3c）：不再裁 overflow——canvas 本身用 inset:0，
+        // 不會超出 chip 邊界，圓角裁切不靠這層；讓出空間給選取窄片時外溢的把手。
+        overflow: 'visible',
         cursor: 'grab',
         // 實色底(2026-08-16 使用者定案:時間軸 chip 不透底),值見 theme.css 的 chip-bg 註解
         background: 'var(--audio-chip-bg)',
@@ -70,12 +76,13 @@ export const AudioChip = memo(function AudioChip({
           inset: 0,
           width: '100%',
           height: '100%',
+          borderRadius: 6,
           pointerEvents: 'none',
         }}
       />
       <div
         className="handle"
-        style={{ left: 0 }}
+        style={{ left: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onDragStart(e, a, 'in');
@@ -83,7 +90,7 @@ export const AudioChip = memo(function AudioChip({
       />
       <div
         className="handle"
-        style={{ right: 0 }}
+        style={{ right: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onDragStart(e, a, 'out');

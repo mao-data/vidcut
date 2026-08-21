@@ -181,6 +181,94 @@ describe('Timeline drags', () => {
     expect(chipByText(container, 'badge.png').style.left).toBe(`${4.5 * PPS}px`);
   });
 
+  /**
+   * Plan 11 Task 1（裁決 4）：overlay 補上與 caption chip 同款的 trim 把手，
+   * 拖曳純函數沿用既有的 trimSpanIn/trimSpanOut；anchor 模式的 offset 換算
+   * 沿用現行 move 路徑（見上面 `anchored overlay drag sends an offset` 那組）。
+   */
+  describe('overlay trim handles (Plan 11 Task 1，裁決 4)', () => {
+    it('overlay chip has two trim handles (same idiom as caption chip)', () => {
+      const { container } = render(<Timeline />);
+      expect(handles(chipByText(container, 'title.png'))).toHaveLength(2);
+    });
+
+    it('overlay in-handle trim moves start, keeps the right edge fixed', () => {
+      const { container } = render(<Timeline />);
+      // ovAbs: start=1 duration=3（右緣 4）；in 把手 +1s → start 2, duration 4-2=2
+      const [left] = handles(chipByText(container, 'title.png'));
+      drag(left!, 100, 140);
+      expect(sent).toEqual([
+        { name: 'updateOverlay', id: 'ovAbs', patch: { start: 2, duration: 2 } },
+      ]);
+    });
+
+    it('overlay out-handle trim changes only duration, start stays put', () => {
+      const { container } = render(<Timeline />);
+      // ovAbs: duration 3 → 4，start 不變
+      const [, right] = handles(chipByText(container, 'title.png'));
+      drag(right!, 100, 140);
+      expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovAbs', patch: { duration: 4 } }]);
+    });
+
+    it('anchored overlay in-handle trim re-expresses the new start as an offset (mirrors move)', () => {
+      const { container } = render(<Timeline />);
+      // ovAnchor：錨在 c2（起點 6s），offset .5 → 絕對 6.5，duration 2（右緣 8.5）
+      // in 把手 +1s → 絕對 start 7.5，duration 8.5-7.5=1 → offset = 7.5-6 = 1.5
+      const [left] = handles(chipByText(container, 'badge.png'));
+      drag(left!, 100, 140);
+      expect(sent).toEqual([
+        {
+          name: 'updateOverlay',
+          id: 'ovAnchor',
+          patch: { anchor: { clipId: 'c2', offset: 1.5 }, duration: 1 },
+        },
+      ]);
+    });
+
+    it('anchored overlay out-handle trim only sends duration (offset untouched)', () => {
+      const { container } = render(<Timeline />);
+      // out 把手 +1s → duration 2 → 3，anchor 不變
+      const [, right] = handles(chipByText(container, 'badge.png'));
+      drag(right!, 100, 140);
+      expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovAnchor', patch: { duration: 3 } }]);
+    });
+
+    it('a to-end overlay (duration=null) only shows an out-handle behavior that materializes duration', () => {
+      // ovToEnd：start=5，duration=null（到片尾，總長 10s → window 5–10）。
+      // 拖 out 把手 +1s：從「目前有效 duration」(10-5=5) 出發長成具體的 6。
+      const doc = demoProject();
+      doc.tracks.overlays.push({
+        id: 'ovToEnd',
+        imagePath: 'assets/lower.png',
+        start: 5,
+        duration: null,
+        position: { x: 0.5, y: 0.9, scale: 1 },
+      });
+      seedProject(doc);
+      const { container } = render(<Timeline />);
+      const [, right] = handles(chipByText(container, 'lower.png'));
+      drag(right!, 100, 140);
+      expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovToEnd', patch: { duration: 6 } }]);
+    });
+
+    it('a to-end overlay in-handle drag works normally and does not materialize duration', () => {
+      // in 把手只動 start，null duration 不受影響（「to end」語意仍是到片尾）
+      const doc = demoProject();
+      doc.tracks.overlays.push({
+        id: 'ovToEnd',
+        imagePath: 'assets/lower.png',
+        start: 5,
+        duration: null,
+        position: { x: 0.5, y: 0.9, scale: 1 },
+      });
+      seedProject(doc);
+      const { container } = render(<Timeline />);
+      const [left] = handles(chipByText(container, 'lower.png'));
+      drag(left!, 100, 140); // start 5 → 6
+      expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovToEnd', patch: { start: 6 } }]);
+    });
+  });
+
   it('clip trim-out sends updateClip with the new duration', () => {
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');
@@ -329,5 +417,56 @@ describe('Timeline drags', () => {
     expect(cmd.overlay.text).toMatchObject({ text: 'New text' });
     expect(cmd.overlay.start).toBe(2);
     expect(useSelection.getState().selected).toEqual({ kind: 'overlay', id: cmd.overlay.id });
+  });
+});
+
+/**
+ * Plan 11 Task 1（裁決 3a）：選取項把手常駐可見——四種軌道（caption/audio/overlay）
+ * 都靠同一個 `selected` class 觸發（.handle 規則共用，theme.css）。ClipBlock 已有
+ * 專門的單元測試（見 ClipBlock.test.tsx），這裡只補 Timeline 層級把 `selected` 狀態
+ * 正確轉成 caption/audio/overlay chip 的 class 這件事——回歸盔甲，避免漏了某一種軌道。
+ */
+describe('Timeline 選取項把手常駐 class（Plan 11 Task 1）', () => {
+  beforeEach(() => {
+    resetStores();
+    useView.setState({ pxPerSecond: PPS, snapEnabled: false });
+    seedProject();
+    sent = [];
+    vi.spyOn(ws, 'sendCommand').mockImplementation((c: Command) => {
+      sent.push(c);
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('未選取的 caption/audio/overlay chip 都沒有 selected class', () => {
+    const { container } = render(<Timeline />);
+    expect(chipByText(container, 'first line').className.split(' ')).not.toContain('selected');
+    expect(chipByText(container, 'bgm').className.split(' ')).not.toContain('selected');
+    expect(chipByText(container, 'title.png').className.split(' ')).not.toContain('selected');
+  });
+
+  it('選取 caption chip 後帶 selected class，其餘不受影響', () => {
+    const { container } = render(<Timeline />);
+    act(() => {
+      useSelection.getState().select({ kind: 'caption', id: 'cap1' });
+    });
+    expect(chipByText(container, 'first line').className.split(' ')).toContain('selected');
+    expect(chipByText(container, 'bgm').className.split(' ')).not.toContain('selected');
+  });
+
+  it('選取 audio chip 後帶 selected class', () => {
+    const { container } = render(<Timeline />);
+    act(() => {
+      useSelection.getState().select({ kind: 'audio', id: 'a1' });
+    });
+    expect(chipByText(container, 'bgm').className.split(' ')).toContain('selected');
+  });
+
+  it('選取 overlay chip 後帶 selected class', () => {
+    const { container } = render(<Timeline />);
+    act(() => {
+      useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
+    });
+    expect(chipByText(container, 'title.png').className.split(' ')).toContain('selected');
   });
 });

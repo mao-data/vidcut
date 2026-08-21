@@ -141,11 +141,15 @@ type DragState =
     }
   | {
       mode: 'ov';
+      /** move＝平移；in/out＝Plan 11 Task 1（裁決 4）補的 trim 把手 */
+      edge: 'move' | 'in' | 'out';
       id: string;
       startX: number;
-      /** 拖曳期間以絕對時間顯示；錨定式放手時換算回 offset */
+      /** 拖曳期間以絕對時間顯示；錨定式放手時換算回 offset。
+       * span 與 orig 同放：null＝to-end overlay（duration:null），只有 out 把手
+       * 拖曳才會把它落地成具體數字（見 onPointerUp 的 'ov' 分支）。 */
       orig: { absStart: number; span: number | null; anchorClipId?: string };
-      preview: { absStart: number };
+      preview: { absStart: number; span: number | null };
     }
   | null;
 export function Timeline() {
@@ -174,7 +178,13 @@ export function Timeline() {
         id: string;
         absStart: number;
         span: number | null;
-        match: { kind: 'start'; v: number } | { kind: 'offset'; clipId: string; v: number };
+        match:
+          | { kind: 'start'; v: number }
+          | { kind: 'offset'; clipId: string; v: number }
+          /** trim 只送 duration，start/anchor 沒變、不必比對它們 */
+          | { kind: 'duration' };
+        /** trim 落地的新 duration（null＝to-end，未被 out 把手動過） */
+        duration: number | null;
       }
     | { mode: 'clip-trim'; clipId: string; in: number; duration: number }
     | { mode: 'clip-order'; order: string[] }
@@ -470,9 +480,13 @@ export function Timeline() {
           case 'ov': {
             const o = doc.tracks.overlays.find((x) => x.id === pd.id);
             if (!o) return true;
-            return pd.match.kind === 'start'
-              ? o.start === pd.match.v
-              : o.anchor?.clipId === pd.match.clipId && o.anchor?.offset === pd.match.v;
+            const posMatch =
+              pd.match.kind === 'start'
+                ? o.start === pd.match.v
+                : pd.match.kind === 'offset'
+                  ? o.anchor?.clipId === pd.match.clipId && o.anchor?.offset === pd.match.v
+                  : true; // 'duration'：trim 沒動 start/anchor，不比對位置
+            return posMatch && o.duration === pd.duration;
           }
           case 'clip-trim': {
             const c = doc.tracks.video.find((x) => x.id === pd.clipId);
@@ -539,23 +553,18 @@ export function Timeline() {
     drag.current = { mode: 'cap', edge, id, startX: e.clientX, orig, preview: { ...orig } };
   };
 
-  const onOvDrag = (e: PointerEvent, id: string) => {
+  const onOvDrag = (e: PointerEvent, id: string, edge: 'move' | 'in' | 'out' = 'move') => {
     const o = doc.tracks.overlays.find((x) => x.id === id);
     const win = o && overlayWindow(doc, o);
     if (!o || !win) return;
     capture(e);
     useSelection.getState().select({ kind: 'overlay', id });
-    drag.current = {
-      mode: 'ov',
-      id,
-      startX: e.clientX,
-      orig: {
-        absStart: win.start,
-        span: o.duration === null ? null : win.end - win.start,
-        ...(o.anchor ? { anchorClipId: o.anchor.clipId } : {}),
-      },
-      preview: { absStart: win.start },
+    const orig = {
+      absStart: win.start,
+      span: o.duration === null ? null : win.end - win.start,
+      ...(o.anchor ? { anchorClipId: o.anchor.clipId } : {}),
     };
+    drag.current = { mode: 'ov', edge, id, startX: e.clientX, orig, preview: { ...orig } };
   };
 
   /**
@@ -662,7 +671,36 @@ export function Timeline() {
       }
       rerender();
     } else if (d.mode === 'ov') {
-      d.preview = { absStart: clampStart(snapSpan(d.orig.absStart + deltaSec, d.orig.span)) };
+      if (d.edge === 'move') {
+        d.preview = {
+          absStart: clampStart(snapSpan(d.orig.absStart + deltaSec, d.orig.span)),
+          span: d.orig.span,
+        };
+      } else {
+        // trim（範圍裁決 4）：與 caption chip 同款，直接借 trimSpanIn/trimSpanOut。
+        // to-end overlay（span===null）的「目前有效時長」＝總長減 absStart——
+        // in 把手用它算右緣但不落地 duration（preview.span 維持 null）；
+        // out 把手以它為起點把 duration 落地成具體數字（材料化）。
+        const effectiveSpan = d.orig.span ?? totalDuration(doc) - d.orig.absStart;
+        if (d.edge === 'in') {
+          const raw = trimSpanIn({ start: d.orig.absStart, duration: effectiveSpan }, deltaSec);
+          const rightEdge = d.orig.absStart + effectiveSpan;
+          const snapped = maybeSnap(raw.start);
+          const absStart = Math.max(0, Math.min(snapped, rightEdge - MIN_CLIP_DURATION));
+          d.preview = {
+            absStart,
+            // to-end 維持 null（in 把手不落地 duration，語意仍是「到片尾」）
+            span: d.orig.span === null ? null : rightEdge - absStart,
+          };
+          setSnapLine(snapped !== raw.start ? absStart : null);
+        } else {
+          const raw = trimSpanOut({ duration: effectiveSpan }, deltaSec);
+          const snappedEdge = maybeSnap(d.orig.absStart + raw.duration);
+          const span = Math.max(MIN_CLIP_DURATION, snappedEdge - d.orig.absStart);
+          d.preview = { absStart: d.orig.absStart, span };
+          setSnapLine(span !== raw.duration ? d.orig.absStart + span : null);
+        }
+      }
       rerender();
     }
   };
@@ -713,34 +751,96 @@ export function Timeline() {
         });
       }
     } else if (d.mode === 'ov') {
-      if (d.preview.absStart !== d.orig.absStart) {
-        if (d.orig.anchorClipId) {
-          // 錨定式：換算回相對片段起點的 offset（保持跟隨片段；可為負＝先於片段出現）
-          const idx = doc.tracks.video.findIndex((c) => c.id === d.orig.anchorClipId);
-          const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;
-          const offset = Number((d.preview.absStart - clipStart).toFixed(3));
+      if (d.edge === 'move') {
+        if (d.preview.absStart !== d.orig.absStart) {
+          if (d.orig.anchorClipId) {
+            // 錨定式：換算回相對片段起點的 offset（保持跟隨片段；可為負＝先於片段出現）
+            const idx = doc.tracks.video.findIndex((c) => c.id === d.orig.anchorClipId);
+            const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;
+            const offset = Number((d.preview.absStart - clipStart).toFixed(3));
+            setPending({
+              mode: 'ov',
+              id: d.id,
+              absStart: clipStart + offset,
+              span: d.orig.span,
+              duration: d.orig.span,
+              match: { kind: 'offset', clipId: d.orig.anchorClipId, v: offset },
+            });
+            sendCommand({
+              name: 'updateOverlay',
+              id: d.id,
+              patch: { anchor: { clipId: d.orig.anchorClipId, offset } },
+            });
+          } else {
+            const start = Number(d.preview.absStart.toFixed(3));
+            setPending({
+              mode: 'ov',
+              id: d.id,
+              absStart: start,
+              span: d.orig.span,
+              duration: d.orig.span,
+              match: { kind: 'start', v: start },
+            });
+            sendCommand({ name: 'updateOverlay', id: d.id, patch: { start } });
+          }
+        }
+      } else if (d.edge === 'in') {
+        // in 把手：範圍裁決 4——放手一發 updateOverlay，anchor 模式的 offset 換算
+        // 沿用上面 move 路徑同一套算式。span 只有原本就不是 to-end 時才落地成 duration
+        // （to-end 的 in 拖曳「正常運作」但不材料化，見裁決 4 與 preview 算式）。
+        if (d.preview.absStart !== d.orig.absStart) {
+          const duration = d.preview.span === null ? null : Number(d.preview.span.toFixed(3));
+          if (d.orig.anchorClipId) {
+            const idx = doc.tracks.video.findIndex((c) => c.id === d.orig.anchorClipId);
+            const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;
+            const offset = Number((d.preview.absStart - clipStart).toFixed(3));
+            setPending({
+              mode: 'ov',
+              id: d.id,
+              absStart: clipStart + offset,
+              span: d.preview.span,
+              duration,
+              match: { kind: 'offset', clipId: d.orig.anchorClipId, v: offset },
+            });
+            sendCommand({
+              name: 'updateOverlay',
+              id: d.id,
+              patch:
+                duration === null
+                  ? { anchor: { clipId: d.orig.anchorClipId, offset } }
+                  : { anchor: { clipId: d.orig.anchorClipId, offset }, duration },
+            });
+          } else {
+            const start = Number(d.preview.absStart.toFixed(3));
+            setPending({
+              mode: 'ov',
+              id: d.id,
+              absStart: start,
+              span: d.preview.span,
+              duration,
+              match: { kind: 'start', v: start },
+            });
+            sendCommand({
+              name: 'updateOverlay',
+              id: d.id,
+              patch: duration === null ? { start } : { start, duration },
+            });
+          }
+        }
+      } else {
+        // out 把手：只改 duration，start/anchor 完全不動——to-end overlay 從這裡
+        // 材料化成具體數字（裁決 4：「to end」overlay 只有 out 把手有這個特殊行為）。
+        if (d.preview.span !== d.orig.span) {
+          const duration = d.preview.span === null ? null : Number(d.preview.span.toFixed(3));
           setPending({
             mode: 'ov',
             id: d.id,
-            absStart: clipStart + offset,
-            span: d.orig.span,
-            match: { kind: 'offset', clipId: d.orig.anchorClipId, v: offset },
+            absStart: d.orig.absStart,
+            span: d.preview.span,
+            duration,
+            match: { kind: 'duration' },
           });
-          sendCommand({
-            name: 'updateOverlay',
-            id: d.id,
-            patch: { anchor: { clipId: d.orig.anchorClipId, offset } },
-          });
-        } else {
-          const start = Number(d.preview.absStart.toFixed(3));
-          setPending({
-            mode: 'ov',
-            id: d.id,
-            absStart: start,
-            span: d.orig.span,
-            match: { kind: 'start', v: start },
-          });
-          sendCommand({ name: 'updateOverlay', id: d.id, patch: { start } });
+          sendCommand({ name: 'updateOverlay', id: d.id, patch: { duration } });
         }
       }
     }
@@ -836,6 +936,14 @@ export function Timeline() {
     whiteSpace: 'nowrap',
     cursor: 'pointer',
   };
+  /**
+   * Plan 11 Task 1（範圍裁決 3c）：窄片（<28px）選取後把手外溢座標，caption／overlay
+   * chip 共用同一個門檻與算式（ClipBlock／AudioChip 各自持有一份同款的，因為那兩個
+   * 是獨立元件檔；這裡是 Timeline 內部直接畫 DOM，就地算即可）。
+   */
+  const NARROW_THRESHOLD = 28;
+  const handleOffset = (w: number, isSel: boolean): number =>
+    isSel && w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0;
 
   /**
    * 軌頭欄的一格。高度與 borderBottom 必須跟右邊對應那一列**逐位元組相同**，
@@ -1052,14 +1160,16 @@ export function Timeline() {
                 );
               })}
             </div>
-            {/* overlays 軌（拖曳平移；錨定式改 offset） */}
+            {/* overlays 軌（拖曳平移＋左右緣 trim；錨定式改 offset）。
+                Plan 11 Task 1（範圍裁決 4）：與 caption chip 同款把手，trimSpanIn/
+                trimSpanOut 接在 onPointerMove/onPointerUp，這裡只負責畫。 */}
             <div style={subRow} className={aiAnim ? 'ai-anim' : undefined} data-tl-blank>
               {doc.tracks.overlays.map((o) => {
                 let win = overlayWindow(doc, o);
                 const d = drag.current;
                 const pd = pending.current;
                 if (win && d?.mode === 'ov' && d.id === o.id) {
-                  const span = d.orig.span;
+                  const span = d.preview.span;
                   win = {
                     start: d.preview.absStart,
                     end: span === null ? win.end : d.preview.absStart + span,
@@ -1072,12 +1182,14 @@ export function Timeline() {
                 }
                 const isSel = selected?.kind === 'overlay' && selected.id === o.id;
                 const of = fxFor(o.id);
+                const ovWidthPx = win ? timeToPx(win.end - win.start, pps) : 0;
+                const ovOffset = handleOffset(ovWidthPx, isSel);
                 return (
                   win && (
                     <div
                       key={o.id}
-                      className={of.cls.trim() || undefined}
-                      onPointerDown={(e) => onOvDrag(e, o.id)}
+                      className={'clipblk' + (isSel ? ' selected' : '') + of.cls}
+                      onPointerDown={(e) => onOvDrag(e, o.id, 'move')}
                       title={
                         o.anchor
                           ? 'Anchored to clip (drag changes offset; follows the clip)'
@@ -1088,7 +1200,9 @@ export function Timeline() {
                         cursor: 'grab',
                         ...(of.delay != null ? { animationDelay: `${of.delay}ms` } : {}),
                         left: timeToPx(win.start, pps),
-                        width: timeToPx(win.end - win.start, pps),
+                        width: ovWidthPx,
+                        // Plan 11 Task 1（範圍裁決 3c）：窄片選取時把手要溢出，這層不能再裁掉它
+                        ...(ovOffset !== 0 ? { overflow: 'visible' } : null),
                         color: 'var(--ok-text)',
                         background: 'var(--ok-chip-bg)', // 實色底(2026-08-16:chip 不透底)
                         boxShadow: isSel
@@ -1101,6 +1215,22 @@ export function Timeline() {
                         gap: 4,
                       }}
                     >
+                      <div
+                        className="handle"
+                        style={{ left: ovOffset }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          onOvDrag(e, o.id, 'in');
+                        }}
+                      />
+                      <div
+                        className="handle"
+                        style={{ right: ovOffset }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          onOvDrag(e, o.id, 'out');
+                        }}
+                      />
                       {/* size 11 是兩級制的時間軸 chip 例外（theme.css 有記）：chip 只有
                         20px 高、字級 10，13 會撐爆。 */}
                       {o.anchor && (
@@ -1125,17 +1255,21 @@ export function Timeline() {
                       : { start: c.start, duration: c.duration };
                 const isSel = selected?.kind === 'caption' && selected.id === c.id;
                 const cf = fxFor(c.id);
+                const capWidthPx = timeToPx(view.duration, pps);
+                const capOffset = handleOffset(capWidthPx, isSel);
                 return (
                   <div
                     key={c.id}
-                    className={'clipblk' + cf.cls}
+                    className={'clipblk' + (isSel ? ' selected' : '') + cf.cls}
                     onPointerDown={(e) => onCapDrag(e, c.id, 'move')}
                     style={{
                       ...chip,
                       cursor: 'grab',
                       ...(cf.delay != null ? { animationDelay: `${cf.delay}ms` } : {}),
                       left: timeToPx(view.start, pps),
-                      width: timeToPx(view.duration, pps),
+                      width: capWidthPx,
+                      // Plan 11 Task 1（範圍裁決 3c）：窄片選取時把手要溢出，這層不能再裁掉它
+                      ...(capOffset !== 0 ? { overflow: 'visible' } : null),
                       // chip 專屬文字階(--accent-text 在加濃底上不足 4.5,見 theme.css)
                       color: 'var(--accent-chip-text)',
                       background: 'var(--accent-chip-bg)', // 實色底(2026-08-16:chip 不透底)
@@ -1147,7 +1281,7 @@ export function Timeline() {
                   >
                     <div
                       className="handle"
-                      style={{ left: 0 }}
+                      style={{ left: capOffset }}
                       onPointerDown={(e) => {
                         e.stopPropagation();
                         onCapDrag(e, c.id, 'in');
@@ -1155,7 +1289,7 @@ export function Timeline() {
                     />
                     <div
                       className="handle"
-                      style={{ right: 0 }}
+                      style={{ right: capOffset }}
                       onPointerDown={(e) => {
                         e.stopPropagation();
                         onCapDrag(e, c.id, 'out');

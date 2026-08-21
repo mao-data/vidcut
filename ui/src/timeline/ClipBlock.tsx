@@ -48,6 +48,12 @@ export const ClipBlock = memo(function ClipBlock({
 }) {
   const media = p.media.find((m) => m.id === clip.mediaId);
   const w = timeToPx(clip.duration, pps);
+  // Plan 11 Task 1（範圍裁決 3c）：窄片（<28px）選取後把手要外溢出 chip 邊界才抓得到，
+  // 兩把手各自外推到讓 12px 命中區彼此不重疊（各推出「缺口的一半」，缺口=28-w）。
+  // 未選取或寬片時維持貼齊（inline `left:0`/`right:0`，行為不變）。
+  const NARROW_THRESHOLD = 28;
+  const overflowOffset =
+    selected && w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0;
   // 2026-08-16 使用者定案:主軌**不顯示**波形帶,filmstrip 吃滿列高。
   // 波形機制(clipWave 查表/--wave-clip-* token/繪製器)完整保留——音訊軌仍用,
   // 要復原只需掛回 canvas+draw effect(參考 AudioChip.tsx 的現行寫法)。
@@ -78,7 +84,7 @@ export const ClipBlock = memo(function ClipBlock({
       : [];
   return (
     <div
-      className={'clipblk' + fx}
+      className={'clipblk' + (selected ? ' selected' : '') + fx}
       onPointerDown={(e) => {
         onSelect(clip.id);
         onMoveStart(e, clip);
@@ -95,7 +101,11 @@ export const ClipBlock = memo(function ClipBlock({
         top: 2,
         height: ROW_H - 4,
         borderRadius: 'var(--r-card)',
-        overflow: 'hidden',
+        // Plan 11 Task 1（範圍裁決 3c）：這一層**不再**裁 overflow——選取窄片時把手
+        // 要溢出到 chip 邊界外才抓得到。圓角裁切改交給下面的 filmstrip 內層自己扛
+        // （它有自己的 overflow:hidden + 同樣的 borderRadius），這裡改成 visible
+        // 純粹是為了讓把手（與其外溢的 negative left/right）不被裁掉。
+        overflow: 'visible',
         cursor: floating ? 'grabbing' : 'grab',
         background: 'var(--card)',
         // 選取＝紅蠟筆圈起來的那一格（--select-edge）。刻意不吃 --accent：
@@ -127,6 +137,7 @@ export const ClipBlock = memo(function ClipBlock({
         style={{
           position: 'absolute',
           inset: 0,
+          borderRadius: 'var(--r-card)',
           backgroundColor: clip.frozen ? 'var(--clip-frozen-bg)' : undefined,
           overflow: 'hidden',
         }}
@@ -153,7 +164,7 @@ export const ClipBlock = memo(function ClipBlock({
       </div>
       <div
         className="handle"
-        style={{ left: 0 }}
+        style={{ left: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onSelect(clip.id);
@@ -162,7 +173,7 @@ export const ClipBlock = memo(function ClipBlock({
       />
       <div
         className="handle"
-        style={{ right: 0 }}
+        style={{ right: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onSelect(clip.id);
