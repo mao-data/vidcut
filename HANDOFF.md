@@ -344,6 +344,7 @@ server/src/sourceFolder.ts scanSourceFolder：素材夾掃描（白名單副檔�
 server/src/ingest.ts      proxy/filmstrip/peaks 產生（spec §8.1）；ingestMedia 接受絕對路徑；
                           純音訊素材跳過 proxy/filmstrip 只產 peaks（無 proxyPath/filmstripPath）
 server/src/render.ts      project.json → ffmpeg filter_complex 成品 + blur/定格/音訊混音/匯出選項/封面 ★
+server/src/publish.ts     發佈包：平台限制警告、文案轉文字、buildPublishPackage（複製成品＋srt＋平台 txt＋manifest；不碰 doc，登記走 setPublish 命令）
 server/src/asr.ts         whisper.cpp 介接：時間軸混音→wav→逐詞時間戳（含 DTW 取用）★
 server/scripts/text_card.py  文字 → 透明 PNG 字卡（Pillow，含逐詞著色與貪婪換行；`--worker` 常駐模式一次回 base+全高亮兩張卡＋逐詞 bbox；「7ms/張 vs 逐次 spawn 50–70ms」是 text_card.py:26 記的實測、未重驗）
 server/src/rasterizer.ts  PillowRasterizer：包 text_card.py worker 的 TS 介面（rasterize/probeFont/dispose）
