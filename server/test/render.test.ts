@@ -238,6 +238,145 @@ describe('buildRenderArgs', () => {
 });
 
 /**
+ * 黑尾（Plan 13 Task 2，裁決 2、6）：outputDuration > totalDuration 時，`[vcat]` 後
+ * 用 tpad 補黑到 outputDuration，字幕/overlay 照常疊上去；音訊 atrim 基準同步换到
+ * outputDuration，不再被剪到主軌總長。
+ */
+describe('黑尾（Plan 13 Task 2）', () => {
+  /**
+   * 裁決 2 的位元組級不變承諾：outputDuration === totalDuration（沒有黑尾）時，
+   * buildRenderArgs 的完整 args 陣列必須與改動前逐項相同——不只是「不含 tpad 字串」
+   * 這種弱斷言，是整個陣列 toEqual。用這條當基準線，之後任何不小心在無黑尾路徑
+   * 插進新引數/新濾鏡都會被這裡打紅。
+   */
+  it('無黑尾時 buildRenderArgs 位元組級不變（無黑尾＝outputDuration===totalDuration）', () => {
+    const p = demoLikeProject();
+    // demoLikeProject 的常駐 overlay 是 duration:null（到片尾）——不參與 outputDuration
+    // 計算、視窗跟著 outputDuration 走，但因為沒有任何具體時長的軌道超出主軌，
+    // outputDuration === totalDuration，理當完全不觸發黑尾路徑。
+    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', {});
+    const pinned = [
+      '-ss',
+      '1',
+      '-t',
+      '3',
+      '-i',
+      join('/proj', 'a.mp4'),
+      '-ss',
+      '0',
+      '-t',
+      '2',
+      '-i',
+      join('/proj', 'b.mp4'),
+      '-i',
+      join('/proj', 'title.png'),
+      '-filter_complex',
+      [
+        '[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,setpts=PTS-STARTPTS[v0]',
+        '[1:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,setpts=PTS-STARTPTS[v1]',
+        '[v0][v1]concat=n=2:v=1:a=0[vcat]',
+        '[0:a]volume=1,asetpts=PTS-STARTPTS,aresample=44100[a0]',
+        'anullsrc=channel_layout=stereo:sample_rate=44100:d=2[a1]',
+        '[a0][a1]concat=n=2:v=0:a=1[aclips]',
+        '[aclips]anull[aout]',
+        "[vcat][2:v]overlay=x=(W*0.5)-(w/2):y=(H*0.06):enable='between(t\\,0\\,5)'[ovl0]",
+      ].join(';'),
+      '-map',
+      '[ovl0]',
+      '-map',
+      '[aout]',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'medium',
+      '-crf',
+      '20',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-movflags',
+      '+faststart',
+      '/proj/out.mp4',
+    ];
+    expect(plan.args).toEqual(pinned);
+  });
+
+  function withAudioOverhang(): Project {
+    const p = demoLikeProject();
+    p.tracks.overlays = []; // 不需要 to-end overlay 干擾這裡的斷言
+    p.media.push({
+      id: 'bgm',
+      path: 'bgm.mp3',
+      probe: { duration: 30, width: 0, height: 0, fps: 0, hasAudio: true, rotation: 0 },
+    });
+    // 主軌 5s；音訊項延伸到 8s → outputDuration = 8
+    p.tracks.audio = [{ id: 'a1', mediaId: 'bgm', start: 3, in: 0, duration: 5, volume: 1 }];
+    return p;
+  }
+
+  it('有黑尾時在 [vcat] 之後、疊字幕/overlay 之前插入 tpad 補黑到 outputDuration', () => {
+    const plan = buildRenderArgs(withAudioOverhang(), '/x', '/x/o.mp4', {});
+    const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    // 3 位小數（既有 seconds formatting 慣例）
+    expect(fc).toContain('[vcat]tpad=stop_mode=add:stop_duration=3.000:color=black[vtail]');
+    // tpad 必須緊接在 concat 產出 [vcat] 之後，且早於任何後續合成階段
+    expect(fc.indexOf('[vcat]tpad=')).toBeGreaterThan(fc.indexOf('concat=n=2:v=1:a=0[vcat]'));
+  });
+
+  it('音訊 atrim 改剪到 outputDuration，不再被剪到主軌總長', () => {
+    const plan = buildRenderArgs(withAudioOverhang(), '/x', '/x/o.mp4', {});
+    const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    expect(fc).toContain('atrim=duration=8');
+    expect(fc).not.toContain('atrim=duration=5,asetpts=PTS-STARTPTS[aout]');
+  });
+
+  it('沒有獨立音訊項、只有黑尾（如 caption 超出）時，靜音鏈也延伸到 outputDuration（容器音軌不得比畫面短）', () => {
+    const p = demoLikeProject();
+    p.tracks.overlays = [];
+    // 主軌 5s；caption 延伸到 7s → outputDuration = 7，且沒有任何 audio track item
+    p.tracks.captions = [
+      {
+        id: 'cap1',
+        text: 'hi',
+        start: 5,
+        duration: 2,
+        style: { fontFamily: 's', fontSize: 48, fill: '#fff', y: 0.8 },
+      },
+    ];
+    const plan = buildRenderArgs(p, '/x', '/x/o.mp4', {});
+    const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    // 沒有獨立音訊項時走 anull 分支，但仍要把 [aclips] 墊長到 outputDuration，
+    // 否則容器音軌只有 5s、畫面（tpad 後）有 7s，輸出音短於畫面。
+    expect(fc).toContain('[aclips]apad,atrim=duration=7[aout]');
+  });
+
+  it('overlay 疊在 [vtail]（黑尾）上，不是疊在 [vcat] 上', () => {
+    const p = withAudioOverhang();
+    p.tracks.overlays = [
+      {
+        id: 'o1',
+        imagePath: 'title.png',
+        start: 6,
+        duration: 1,
+        position: { x: 0.5, y: 0.5, scale: 1 },
+      },
+    ];
+    const plan = buildRenderArgs(p, '/x', '/x/o.mp4', {});
+    const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    expect(fc).toMatch(/\[vtail\]\[\d+:v\]overlay=/);
+    expect(fc).not.toMatch(/\[vcat\]\[\d+:v\]overlay=/);
+  });
+
+  it('progress 分母改用 outputDuration（黑尾時進度才走得到 100%）', () => {
+    const plan = buildRenderArgs(withAudioOverhang(), '/x', '/x/o.mp4', {});
+    expect(plan.totalDuration).toBe(8);
+  });
+});
+
+/**
  * `stamp` 直接變成 `output/<stamp>.mp4` 的檔名，而它有**兩個**入口（MCP 的 render 工具、
  * WS 的 `{type:'render'}`），兩邊以前都沒驗。`../../x` 會把成品寫到專案目錄外，
  * 並讓 `render.lastOutput` 指向一個逃出去的相對路徑——之後 extractCover 拿它抽封面

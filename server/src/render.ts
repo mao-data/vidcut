@@ -6,7 +6,7 @@ import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CaptionItem, Project, RenderOptions, SubtitleExportMode } from '@vidcut/shared';
-import { locate, overlayWindow, serializeSrt, totalDuration } from '@vidcut/shared';
+import { locate, outputDuration, overlayWindow, serializeSrt, totalDuration } from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 import { applyCommand } from './commands.js';
@@ -294,6 +294,10 @@ export function buildRenderArgs(
   const burnCaptions = (exp.subtitles ?? 'burn') === 'burn';
   const useCards = burnCaptions && captionCards.length > 0;
   const total = totalDuration(project);
+  // 輸出長度（Plan 13 裁決 1）：可能大於主軌總長，這段差額就是「黑尾」——超出主軌的
+  // 音訊/字幕/具體時長 overlay 仍要被輸出涵蓋（裁決 2）。output === total 時完全不觸發
+  // 黑尾相關的濾鏡插入，維持位元組級不變（裁決 2 的硬性承諾，見 render.test.ts 的釘測試）。
+  const output = outputDuration(project);
 
   const args: string[] = [];
   // 每個 clip 一個 input。定格幀改吃靜圖（-loop 1 -t D）；一般片段 input-level trim
@@ -361,6 +365,18 @@ export function buildRenderArgs(
   const vlabels = clips.map((_c, i) => `[v${i}]`).join('');
   fc.push(`${vlabels}concat=n=${clips.length}:v=1:a=0[vcat]`);
 
+  // 黑尾（裁決 2）：output > total 時，在 [vcat] 之後、字幕/overlay 合成之前補黑到
+  // outputDuration——字幕與 overlay 的 enable 視窗（overlayWindow 已在 Task 1 換基準到
+  // outputDuration）才疊得到這段黑底上。⚠️ 這是 concat **之後**的插入點，跟前面
+  // per-clip 鏈裡 fps= 之後的 tpad（轉場相關）不是同一個地方，不要混在一起改。
+  let vcompositeSource = '[vcat]';
+  if (output > total) {
+    fc.push(
+      `[vcat]tpad=stop_mode=add:stop_duration=${(output - total).toFixed(3)}:color=black[vtail]`,
+    );
+    vcompositeSource = '[vtail]';
+  }
+
   // 音訊鏈：片段原聲（定格幀與無聲素材補靜音軌）
   // mono 素材先顯式升 stereo——不做的話 amix 隱式升混套 0.707 center level，
   // mono 音軌會平白 −3dB（2026-08-03 對照實驗證實；stereo 不受影響）
@@ -416,20 +432,29 @@ export function buildRenderArgs(
     audioLabels.push(`[${label}]`);
   });
 
-  // 混音並截到成片長度（adelay 可能讓音軌超出畫面長度）
+  // 混音並截到成片長度（adelay 可能讓音軌超出畫面長度）。
+  // 黑尾（裁決 2）：截斷基準從 total 換成 output——獨立音訊項本來就可能延伸到黑尾
+  // 區間（正是它把 outputDuration 撐大的原因之一），改回 total 會把自己的尾音剪掉。
   if (audioLabels.length > 0) {
     fc.push(
       `${acur}${audioLabels.join('')}amix=inputs=${audioLabels.length + 1}:normalize=0:` +
-        `dropout_transition=0,atrim=duration=${total},asetpts=PTS-STARTPTS[aout]`,
+        `dropout_transition=0,atrim=duration=${output},asetpts=PTS-STARTPTS[aout]`,
     );
   } else if (acur !== '[aclips]') {
-    fc.push(`${acur}anull[aout]`);
+    // 沒有獨立音訊項就沒有 ducking（ducking 只套在 audioItems 上），這個分支目前不會被
+    // 觸發——保留只是與上面的 acur 鏈結構對稱，仍一併補上黑尾墊長以防未來邏輯變動。
+    fc.push(output > total ? `${acur}apad,atrim=duration=${output}[aout]` : `${acur}anull[aout]`);
+  } else if (output > total) {
+    // 沒有任何獨立音訊項、但黑尾來自別的軌道（如 caption/具體時長 overlay 超出主軌）：
+    // [aclips] 的長度＝主軌總長（片段音訊 concat 而成），畫面卻被 tpad 墊到 output，
+    // 容器音軌會比畫面短。apad 補靜音、atrim 收斂到精確秒數（apad 本身不定長）。
+    fc.push(`[aclips]apad,atrim=duration=${output}[aout]`);
   } else {
     fc.push(`[aclips]anull[aout]`);
   }
 
-  // overlay 鏈
-  let vcur = '[vcat]';
+  // overlay 鏈：黑尾存在時從 [vtail] 開始疊（見上方黑尾插入點），否則沿用 [vcat]。
+  let vcur = vcompositeSource;
   overlays.forEach((ov, k) => {
     const win = overlayWindow(project, ov);
     if (!win) return;
@@ -519,7 +544,9 @@ export function buildRenderArgs(
     outPath,
   );
 
-  return { args, outPath, totalDuration: total, captionsBurned };
+  // 進度分母（裁決 2）：改回報 output，否則黑尾存在時 ffmpeg 的 out_time_ms 永遠追不上
+  // 用主軌總長算出的分母，progress 卡在 <100% 就直接跳到 done。
+  return { args, outPath, totalDuration: output, captionsBurned };
 }
 
 export interface RenderResult {

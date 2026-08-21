@@ -172,12 +172,33 @@ describe('B3 isError on application-level failures', () => {
   });
 
   it('get_frame with no active clip is flagged isError', async () => {
+    // Plan 13（黑尾）之後，get_frame 的夾制上界是 outputDuration 不是主軌總長——
+    // 光清空 tracks.video 不夠：baseline 帶著跨到 t=4 的 caption（絕對時間，不靠
+    // clip 錨定），outputDuration 仍然 > 0，t=1 會落進黑尾區間而成功回黑幀。
+    // 這條測試要驗的是「真的什麼都沒有」才會出錯，所以連同 caption/overlay/audio 一併清空
+    // （黑尾時刻回黑幀的正面案例見下一條 'get_frame at a black-tail time...'）。
     store.mutate('human', 'empty timeline', (d) => {
       d.tracks.video = [];
+      d.tracks.captions = [];
+      d.tracks.overlays = [];
+      d.tracks.audio = [];
     });
     const r = await call('get_frame', { time: 1 });
     expect(text(r)).toContain('no active clip');
     expect(r.isError).toBe(true);
+  });
+
+  // Plan 13 裁決 6：黑尾時刻（主軌之後、outputDuration 之前）get_frame 必須成功回黑幀，
+  // 不是「查無片段」的錯誤——否則 AI 會把黑尾誤判成壞掉的專案狀態。
+  it('get_frame at a black-tail time (past the main track, within outputDuration) succeeds instead of erroring', async () => {
+    store.mutate('human', 'empty video track but captions survive', (d) => {
+      d.tracks.video = []; // 主軌總長變 0
+      // baseline 的 caption k2 是 start:2 duration:2（絕對時間，不靠 clip 錨定）→
+      // outputDuration = 4，t=1 落在 (0,4] 的黑尾區間。
+    });
+    const r = await call('get_frame', { time: 1 });
+    expect(r.isError ?? false).toBe(false);
+    expect(text(r)).not.toContain('no active clip');
   });
 
   it('a successful write is not flagged isError', async () => {

@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Project } from '@vidcut/shared';
-import { locate, totalDuration } from '@vidcut/shared';
+import { locate, outputDuration, totalDuration } from '@vidcut/shared';
 import { runFfmpeg } from './ffmpeg.js';
 import { resolveMediaPath } from './paths.js';
 
@@ -11,7 +11,16 @@ import { resolveMediaPath } from './paths.js';
  * M4 已完成，但這個合成從來沒做過，也沒有排進任何計畫——別再寫成「留待 M4 升級」，
  * 那句 roadmap 殘留曾經害 AI 誤判 overlay 沒設定成功（見 CLAUDE.md 鐵則）。
  * 要驗 overlay／字幕請 render，或請使用者看 UI 預覽（`mcp.ts` 的 get_frame 描述同此）。
- * 回 null 表示該時間無 active 片段。
+ *
+ * **黑尾（Plan 13 裁決 6）**：時間夾制上界從 totalDuration 換成 outputDuration——
+ * 黑尾區間（主軌之後、outputDuration 之前）`locate()` 對它必然回 null（那裡沒有
+ * active clip），但 get_frame 抽到那個時刻時**必須**回一張黑幀而不是「查無片段」的
+ * 錯誤，否則 AI 會誤判黑尾是壞掉的專案狀態。這裡走的是 ffmpeg `color=black` lavfi
+ * 來源直接生成單張黑幀（用專案畫布尺寸），跟 extractCover／render.ts 的黑尾合成
+ * （tpad 疊字幕/overlay）是**不同機制**：get_frame 的既有語意本來就只回「片段畫面」
+ * 不合成任何東西，黑尾時刻沒有片段可抽，用同一支黑色 lavfi 幀維持這個語意一致，
+ * 不必為了黑尾另外接一條「像 render 一樣合成疊字幕」的路——那是 render 的工作。
+ * 主軌範圍內（含空主軌）行為完全不變：回 null 表示該時間無 active 片段。
  */
 export async function extractFrame(
   projectDir: string,
@@ -19,8 +28,16 @@ export async function extractFrame(
   t: number,
 ): Promise<string | null> {
   const total = totalDuration(project);
-  const loc = locate(project, Math.min(Math.max(t, 0), total));
-  if (!loc) return null;
+  const output = outputDuration(project);
+  const clamped = Math.min(Math.max(t, 0), output);
+  // 黑尾判定要用「clamped > total」，不能靠 locate() 回不回 null 來判斷：locate() 對
+  // t === total 有「片尾特例」，回的是最後一個 clip 的**尾端**（合法位置，用來抽最後
+  // 一幀），不是黑尾。若在這裡把 clamped 先夾到 total 再丟給 locate()，黑尾時刻會全部
+  // 落在這個邊界特例上，抽到的是「seek 到來源檔案結尾」，ffmpeg 對已無畫面可讀的
+  // seek 常回 234（mjpeg 編碼器收不到 frame）——曾經因此整段黑尾直接炸掉，而不是回黑幀。
+  if (clamped > total) return extractBlackFrame(projectDir, project, clamped);
+  const loc = locate(project, clamped);
+  if (!loc) return null; // 空主軌：clamped<=total===0 但仍 locate 不到（tracks.video 為空）
   // 與 render.ts extractCover 同型接法：proxyPath **不保證存在**（Plan 8 起三階段
   // ingest——A0 probe+登記完就可用，proxy 是 A2 的背景升級，skip 判準命中時永遠不產）。
   // 沒有 proxy 就直接吃原檔：`?? path` 是這條路徑的正常分支，不是防禦性殘留。
@@ -31,5 +48,25 @@ export async function extractFrame(
   const outAbs = join(projectDir, outRel);
   await mkdir(join(projectDir, 'derived', 'frames'), { recursive: true });
   await runFfmpeg(['-ss', String(sourceTime), '-i', src, '-frames:v', '1', '-q:v', '3', outAbs]);
+  return outRel;
+}
+
+/** 黑尾時刻的黑幀：ffmpeg `color=black` lavfi 來源，尺寸採專案畫布（見上方 extractFrame）。 */
+async function extractBlackFrame(projectDir: string, project: Project, t: number): Promise<string> {
+  const { width, height } = project.canvas;
+  const outRel = join('derived', 'frames', `t${t.toFixed(2)}.jpg`);
+  const outAbs = join(projectDir, outRel);
+  await mkdir(join(projectDir, 'derived', 'frames'), { recursive: true });
+  await runFfmpeg([
+    '-f',
+    'lavfi',
+    '-i',
+    `color=c=black:s=${width}x${height}:d=1`,
+    '-frames:v',
+    '1',
+    '-q:v',
+    '3',
+    outAbs,
+  ]);
   return outRel;
 }
