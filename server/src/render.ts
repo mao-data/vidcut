@@ -367,8 +367,9 @@ export function buildRenderArgs(
 
   // 黑尾（裁決 2）：output > total 時，在 [vcat] 之後、字幕/overlay 合成之前補黑到
   // outputDuration——字幕與 overlay 的 enable 視窗（overlayWindow 已在 Task 1 換基準到
-  // outputDuration）才疊得到這段黑底上。⚠️ 這是 concat **之後**的插入點，跟前面
-  // per-clip 鏈裡 fps= 之後的 tpad（轉場相關）不是同一個地方，不要混在一起改。
+  // outputDuration）才疊得到這段黑底上。⚠️ 這是 concat **之後**的插入點；商業線
+  // （cloud 分支）的轉場機制在 per-clip 鏈 fps= 之後另有 tpad=…clone——merge 之後
+  // 兩者並存、不是同一個位置，不要混在一起改（本開源分支只有這一處 tpad）。
   let vcompositeSource = '[vcat]';
   if (output > total) {
     fc.push(
