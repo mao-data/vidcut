@@ -231,7 +231,7 @@ filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（
 ## Plan 11：修剪直觀化批——CapCut 式 trim 手感,全軌道一致（2026-08-22）
 
 目標：修剪時「盲剪」（trim 從不呼叫 seek、拖曳中零數字回饋）、把手 hover 才現且
-窄片互疊、overlay/mograph 完全沒有把手、無 trim 鍵盤路徑、絕對時間軌重疊無提示
+窄片互疊、overlay 完全沒有把手、無 trim 鍵盤路徑、絕對時間軌重疊無提示
 ——這五個缺口的根治。純 UI 批，**`server/` 全程零改動**（Task 1–4 對
 `git diff fa088b7..HEAD --stat -- server/` 已驗證為空，Task 5 覆核仍空）。
 
@@ -255,7 +255,7 @@ filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（
   互不重疊;選取 chip 同時抬升到 `zIndex: 15`,讓外溢的把手蓋在鄰近 chip 之上。
   未選取項維持原 hover-only 行為不動。完整定案細節與 CSS 落點見
   `ui/DESIGN.md`「Chips → Trim handles」——那裡是這條規則的權威來源。
-- **overlay/mograph 補 trim 把手**（Task 1）：與 caption chip 同款,沿用既有
+- **overlay 補 trim 把手**（Task 1）：與 caption chip 同款,沿用既有
   `trimSpanIn`/`trimSpanOut` 純函數（anchor 模式 offset 換算沿用現行 move 的處理）。
   「to end」overlay（`duration: null`）只有 in 把手,拖 out 把手時先落地為具體
   duration（與 Inspector 的「到結尾」勾選互通）。命令仍是放手一發 `updateOverlay`。
