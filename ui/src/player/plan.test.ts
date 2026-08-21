@@ -102,3 +102,33 @@ describe('planAt', () => {
     expect(planAt(proj(), 6).captions).toMatchObject([{ id: 'cap1', text: 'hi' }]);
   });
 });
+
+describe('planAt trimPreview override（Plan 12 Task 2/裁決 3）', () => {
+  it('active clip matches override clipId：sourceTime 用 override in，不用 doc 的 in', () => {
+    // c1: in=2, doc in 不變；trim-in 拖曳中把 in 預覽成 5，offset（t=3 相對 clipStart=0）仍是 3
+    const plan = planAt(proj(), 3, { clipId: 'c1', in: 5 });
+    expect(plan.active).toMatchObject({ clipId: 'c1', sourceTime: 8 }); // 5 + offset 3
+  });
+
+  it('trimPreview 為 null 時映射與現行逐位元組相同（pin 既有行為）', () => {
+    const withNull = planAt(proj(), 3, null);
+    const withoutArg = planAt(proj(), 3);
+    expect(withNull).toEqual(withoutArg);
+    expect(withNull.active).toMatchObject({ clipId: 'c1', sourceTime: 5 }); // in 2 + offset 3
+  });
+
+  it('override 的 clipId 不是目前 active clip：不受影響（非目標 clip 不套用）', () => {
+    // t=7 時 active 是 c2（clipStart=6），override 卻指名 c1 —— 不該套用到 c2 身上
+    const plan = planAt(proj(), 7, { clipId: 'c1', in: 99 });
+    expect(plan.active).toMatchObject({ clipId: 'c2', sourceTime: 1 }); // c2 in 0 + offset 1，未受 c1 override 干擾
+  });
+
+  it('two successive trimPreview overrides at the same playhead time 產生不同的 source time', () => {
+    // 控制器 pre-flight 點名的陷阱：seek 時間不變，只有 override in 變，映射也要跟著變。
+    const first = planAt(proj(), 3, { clipId: 'c1', in: 4 });
+    const second = planAt(proj(), 3, { clipId: 'c1', in: 6 });
+    expect(first.active!.sourceTime).not.toBe(second.active!.sourceTime);
+    expect(first.active!.sourceTime).toBe(7); // 4 + offset 3
+    expect(second.active!.sourceTime).toBe(9); // 6 + offset 3
+  });
+});

@@ -251,6 +251,13 @@ export function Timeline() {
   const followRaf = useRef<number | null>(null);
   const followTarget = useRef<number | null>(null);
   const gestureOrigTotal = useRef<number | null>(null);
+  /**
+   * Plan 12 Task 2（裁決 3）：main-track trim-in 拖曳中，player 該顯示的新首幀
+   * 來源覆蓋——與 followTarget 共用同一個 rAF（同一節奏，不逐 pointermove 寫）。
+   * 只有 onPointerMove 的 trim-in 分支會寫這個 ref；trim-out／cap／aud／ov 不寫，
+   * 所以 rAF 執行時若它是 null 就不動 usePlayback.trimPreview。
+   */
+  const trimPreviewTarget = useRef<{ clipId: string; in: number } | null>(null);
   const scheduleFollow = (edgeSec: number) => {
     followTarget.current = edgeSec;
     if (followRaf.current !== null) return; // 同一幀内已排過，等它執行時撈最新值
@@ -264,6 +271,9 @@ export function Timeline() {
       // echo 抵達後 Player 會用 committed doc 覆寫回正確值，不會卡住。
       if (t > usePlayback.getState().total) usePlayback.getState().setTotal(t);
       usePlayback.getState().seek(t);
+      if (trimPreviewTarget.current !== null) {
+        usePlayback.getState().setTrimPreview(trimPreviewTarget.current);
+      }
     });
   };
   const cancelFollow = () => {
@@ -272,6 +282,7 @@ export function Timeline() {
       followRaf.current = null;
     }
     followTarget.current = null;
+    trimPreviewTarget.current = null;
   };
   /** trim 拖曳啟動的共用前置：播放中先暫停、標記 trim-follow 旗標、記下手勢起點的 total。 */
   const startTrimFollow = () => {
@@ -312,6 +323,10 @@ export function Timeline() {
     cancelFollow();
     trimFollowing.current = false;
     usePlayback.getState().setDragActive(false);
+    // Plan 12 Task 2（裁決 3）：trim-in 即時首幀覆蓋是純預覽態，手勢結束（放手或
+    // 取消）一律清回 null——player 之後改用 doc 的 committed in（放手路徑很快會有
+    // sendCommand 送出、echo 抵達後 doc 本來就會反映新值；取消路徑則直接退回原值）。
+    usePlayback.getState().setTrimPreview(null);
     if (gestureOrigTotal.current !== null) {
       const restoredTotal = gestureOrigTotal.current;
       usePlayback.getState().setTotal(restoredTotal);
@@ -803,6 +818,9 @@ export function Timeline() {
         const dur = raw.duration;
         d.preview = { ...clip, in: raw.in, duration: dur };
         setSnapLine(null);
+        // Plan 12 Task 2（裁決 3）：player 該顯示的新首幀——與 scheduleFollow 同一個
+        // rAF 節流節奏寫入，不逐 pointermove 都寫（見上方 trimPreviewTarget 註解）。
+        trimPreviewTarget.current = { clipId: clip.id, in: raw.in };
         // in 把手：clip 的起點時間本身不動（trim 只改 in/duration），追的邊就是 clipStart。
         scheduleFollow(clipStart);
 

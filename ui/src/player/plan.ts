@@ -63,16 +63,28 @@ export function overlayView(
   return { id: o.id, src: `/media/${o.imagePath}`, position: o.position };
 }
 
-function sourceFor(p: Project, clipIndex: number, offsetInClip: number): ActiveSource | null {
+/** Plan 12 Task 2（裁決 3）：trim-in 拖曳中的即時 source 覆蓋，只認 clipId 相符的 clip。 */
+export type TrimPreview = { clipId: string; in: number } | null;
+
+function sourceFor(
+  p: Project,
+  clipIndex: number,
+  offsetInClip: number,
+  trimPreview: TrimPreview,
+): ActiveSource | null {
   const clip = p.tracks.video[clipIndex];
   if (!clip) return null;
   const media = p.media.find((m) => m.id === clip.mediaId);
   if (!media) return null;
+  // trimPreview 只覆蓋 in：非目標 clip（clipId 不符）維持用 doc 的 clip.in，
+  // 目標 clip 則用預覽值取代——offsetInClip 不受影響（clip 在時間軸上的起點
+  // trim-in 不會移動，見 Timeline.tsx scheduleFollow(clipStart) 的註解）。
+  const effectiveIn = clip.id === trimPreview?.clipId ? trimPreview.in : clip.in;
   return {
     clipIndex,
     clipId: clip.id,
     src: mediaUrl(media),
-    sourceTime: clip.frozen ? clip.in : clip.in + offsetInClip,
+    sourceTime: clip.frozen ? effectiveIn : effectiveIn + offsetInClip,
     frozen: clip.frozen === true,
     volume: clip.volume,
   };
@@ -98,13 +110,16 @@ function activeAudioAt(p: Project, t: number): ActiveAudio[] {
   return out;
 }
 
-/** 時間軸時間 → 播放器該顯示的一切（Player 組件的唯一決策來源）。 */
-export function planAt(p: Project, t: number): PlayerPlan {
+/**
+ * 時間軸時間 → 播放器該顯示的一切（Player 組件的唯一決策來源）。
+ * `trimPreview` 省略或傳 null 時，映射與現行行為逐位元組相同（pin：plan.test.ts）。
+ */
+export function planAt(p: Project, t: number, trimPreview: TrimPreview = null): PlayerPlan {
   const total = totalDuration(p);
   const done = total > 0 && t >= total;
   const loc = locate(p, Math.min(t, total));
-  const active = loc ? sourceFor(p, loc.clipIndex, loc.offsetInClip) : null;
-  const next = loc ? sourceFor(p, loc.clipIndex + 1, 0) : null;
+  const active = loc ? sourceFor(p, loc.clipIndex, loc.offsetInClip, trimPreview) : null;
+  const next = loc ? sourceFor(p, loc.clipIndex + 1, 0, trimPreview) : null;
   const overlays = p.tracks.overlays
     .filter((o) => {
       const w = overlayWindow(p, o);

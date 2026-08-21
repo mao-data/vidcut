@@ -266,6 +266,87 @@ describe('Player blur 背景 video 閘門', () => {
 });
 
 /**
+ * trimPreview 即時首幀覆蓋（Plan 12 Task 2，裁決 3）：controller pre-flight 點名的
+ * 陷阱——trim-in 拖曳中 seek 的時間（playhead）不變，只有 override in 在變。
+ * 若 Player 只在 time/doc 變化時重算映射，畫面在整個拖曳過程都不會動。
+ * 這裡繞過 Timeline 的 rAF 節流，直接操作 usePlayback.trimPreview（Timeline 自己的
+ * 節流時機已由 Timeline.trimFollow.test.tsx 覆蓋），驗證 Player 這一端真的會反應。
+ */
+describe('Player trimPreview 即時反應（Plan 12 Task 2，裁決 3）', () => {
+  beforeEach(() => {
+    resetStores();
+  });
+
+  it('同一個 seek 時間下，trimPreview.in 改變會讓 A/B video 的 currentTime 跟著變', () => {
+    const doc = demoProject();
+    seedProject(doc);
+    const { container } = render(<Player />);
+    seek(3); // c1 內（in=2, duration=6）：offset=3
+
+    const active = videoEls(container)[0]!;
+    act(() => {
+      usePlayback.getState().setTrimPreview({ clipId: 'c1', in: 4 });
+    });
+    const firstTime = active.currentTime;
+    expect(firstTime).toBeCloseTo(7); // 4 + offset 3
+
+    // playhead（seek 的 t）完全沒動，只換 override in——第二個值必須不同於第一個
+    act(() => {
+      usePlayback.getState().setTrimPreview({ clipId: 'c1', in: 6 });
+    });
+    const secondTime = active.currentTime;
+    expect(secondTime).toBeCloseTo(9); // 6 + offset 3
+    expect(secondTime).not.toBe(firstTime);
+  });
+
+  it('blur 背景 video 也吃 trimPreview override（與 A/B 主 video 同一個 plan.active.sourceTime）', () => {
+    const doc = demoProject();
+    doc.canvas = { ...doc.canvas, fit: 'blur' };
+    seedProject(doc);
+    const { container } = render(<Player />);
+    seek(3);
+
+    const bg = container.querySelectorAll('video')[0]!; // blur 模式下 bg 是第一顆掛載的 video
+    act(() => {
+      usePlayback.getState().setTrimPreview({ clipId: 'c1', in: 4 });
+    });
+    expect(bg.currentTime).toBeCloseTo(7);
+  });
+
+  it('trimPreview.clipId 指向非目前 active clip：A/B video 不受影響（維持用 doc 的 in）', () => {
+    const doc = demoProject();
+    seedProject(doc);
+    const { container } = render(<Player />);
+    seek(3); // active 是 c1，非 c2
+
+    const active = videoEls(container)[0]!;
+    const before = active.currentTime;
+    act(() => {
+      usePlayback.getState().setTrimPreview({ clipId: 'c2', in: 99 });
+    });
+    expect(active.currentTime).toBe(before);
+  });
+
+  it('trimPreview 清回 null：映射退回 doc 的 committed in（放手/取消後的行為）', () => {
+    const doc = demoProject();
+    seedProject(doc);
+    const { container } = render(<Player />);
+    seek(3);
+
+    const active = videoEls(container)[0]!;
+    act(() => {
+      usePlayback.getState().setTrimPreview({ clipId: 'c1', in: 4 });
+    });
+    expect(active.currentTime).toBeCloseTo(7);
+
+    act(() => {
+      usePlayback.getState().setTrimPreview(null);
+    });
+    expect(active.currentTime).toBeCloseTo(5); // 退回 doc 的 in=2 + offset 3
+  });
+});
+
+/**
  * 畫布拖曳（Task 15 fix round 1，Finding 3）：pending 覆蓋不只是防「放手閃回原位」，
  * 還修正一個更嚴重的問題——doc 還沒追上拖曳結果前，若立刻再拖同一項一次，第二次的
  * 起點必須讀 pending（上一次放手的結果），不能讀 doc（這時 doc 仍是拖曳前的舊值），

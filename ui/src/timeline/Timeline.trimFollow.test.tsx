@@ -870,6 +870,117 @@ describe('主軌 trim-in 捲動補償——邊釘手指下（Plan 12 Task 1，�
   });
 });
 
+describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () => {
+  it('trim-in 拖曳中，rAF flush 後 usePlayback.trimPreview 帶 clipId+新 in', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true }); // +1s → in 3
+    });
+    // rAF 還沒 flush：與 followTarget 同節奏，不該提早寫入
+    expect(usePlayback.getState().trimPreview).toBeNull();
+    act(() => flushRaf());
+    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3 });
+  });
+
+  it('同一節奏內連續兩次 pointermove 只在 flush 時寫入最後一次的值（不逐 move 都寫）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true }); // in 3
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 180, pointerId: 1, bubbles: true }); // in 4（同一幀，還沒 flush）
+    });
+    expect(usePlayback.getState().trimPreview).toBeNull();
+    act(() => flushRaf());
+    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 4 });
+  });
+
+  it('放手（pointerup）後 trimPreview 清回 null（teardownDrag 共用拆卸）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().trimPreview).not.toBeNull();
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().trimPreview).toBeNull();
+  });
+
+  it('pointercancel 後 trimPreview 也清回 null（teardownDrag 是 up/cancel 共用的單一路徑）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().trimPreview).not.toBeNull();
+    act(() => {
+      fireEvent.pointerCancel(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().trimPreview).toBeNull();
+  });
+
+  it('放手時取消尚未 flush 的 rAF：trimPreview 不會在放手後才補一次寫入', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    // 故意不 flush，直接放手
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().trimPreview).toBeNull();
+  });
+
+  it('trim-out（右把手）不寫 trimPreview——只有 trim-in 驅動這個覆蓋', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().trimPreview).toBeNull();
+  });
+
+  it('audio/caption trim-in（非主軌）不寫 trimPreview——只約束主軌 video clip', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'bgm'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 120, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().trimPreview).toBeNull();
+  });
+});
+
 describe('badge 邊界 clamp（fix round 1 I3）', () => {
   function badgeEl(container: HTMLElement): HTMLElement {
     const hits = Array.from(container.querySelectorAll('div')).filter((d) =>

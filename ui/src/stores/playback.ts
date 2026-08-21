@@ -23,6 +23,16 @@ interface PlaybackState {
    */
   dragActive: boolean;
   setDragActive: (v: boolean) => void;
+  /**
+   * Plan 12 Task 2（裁決 3）：main-track trim-in 拖曳中，player 該顯示的新首幀來源
+   * 覆蓋——只影響 player 的 time→source 映射（`planAt`），**不進 doc、不是
+   * command、不進 history**。Timeline 在 trim-in 的 rAF 節流回呼（與 scheduleFollow
+   * 同一節奏，不是逐 pointermove 都寫）裡寫入，`teardownDrag`（pointerup／
+   * pointercancel 共用）一律清回 null。只認 clipId 相符的那個 clip；其餘 clip
+   * 的映射不受影響。
+   */
+  trimPreview: { clipId: string; in: number } | null;
+  setTrimPreview: (v: { clipId: string; in: number } | null) => void;
 }
 
 export const usePlayback = create<PlaybackState>((set, get) => ({
@@ -40,4 +50,6 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
   },
   dragActive: false,
   setDragActive: (v) => set({ dragActive: v }),
+  trimPreview: null,
+  setTrimPreview: (v) => set({ trimPreview: v }),
 }));

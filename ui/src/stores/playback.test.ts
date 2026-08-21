@@ -26,4 +26,12 @@ describe('usePlayback', () => {
     expect(usePlayback.getState().time).toBe(10);
     expect(usePlayback.getState().playing).toBe(false);
   });
+
+  it('trimPreview defaults to null and setTrimPreview writes/clears it', () => {
+    expect(usePlayback.getState().trimPreview).toBeNull();
+    usePlayback.getState().setTrimPreview({ clipId: 'c1', in: 3.5 });
+    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3.5 });
+    usePlayback.getState().setTrimPreview(null);
+    expect(usePlayback.getState().trimPreview).toBeNull();
+  });
 });

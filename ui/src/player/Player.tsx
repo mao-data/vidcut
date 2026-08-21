@@ -64,6 +64,7 @@ export function Player() {
   const doc = useProject((s) => s.doc);
   const time = usePlayback((s) => s.time);
   const playing = usePlayback((s) => s.playing);
+  const trimPreview = usePlayback((s) => s.trimPreview);
   const vA = useRef<HTMLVideoElement>(null);
   const vB = useRef<HTMLVideoElement>(null);
   /** blur 填充模式的背景層（只是背景，容許些許漂移——模糊會蓋掉） */
@@ -79,8 +80,16 @@ export function Player() {
   const fxAdded = useEditFx((s) => s.added);
   const captionCards = useProject((s) => s.captionCards);
   const editDraft = useEditDraft((s) => s.caption);
-  // effect 與 render body 共用同一份 plan（播放中每幀都算，別算兩次）
-  const plan = useMemo(() => (doc ? planAt(doc, time) : null), [doc, time]);
+  // effect 與 render body 共用同一份 plan（播放中每幀都算，別算兩次）。
+  // Plan 12 Task 2（裁決 3）：trimPreview 必須在 deps 裡——trim-in 拖曳期間
+  // playhead（time）靜止不動（追的是 clipStart，不隨拖曳位移），只有 trimPreview.in
+  // 在變。若不把它放進 deps，這個 memo 不會重算、A/B/blur 三顆 video 都會停在
+  // 拖曳開始前那一幀，使用者怎麼拖畫面都不動（見 plan.test.ts 的
+  // 「two successive trimPreview overrides」）。
+  const plan = useMemo(
+    () => (doc ? planAt(doc, time, trimPreview) : null),
+    [doc, time, trimPreview],
+  );
 
   /**
    * 疊圖/字幕層的 1080×1920 座標空間縮放係數，量測「影片實際填滿的那個元素」
