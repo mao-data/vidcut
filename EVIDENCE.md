@@ -2263,8 +2263,8 @@ aria-label);HANDOFF 同步。
 
 **行為→測試對映**:`server/test/publish.test.ts` 21 tests（setPublish 命令 4、resolveKind 3、platformWarnings 6、metaToText 2、UPLOAD_URLS 1、buildPublishPackage 5——真檔案落盤斷言）;`server/test/mcp-publish.test.ts` 3（InMemoryTransport 真工具呼叫）;`ui/src/panels/ExportMenu.test.tsx` 3（done 無包/done 有包/idle）;`mcp-surface-snapshot` 與 `mcp-docs-sync` 閘門綠（snapshot 讀 diff 後 -u）。
 
-**gauntlet(source:056bd80+本包工作樹,單次乾淨全跑,顯示輪三套全綠)**:**全數通過**；shared 46 / server 529 / ui 443 passed（合計 1018）；UI 覆蓋率；隨機順序×2 PASS；**134/134 mutants killed（+1 等價對照如預期存活）**；docs-check 綠（7 份斷言型文件）；其餘各層全 PASS；零新增依賴。本補記於完跑後寫入,prettier/docs-check 單獨複跑綠(如實記)。
+**gauntlet（於 publish-p0 工作樹、`591c781`＋prettier 寫回後單次乾淨全跑）**:**全數通過**；shared 46 / server 529 / ui 443 passed（合計 1018）；UI 覆蓋率 Statements 92.02%；隨機順序×2 PASS；錨點 135/135；**134/134 mutants killed（+1 等價對照如預期存活）**；docs-check 綠（7 份斷言型文件）；其餘各層全 PASS；零新增依賴。本補記於完跑後寫入,prettier/docs-check 單獨複跑綠(如實記)。
 
 **誠實註記**:本功能未新增 mutants（純新增模組，未列入 `scripts/mutants.json`）；gauntlet 的 prettier 層寫回數個檔案的純格式重排，以獨立 style commit 收（見前一筆 commit）；cover-exists 與空字幕兩條分支無測試（brief 原文如此，已記於 SDD ledger）。
 
-**綁定 commit**:本段寫入時 HEAD 為 `056bd80`。
+**綁定 commit**:本段寫入時分支 HEAD 為 `daec937`（gauntlet 跑於 `591c781`＋上述 prettier 寫回的工作樹）。
