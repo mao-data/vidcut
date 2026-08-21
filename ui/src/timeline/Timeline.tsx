@@ -266,9 +266,9 @@ export function Timeline() {
   /**
    * fix round 1 C1/C2：`onPointerUp`／`onPointerCancel` 共用的拆卸——取消未 flush
    * 的 rAF、解除吸附排除旗標、還原手勢開始時的 total（保底；正常放手路徑很快會被
-   * 隨後的 doc echo 覆寫，這裡先還原不影響最終值），回傳被拆掉的 drag 狀態給呼叫端
-   * 決定要不要 commit。**不清 `drag.current`／`setSnapLine`**——那兩件事兩個 handler
-   * 都要做但發生在呼叫端（onPointerUp 需要先讀 `d` 才能 commit，這裡回傳它）。
+   * 隨後的 doc echo 覆寫，這裡先還原不影響最終值），並清掉 `drag.current` 與
+   * snap 線。清之前先把 drag 狀態存下來回傳——onPointerUp 靠這個回傳值決定要不要
+   * commit，onPointerCancel 則丟棄它（只拆不 commit）。
    */
   const teardownDrag = (): DragState => {
     const d = drag.current;
