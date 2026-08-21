@@ -34,6 +34,7 @@ import {
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 import { ClipBlock, ROW_H } from './ClipBlock.js';
+import { DragBadge, type DragBadgeState } from './DragBadge.js';
 import { quantizeVisibleRange, type VisibleRange } from './filmstripTiles.js';
 import { AudioChip, AUDIO_ROW_H } from './AudioChip.js';
 import { TimelineToolbar } from './Toolbar.js';
@@ -202,12 +203,54 @@ export function Timeline() {
   useEffect(
     () => () => {
       if (pendingTimer.current) clearTimeout(pendingTimer.current);
+      cancelFollow();
     },
     [],
   );
   const [snapLine, setSnapLine] = useState<number | null>(null);
   const [, force] = useState(0);
   const rerender = () => force((n) => n + 1);
+
+  /**
+   * Plan 11 Task 2（裁決 1）：trim 拖曳中 playhead 跟隨被拖的邊，rAF 節流
+   * （一幀最多一次 seek，永遠吃最新值）。
+   * - `followRaf`：待執行的 rAF id；放手時要能取消，不然放手後那一幀還是會補一次 seek。
+   * - `followTarget`：rAF callback 執行時要 seek 到的最新邊時間（同一幀內多次
+   *   onPointerMove 只保留最後一次，不逐次 seek）。
+   * - `trimFollowing`：trim-in/out 拖曳期間為 true，供 `snapCandidates()` 排除
+   *   playhead（controller pre-flight 裁決：playhead 正在鏡射被拖的邊，把它留在
+   *   候選裡等於自己吸自己，會鎖住）。move 拖曳不設這個旗標——它不驅動 playhead。
+   */
+  const followRaf = useRef<number | null>(null);
+  const followTarget = useRef<number | null>(null);
+  const trimFollowing = useRef(false);
+  const scheduleFollow = (edgeSec: number) => {
+    followTarget.current = edgeSec;
+    if (followRaf.current !== null) return; // 同一幀内已排過，等它執行時撈最新值
+    followRaf.current = requestAnimationFrame(() => {
+      followRaf.current = null;
+      const t = followTarget.current;
+      if (t === null) return;
+      // 主軌 trim-out 把 clip 拖長過目前的 committed total 時（例如最後一段 clip
+      // 往右拉），`usePlayback.seek` 會被舊 total clamp 掉、追不到邊——這裡的
+      // preview 才是「拖曳中真正的時間軸長度」，seek 前先把 total 頂上去，
+      // echo 抵達後 Player 會用 committed doc 覆寫回正確值，不會卡住。
+      if (t > usePlayback.getState().total) usePlayback.getState().setTotal(t);
+      usePlayback.getState().seek(t);
+    });
+  };
+  const cancelFollow = () => {
+    if (followRaf.current !== null) {
+      cancelAnimationFrame(followRaf.current);
+      followRaf.current = null;
+    }
+    followTarget.current = null;
+  };
+  /** trim 拖曳啟動的共用前置：播放中先暫停、標記 trim-follow 旗標。 */
+  const startTrimFollow = () => {
+    trimFollowing.current = true;
+    if (usePlayback.getState().playing) usePlayback.getState().pause();
+  };
 
   // ---- 拖曳啟動 handlers：useCallback 穩定 reference，memo(ClipBlock/AudioChip) 才擋得住
   // 「拖 A 軌時 B 軌整排陪跑重渲染」。只碰 ref 與 getState，不需依賴。----
@@ -218,6 +261,7 @@ export function Timeline() {
 
   const onTrimStart = useCallback((e: PointerEvent, clip: VideoClip, edge: 'in' | 'out') => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    startTrimFollow();
     drag.current = {
       mode: edge === 'in' ? 'trim-in' : 'trim-out',
       clipId: clip.id,
@@ -240,6 +284,7 @@ export function Timeline() {
   const onAudDrag = useCallback((e: PointerEvent, a: AudioItem, edge: 'move' | 'in' | 'out') => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     useSelection.getState().select({ kind: 'audio', id: a.id });
+    if (edge !== 'move') startTrimFollow();
     const media = useProject.getState().doc?.media.find((m) => m.id === a.mediaId);
     const orig = { start: a.start, in: a.in, duration: a.duration };
     drag.current = {
@@ -527,9 +572,15 @@ export function Timeline() {
     width: timeToPx(c.duration, pps),
   }));
 
-  /** 吸附候選：片段邊界、片尾、playhead、整秒（playhead 讀 getState，避免訂閱 time） */
+  /**
+   * 吸附候選：片段邊界、片尾、playhead、整秒（playhead 讀 getState，避免訂閱 time）。
+   * ⚠️ trim-follow 期間（`trimFollowing.current`）playhead 正在鏡射被拖的邊本身，
+   * 留在候選裡等於自己吸自己（會鎖住，見裁決 1 controller pre-flight 附帶裁決）
+   * ——這段期間排除；move 拖曳、非 trim 狀態不受影響，維持原候選集合。
+   */
   const snapCandidates = (): number[] => {
-    const cands = [...starts, total, usePlayback.getState().time];
+    const cands = [...starts, total];
+    if (!trimFollowing.current) cands.push(usePlayback.getState().time);
     for (let s = 0; s <= Math.ceil(total); s++) cands.push(s);
     return cands;
   };
@@ -545,6 +596,7 @@ export function Timeline() {
     if (!c) return;
     capture(e);
     useSelection.getState().select({ kind: 'caption', id });
+    if (edge !== 'move') startTrimFollow();
     const pd = pending.current;
     const orig =
       pd?.mode === 'cap' && pd.id === id
@@ -559,6 +611,7 @@ export function Timeline() {
     if (!o || !win) return;
     capture(e);
     useSelection.getState().select({ kind: 'overlay', id });
+    if (edge !== 'move') startTrimFollow();
     const orig = {
       absStart: win.start,
       span: o.duration === null ? null : win.end - win.start,
@@ -611,6 +664,10 @@ export function Timeline() {
         );
         d.preview = { ...clip, duration: dur };
         setSnapLine(dur !== raw.duration ? clipStart + dur : null);
+        // 裁決 1：out 把手＝clip 的新右緣。clipStart 是本地 preview layout 的起點
+        // （trim 不移動自己的起點，只有它之後的片段會被 ripple——見上方常數區塊
+        // trimmedClips/leftById 的註解），不必額外換算。
+        scheduleFollow(clipStart + dur);
       } else {
         const raw = trimIn(clip, deltaSec);
         const sourceRight = clip.in + clip.duration;
@@ -621,6 +678,8 @@ export function Timeline() {
         );
         d.preview = { ...clip, in: sourceRight - dur, duration: dur };
         setSnapLine(dur !== raw.duration ? clipStart + dur : null);
+        // in 把手：clip 的起點時間本身不動（trim 只改 in/duration），追的邊就是 clipStart。
+        scheduleFollow(clipStart);
       }
       rerender();
     } else if (d.mode === 'move') {
@@ -639,12 +698,14 @@ export function Timeline() {
         const start = Math.max(0, Math.min(snapped, rightEdge - MIN_CLIP_DURATION));
         d.preview = { start, duration: rightEdge - start };
         setSnapLine(snapped !== raw.start ? start : null);
+        scheduleFollow(start);
       } else {
         const raw = trimSpanOut(d.orig, deltaSec);
         const snappedEdge = maybeSnap(d.orig.start + raw.duration);
         const duration = Math.max(MIN_CLIP_DURATION, snappedEdge - d.orig.start);
         d.preview = { start: d.orig.start, duration };
         setSnapLine(duration !== raw.duration ? d.orig.start + duration : null);
+        scheduleFollow(d.orig.start + duration);
       }
       rerender();
     } else if (d.mode === 'aud') {
@@ -659,6 +720,7 @@ export function Timeline() {
         const snapped = maybeSnap(raw.start);
         d.preview = trimAudioIn(d.orig, snapped - d.orig.start);
         setSnapLine(snapped !== raw.start ? d.preview.start : null);
+        scheduleFollow(d.preview.start);
       } else {
         const raw = trimSpanOut(d.orig, deltaSec, d.mediaDur - d.orig.in);
         const snappedEdge = maybeSnap(d.orig.start + raw.duration);
@@ -668,6 +730,7 @@ export function Timeline() {
         );
         d.preview = { ...d.orig, duration };
         setSnapLine(duration !== raw.duration ? d.orig.start + duration : null);
+        scheduleFollow(d.orig.start + duration);
       }
       rerender();
     } else if (d.mode === 'ov') {
@@ -693,18 +756,21 @@ export function Timeline() {
             span: d.orig.span === null ? null : rightEdge - absStart,
           };
           setSnapLine(snapped !== raw.start ? absStart : null);
+          scheduleFollow(absStart);
         } else if (d.orig.span === null && deltaSec === 0) {
           // review round 1 Critical 2：zero-movement pointerdown→up（單純點擊 out
           // 把手，沒有真的拖）不該把 to-end overlay 材料化——鏡射 in 把手的 null
           // 保護。真的有位移才往下算出具體數字（見下面 else 分支）。
           d.preview = { absStart: d.orig.absStart, span: null };
           setSnapLine(null);
+          scheduleFollow(d.orig.absStart + effectiveSpan);
         } else {
           const raw = trimSpanOut({ duration: effectiveSpan }, deltaSec);
           const snappedEdge = maybeSnap(d.orig.absStart + raw.duration);
           const span = Math.max(MIN_CLIP_DURATION, snappedEdge - d.orig.absStart);
           d.preview = { absStart: d.orig.absStart, span };
           setSnapLine(span !== raw.duration ? d.orig.absStart + span : null);
+          scheduleFollow(d.orig.absStart + span);
         }
       }
       rerender();
@@ -715,6 +781,11 @@ export function Timeline() {
     const d = drag.current;
     drag.current = null;
     setSnapLine(null);
+    // 裁決 1：放手時取消尚未 flush 的 rAF（不會在放手後才補一次跳動），
+    // 並解除吸附排除旗標——playhead 已經停在最後一次 flush 的邊上（不彈回），
+    // 只是往後的吸附不再需要排它。
+    cancelFollow();
+    trimFollowing.current = false;
     if (!d) return;
     if (d.mode === 'trim-in' || d.mode === 'trim-out') {
       const inSec = Number(d.preview.in.toFixed(3));
@@ -914,6 +985,97 @@ export function Timeline() {
     if (!moveDrag) return 0;
     const orig = layout.find((l) => l.id === moveDrag.clipId);
     return (orig?.left ?? 0) + (moveDrag.pointerX - moveDrag.startX);
+  })();
+
+  /**
+   * Plan 11 Task 2（裁決 2）：浮動時長/起點 badge 的狀態，畫在 Timeline 頂層
+   * （不進 chip 內）。trim 顯示「時長 (帶號增減)」，move 顯示起點時間；沒有拖曳
+   * 時整個 drag 是 null，`<DragBadge>` 什麼都不畫。座標對齊各軌道 top（RULER_H
+   * 起算的累計高度），跟著把手 1:1、不吃 CSS transition（DragBadge.tsx 內建這條紀律）。
+   */
+  const ROW_TOP = RULER_H;
+  const OVERLAY_ROW_TOP = ROW_TOP + ROW_H;
+  const CAPTION_ROW_TOP = OVERLAY_ROW_TOP + SUB_ROW_H;
+  const AUDIO_ROW_TOP = CAPTION_ROW_TOP + SUB_ROW_H;
+  const dragBadge: DragBadgeState | null = (() => {
+    const d = drag.current;
+    if (!d) {
+      return null;
+    } else if (d.mode === 'trim-in') {
+      const orig = doc.tracks.video.find((c) => c.id === d.clipId);
+      if (!orig) return null;
+      const index = doc.tracks.video.findIndex((c) => c.id === d.clipId);
+      const clipStart = starts[index]!;
+      return {
+        leftPx: timeToPx(clipStart, pps),
+        topPx: ROW_TOP,
+        content: {
+          kind: 'trim',
+          duration: d.preview.duration,
+          delta: d.preview.duration - orig.duration,
+        },
+      };
+    } else if (d.mode === 'trim-out') {
+      const orig = doc.tracks.video.find((c) => c.id === d.clipId);
+      if (!orig) return null;
+      const index = doc.tracks.video.findIndex((c) => c.id === d.clipId);
+      const clipStart = starts[index]!;
+      return {
+        leftPx: timeToPx(clipStart + d.preview.duration, pps),
+        topPx: ROW_TOP,
+        content: {
+          kind: 'trim',
+          duration: d.preview.duration,
+          delta: d.preview.duration - orig.duration,
+        },
+      };
+    } else if (d.mode === 'move') {
+      return null; // 主軌 move＝重排序，語意上沒有「起點時間」可顯示（clip 位置由順序決定）
+    } else if (d.mode === 'cap' || d.mode === 'aud') {
+      const topPx = d.mode === 'cap' ? CAPTION_ROW_TOP : AUDIO_ROW_TOP;
+      if (d.edge === 'move') {
+        return {
+          leftPx: timeToPx(d.preview.start, pps),
+          topPx,
+          content: { kind: 'move', start: d.preview.start },
+        };
+      }
+      const leftPx =
+        d.edge === 'in'
+          ? timeToPx(d.preview.start, pps)
+          : timeToPx(d.preview.start + d.preview.duration, pps);
+      return {
+        leftPx,
+        topPx,
+        content: {
+          kind: 'trim',
+          duration: d.preview.duration,
+          delta: d.preview.duration - d.orig.duration,
+        },
+      };
+    } else if (d.mode === 'ov') {
+      if (d.edge === 'move') {
+        return {
+          leftPx: timeToPx(d.preview.absStart, pps),
+          topPx: OVERLAY_ROW_TOP,
+          content: { kind: 'move', start: d.preview.absStart },
+        };
+      }
+      // to-end（span:null）未落地時借「目前有效時長」顯示，語意同 onPointerMove 的 effectiveSpan
+      const origSpan = d.orig.span ?? totalDuration(doc) - d.orig.absStart;
+      const previewSpan = d.preview.span ?? totalDuration(doc) - d.preview.absStart;
+      const leftPx =
+        d.edge === 'in'
+          ? timeToPx(d.preview.absStart, pps)
+          : timeToPx(d.preview.absStart + previewSpan, pps);
+      return {
+        leftPx,
+        topPx: OVERLAY_ROW_TOP,
+        content: { kind: 'trim', duration: previewSpan, delta: previewSpan - origSpan },
+      };
+    } else {
+      return null;
+    }
   })();
 
   // 尺規刻度密度隨縮放調整：CapCut 式像素密度自適應（標籤永遠 >=80px 間距，
@@ -1382,6 +1544,7 @@ export function Timeline() {
               />
             )}
             <Playhead pps={pps} />
+            <DragBadge drag={dragBadge} />
           </div>
         </div>
       </div>
