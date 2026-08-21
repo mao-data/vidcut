@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -538,6 +539,52 @@ export function Timeline() {
     if (motionOK()) gsap.to(el, { scrollLeft: target, duration: 0.4, ease: 'power2.out' });
     else el.scrollLeft = target;
   }, [fxStamp]);
+
+  /**
+   * Plan 11 Task 4（裁決 7）／fix round 1 Important 1：同軌重疊區間，`useMemo` 化。
+   *
+   * 必須放在 `if (!doc) return null` **之前**——這個 hook 呼叫要在每次 render 都
+   * 無條件執行（Rules of Hooks），而 `doc` 從 null 變成非 null（專案剛連上時）
+   * 是同一個掛載實例上會真的發生的轉換（`App.tsx` 沒有用 key 逼 Timeline 重掛載），
+   * 放在早退之後只會在 doc 已存在的那些 render 才呼叫到，第一次 null→非 null
+   * 那一輪 hook 呼叫數量就對不上、直接違規。`doc` 用 `?? undefined` 落到空陣列，
+   * 該 render 反正整個元件緊接著 return null，算出來的值不會被用到。
+   *
+   * Timeline 在任何拖曳（含跟這三軌完全無關的主軌拖曳）的每個 pointer-move frame
+   * 都會重渲染（`force` bump）——不包 useMemo 的話這三個 O(n²) 計算每個 frame 都要
+   * 白算一次。這裡吃的是「已提交的 doc」（見下方 overlapLineStyle 前的既有註解：
+   * 拖曳中這條線刻意不接即時預覽），所以 deps 只要列已提交欄位的參考，拖曳期間
+   * doc 不變、memo 就完全跳過重算，跟「拖曳中維持舊位置、放手才更新」的既有語意
+   * 完全對齊，不是額外行為。
+   *
+   * overlay 的 deps 除了 `doc.tracks.overlays` 本身，還要列 `doc.tracks.video`——
+   * `overlayWindow()` 內部靠它解析 anchor（`clipStartTimes`）與 duration:null
+   * 到片尾（`totalDuration`，本身也是純算 `p.tracks.video`），漏列的話主軌剪輯
+   * （加減 clip、trim 改變總長）不會觸發 overlay 重疊重算，殘留一條過期的線。
+   */
+  const overlayOverlaps: OverlapSegment[] = useMemo(() => {
+    if (!doc) return [];
+    return overlapSegments(
+      doc.tracks.overlays
+        .map((o) => {
+          const win = overlayWindow(doc, o);
+          return win ? { id: o.id, start: win.start, end: win.end } : null;
+        })
+        .filter((w): w is OverlapSegment => w !== null),
+    );
+  }, [doc?.tracks.overlays, doc?.tracks.video]);
+  const captionOverlaps: OverlapSegment[] = useMemo(() => {
+    if (!doc) return [];
+    return overlapSegments(
+      doc.tracks.captions.map((c) => ({ id: c.id, start: c.start, end: c.start + c.duration })),
+    );
+  }, [doc?.tracks.captions]);
+  const audioOverlaps: OverlapSegment[] = useMemo(() => {
+    if (!doc) return [];
+    return overlapSegments(
+      doc.tracks.audio.map((a) => ({ id: a.id, start: a.start, end: a.start + a.duration })),
+    );
+  }, [doc?.tracks.audio]);
 
   if (!doc) return null;
 
@@ -1173,23 +1220,11 @@ export function Timeline() {
    * 等原始欄位），不接 `drag.current`/`pending.current` 的預覽覆蓋——拖曳中這條線
    * 會維持在拖曳前的位置、放手後才跳到新位置。理由：重疊提示只是提醒，不是
    * 拖曳操作本身依賴的回饋（badge／chip 本身已經即時跟手），沒必要為了這條線
-   * 另外接一層預覽狀態機。
+   * 另外接一層預覽狀態機。`overlayOverlaps`/`captionOverlaps`/`audioOverlaps`
+   * 三個 memo 本體見上方（`if (!doc) return null` 之前，理由見那裡的註解）。
+   *
+   * danger 線的共用 style：left/width/top 由呼叫端算好帶入。
    */
-  const overlayOverlaps: OverlapSegment[] = overlapSegments(
-    doc.tracks.overlays
-      .map((o) => {
-        const win = overlayWindow(doc, o);
-        return win ? { id: o.id, start: win.start, end: win.end } : null;
-      })
-      .filter((w): w is OverlapSegment => w !== null),
-  );
-  const captionOverlaps: OverlapSegment[] = overlapSegments(
-    doc.tracks.captions.map((c) => ({ id: c.id, start: c.start, end: c.start + c.duration })),
-  );
-  const audioOverlaps: OverlapSegment[] = overlapSegments(
-    doc.tracks.audio.map((a) => ({ id: a.id, start: a.start, end: a.start + a.duration })),
-  );
-  /** danger 線的共用 style：left/width/top 由呼叫端算好帶入。 */
   const overlapLineStyle = (leftPx: number, widthPx: number, topPx: number): CSSProperties => ({
     position: 'absolute',
     left: leftPx,

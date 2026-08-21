@@ -28,6 +28,20 @@ describe('overlapSegments', () => {
     expect(r).toEqual([]);
   });
 
+  it('review round 1 Minor 1：極微量重疊（a.end 比 b.start 大一個浮點 epsilon）要被偵測到，不是被當成相接吞掉', () => {
+    // 與上一個 case 對照：這裡不是恰好相等，是 a.end 真的（哪怕只多一點點）
+    // 超過 b.start——半開區間規則要求只要有正寬度交集就算重疊，門檻是
+    // `start < end` 嚴格小於，不是某個容忍誤差；2.0000000001 > 2 在 IEEE754
+    // 下不等於 2，這裡驗證這一點點寬度確實會被抓出來，不會被四捨五入或誤判成相接。
+    const r = overlapSegments([
+      { id: 'a', start: 0, end: 2.0000000001 },
+      { id: 'b', start: 2, end: 4 },
+    ]);
+    expect(r).toContainEqual({ id: 'a', start: 2, end: 2.0000000001 });
+    expect(r).toContainEqual({ id: 'b', start: 2, end: 2.0000000001 });
+    expect(r).toHaveLength(2);
+  });
+
   it('一個項目完全包住另一個：外層的重疊子區間恰等於內層的整個窗口', () => {
     const r = overlapSegments([
       { id: 'outer', start: 0, end: 10 },
