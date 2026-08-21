@@ -103,6 +103,79 @@ describe('planAt', () => {
   });
 });
 
+describe('planAt 黑尾（Plan 13 裁決 1、4）', () => {
+  it('無黑尾專案：主軌區間行為逐位元組不變、done 仍在 totalDuration', () => {
+    const p = proj(); // totalDuration = 10；audio/caption 都在 10 以內
+    expect(planAt(p, 3)).toEqual({
+      active: planAt(p, 3).active,
+      next: planAt(p, 3).next,
+      overlays: planAt(p, 3).overlays,
+      captions: planAt(p, 3).captions,
+      audio: planAt(p, 3).audio,
+      ducked: planAt(p, 3).ducked,
+      done: planAt(p, 3).done,
+      blackTail: false,
+    });
+    expect(planAt(p, 3).blackTail).toBe(false);
+    expect(planAt(p, 9.99).blackTail).toBe(false);
+    expect(planAt(p, 10).done).toBe(true);
+    expect(planAt(p, 10).blackTail).toBe(false); // 已 done，不是黑尾（黑尾是 done 之前的一段）
+  });
+
+  it('audio 超出主軌總長：黑尾區間 active 為 null、blackTail 為 true、done 未到', () => {
+    const p = proj(); // totalDuration = 10
+    p.tracks.audio = [
+      { id: 'a1', mediaId: 'm2', start: 8, in: 0, duration: 5, volume: 1 }, // 8+5=13
+    ];
+    const plan = planAt(p, 11); // 在 [10, 13) 黑尾區間
+    expect(plan.active).toBeNull();
+    expect(plan.next).toBeNull();
+    expect(plan.blackTail).toBe(true);
+    expect(plan.done).toBe(false);
+  });
+
+  it('done 改在 outputDuration 觸發（而非主軌 totalDuration）', () => {
+    const p = proj();
+    p.tracks.audio = [{ id: 'a1', mediaId: 'm2', start: 8, in: 0, duration: 5, volume: 1 }]; // 13
+    expect(planAt(p, 10).done).toBe(false); // 主軌已結束但輸出還沒結束
+    expect(planAt(p, 12.99).done).toBe(false);
+    expect(planAt(p, 13).done).toBe(true);
+    expect(planAt(p, 13).blackTail).toBe(false); // done 之後不算黑尾
+  });
+
+  it('黑尾區間音訊仍活躍：activeAudioAt 自然涵蓋主軌之後的時刻', () => {
+    const p = proj();
+    p.tracks.audio = [{ id: 'a1', mediaId: 'm2', start: 8, in: 0, duration: 5, volume: 1 }]; // 8..13
+    const plan = planAt(p, 11); // 黑尾區間裡，audio 仍在窗內（8<=11<13）
+    expect(plan.audio).toMatchObject([{ id: 'a1' }]);
+    expect(plan.audio[0]!.sourceTime).toBeCloseTo(3); // in 0 + rel(11-8)
+  });
+
+  it('黑尾區間字幕/overlay 照常顯示（與成品一致，裁決 4）', () => {
+    const p = proj();
+    p.tracks.audio = [{ id: 'a1', mediaId: 'm2', start: 8, in: 0, duration: 5, volume: 1 }]; // 13
+    p.tracks.captions = [
+      {
+        id: 'capTail',
+        text: 'tail',
+        start: 10.5,
+        duration: 2,
+        style: { fontFamily: 'sans-serif', fontSize: 48, fill: '#fff', y: 0.8 },
+      },
+    ];
+    const plan = planAt(p, 11);
+    expect(plan.captions).toMatchObject([{ id: 'capTail' }]);
+  });
+
+  it('空專案（total=0）：done 與 blackTail 都是 false', () => {
+    const p = createEmptyProject('x', 'x');
+    const plan = planAt(p, 0);
+    expect(plan.done).toBe(false);
+    expect(plan.blackTail).toBe(false);
+    expect(plan.active).toBeNull();
+  });
+});
+
 describe('planAt trimPreview override（Plan 12 Task 2/裁決 3）', () => {
   it('active clip matches override clipId：sourceTime 用 override in，不用 doc 的 in', () => {
     // c1: in=2, doc in 不變；trim-in 拖曳中把 in 預覽成 5，offset（t=3 相對 clipStart=0）仍是 3

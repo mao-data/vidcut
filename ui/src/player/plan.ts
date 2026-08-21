@@ -1,5 +1,6 @@
 import {
   locate,
+  outputDuration,
   overlayWindow,
   totalDuration,
   type CaptionItem,
@@ -48,7 +49,14 @@ export interface PlayerPlan {
   audio: ActiveAudio[];
   /** 任一活躍音訊項要求 ducking → 影片原聲要壓低（與 render.ts DUCK_LEVEL 同步） */
   ducked: boolean;
-  /** t 已達片尾 */
+  /**
+   * t 落在 `[主軌總長, outputDuration)`——主軌畫面已結束、但輸出還沒結束（其他軌
+   * 還有內容，Plan 13 裁決 1、4）。這段沒有影片來源，`active`/`next` 皆為 null；
+   * Player（Task 3）依此把三層 video 隱藏/遮黑，而不是誤判成「空專案」。
+   * 與 `done` 互斥：done 之後（t >= outputDuration）一律 false。
+   */
+  blackTail: boolean;
+  /** t 已達輸出結尾（Plan 13 起＝outputDuration，含黑尾；以前是主軌 totalDuration） */
   done: boolean;
 }
 
@@ -116,8 +124,18 @@ function activeAudioAt(p: Project, t: number): ActiveAudio[] {
  */
 export function planAt(p: Project, t: number, trimPreview: TrimPreview = null): PlayerPlan {
   const total = totalDuration(p);
-  const done = total > 0 && t >= total;
-  const loc = locate(p, Math.min(t, total));
+  // Plan 13 裁決 1、4：輸出/播放結尾改為 outputDuration（= max(主軌總長, 各軌最遠內容)），
+  // 不再是主軌 totalDuration——[total, outputDuration) 是黑尾（其他軌還有內容、主軌已結束）。
+  const output = outputDuration(p);
+  const done = output > 0 && t >= output;
+  // [0, total) 區間行為與改動前逐位元組相同（pin：plan.test.ts）；黑尾區間
+  // （total <= t < output）没有主軌內容，loc 必為 null（Math.min(t, total) 夾在 total，
+  // locate 在 t === total 回最後一個 clip 尾端——那是「主軌播完」，不是黑尾本身的來源，
+  // 所以黑尾要另外判斷、把 active/next 明確清成 null，不能沿用夾制後的 loc）。
+  // `output > total` 才可能有黑尾：空專案（total=0, output=0）不算——那是「沒有內容」，
+  // 不是「主軌播完、其他軌還在演」。
+  const blackTail = output > total && !done && t >= total;
+  const loc = blackTail ? null : locate(p, Math.min(t, total));
   const active = loc ? sourceFor(p, loc.clipIndex, loc.offsetInClip, trimPreview) : null;
   const next = loc ? sourceFor(p, loc.clipIndex + 1, 0, trimPreview) : null;
   const overlays = p.tracks.overlays
@@ -129,5 +147,5 @@ export function planAt(p: Project, t: number, trimPreview: TrimPreview = null): 
   const captions = p.tracks.captions.filter((c) => t >= c.start && t < c.start + c.duration);
   const audio = activeAudioAt(p, t);
   const ducked = audio.some((a) => a.ducking);
-  return { active, next, overlays, captions, audio, ducked, done };
+  return { active, next, overlays, captions, audio, ducked, blackTail, done };
 }
