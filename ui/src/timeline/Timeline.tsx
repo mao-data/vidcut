@@ -126,7 +126,20 @@ function Playhead({ pps }: { pps: number }) {
 }
 
 type DragState =
-  | { mode: 'trim-in' | 'trim-out'; clipId: string; startX: number; preview: VideoClip }
+  // Plan 12 Task 1（幾何解）：main-track trim-in 每幀用 scrollLeftAtDragStart +
+  // origDuration 做「絕對重算」的捲動補償（scrollLeft = origin + (durationPx -
+  // origDurationPx)），不是逐幀累加——撞 0 clamp 後往回拖才不會殘留幻影偏移
+  // （見 plan 範圍裁決 1）。trim-out 不用這兩個欄位（右緣本來就跟手，維持
+  // Plan 11 行為），但共用同一個 mode union 分支，欄位放在同一個 variant 上
+  // 較貼近既有結構，未使用時保持 undefined。
+  | {
+      mode: 'trim-in' | 'trim-out';
+      clipId: string;
+      startX: number;
+      preview: VideoClip;
+      scrollLeftAtDragStart?: number;
+      origDuration?: number;
+    }
   // contentLeft 在 pointerdown 量一次快取：getBoundingClientRect 會強制同步 layout，
   // 不該在拖曳中每幀呼叫（layout thrashing）
   | { mode: 'move'; clipId: string; startX: number; pointerX: number; contentLeft: number }
@@ -326,6 +339,10 @@ export function Timeline() {
       clipId: clip.id,
       startX: e.clientX,
       preview: { ...clip },
+      // 只有 trim-in 用得到（捲動補償的起手基準）；trim-out 保持 undefined。
+      ...(edge === 'in'
+        ? { scrollLeftAtDragStart: scrollRef.current?.scrollLeft ?? 0, origDuration: clip.duration }
+        : {}),
     };
   }, []);
 
@@ -778,17 +795,28 @@ export function Timeline() {
         // trimmedClips/leftById 的註解），不必額外換算。
         scheduleFollow(clipStart + dur);
       } else {
+        // Plan 12（範圍裁決 2）：main-track trim-in 不再吸內容座標——舊行為吸的是
+        // 「右緣」，但右緣在補償模型下螢幕靜止、左緣內容座標本來就固定，兩者都沒有
+        // 可吸的意義（見 plan 診斷依據）。in=0 的硬停點 clamp 已經在 trimIn 內做過
+        // （見其註解），這裡不必再夾一次 clipStart+raw.duration。
         const raw = trimIn(clip, deltaSec);
-        const sourceRight = clip.in + clip.duration;
-        const snappedEdge = maybeSnap(clipStart + raw.duration);
-        const dur = Math.min(
-          Math.max(snappedEdge - clipStart, MIN_CLIP_DURATION),
-          sourceRight, // in 不得小於 0
-        );
-        d.preview = { ...clip, in: sourceRight - dur, duration: dur };
-        setSnapLine(dur !== raw.duration ? clipStart + dur : null);
+        const dur = raw.duration;
+        d.preview = { ...clip, in: raw.in, duration: dur };
+        setSnapLine(null);
         // in 把手：clip 的起點時間本身不動（trim 只改 in/duration），追的邊就是 clipStart。
         scheduleFollow(clipStart);
+
+        // Plan 12（幾何解）：捲動補償——每幀把 scrollLeft 絕對重算成
+        // 「起手時的 scrollLeft + 這一幀的 duration 變化量（px）」，讓被拖的前緣
+        // 螢幕位置跟手（clip 既有內容與其後片段因此在螢幕上完全靜止，前面片段
+        // 讓位）。用絕對重算而非逐幀累加，是因為 scrollLeft 在瀏覽器端會被夾在
+        // >=0——用累加的話，撞底之後再往回拖，累加值會跟真實 scrollLeft 脫勾，
+        // 之後的補償量全部算錯；絕對重算每幀都從同一個起點出發，天然免疫這個問題。
+        const el = scrollRef.current;
+        if (el && d.scrollLeftAtDragStart !== undefined && d.origDuration !== undefined) {
+          const deltaPx = timeToPx(dur, pps) - timeToPx(d.origDuration, pps);
+          el.scrollLeft = Math.max(0, d.scrollLeftAtDragStart + deltaPx);
+        }
       }
       rerender();
     } else if (d.mode === 'move') {

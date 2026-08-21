@@ -646,6 +646,230 @@ describe('dragActive 旗標（final-review Fix 2）', () => {
   });
 });
 
+describe('主軌 trim-in 捲動補償——邊釘手指下（Plan 12 Task 1，幾何解見 plan 診斷依據）', () => {
+  /**
+   * scrollRef（唯一的橫向捲動容器，Plan 9 windowing 也用它）在 jsdom 下
+   * scrollLeft 是可讀寫的一般 property（非真排版），見 ui-verification.md。
+   * 用 `scroll` 容器的 style 找到它：Timeline.tsx 唯一 `overflow:auto` 的 div。
+   */
+  function scroller(container: HTMLElement): HTMLDivElement {
+    const el = Array.from(container.querySelectorAll('div')).find(
+      (d) => (d as HTMLElement).style.overflow === 'auto',
+    );
+    if (!el) throw new Error('scroller not found');
+    return el as HTMLDivElement;
+  }
+
+  it('主軌 trim-in 拖曳中 scrollLeft 隨 delta 增加（往左拉手指＝把手往左移＝duration 變長）', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(0);
+    act(() => {
+      // 往左拉 40px（1s）：origDuration=6 → duration=7，durationPx 40*7=280，
+      // origDurationPx=40*6=240 → scrollLeft = 0 + (280-240) = 40
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(40);
+  });
+
+  it('雙向：往左拉再縮回去，scrollLeft 跟著減少（不是單調累加，每幀絕對重算）', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true }); // +1s
+    });
+    expect(scrollEl.scrollLeft).toBe(40);
+    act(() => {
+      // 縮回去：+0.5s（20px）而非 +1s → duration 6.5，delta px = 20
+      fireEvent.pointerMove(left!, { clientX: 80, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(20);
+    act(() => {
+      // 完全縮回起點：delta=0
+      fireEvent.pointerMove(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(0);
+  });
+
+  it('scrollLeftAtDragStart 非零時，補償是相對起手點的絕對重算（不是從 0 起算）', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    act(() => {
+      scrollEl.scrollLeft = 100; // 手勢開始前使用者已經捲動過
+    });
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(100); // 起手不應該重置捲動位置
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true }); // +1s → +40px
+    });
+    expect(scrollEl.scrollLeft).toBe(140); // 100 + 40
+  });
+
+  it('scrollLeft 夾在 0：往右推（縮短 in 拖曳，duration 變短）不會把 scrollLeft 推成負值', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往右推 3s（120px）：duration 6→3（仍 > MIN_CLIP_DURATION），delta px = -120
+      // 但起手 scrollLeft=0，理論負值應被夾在 0
+      fireEvent.pointerMove(left!, { clientX: 220, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(0);
+  });
+
+  it('絕對重算在撞 0 clamp 之後仍一致：先推到底夾住，再往左拉回，scrollLeft 從 0 正確回升', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 220, pointerId: 1, bubbles: true }); // 撞 0 clamp
+    });
+    expect(scrollEl.scrollLeft).toBe(0);
+    act(() => {
+      // 回到起手點再往左拉 0.5s（20px）：不是「從夾住的 0 繼續累加」，
+      // 而是相對 startX 絕對重算 → scrollLeft = 20
+      fireEvent.pointerMove(left!, { clientX: 80, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(20);
+  });
+
+  it('放手後 scrollLeft 不回彈（維持補償後的值，teardownDrag 不觸碰它）', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(40);
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(40);
+  });
+
+  it('pointercancel 後 scrollLeft 同樣不回彈（teardownDrag 是拆卸共用路徑，不特別處理 scrollLeft）', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerCancel(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(40);
+  });
+
+  it('主軌 trim-in 期間 snapLine 恆 null（裁決 2：內容座標吸附已移除，即使 snapEnabled 開啟）', () => {
+    useView.setState({ snapEnabled: true });
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 刻意拖到接近整秒邊界（舊行為會吸右緣到整數秒），驗證新行為完全不吸
+      fireEvent.pointerMove(left!, { clientX: 61, pointerId: 1, bubbles: true }); // ~+1.025s
+    });
+    // snapLine 沒有直接的 state 讀取入口，用其視覺渲染驗證：吸附導線是 Timeline.tsx 裡
+    // `boxShadow: '0 0 6px var(--accent-glow-strong)'` 那個絕對定位 div（playhead 標記
+    // 也用同一個 CSS 變數但不同 px 值，篩選要連 `0 0 6px` 一起比對才不會誤中）。
+    const lines = Array.from(container.querySelectorAll('div')).filter(
+      (d) => (d as HTMLElement).style.boxShadow === '0 0 6px var(--accent-glow-strong)',
+    );
+    expect(lines).toHaveLength(0);
+  });
+
+  it('主軌 trim-in 期間 in 仍在 0 硬停點 clamp（裁決 2 只拿掉吸附，不動既有 clamp）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往左拉 3s（120px）：in 2→0 恰好落地；duration 6→8（in=0 clamp 生效）
+      fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).toContain('8.0s (+2.0s)');
+  });
+
+  it('絕對時間軌（audio）的 trim-in 拖曳不觸發任何 scrollLeft 補償', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [left] = handles(chipByText(container, 'bgm'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true }); // -1s start
+    });
+    expect(scrollEl.scrollLeft).toBe(0);
+  });
+
+  it('caption（絕對時間軌）trim 也不觸發 scrollLeft 補償', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [, right] = handles(chipByText(container, 'first line'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(0);
+  });
+
+  it('主軌 trim-out（右把手）不觸發 scrollLeft 補償，行為與 Plan 11 不變', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = scroller(container);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(scrollEl.scrollLeft).toBe(0);
+  });
+
+  it('主軌 trim-out 的吸附行為不受本批影響（裁決 1/2 只動 trim-in）', () => {
+    useView.setState({ snapEnabled: true });
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // +1.9s（76px）：吸到整秒 8（clip 起點 0，duration 6→7.9 吸到 8）
+      fireEvent.pointerMove(right!, { clientX: 176, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).toContain('8.0s');
+  });
+});
+
 describe('badge 邊界 clamp（fix round 1 I3）', () => {
   function badgeEl(container: HTMLElement): HTMLElement {
     const hits = Array.from(container.querySelectorAll('div')).filter((d) =>
