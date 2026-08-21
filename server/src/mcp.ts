@@ -4,7 +4,15 @@ import type { Express, Request, Response } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import type { AudioItem, HistoryBrief, OverlayItem, CaptionItem } from '@vidcut/shared';
+import type {
+  AudioItem,
+  HistoryBrief,
+  OverlayItem,
+  CaptionItem,
+  PublishInfo,
+  PublishMeta,
+  PublishPlatform,
+} from '@vidcut/shared';
 import {
   totalDuration,
   overlayWindow,
@@ -25,6 +33,7 @@ import { listSource } from './sourceFolder.js';
 import { resolveTextCommand } from './textOverlays.js';
 import { CARD_LIMITS } from './cardBudget.js';
 import { emitAgentActivity, nextCallId } from './agentActivity.js';
+import { buildPublishPackage, UPLOAD_URLS } from './publish.js';
 
 export interface McpDeps {
   store: ProjectStore;
@@ -473,6 +482,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '(the clip is muted and its sound becomes a standalone audio item).' +
         "render's subtitles defaults to burn (captions burned into the picture); use embed to let viewers toggle them, " +
         'or sidecar (a separate .srt) for platforms that auto-translate subtitles — every mode except burn leaves the picture clean.' +
+        'After render, export_publish_package turns the finished video into a manual-upload package ' +
+        '(output/publish/<stamp>/: video + cover + .srt + one metadata text file per platform + manifest with ' +
+        'upload URLs and duration/size warnings) — write the platform captions/hashtags yourself and pass them in. ' +
+        'Platforms: tiktok / youtube / instagram / facebook; per-platform kind (short|video) picks the warning ' +
+        'thresholds — pass video for long-form YouTube/Facebook uploads. ' +
+        'No social platform API is involved, the user uploads by hand.' +
         'For landscape footage on a vertical canvas, set_canvas_fit blur looks better than black bars.' +
         'There are two kinds of overlay, and text and imagePath are mutually exclusive — give exactly one: ' +
         'for text overlays use add_overlay/update_overlay/set_overlays with text (the server rasterizes the card and ' +
@@ -1661,6 +1676,70 @@ export function createMcpServer(deps: McpDeps): McpServer {
         });
         return err(`render failed: ${(e as Error).message}`);
       }
+    },
+  );
+
+  const publishMetaInput = z.object({
+    title: z.string().optional().describe('YouTube/Facebook title; TikTok/Instagram ignore it'),
+    body: z.string().describe('caption / description text'),
+    hashtags: z.array(z.string()).optional().describe('without the leading #'),
+    kind: z
+      .enum(['short', 'video'])
+      .optional()
+      .describe(
+        'target form — affects the duration/size warnings only. Defaults: youtube→short, facebook→video; ' +
+          'tiktok/instagram are always short. Pass video for a long-form YouTube/Facebook upload.',
+      ),
+  });
+
+  server.registerTool(
+    'export_publish_package',
+    {
+      description:
+        'Package the finished render for manual upload: copies the output video plus cover and .srt into ' +
+        'output/publish/<stamp>/, writes one text file per platform from the metadata you provide, and records ' +
+        'per-platform duration/size warnings in manifest.json. No social platform API is called — the user ' +
+        'uploads by hand (per-platform upload URLs are in the reply). Requires a completed render, and at least ' +
+        'one platform. Re-running replaces the package for that render.',
+      outputSchema: {
+        version: z.number(),
+        dir: z.string().describe('package directory, relative to the project folder'),
+        files: z.array(z.string()),
+        warnings: z
+          .array(z.string())
+          .describe('per-platform duration/size warnings; empty when clean'),
+      },
+      inputSchema: {
+        tiktok: publishMetaInput.optional(),
+        youtube: publishMetaInput.optional(),
+        instagram: publishMetaInput.optional(),
+        facebook: publishMetaInput.optional(),
+        ifVersion: z.number().optional(),
+      },
+    },
+    async ({ tiktok, youtube, instagram, facebook, ifVersion }) => {
+      // 比照 auto_caption：真正的守衛在 aiWrite，這裡先擋掉注定失敗的呼叫，免得白做檔案工作。
+      if (store.doc.review !== null) return err('error: a review is in progress');
+      const meta: Partial<Record<PublishPlatform, PublishMeta>> = {
+        ...(tiktok ? { tiktok } : {}),
+        ...(youtube ? { youtube } : {}),
+        ...(instagram ? { instagram } : {}),
+        ...(facebook ? { facebook } : {}),
+      };
+      let info: PublishInfo;
+      try {
+        info = await buildPublishPackage(projectDir, store.doc, meta);
+      } catch (e) {
+        return err(`error: ${(e as Error).message}`);
+      }
+      const w = aiWrite(store, { name: 'setPublish', info }, ifVersion);
+      if (!w.ok) return err(writeResultText(w));
+      const urls = info.platforms.map((p) => `${p}: ${UPLOAD_URLS[p]}`).join(' | ');
+      return result(
+        { version: w.version, dir: info.dir, files: info.files, warnings: info.warnings },
+        `${writeResultText(w)} | packaged ${info.files.length} file(s) into ${info.dir} — upload at ${urls}` +
+          (info.warnings.length > 0 ? `\n⚠️ ${info.warnings.join('; ')}` : ''),
+      );
     },
   );
 
