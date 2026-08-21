@@ -41,6 +41,7 @@ const COMMAND_VARIANT_MAP: Record<Command['name'], true> = {
   setCanvasFit: true,
   registerMedia: true,
   setCover: true,
+  setPublish: true,
   undo: true,
   redo: true,
 };
@@ -156,6 +157,7 @@ const MCP_EXEMPT_COMMANDS: Record<string, string> = {
   deleteAfter: '由 timeline_op 的 op:"deleteAfter" 觸達',
   freezeFrame: '由 timeline_op 的 op:"freeze" 觸達',
   registerMedia: '由 import_media 內部呼叫觸達',
+  setPublish: '由 export_publish_package 內部呼叫觸達（Task 4）',
 };
 
 describe('Command variant 都能從 MCP 觸達', () => {

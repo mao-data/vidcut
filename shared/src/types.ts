@@ -171,6 +171,36 @@ export interface ReviewState {
   requestedAt: string;
 }
 
+// ---- 發佈包（手動上傳；P0 不接任何平台 API，見 specs/2026-08-21-publish-package-p0.md）----
+export type PublishPlatform = 'tiktok' | 'youtube' | 'instagram' | 'facebook';
+/** 目標形式：短片（Shorts/Reels）或一般影片（長片）。只影響警告門檻與 manifest 標記。 */
+export type PublishKind = 'short' | 'video';
+export interface PublishMeta {
+  /** YouTube/Facebook 標題；TikTok/Instagram 忽略 */
+  title?: string;
+  /** caption / description 內文 */
+  body: string;
+  /** 不帶 # 的 hashtag 清單 */
+  hashtags?: string[];
+  /**
+   * 省略時的預設：youtube→short（vidcut 主產出是直式短片）、facebook→video、
+   * tiktok/instagram 只有 short（帶 video 也當 short）——解析在 publish.ts 的 resolveKind。
+   */
+  kind?: PublishKind;
+}
+export interface PublishInfo {
+  /** 相對專案資料夾的發佈包目錄（output/publish/<stamp>） */
+  dir: string;
+  stamp: string;
+  platforms: PublishPlatform[];
+  /** 相對專案資料夾的檔案清單 */
+  files: string[];
+  /** "tiktok: …" 格式；只警告不擋（傳長片到 YouTube 一般影片是合法用法） */
+  warnings: string[];
+  /** ISO 8601 */
+  createdAt: string;
+}
+
 export interface RenderState {
   lastOutput?: string;
   status: 'idle' | 'running' | 'done' | 'error';
@@ -178,6 +208,8 @@ export interface RenderState {
   error?: string;
   /** 封面圖（相對專案資料夾） */
   coverPath?: string;
+  /** 最近一次發佈包（與 lastOutput 同性質：登記結果，不進 undo） */
+  publish?: PublishInfo;
 }
 
 /**
@@ -318,6 +350,8 @@ export type Command =
   | { name: 'registerMedia'; asset: MediaAsset }
   /** 設定封面圖。抽幀的 async 前置留在 `render.ts` 的 `renderCoverImage`；理由同 registerMedia。 */
   | { name: 'setCover'; path: string }
+  /** 登記打包完成的發佈包。檔案工作在 publish.ts 的 buildPublishPackage；模式同 registerMedia/setCover。 */
+  | { name: 'setPublish'; info: PublishInfo }
   | { name: 'undo'; steps?: number }
   | { name: 'redo'; steps?: number };
 
