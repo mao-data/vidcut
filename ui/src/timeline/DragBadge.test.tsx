@@ -55,6 +55,24 @@ describe('formatDragBadge：來源上限 max 標記（Plan 11 Task 3 裁決 5）
   });
 });
 
+describe('formatDragBadge：來源起點 min 標記（Plan 12 Task 3 裁決 4，atMax 的對稱雙生）', () => {
+  it('trim + atMin：附加 " · min"', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 4, delta: -2, atMin: true })).toBe(
+      '4.0s (−2.0s) · min',
+    );
+  });
+
+  it('trim 不帶 atMin（省略）：格式不變，沒有 min 字樣', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 4, delta: -2 })).toBe('4.0s (−2.0s)');
+  });
+
+  it('trim + atMin:false：等同不帶，沒有 min 字樣', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 4, delta: -2, atMin: false })).toBe(
+      '4.0s (−2.0s)',
+    );
+  });
+});
+
 describe('formatDragBadge：邊界修正（fix round 1 I4/I5）', () => {
   it('I4：delta 微幅為負但捨入後為 0 → 顯示 +0.0s，不顯示 −0.0s', () => {
     expect(formatDragBadge({ kind: 'trim', duration: 5, delta: -0.04 })).toBe('5.0s (+0.0s)');

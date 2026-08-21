@@ -1092,3 +1092,196 @@ describe('badge 邊界 clamp（fix round 1 I3）', () => {
     expect(top).toBeGreaterThan(RULER_H);
   });
 });
+
+describe('主軌 in=0 素材用盡的視覺語言（Plan 12 Task 3 裁決 4，isAtSourceMax 的對稱雙生）', () => {
+  // c1：in=2 duration=6，往左拉 2s（80px @ 40pps）恰好頂到 in=0。
+  const TO_ZERO_PX = 2 * PPS; // 80
+
+  it('trim-in 拖到 in=0：in 把手帶 danger class，out 把手不受影響', () => {
+    const { container } = render(<Timeline />);
+    const clip = chipByText(container, 'clip one');
+    const [left, right] = handles(clip);
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 拖超過剩餘素材（+20px）：clamp 應把 in 頂在 0
+      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+    });
+    expect(left!.className).toContain('danger');
+    expect(right!.className).not.toContain('danger');
+  });
+
+  it('trim-in 拖到 in=0：badge 附加 min 標記', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).toContain('· min');
+  });
+
+  it('trim-in 未拖到 in=0：沒有 danger class，badge 沒有 min 標記', () => {
+    const { container } = render(<Timeline />);
+    const clip = chipByText(container, 'clip one');
+    const [left, right] = handles(clip);
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 只拖 -1s，遠不到 in=0（還剩 1s 素材）
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).not.toContain('danger');
+    expect(container.textContent).not.toContain('min');
+  });
+
+  it('trim-out 拖曳（非 in 把手）：即使同一個 clip，min danger 態不觸發（in=0 只約束左緣）', () => {
+    const { container } = render(<Timeline />);
+    const clip = chipByText(container, 'clip one');
+    const [left, right] = handles(clip);
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true }); // +1s
+    });
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).not.toContain('danger');
+  });
+
+  it('放手後 danger 態與 min 標記一起消失（回到一般顯示）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+    });
+    expect(left!.className).toContain('danger');
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+    });
+    expect(left!.className).not.toContain('danger');
+    expect(container.textContent).not.toContain('min');
+  });
+});
+
+describe('audio out 把手頂到來源長度上限的視覺語言（Plan 12 Task 3 裁決 5，終審 P1 收掉）', () => {
+  // a1：mediaId m2（probe.duration=30），in=1 duration=5 → 來源右緣 6，
+  // 最多還能拉長 24s（960px @ 40pps）才頂到 mediaDur。
+  const ROOM_TO_MAX_PX = (30 - (1 + 5)) * PPS; // 960
+
+  it('audio trim-out 拖到來源盡頭：out 把手帶 danger class', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'bgm'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 拖超過剩餘空間（+50px）：clamp 應把 duration 頂在 mediaDur - in 邊界
+      fireEvent.pointerMove(right!, {
+        clientX: 100 + ROOM_TO_MAX_PX + 50,
+        pointerId: 1,
+        bubbles: true,
+      });
+    });
+    expect(right!.className).toContain('danger');
+  });
+
+  it('audio trim-out 拖到來源盡頭：badge 附加 max 標記', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'bgm'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, {
+        clientX: 100 + ROOM_TO_MAX_PX + 50,
+        pointerId: 1,
+        bubbles: true,
+      });
+    });
+    expect(container.textContent).toContain('· max');
+  });
+
+  it('audio trim-out 未拖到盡頭：沒有 danger class，badge 沒有 max 標記', () => {
+    const { container } = render(<Timeline />);
+    const [left, right] = handles(chipByText(container, 'bgm'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 只拖 +1s，遠不到 24s 的剩餘空間
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(right!.className).not.toContain('danger');
+    expect(left!.className).not.toContain('danger');
+    expect(container.textContent).not.toContain('max');
+  });
+
+  it('audio trim-in（非 out 把手）：即使同一個 item，max danger 態不觸發（來源上限只約束右緣）', () => {
+    const { container } = render(<Timeline />);
+    const [left, right] = handles(chipByText(container, 'bgm'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true }); // -1s
+    });
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).not.toContain('danger');
+  });
+
+  it('放手後 danger 態與 max 標記一起消失（回到一般顯示）', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'bgm'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, {
+        clientX: 100 + ROOM_TO_MAX_PX + 50,
+        pointerId: 1,
+        bubbles: true,
+      });
+    });
+    expect(right!.className).toContain('danger');
+    act(() => {
+      fireEvent.pointerUp(right!, {
+        clientX: 100 + ROOM_TO_MAX_PX + 50,
+        pointerId: 1,
+        bubbles: true,
+      });
+    });
+    expect(right!.className).not.toContain('danger');
+    expect(container.textContent).not.toContain('max');
+  });
+
+  it('audio 缺 probe 資料（無已知上限）時，即使拖很遠也不觸發 danger（mirror isAtSourceMax 的 Infinity guard）', () => {
+    // 把 a1 的來源媒體 m2 的 probe.duration 拿掉，模擬「無 probe 資料」情境
+    // ——`media?.probe.duration ?? Infinity` 這條既有 fallback 只認 nullish，
+    // `delete` 讓存取回傳 undefined 才會真的落進 `?? Infinity`。
+    const doc = seedProject();
+    const audioMedia = doc.media.find((m) => m.id === 'm2')!;
+    // @ts-expect-error 測試刻意製造「缺 probe.duration」的情境（型別上是必填欄位）
+    delete audioMedia.probe.duration;
+    seedProject(doc);
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'bgm'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 拖非常遠——沒有已知上限時 clamp 不會啟動，也不該有 danger
+      fireEvent.pointerMove(right!, { clientX: 100 + 100000, pointerId: 1, bubbles: true });
+    });
+    expect(right!.className).not.toContain('danger');
+    expect(container.textContent).not.toContain('max');
+  });
+});

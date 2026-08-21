@@ -2,11 +2,14 @@ import type { CSSProperties } from 'react';
 import { tickLabel } from './scale.js';
 
 /** trim=時長(增減)；move=起點時間。單一元件全軌道共用，見 Plan 11 範圍裁決 2。
- * `atMax`（Plan 11 Task 3 裁決 5）：主軌 out 把手已經頂到來源長度上限
+ * `atMax`（Plan 11 Task 3 裁決 5）：主軌/audio out 把手已經頂到來源長度上限
  * （`probe.duration`）——只有 trim 用得到，move 沒有「來源上限」這回事。
+ * `atMin`（Plan 12 Task 3 裁決 4）：主軌 in 把手已經拉到來源起點（`in<=0`，
+ * 素材用盡）——`atMax` 的對稱雙生，同樣只有 trim 用得到。
+ * 兩者互斥（in 把手只會 atMin、out 把手只會 atMax，見呼叫端 Timeline.tsx）。
  * 省略或 false＝一般 trim，不附加任何字樣。 */
 export type DragBadgeContent =
-  | { kind: 'trim'; duration: number; delta: number; atMax?: boolean }
+  | { kind: 'trim'; duration: number; delta: number; atMax?: boolean; atMin?: boolean }
   | { kind: 'move'; start: number };
 
 export interface DragBadgeState {
@@ -62,11 +65,15 @@ function formatDelta(delta: number): string {
  * 裁決 5：`atMax` 時附加 ` · max`——選這個格式而不是取代整段文字，是因為時長/增減
  * 數字本身仍是有用資訊（使用者想知道「頂到多長」），`max` 只是額外註記「這是上限」，
  * 不是取代掉數字。
+ * 裁決 4：`atMin` 同款附加 ` · min`——對稱雙生，同一個理由（in=0 時使用者仍想
+ * 知道目前時長）。兩者互斥（見 DragBadgeContent 型別註解），不需要處理都為 true。
  */
 export function formatDragBadge(content: DragBadgeContent): string {
   if (content.kind === 'trim') {
     const base = `${formatSeconds(content.duration)} (${formatDelta(content.delta)})`;
-    return content.atMax ? `${base} · max` : base;
+    if (content.atMax) return `${base} · max`;
+    if (content.atMin) return `${base} · min`;
+    return base;
   }
   return formatSeconds(content.start);
 }

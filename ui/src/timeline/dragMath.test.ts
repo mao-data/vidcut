@@ -9,6 +9,7 @@ import {
   trimSpanOut,
   trimAudioIn,
   isAtSourceMax,
+  isAtSourceMin,
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 
@@ -66,6 +67,20 @@ describe('isAtSourceMax（Plan 11 Task 3 裁決 5：out 把手拖到來源盡頭
 
   it('false when mediaDuration is unknown (Infinity，無 probe 資料時的既有 fallback)', () => {
     expect(isAtSourceMax({ in: 5, duration: 6 }, Infinity)).toBe(false);
+  });
+});
+
+describe('isAtSourceMin（Plan 12 Task 3 裁決 4：in 把手拖到來源起點的視覺判定）', () => {
+  it('true when in is exactly 0', () => {
+    expect(isAtSourceMin({ in: 0 })).toBe(true);
+  });
+
+  it('true when in is negative float dust just past 0（trimIn clamp 理論上不會產生，這裡多一層容錯）', () => {
+    expect(isAtSourceMin({ in: -1e-9 })).toBe(true);
+  });
+
+  it('false when in is a positive value', () => {
+    expect(isAtSourceMin({ in: 2 })).toBe(false);
   });
 });
 

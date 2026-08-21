@@ -48,6 +48,19 @@ export function isAtSourceMax(
 }
 
 /**
+ * Plan 12 Task 3（裁決 4）：主軌 in 把手是否已經頂到來源起點——`trimIn` 的 clamp
+ * 讓 in 再也拉不出更多素材了（`in<=0`），這裡把「拉不動」變成一個可查詢的布林，
+ * 供 Timeline.tsx 決定要不要畫 danger 態把手 + badge `min`。與 `isAtSourceMax`
+ * 對稱：`in` 恆 ≥0（無 Infinity 議題，來源起點永遠是 0，不像 `mediaDuration`
+ * 那樣可能缺席），所以不需要它那層 `Number.isFinite` guard。用 `<=` 而非 `===`：
+ * 拖曳中的浮點運算理論上不會讓 `in` 微幅小於 0（`trimIn` 已 clamp 到 `Math.max(0, …)`），
+ * 但這裡多一層容錯，精神上鏡射 `isAtSourceMax` 的「>= 邊界」寫法。
+ */
+export function isAtSourceMin(clip: Pick<VideoClip, 'in'>): boolean {
+  return clip.in <= 0;
+}
+
+/**
  * 依指標 X（相對時間軸內容左緣的像素）算出拖曳中 clip 的新排序。
  * clipLayout：各 clip 的 {id, left, width}（像素）。回傳新的 id 順序。
  */

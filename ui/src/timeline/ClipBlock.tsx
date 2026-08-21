@@ -26,6 +26,7 @@ export const ClipBlock = memo(function ClipBlock({
   fxDelay,
   visibleRange,
   outAtMax = false,
+  inAtMin = false,
 }: {
   p: Project;
   clip: VideoClip;
@@ -47,6 +48,10 @@ export const ClipBlock = memo(function ClipBlock({
    * Timeline.tsx 算好傳下來）。只影響 out 把手（來源上限只約束右緣），in 把手不受影響。
    * 預設 false——多數呼叫端（測試、非拖曳中的一般 render）不必逐個傳。 */
   outAtMax?: boolean;
+  /** Plan 12 Task 3（裁決 4）：in 把手是否已經拉到來源起點（`dragMath.isAtSourceMin`，
+   * Timeline.tsx 算好傳下來）。`outAtMax` 的對稱雙生——只影響 in 把手（來源起點只
+   * 約束左緣），out 把手不受影響。預設 false，理由同 `outAtMax`。 */
+  inAtMin?: boolean;
   /** 目前捲動視窗覆蓋的內容座標區間（含 buffer，Timeline 傳下來、已量化）。
    * 缺省＝不裁窗（渲染全部格）——測試與極簡呼叫端不必每次都造一個視窗。 */
   visibleRange?: VisibleRange;
@@ -178,7 +183,7 @@ export const ClipBlock = memo(function ClipBlock({
           ))}
       </div>
       <div
-        className="handle"
+        className={'handle' + (inAtMin ? ' danger' : '')}
         style={{ left: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();

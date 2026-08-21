@@ -18,6 +18,7 @@ export const AudioChip = memo(function AudioChip({
   onDragStart,
   fx = '',
   fxDelay,
+  outAtMax = false,
 }: {
   p: Project;
   a: AudioItem;
@@ -27,6 +28,11 @@ export const AudioChip = memo(function AudioChip({
   /** AI 動畫層附加 class 與骨牌進場延遲 */
   fx?: string;
   fxDelay?: number;
+  /** Plan 12 Task 3（裁決 5，終審 P1 收掉）：out 把手是否已頂到來源長度上限
+   * （`mediaDur - orig.in`，`dragMath.isAtSourceMax` 判定，Timeline.tsx 算好傳下來）。
+   * 複用 ClipBlock 的 `outAtMax` 同款 `.handle.danger` 機制。預設 false，理由同
+   * ClipBlock 的 `outAtMax`。 */
+  outAtMax?: boolean;
 }) {
   const media = p.media.find((m) => m.id === a.mediaId);
   const peaks = useWaveform(media?.peaksPath);
@@ -96,7 +102,7 @@ export const AudioChip = memo(function AudioChip({
         }}
       />
       <div
-        className="handle"
+        className={'handle' + (outAtMax ? ' danger' : '')}
         style={{ right: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();

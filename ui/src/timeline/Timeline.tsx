@@ -33,6 +33,7 @@ import {
   trimSpanOut,
   trimAudioIn,
   isAtSourceMax,
+  isAtSourceMin,
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 import { ClipBlock, ROW_H } from './ClipBlock.js';
@@ -1181,6 +1182,36 @@ export function Timeline() {
     return isAtSourceMax(d.preview, mediaDur) ? d.clipId : null;
   })();
 
+  /**
+   * Plan 12 Task 3（裁決 4）：正在拖 in 把手、且已經拉到來源起點（`in<=0`，素材用盡）
+   * 的 clip id——`outAtMaxClipId` 的對稱雙生。同款守門：只在 `trim-in` 拖曳期間有
+   * 意義（讀的是拖曳中的 preview），放手後（pending/一般顯示）不會誤留 danger 態。
+   * `isAtSourceMin` 不需要 mediaDuration（來源起點恆為 0），比 out 那側少一層 probe
+   * 查找。
+   */
+  const inAtMinClipId: string | null = (() => {
+    const d = drag.current;
+    if (!d || d.mode !== 'trim-in') return null;
+    return isAtSourceMin(d.preview) ? d.clipId : null;
+  })();
+
+  /**
+   * Plan 12 Task 3（裁決 5，終審 P1 收掉）：正在拖 audio out 把手、且已經頂到來源
+   * 長度上限的 audio item id。上限公式與 `onPointerMove` 的 aud/out 分支 clamp 一致
+   * ——`duration <= mediaDur - orig.in`，等價於 `orig.in + duration >= mediaDur`，
+   * 與 `isAtSourceMax` 對 video clip 的判定式同一個形狀，直接複用（只是餵入
+   * `{in: d.orig.in, duration: d.preview.duration}`——audio 拖 out 時 `in` 不變，
+   * 用 `orig.in` 或 `preview.in` 等價，這裡選 `orig` 呼應 clamp 公式的寫法）。
+   * `d.mediaDur` 是 `onAudDrag` 起手時就算好存進 drag state 的（`media?.probe.duration
+   * ?? Infinity`），`isAtSourceMax` 的 `Number.isFinite` guard 讓無 probe 資料時恆
+   * 為 false——與 video 那側同一份既有 fallback。
+   */
+  const audioOutAtMaxId: string | null = (() => {
+    const d = drag.current;
+    if (!d || d.mode !== 'aud' || d.edge !== 'out') return null;
+    return isAtSourceMax({ in: d.orig.in, duration: d.preview.duration }, d.mediaDur) ? d.id : null;
+  })();
+
   // 拖曳排序中：即時算出「放手後的順序」，讓其他片段先滑開讓位
   const moveDrag = drag.current?.mode === 'move' ? drag.current : null;
   const previewOrder = moveDrag
@@ -1240,6 +1271,9 @@ export function Timeline() {
           kind: 'trim',
           duration: d.preview.duration,
           delta: d.preview.duration - orig.duration,
+          // 裁決 4：in 拉到來源起點（素材用盡）時 badge 附加 min 標記
+          // （`inAtMinClipId` 只在 trim-in 拖曳期間非 null，見其定義處註解）。
+          atMin: inAtMinClipId === d.clipId,
         },
       };
     } else if (d.mode === 'trim-out') {
@@ -1281,6 +1315,10 @@ export function Timeline() {
           kind: 'trim',
           duration: d.preview.duration,
           delta: d.preview.duration - d.orig.duration,
+          // 裁決 5：audio out 把手頂到來源長度上限時 badge 附加 max 標記
+          // （`audioOutAtMaxId` 只在 aud/out 拖曳期間非 null，見其定義處註解；
+          // cap 模式沒有來源長度上限這回事，`audioOutAtMaxId` 對它恆 null）。
+          atMax: d.mode === 'aud' && d.edge === 'out' && audioOutAtMaxId === d.id,
         },
       };
     } else if (d.mode === 'ov') {
@@ -1611,6 +1649,7 @@ export function Timeline() {
                     onSelect={onSelect}
                     visibleRange={visibleRange ?? undefined}
                     outAtMax={outAtMaxClipId === c.id}
+                    inAtMin={inAtMinClipId === c.id}
                   />
                 );
               })}
@@ -1792,6 +1831,7 @@ export function Timeline() {
                     fxDelay={fxFor(a.id).delay}
                     selected={selected?.kind === 'audio' && selected.id === a.id}
                     onDragStart={onAudDrag}
+                    outAtMax={audioOutAtMaxId === a.id}
                   />
                 );
               })}

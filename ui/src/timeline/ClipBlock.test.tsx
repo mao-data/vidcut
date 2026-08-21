@@ -495,3 +495,54 @@ describe('ClipBlock 把手：來源上限 danger 態（Plan 11 Task 3 裁決 5�
     expect(right!.className).toContain('danger');
   });
 });
+
+/**
+ * Plan 12 Task 3（裁決 4）：主軌 in 把手拖到來源起點（`in<=0`，素材用盡）時同款
+ * danger 態——`outAtMax` 的對稱雙生。判定本身（`isAtSourceMin`）已由
+ * `dragMath.test.ts` 覆蓋，這裡只驗證 ClipBlock 有沒有把 `inAtMin` prop 正確
+ * 轉成 DOM：只有 in 把手變 danger，out 把手不受影響（來源起點只約束左緣）。
+ */
+describe('ClipBlock 把手：來源起點 danger 態（Plan 12 Task 3 裁決 4）', () => {
+  it('inAtMin=false（預設）：兩把手都沒有 danger class', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={p.tracks.video[0]}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).not.toContain('danger');
+  });
+
+  it('inAtMin=true：只有 in 把手帶 danger class，out 把手不受影響', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={p.tracks.video[0]}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        inAtMin={true}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.className).toContain('danger');
+    expect(right!.className).not.toContain('danger');
+  });
+});
