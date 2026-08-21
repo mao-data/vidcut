@@ -18,7 +18,7 @@
 
 vidcut 是一個 **本機優先的直式短影音（1080×1920）時間軸編輯器**，核心理念只有一句話：**AI 跟人共用同一條時間軸、同時編輯**。
 
-它*不是* prompt 生影片的產生器。AI agent（Claude Code 或任何 MCP client）透過 [31 個 MCP 工具](#mcp-工具)剪片——匯入素材、粗剪、上字幕、混音、輸出。每一步變更都經 WebSocket **即時出現在你的瀏覽器**。你拖一下字幕、修一刀 trim、留一句審核意見——AI 讀回你的調整、接著做。這是人在迴路中的剪輯協作，不是黑盒子。
+它*不是* prompt 生影片的產生器。AI agent（Claude Code 或任何 MCP client）透過 [32 個 MCP 工具](#mcp-工具)剪片——匯入素材、粗剪、上字幕、混音、輸出。每一步變更都經 WebSocket **即時出現在你的瀏覽器**。你拖一下字幕、修一刀 trim、留一句審核意見——AI 讀回你的調整、接著做。這是人在迴路中的剪輯協作，不是黑盒子。
 
 - 🖥️ **本機且私密** —— 單一 Node 程序綁 `127.0.0.1:3845`，素材不出你的機器。
 - 🤝 **為監修而生** —— AI 可呼叫 `request_review`；你在瀏覽器裡批註；它讀回意見繼續工作。
@@ -150,7 +150,7 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 
 ## MCP 工具
 
-31 個工具，依用途分組：
+32 個工具，依用途分組：
 
 | 分組           | 工具                                                                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -160,7 +160,7 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 | **字幕**       | `transcribe`（逐詞時間戳）· `auto_caption`（一步到位 ASR → 字幕）· `set_captions` · `update_caption`                                              |
 | **Overlay**    | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                              |
 | **音訊**       | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                   |
-| **畫布與輸出** | `set_canvas_fit`（letterbox / blur）· `set_cover` · `render`                                                                                      |
+| **畫布與輸出** | `set_canvas_fit`（letterbox / blur）· `set_cover` · `render` · `export_publish_package`（手動上傳發佈包）                                         |
 | **歷史**       | `undo` · `redo`                                                                                                                                   |
 | **人在迴路**   | `request_review`                                                                                                                                  |
 
