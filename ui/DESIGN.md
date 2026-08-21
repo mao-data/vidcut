@@ -599,9 +599,31 @@ accident. Two states:
   clip's source-media limit (`probe.duration`, via `dragMath`'s max check), the
   handle repaints in `--danger` — same geometry, only the fill and grip color change
   (`.handle.danger`: `--tint-28`/`--tint-50` swapped for `color-mix(--danger, ...)`
-  at the same two alpha stops). It only ever applies to the out-handle; the in-handle
-  is unaffected. Pairs with the DragBadge showing `max` (below) so "can't pull this
-  further" has both a color and a text signal instead of silently clamping.
+  at the same two alpha stops). Pairs with the DragBadge showing `max` (below) so
+  "can't pull this further" has both a color and a text signal instead of silently
+  clamping. **Plan 12 Task 3** added the symmetric case: the main-track **in**-handle
+  repaints the same way when dragged to `in <= 0` (source start, material exhausted —
+  `dragMath`'s `isAtSourceMin`), and the **audio** out-handle repaints when it hits
+  its own source-length ceiling. Same `.handle.danger` rule, no new visuals invented;
+  pairs with the badge's `min`/`max` suffix (below).
+
+**Main-track trim-in scroll compensation (Plan 12 Task 1).** Dragging the main
+track's in-handle scroll-compensates every frame: `scrollLeft` is recomputed
+_absolutely_ (start-of-drag `scrollLeft` + this frame's duration delta in px), not
+accumulated incrementally — pinning the dragged edge under the pointer while the
+clip's existing content and everything after it stay visually still on screen, and
+earlier clips make room instead. Absolute recomputation (not accumulation) matters
+because the browser clamps `scrollLeft` to `>= 0`: an accumulator that hits that
+floor and then gets dragged back would drift out of sync with the real `scrollLeft`,
+skewing every compensation afterward; recomputing from the same start point each
+frame is immune to that. **The main-track trim-in snap line is gone** as part of the
+same change — the old behavior snapped the clip's _right_ edge to content
+coordinates, but under the compensation model the right edge (the clip's timeline
+start) never moves and the left edge's content coordinate isn't what the user is
+watching either, so neither has anything meaningful to snap to. `snapLine` stays
+`null` for the whole gesture; the `in <= 0` hard stop is still enforced (by the
+`trimIn` pure function's own clamp), it's just no longer visualized as a snap.
+Trim-out is untouched — its right edge already tracked the pointer under Plan 11.
 
 **DragBadge.** One component, shared by every drag gesture on the timeline (trim and
 move alike — not a per-track widget), rendered at the Timeline's top layer rather
@@ -609,8 +631,13 @@ than inside any chip, so it never inherits chip corner radius or fill. It follow
 pointer/handle 1:1 with no CSS transition (the timeline's standing rule for anything
 under an active drag). Content is gesture-dependent: trims show `duration (±delta)`
 (e.g. `3.2s (−0.8s)`, switching to `m:ss` at 60s), moves show the clip's new start
-time; a trim pinned at the source limit appends `max`. It disappears on pointer-up —
-the badge is drag feedback, not a persistent readout.
+time. A trim pinned at the source limit appends `max` (out-handle, or audio
+out-handle); **Plan 12 Task 3** added the symmetric `min` suffix for the main-track
+in-handle pinned at `in <= 0`. The two are mutually exclusive per drag (an in-handle
+drag can only ever be `min`, an out-handle drag only ever `max`) and both append
+rather than replace — the duration/delta numbers stay useful on their own, the
+suffix just flags "this is the limit." It disappears on pointer-up — the badge is
+drag feedback, not a persistent readout.
 
 **Overlap lines (absolute-time tracks only — overlay/caption/audio).** When two
 items on the same track share time, a 2px `--danger` line is drawn along the

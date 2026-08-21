@@ -285,6 +285,61 @@ filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（
   panels 驗的是面板收合/展開/下拉不重疊,canvas 驗的是 overlay 拖曳與畫布縮放矩陣,
   皆不觸碰時間軸片段把手）。
 
+## Plan 12：前把手直接操縱批——主軌 trim-in 邊釘手指下、player 首幀即時跟（2026-08-21）
+
+目標：主軌前（in）把手拖曳時畫面內容跟著捲動、被拖的邊本身反而在螢幕上漂移
+（CapCut 等競品是「邊釘住不動、素材在邊後面讓位」）；player 在 trim-in 拖曳期間
+完全不跟——放手才看到新首幀；in=0（素材用盡）與 audio out 頂到來源長度上限都是
+silent clamp，沒有任何視覺信號。純 UI 批,**`server/` 全程零改動**（`git diff
+aae6e75..HEAD --stat -- server/` 為空,含 Task 1–3；MCP 未觸及,不需同步 `mcp.ts`）。
+
+- **主軌 trim-in 捲動補償**（Task 1）：拖曳中每幀把 `scrollLeft` **絕對重算**成
+  「起手時的 scrollLeft ＋ 這一幀的 duration 變化量（px）」（`el.scrollLeft =
+scrollLeftAtDragStart + (timeToPx(dur) - timeToPx(origDuration))`,`Timeline.tsx`
+  的 `onPointerMove` trim-in 分支）,讓被拖的前緣**釘在指標下方**、clip 既有內容
+  與其後片段在螢幕上靜止,前面的片段讓位——不是逐幀累加。選絕對重算是因為
+  `scrollLeft` 會被瀏覽器夾在 `>=0`：累加值撞底之後再往回拖會跟真實 scrollLeft
+  脫勾,之後的補償全部算錯;絕對重算每幀都從同一個起點出發,天然免疫這個問題。
+  同批**移除 main-track trim-in 的 snap**（不再吸內容座標）——舊行為吸的是「右緣」,
+  但補償模型下右緣（clip 起點）本身不移動、左緣的內容座標也不是使用者在看的東西,
+  兩者都沒有可吸的意義；`setSnapLine(null)` 恆成立,in=0 的硬停點仍由 `trimIn`
+  純函數的既有 clamp 負責,不需要 snap 這層再夾一次。trim-out 不受影響（右緣本來
+  就跟手,維持 Plan 11 行為）。
+- **player 即時顯示新首幀**（Task 2,`usePlayback.trimPreview`）：main-track
+  trim-in 拖曳中,player 立即顯示新首幀而非拖曳前的舊值——`trimPreview`
+  是 transient 欄位（`{clipId, in}`）,不進 doc、不是 command、不進 history,與
+  `scheduleFollow` 共用同一個 rAF 節流節奏寫入（不逐 pointermove 都寫）。
+  `plan.ts` 的 `planAt`/`sourceFor` 消費這個 override：只覆蓋 clipId 相符的 clip
+  的 `in`,`offsetInClip` 不受影響（trim-in 不移動 clip 的時間軸起點）;省略/null
+  時映射與現行行為逐位元組相同。**生命週期綁 pending,不是綁拖曳手勢本身**
+  （review round 1 修正）：原本 `teardownDrag`（pointerup/pointercancel 共用拆卸）
+  在放手當下就同步清空 `trimPreview`,但 `sendCommand` 送出到 doc echo 抵達之間
+  有非同步空窗——那幾幀 `planAt(doc, time, null)` 用 doc 裡還沒更新的舊 `in`,
+  暫停態的漂移校正把 `video.currentTime` snap 回舊幀,echo 一到又跳新幀,形成放手
+  瞬間的閃爍（整個手勢最顯眼的一刻）。修法：commit 路徑（送出 `updateClip`）讓
+  `trimPreview` 繼續蓋著,清空時機交給既有的 pending 對帳區塊（echo 抵達、in/
+  duration 對上）與 1.2s 保險絲（命令被拒/resync 掉包等 echo 永遠不來的情況）——
+  兩個清除點都呼叫新的 `clearPendingAndTrimPreview` helper,確保與 `pending.current`
+  同步清除,不會出現「清一邊留一邊」的殘留態。cancel 路徑（`onPointerCancel`）與
+  零位移放手（`d.preview` 從未被 move 改過）維持在 `teardownDrag` 內立即清空——
+  前者沒有 pending 可以綁、退回舊幀語意上就是對的,後者從一開始就是 null。
+- **in=0 min 視覺 + audio 源長上限 max 視覺**（Task 3）：`dragMath.ts` 新增
+  `isAtSourceMin(clip) = clip.in <= 0`,是 Plan 11 既有 `isAtSourceMax` 的對稱雙生
+  （來源起點恆為 0,不像 `mediaDuration` 那樣可能缺席,不需要它那層
+  `Number.isFinite` guard）。主軌 in 把手拖到 `in<=0` 時比照 Plan 11 的 out-handle
+  danger 態改色（`ClipBlock` 新增 `inAtMin` prop → `.handle.danger`,沿用既有
+  CSS 規則,不發明新視覺）;audio out 把手頂到來源長度上限（`mediaDur - orig.in`
+  上限,`Timeline.tsx` 新增 `audioOutAtMaxId`,複用 `isAtSourceMax`）同樣改色
+  （`AudioChip` 新增 `outAtMax` prop）。`DragBadgeContent` 加 `atMin?: boolean`
+  （與既有 `atMax` 互斥——in 把手只會 `atMin`、out 把手只會 `atMax`）,
+  `formatDragBadge` 附加 `· min` 後綴（`· max` 的對稱寫法,同樣是附加而非取代——
+  時長/增減數字本身仍是有用資訊）。
+- **驗證**：`npm run build -w @vidcut/ui` 後,`npm run verify:panels`／
+  `verify:canvas`（隔離 server,`VIDCUT_PORT=3846`）對這批改動零假設,兩支皆全綠、
+  未改寫任何 script 期望值或斷言——trim-in 的捲動補償與 player 首幀邏輯都不落在
+  這兩支腳本量測的路徑上（panels 驗面板收合/展開/下拉,canvas 驗 overlay 拖曳與
+  畫布縮放矩陣,皆不觸碰主軌 trim 把手或 player 內部狀態）。
+
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
 字幕 WYSIWYG 四階段（含畫布拖曳）都做完、自動化測試與真瀏覽器 e2e（`verify:panels` + `verify:canvas`）都綠了，但**手感類的東西自動化測不出來**，需要你的眼睛與手：
