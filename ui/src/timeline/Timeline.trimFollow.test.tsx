@@ -369,3 +369,171 @@ describe('浮動時長/起點 badge（Plan 11 Task 2 裁決 2）', () => {
     expect(container.textContent).not.toMatch(/\(\+|\(−/);
   });
 });
+
+describe('pointercancel 拆卸（fix round 1 C1/C2）', () => {
+  it('trim 拖曳中 pointercancel：不 commit（sendCommand 不呼叫），badge 消失', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).toContain('7.0s (+1.0s)');
+    act(() => {
+      fireEvent.pointerCancel(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(sent).toEqual([]); // cancel 路徑不 commit——沒有 updateClip 送出
+    expect(container.textContent).not.toMatch(/\(\+|\(−/);
+  });
+
+  it('trim 拖曳中 pointercancel 後：尚未 flush 的 rAF 不再 seek', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    // 故意不 flush，直接 cancel
+    act(() => {
+      fireEvent.pointerCancel(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    const beforeFlush = usePlayback.getState().time;
+    act(() => flushRaf());
+    expect(usePlayback.getState().time).toBe(beforeFlush); // 沒有補一次 seek
+  });
+
+  it('trim 拖曳中 pointercancel：trimFollowing 復位，吸附候選重新包含 playhead', () => {
+    useView.setState({ snapEnabled: true });
+    const PLAYHEAD_T = 3.4;
+    usePlayback.getState().seek(PLAYHEAD_T);
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    act(() => {
+      fireEvent.pointerCancel(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    // playhead 被 cancel 路徑的 total 還原夾回 total（見下一個測試），先把它挪回 3.4
+    act(() => {
+      usePlayback.getState().seek(PLAYHEAD_T);
+    });
+    const cap = chipByText(container, 'first line');
+    act(() => {
+      fireEvent.pointerDown(cap, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(cap, { clientX: 100 + 2.43 * PPS, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerUp(cap, { clientX: 100 + 2.43 * PPS, pointerId: 1, bubbles: true });
+    });
+    const capCmd = sent.find((c) => c.name === 'updateCaption');
+    expect(capCmd).toMatchObject({ patch: { start: 3.4 } }); // 吸到 playhead＝候選已恢復
+  });
+
+  it('主軌 trim-out 把 total 墊高後 pointercancel：total 還原到手勢開始前的值（fix round 1 C2）', () => {
+    const { container } = render(<Timeline />);
+    expect(usePlayback.getState().total).toBe(10); // c1(0-6) + c2(6-10)
+    const [, right] = handles(chipByText(container, 'clip two')); // c2 起點=6 duration=4 右緣=10
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // +2s：c2 duration 4→6，右緣 6+6=12，超過 committed total=10 → scheduleFollow 墊高 total
+      fireEvent.pointerMove(right!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().total).toBe(12); // 墊高生效
+    act(() => {
+      fireEvent.pointerCancel(right!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().total).toBe(10); // 沒有 doc echo 也還原回原值，不永久虛胖
+    expect(sent).toEqual([]); // 不 commit
+  });
+
+  it('主軌 trim-out 把 total 墊高後正常放手（pointerup）：total 先還原，隨後由 doc echo 覆寫（此測試只驗還原不撞回舊值）', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip two'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().total).toBe(12);
+    act(() => {
+      fireEvent.pointerUp(right!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    // echo 尚未抵達（doc 沒變，這個測試不模擬 server）：total 應還原到手勢開始前的
+    // committed 值，不會卡在墊高的 12（正常路徑的保底行為）。
+    expect(usePlayback.getState().total).toBe(10);
+  });
+});
+
+describe('badge 邊界 clamp（fix round 1 I3）', () => {
+  function badgeEl(container: HTMLElement): HTMLElement {
+    const hits = Array.from(container.querySelectorAll('div')).filter((d) =>
+      /^\d.*s(\s|$)/.test(d.textContent?.trim() ?? ''),
+    );
+    const el = hits.find((d) => d.children.length === 0);
+    if (!el) throw new Error('badge element not found');
+    return el as HTMLElement;
+  }
+
+  it('右緣把手拖到可捲範圍外：badge left 被夾在 [0, scrollWidth - badgeWidth] 內，不飄出', () => {
+    // width = max(timeToPx(10,40)+120, 600) = 600；估計 badge 寬 100 → clamp 上限 500px。
+    // c2 起點 6，把右緣拖到遠超過 12.5s（500px）的位置，驗證 badge 沒有跟到裸值飄出去。
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip two'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // +10s（400px）：c2 duration 4→14，右緣 6+14=20（裸值 timeToPx(20,40)=800，遠超 500 上限）
+      fireEvent.pointerMove(right!, { clientX: 500, pointerId: 1, bubbles: true });
+    });
+    const el = badgeEl(container);
+    const left = Number.parseFloat(el.style.left);
+    expect(left).toBeLessThanOrEqual(500);
+    expect(left).toBeGreaterThanOrEqual(0);
+  });
+
+  it('trim-in 拖到起點 0 附近：badge left 不小於 0（下界）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one')); // c1 起點 0，in 把手左緣本就貼 0
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 100, pointerId: 1, bubbles: true }); // 沒有位移
+    });
+    const el = badgeEl(container);
+    const leftPx = Number.parseFloat(el.style.left);
+    expect(leftPx).toBeGreaterThanOrEqual(0);
+  });
+
+  it('主軌 trim badge 的 top 位在尺規列下方，不結構性蓋住尺規時間標（top > RULER_H）', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    const el = badgeEl(container);
+    const top = Number.parseFloat(el.style.top);
+    const RULER_H = 20; // Timeline.tsx 內部常數，測試端另記一份數值避免匯出私有常數
+    expect(top).toBeGreaterThan(RULER_H);
+  });
+});

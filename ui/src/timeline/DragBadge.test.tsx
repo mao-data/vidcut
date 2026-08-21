@@ -37,6 +37,28 @@ describe('formatDragBadge（純函數：內容格式）', () => {
   });
 });
 
+describe('formatDragBadge：邊界修正（fix round 1 I4/I5）', () => {
+  it('I4：delta 微幅為負但捨入後為 0 → 顯示 +0.0s，不顯示 −0.0s', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 5, delta: -0.04 })).toBe('5.0s (+0.0s)');
+  });
+
+  it('I4：delta 微幅為正但捨入後為 0 → 顯示 +0.0s（先捨入後定號的另一側）', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 5, delta: 0.04 })).toBe('5.0s (+0.0s)');
+  });
+
+  it('I4：delta 捨入後仍非 0 的負值 → 維持 −（不因修法誤傷正常負值）', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 5, delta: -0.06 })).toBe('5.0s (−0.1s)');
+  });
+
+  it('I5：59.96 捨入到顯示精度後跨過 60 秒門檻 → 顯示 1:00，不是 60.0s', () => {
+    expect(formatDragBadge({ kind: 'move', start: 59.96 })).toBe('1:00');
+  });
+
+  it('I5：59.94 捨入後仍在 60 秒內 → 維持 59.9s', () => {
+    expect(formatDragBadge({ kind: 'move', start: 59.94 })).toBe('59.9s');
+  });
+});
+
 describe('DragBadge（呈現層）', () => {
   it('沒有 drag 時不畫任何東西', () => {
     const { container } = render(<DragBadge drag={null} />);

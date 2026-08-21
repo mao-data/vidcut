@@ -34,7 +34,12 @@ import {
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 import { ClipBlock, ROW_H } from './ClipBlock.js';
-import { DragBadge, type DragBadgeState } from './DragBadge.js';
+import {
+  DragBadge,
+  BADGE_WIDTH_ESTIMATE,
+  BADGE_HEIGHT_ESTIMATE,
+  type DragBadgeState,
+} from './DragBadge.js';
 import { quantizeVisibleRange, type VisibleRange } from './filmstripTiles.js';
 import { AudioChip, AUDIO_ROW_H } from './AudioChip.js';
 import { TimelineToolbar } from './Toolbar.js';
@@ -214,16 +219,22 @@ export function Timeline() {
   /**
    * Plan 11 Task 2（裁決 1）：trim 拖曳中 playhead 跟隨被拖的邊，rAF 節流
    * （一幀最多一次 seek，永遠吃最新值）。
-   * - `followRaf`：待執行的 rAF id；放手時要能取消，不然放手後那一幀還是會補一次 seek。
-   * - `followTarget`：rAF callback 執行時要 seek 到的最新邊時間（同一幀內多次
-   *   onPointerMove 只保留最後一次，不逐次 seek）。
    * - `trimFollowing`：trim-in/out 拖曳期間為 true，供 `snapCandidates()` 排除
    *   playhead（controller pre-flight 裁決：playhead 正在鏡射被拖的邊，把它留在
    *   候選裡等於自己吸自己，會鎖住）。move 拖曳不設這個旗標——它不驅動 playhead。
+   * - `followRaf`：待執行的 rAF id；放手/取消時要能取消，不然那一幀還是會補一次 seek。
+   * - `followTarget`：rAF callback 執行時要 seek 到的最新邊時間（同一幀內多次
+   *   onPointerMove 只保留最後一次，不逐次 seek）。
+   * - `gestureOrigTotal`：trim 手勢開始時的 committed total（fix round 1 C2）。
+   *   `scheduleFollow` 為了讓 seek 追得到超前的邊會先墊高 `usePlayback` 的 total，
+   *   正常放手後 server doc echo 會覆寫回真值，但 pointercancel／伺服器拒收／resync
+   *   沒有 echo 兜底——`teardownDrag` 一律把它還原，正常路徑照樣被隨後的 echo 蓋過，
+   *   異常路徑靠這個 ref 保底，不會讓 total 永久虛胖。
    */
+  const trimFollowing = useRef(false);
   const followRaf = useRef<number | null>(null);
   const followTarget = useRef<number | null>(null);
-  const trimFollowing = useRef(false);
+  const gestureOrigTotal = useRef<number | null>(null);
   const scheduleFollow = (edgeSec: number) => {
     followTarget.current = edgeSec;
     if (followRaf.current !== null) return; // 同一幀内已排過，等它執行時撈最新值
@@ -246,10 +257,30 @@ export function Timeline() {
     }
     followTarget.current = null;
   };
-  /** trim 拖曳啟動的共用前置：播放中先暫停、標記 trim-follow 旗標。 */
+  /** trim 拖曳啟動的共用前置：播放中先暫停、標記 trim-follow 旗標、記下手勢起點的 total。 */
   const startTrimFollow = () => {
     trimFollowing.current = true;
+    gestureOrigTotal.current = usePlayback.getState().total;
     if (usePlayback.getState().playing) usePlayback.getState().pause();
+  };
+  /**
+   * fix round 1 C1/C2：`onPointerUp`／`onPointerCancel` 共用的拆卸——取消未 flush
+   * 的 rAF、解除吸附排除旗標、還原手勢開始時的 total（保底；正常放手路徑很快會被
+   * 隨後的 doc echo 覆寫，這裡先還原不影響最終值），回傳被拆掉的 drag 狀態給呼叫端
+   * 決定要不要 commit。**不清 `drag.current`／`setSnapLine`**——那兩件事兩個 handler
+   * 都要做但發生在呼叫端（onPointerUp 需要先讀 `d` 才能 commit，這裡回傳它）。
+   */
+  const teardownDrag = (): DragState => {
+    const d = drag.current;
+    drag.current = null;
+    setSnapLine(null);
+    cancelFollow();
+    trimFollowing.current = false;
+    if (gestureOrigTotal.current !== null) {
+      usePlayback.getState().setTotal(gestureOrigTotal.current);
+      gestureOrigTotal.current = null;
+    }
+    return d;
   };
 
   // ---- 拖曳啟動 handlers：useCallback 穩定 reference，memo(ClipBlock/AudioChip) 才擋得住
@@ -778,14 +809,11 @@ export function Timeline() {
   };
 
   const onPointerUp = () => {
-    const d = drag.current;
-    drag.current = null;
-    setSnapLine(null);
     // 裁決 1：放手時取消尚未 flush 的 rAF（不會在放手後才補一次跳動），
     // 並解除吸附排除旗標——playhead 已經停在最後一次 flush 的邊上（不彈回），
-    // 只是往後的吸附不再需要排它。
-    cancelFollow();
-    trimFollowing.current = false;
+    // 只是往後的吸附不再需要排它。fix round 1 C1/C2：與 onPointerCancel 共用
+    // teardownDrag（total 還原在這條正常路徑是保底，很快會被隨後的 doc echo 蓋過）。
+    const d = teardownDrag();
     if (!d) return;
     if (d.mode === 'trim-in' || d.mode === 'trim-out') {
       const inSec = Number(d.preview.in.toFixed(3));
@@ -924,6 +952,19 @@ export function Timeline() {
     rerender();
   };
 
+  /**
+   * fix round 1 C1：pointercancel（觸控被系統搶走、視窗失焦等）與 pointerup 共用
+   * `teardownDrag`，但**不 commit**——不送命令、不進 pending，只還原狀態（drag 清空、
+   * rAF 取消、trimFollowing 復位、total 還原）。同款寫法見 `CaptionLayer.tsx`／
+   * `Player.tsx` 的 pointercancel 處理：異常中止時放棄這次手勢，不是「送出最後預覽值」
+   * ——與 Player 的拖曳不同，這裡的 preview 只是本地狀態、沒有東西「一路顯示著」到
+   * 對話框以外的地方需要收斂，直接丟棄最安全。
+   */
+  const onPointerCancel = () => {
+    teardownDrag();
+    rerender();
+  };
+
   const onRulerClick = (e: MouseEvent<HTMLDivElement>) => {
     if (drag.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -992,12 +1033,18 @@ export function Timeline() {
    * （不進 chip 內）。trim 顯示「時長 (帶號增減)」，move 顯示起點時間；沒有拖曳
    * 時整個 drag 是 null，`<DragBadge>` 什麼都不畫。座標對齊各軌道 top（RULER_H
    * 起算的累計高度），跟著把手 1:1、不吃 CSS transition（DragBadge.tsx 內建這條紀律）。
+   *
+   * fix round 1 I3：`MAIN_ROW_BADGE_TOP` 不直接用 `RULER_H`——`DragBadge` 用
+   * `translate(-50%, -100%)` 往上長，`topPx` 只給到尺規列高度的話，badge 整個畫在
+   * `[0, RULER_H]` 這段，結構性蓋住尺規時間標。往下貼進主軌列內（貼著把手往下移一個
+   * badge 高度的量），其餘三軌本來就疊在別的軌道之上（有東西可貼），不受影響。
    */
   const ROW_TOP = RULER_H;
+  const MAIN_ROW_BADGE_TOP = ROW_TOP + BADGE_HEIGHT_ESTIMATE;
   const OVERLAY_ROW_TOP = ROW_TOP + ROW_H;
   const CAPTION_ROW_TOP = OVERLAY_ROW_TOP + SUB_ROW_H;
   const AUDIO_ROW_TOP = CAPTION_ROW_TOP + SUB_ROW_H;
-  const dragBadge: DragBadgeState | null = (() => {
+  const dragBadgeRaw: DragBadgeState | null = (() => {
     const d = drag.current;
     if (!d) {
       return null;
@@ -1008,7 +1055,7 @@ export function Timeline() {
       const clipStart = starts[index]!;
       return {
         leftPx: timeToPx(clipStart, pps),
-        topPx: ROW_TOP,
+        topPx: MAIN_ROW_BADGE_TOP,
         content: {
           kind: 'trim',
           duration: d.preview.duration,
@@ -1022,7 +1069,7 @@ export function Timeline() {
       const clipStart = starts[index]!;
       return {
         leftPx: timeToPx(clipStart + d.preview.duration, pps),
-        topPx: ROW_TOP,
+        topPx: MAIN_ROW_BADGE_TOP,
         content: {
           kind: 'trim',
           duration: d.preview.duration,
@@ -1077,6 +1124,21 @@ export function Timeline() {
       return null;
     }
   })();
+
+  /**
+   * fix round 1 I3：badge left clamp——右緣把手拖到可捲範圍外時，`leftPx` 可能超過
+   * `width`（內容層總寬）或小於 0（理論上不會，但 clamp 兩端符合裁決字面：
+   * `Math.max(0, Math.min(leftPx, scrollWidth - badgeWidth))`），讓 badge 跟著飄出。
+   * `width` 是上面已算好的內容層總寬（`timeToPx(total, pps) + 120` 或最小 600，
+   * 與 scale.ts 換算基準一致）；`BADGE_WIDTH_ESTIMATE` 是量不到真實 DOM rect
+   * （jsdom 無版面）時的估計值，見 DragBadge.tsx 常數旁的註解。
+   */
+  const dragBadge: DragBadgeState | null = dragBadgeRaw
+    ? {
+        ...dragBadgeRaw,
+        leftPx: Math.max(0, Math.min(dragBadgeRaw.leftPx, width - BADGE_WIDTH_ESTIMATE)),
+      }
+    : null;
 
   // 尺規刻度密度隨縮放調整：CapCut 式像素密度自適應（標籤永遠 >=80px 間距，
   // 縮放時步距自動變粗變細；細分點視空間插在標籤之間）——計畫邏輯住在 scale.ts。
@@ -1178,6 +1240,8 @@ export function Timeline() {
           style={{ display: 'flex', minHeight: '100%', width: width + GUTTER_W }}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          // fix round 1 C1：pointercancel 一律走拆卸、不 commit——見 onPointerCancel 註解。
+          onPointerCancel={onPointerCancel}
           // 空白處點擊＝取消選取。標記與白名單邏輯見 `onBlankClick` 的註解。
           onClick={onBlankClick}
         >

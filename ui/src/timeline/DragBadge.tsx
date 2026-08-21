@@ -13,17 +13,43 @@ export interface DragBadgeState {
 }
 
 /**
+ * fix round 1 I3：badge 尺寸的估計常數，供呼叫端（Timeline.tsx）在算 `leftPx`/`topPx`
+ * 時做邊界 clamp。jsdom 沒有版面，量不到真實 DOM rect（見 Task 2 報告「已知限制」），
+ * 這裡用固定估計值頂替——寧可估計值稍微保守（clamp 留一點餘裕），也不要完全不 clamp
+ * 讓 badge 飄出可捲範圍。字體 11px＋padding 2/6px＋border 1px：單字元寬抓 7px、
+ * 最長內容約 13 字元（`"1:05 (−65.0s)"` 這類），高度＝fontSize 行高＋padding+border。
+ */
+export const BADGE_WIDTH_ESTIMATE = 100;
+export const BADGE_HEIGHT_ESTIMATE = 22;
+
+/**
  * 秒數格式化：<60s 用一位小數的 `Ns`，>=60s 借 `tickLabel` 的 `m:ss`
  * （四捨五入到整秒——badge 是拖曳中的粗略回饋，長時間場景不需要子秒精度）。
+ *
+ * fix round 1 I5：**先捨入到顯示精度（1 位小數）再分支**，不是先用原始值分支。
+ * 舊寫法用原始值判斷 `<60`，59.96 這種會捨入成 `60.0s` 的值卻落進 `<60` 分支、
+ * 印出 `60.0s`（60 秒邊界可達，語意上該顯示 `1:00`）。改法：先算出捨入後的值，
+ * 用它來決定要不要跨過 60 秒門檻——59.96 捨入成 60.0 後改用 `tickLabel(60)` ＝
+ * `1:00`；59.94 捨入成 59.9 仍在 60 內，維持 `59.9s`。
  */
 function formatSeconds(seconds: number): string {
-  return seconds < 60 ? `${seconds.toFixed(1)}s` : tickLabel(Math.round(seconds));
+  const rounded = Math.round(seconds * 10) / 10;
+  return rounded < 60 ? `${rounded.toFixed(1)}s` : tickLabel(Math.round(rounded));
 }
 
-/** 帶號增減：正值/零都用 `+`，負值用 `−`（en dash，非 ASCII 連字號，跟裁決 2 範例一致）。 */
+/**
+ * 帶號增減：正值/零都用 `+`，負值用 `−`（en dash，非 ASCII 連字號，跟裁決 2 範例一致）。
+ *
+ * fix round 1 I4：**先捨入到顯示精度再依捨入後的值定號**，不是先用原始值定號。
+ * 舊寫法用原始 `delta` 判斷正負，慢速微修時 delta 在 ±0.05 之間會先取到負號、
+ * 捨入後卻顯示 `0.0`，變成 `−0.0s`/`+0.0s` 隨每次移動在正負號間閃爍（絕對值視覺
+ * 上沒變，符號卻在跳）。改法：先算出捨入後的絕對值，用「捨入後是否為 0」決定
+ * 一律顯示 `+0.0s`（與裁決 2「零增量仍帶正號」一致，不特判 0 顯示 `±`）。
+ */
 function formatDelta(delta: number): string {
-  const sign = delta < 0 ? '−' : '+';
-  return `${sign}${Math.abs(delta).toFixed(1)}s`;
+  const rounded = Math.round(Math.abs(delta) * 10) / 10;
+  const sign = rounded !== 0 && delta < 0 ? '−' : '+';
+  return `${sign}${rounded.toFixed(1)}s`;
 }
 
 /** badge 內容格式化（純函數，DragBadge 呈現層與測試共用）。 */
