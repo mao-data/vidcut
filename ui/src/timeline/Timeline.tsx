@@ -31,6 +31,7 @@ import {
   trimSpanIn,
   trimSpanOut,
   trimAudioIn,
+  isAtSourceMax,
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 import { ClipBlock, ROW_H } from './ClipBlock.js';
@@ -1001,6 +1002,24 @@ export function Timeline() {
     return c;
   });
 
+  /**
+   * Plan 11 Task 3（裁決 5）：正在拖 out 把手、且已經頂到來源長度上限的 clip id
+   * （單選模型，最多一個）。只在 `trim-out` 拖曳期間有意義——`isAtSourceMax` 讀的
+   * 是拖曳中的 preview，不是 committed doc，所以放手後（pending/一般顯示）不會
+   * 誤留 danger 態。mediaDuration 缺席（無 probe 資料）時 `isAtSourceMax` 恆 false，
+   * 與 `onPointerMove` 裡 `mediaDur = media?.probe.duration ?? Infinity` 的既有
+   * fallback 一致。
+   */
+  const outAtMaxClipId: string | null = (() => {
+    const d = drag.current;
+    if (!d || d.mode !== 'trim-out') return null;
+    const media = doc.media.find(
+      (m) => m.id === doc.tracks.video.find((c) => c.id === d.clipId)?.mediaId,
+    );
+    const mediaDur = media?.probe.duration ?? Infinity;
+    return isAtSourceMax(d.preview, mediaDur) ? d.clipId : null;
+  })();
+
   // 拖曳排序中：即時算出「放手後的順序」，讓其他片段先滑開讓位
   const moveDrag = drag.current?.mode === 'move' ? drag.current : null;
   const previewOrder = moveDrag
@@ -1074,6 +1093,9 @@ export function Timeline() {
           kind: 'trim',
           duration: d.preview.duration,
           delta: d.preview.duration - orig.duration,
+          // 裁決 5：out 把手頂到來源長度上限時 badge 附加 max 標記
+          // （`outAtMaxClipId` 只在 trim-out 拖曳期間非 null，見其定義處註解）。
+          atMax: outAtMaxClipId === d.clipId,
         },
       };
     } else if (d.mode === 'move') {
@@ -1401,6 +1423,7 @@ export function Timeline() {
                     onMoveStart={onMoveStart}
                     onSelect={onSelect}
                     visibleRange={visibleRange ?? undefined}
+                    outAtMax={outAtMaxClipId === c.id}
                   />
                 );
               })}

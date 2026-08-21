@@ -37,6 +37,24 @@ describe('formatDragBadge（純函數：內容格式）', () => {
   });
 });
 
+describe('formatDragBadge：來源上限 max 標記（Plan 11 Task 3 裁決 5）', () => {
+  it('trim + atMax：附加 " · max"（choice documented in task-3-report）', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 8, delta: 2, atMax: true })).toBe(
+      '8.0s (+2.0s) · max',
+    );
+  });
+
+  it('trim 不帶 atMax（省略）：格式不變，沒有 max 字樣', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 8, delta: 2 })).toBe('8.0s (+2.0s)');
+  });
+
+  it('trim + atMax:false：等同不帶，沒有 max 字樣', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 8, delta: 2, atMax: false })).toBe(
+      '8.0s (+2.0s)',
+    );
+  });
+});
+
 describe('formatDragBadge：邊界修正（fix round 1 I4/I5）', () => {
   it('I4：delta 微幅為負但捨入後為 0 → 顯示 +0.0s，不顯示 −0.0s', () => {
     expect(formatDragBadge({ kind: 'trim', duration: 5, delta: -0.04 })).toBe('5.0s (+0.0s)');

@@ -444,3 +444,54 @@ describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', (
     expect(selectedZ).toBeLessThan(20);
   });
 });
+
+/**
+ * Plan 11 Task 3（裁決 5）：主軌 out 把手拖到來源長度上限（`probe.duration`）時，
+ * 「拉不動」從沉默變可見——把手變 danger 態。判定本身（`isAtSourceMax`）已由
+ * `dragMath.test.ts` 覆蓋，這裡只驗證 ClipBlock 有沒有把 `outAtMax` prop 正確
+ * 轉成 DOM：只有 out 把手變 danger，in 把手不受影響（來源上限只約束右緣）。
+ */
+describe('ClipBlock 把手：來源上限 danger 態（Plan 11 Task 3 裁決 5）', () => {
+  it('outAtMax=false（預設）：兩把手都沒有 danger class', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={p.tracks.video[0]}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).not.toContain('danger');
+  });
+
+  it('outAtMax=true：只有 out 把手帶 danger class，in 把手不受影響', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={p.tracks.video[0]}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        outAtMax={true}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).toContain('danger');
+  });
+});

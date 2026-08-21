@@ -31,6 +31,23 @@ export function trimOut(
 }
 
 /**
+ * Plan 11 Task 3（裁決 5）：主軌 out 把手是否已經頂到來源長度上限（`probe.duration`）
+ * ——`trimOut` 的 clamp 讓 duration 增長不了了，這裡只是把「拉不動」這件事變成一個
+ * 可查詢的布林，供 Timeline.tsx 決定要不要畫 danger 態把手 + badge `max`。
+ * 用 `>=` 而非 `===`：`trimOut` clamp 出來的值理論上恰好等於邊界，但這裡多一層容錯
+ * ——上游若因為拖曳中的浮點運算讓 duration 微幅超出，同樣該判定為「到頂了」。
+ * `mediaDuration` 為 `Infinity`（無 probe 資料的既有 fallback，見呼叫端）時恆為 false
+ * ——沒有已知上限就沒有「到頂」這回事。
+ */
+export function isAtSourceMax(
+  clip: Pick<VideoClip, 'in' | 'duration'>,
+  mediaDuration: number,
+): boolean {
+  if (!Number.isFinite(mediaDuration)) return false;
+  return clip.in + clip.duration >= mediaDuration;
+}
+
+/**
  * 依指標 X（相對時間軸內容左緣的像素）算出拖曳中 clip 的新排序。
  * clipLayout：各 clip 的 {id, left, width}（像素）。回傳新的 id 順序。
  */

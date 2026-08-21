@@ -2189,6 +2189,24 @@ a {
   background: var(--tint-50);
 }
 
+/* Plan 11 Task 3（裁決 5）：來源長度上限的視覺語言——主軌 out 把手拖到
+ * source 盡頭（`probe.duration`，`dragMath.isAtSourceMax` 判定）時，「拉不動」
+ * 從沉默變可見。疊在既有 `.handle`/`.clipblk.selected .handle` 之上（geometry
+ * 不動，這批只加顏色）：背景與 grip 紋改吃 `--danger`，不新增任何幾何規則——
+ * 命中區大小、外溢偏移仍由選取態那條規則決定，這裡只覆蓋顏色。`danger` 這個
+ * class 只加在 out 把手本身（ClipBlock.tsx 的 `outAtMax` prop），in 把手不受影響。 */
+.clipblk .handle.danger,
+.clipblk.selected .handle.danger {
+  background: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+.clipblk .handle.danger:hover,
+.clipblk.selected .handle.danger:hover {
+  background: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+.clipblk.selected .handle.danger::after {
+  background: var(--danger);
+}
+
 /* 面板伸縮把手：平常隱形，hover/拖曳時中央亮 2px 紫線 */
 .resizer::after {
   content: '';

@@ -370,6 +370,103 @@ describe('浮動時長/起點 badge（Plan 11 Task 2 裁決 2）', () => {
   });
 });
 
+describe('來源長度上限的視覺語言（Plan 11 Task 3 裁決 5）', () => {
+  // c1 → m1，probe.duration=30，in=2 duration=6 → 來源右緣 8，最多還能拉長 22s（880px @ 40pps）。
+  const ROOM_TO_MAX_PX = (30 - (2 + 6)) * PPS; // 880
+
+  it('trim-out 拖到來源盡頭：out 把手帶 danger class，in 把手不受影響', () => {
+    const { container } = render(<Timeline />);
+    const clip = chipByText(container, 'clip one');
+    const [left, right] = handles(clip);
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 拖超過剩餘空間（+50px）：clamp 應把 duration 頂在 mediaDuration 邊界
+      fireEvent.pointerMove(right!, {
+        clientX: 100 + ROOM_TO_MAX_PX + 50,
+        pointerId: 1,
+        bubbles: true,
+      });
+    });
+    expect(right!.className).toContain('danger');
+    expect(left!.className).not.toContain('danger');
+  });
+
+  it('trim-out 拖到來源盡頭：badge 附加 max 標記', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, {
+        clientX: 100 + ROOM_TO_MAX_PX + 50,
+        pointerId: 1,
+        bubbles: true,
+      });
+    });
+    expect(container.textContent).toContain('· max');
+  });
+
+  it('trim-out 未拖到盡頭：沒有 danger class，badge 沒有 max 標記', () => {
+    const { container } = render(<Timeline />);
+    const clip = chipByText(container, 'clip one');
+    const [left, right] = handles(clip);
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 只拖 +1s，遠不到 22s 的剩餘空間
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(right!.className).not.toContain('danger');
+    expect(left!.className).not.toContain('danger');
+    expect(container.textContent).not.toContain('max');
+  });
+
+  it('trim-in 拖曳（非 out 把手）：即使同一個 clip，danger 態不觸發（上限只約束右緣）', () => {
+    const { container } = render(<Timeline />);
+    const clip = chipByText(container, 'clip one');
+    const [left, right] = handles(clip);
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true }); // -1s
+    });
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).not.toContain('danger');
+  });
+
+  it('放手後 danger 態與 max 標記一起消失（回到一般顯示）', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, {
+        clientX: 100 + ROOM_TO_MAX_PX + 50,
+        pointerId: 1,
+        bubbles: true,
+      });
+    });
+    expect(right!.className).toContain('danger');
+    act(() => {
+      fireEvent.pointerUp(right!, {
+        clientX: 100 + ROOM_TO_MAX_PX + 50,
+        pointerId: 1,
+        bubbles: true,
+      });
+    });
+    const clip = chipByText(container, 'clip one');
+    const [, rightAfter] = handles(clip);
+    expect(rightAfter!.className).not.toContain('danger');
+    expect(container.textContent).not.toContain('max');
+  });
+});
+
 describe('pointercancel 拆卸（fix round 1 C1/C2）', () => {
   it('trim 拖曳中 pointercancel：不 commit（sendCommand 不呼叫），badge 消失', () => {
     const { container } = render(<Timeline />);

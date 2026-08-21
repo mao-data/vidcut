@@ -29,6 +29,11 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { keys: 'Q', label: 'Delete left' },
   { keys: 'W', label: 'Delete right' },
   { keys: 'F', label: 'Freeze' },
+  // Plan 11 Task 3（裁決 6）：只動選取項本身，跟 Q/W（ripple 刪除、動全時間軸）
+  // 語意不同——標籤刻意寫「Trim selection」而非「Trim」，避免使用者誤以為跟 Q/W
+  // 一樣是全時間軸操作。
+  { keys: '[', label: 'Trim selection in to playhead' },
+  { keys: ']', label: 'Trim selection out to playhead' },
   // 檢視
   { keys: 'Esc', label: 'Deselect' },
   { keys: 'N', label: 'Snap' },

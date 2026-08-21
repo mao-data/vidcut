@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { clipStartTimes, overlayWindow } from '@vidcut/shared';
 import { gsap, useGSAP, motionOK } from './motion.js';
 import { useProject } from './stores/project.js';
 import { useToast } from './stores/toast.js';
@@ -16,7 +17,144 @@ import { ExportMenu } from './panels/ExportMenu.js';
 import { ThemeToggle } from './ThemeToggle.js';
 import { PanelResizer } from './PanelResizer.js';
 import { AgentStrip } from './AgentStrip.js';
+import { trimIn, trimOut, trimSpanIn, trimSpanOut, trimAudioIn } from './timeline/dragMath.js';
 import { sendCommand, sendContext } from './ws.js';
+
+/**
+ * Plan 11 Task 3（裁決 6）：`[`/`]` 鍵盤 trim 的實際邏輯——把目前選取項的 in/out
+ * 邊修到 `playhead`，四種軌道各自的語意與拖曳把手放手時送出的命令完全一致（同一套
+ * `dragMath` 純函數、同一種 clamp），只是**一次性**：不像拖曳要先算 `deltaSec =
+ * pointerX 位移`，這裡直接用「playhead 相對邊界的絕對時間差」當 `deltaSec` 餵給
+ * 同一批 `trimIn`/`trimOut`/`trimSpanIn`/`trimSpanOut`/`trimAudioIn`。
+ *
+ * 沒有選取項時整個函式是 no-op（呼叫端的四個分支各自的 `find` 落空就直接 return，
+ * 不送任何命令）。
+ */
+function trimSelectedToPlayhead(edge: 'in' | 'out', playhead: number): void {
+  const sel = useSelection.getState().selected;
+  const doc = useProject.getState().doc;
+  if (!sel || !doc) return;
+
+  if (sel.kind === 'clip') {
+    const index = doc.tracks.video.findIndex((c) => c.id === sel.id);
+    const clip = doc.tracks.video[index];
+    if (!clip) return;
+    const clipStart = clipStartTimes(doc)[index]!;
+    if (edge === 'in') {
+      const deltaSec = playhead - clipStart;
+      const { in: inSec, duration } = trimIn(clip, deltaSec);
+      sendCommand({
+        name: 'updateClip',
+        clipId: clip.id,
+        patch: { in: Number(inSec.toFixed(3)), duration: Number(duration.toFixed(3)) },
+      });
+    } else {
+      const media = doc.media.find((m) => m.id === clip.mediaId);
+      const mediaDur = media?.probe.duration ?? Infinity;
+      const deltaSec = playhead - (clipStart + clip.duration);
+      const { duration } = trimOut(clip, deltaSec, mediaDur);
+      sendCommand({
+        name: 'updateClip',
+        clipId: clip.id,
+        patch: { duration: Number(duration.toFixed(3)) },
+      });
+    }
+    return;
+  }
+
+  if (sel.kind === 'caption') {
+    const cap = doc.tracks.captions.find((c) => c.id === sel.id);
+    if (!cap) return;
+    if (edge === 'in') {
+      const deltaSec = playhead - cap.start;
+      const { start, duration } = trimSpanIn(cap, deltaSec);
+      sendCommand({
+        name: 'updateCaption',
+        id: cap.id,
+        patch: { start: Number(start.toFixed(3)), duration: Number(duration.toFixed(3)) },
+      });
+    } else {
+      const deltaSec = playhead - (cap.start + cap.duration);
+      const { duration } = trimSpanOut(cap, deltaSec);
+      sendCommand({
+        name: 'updateCaption',
+        id: cap.id,
+        patch: { duration: Number(duration.toFixed(3)) },
+      });
+    }
+    return;
+  }
+
+  if (sel.kind === 'audio') {
+    const a = doc.tracks.audio.find((x) => x.id === sel.id);
+    if (!a) return;
+    const media = doc.media.find((m) => m.id === a.mediaId);
+    const mediaDur = media?.probe.duration ?? Infinity;
+    if (edge === 'in') {
+      const deltaSec = playhead - a.start;
+      const { start, in: inSec, duration } = trimAudioIn(a, deltaSec);
+      sendCommand({
+        name: 'updateAudio',
+        id: a.id,
+        patch: {
+          start: Number(start.toFixed(3)),
+          in: Number(inSec.toFixed(3)),
+          duration: Number(duration.toFixed(3)),
+        },
+      });
+    } else {
+      const deltaSec = playhead - (a.start + a.duration);
+      const { duration } = trimSpanOut(a, deltaSec, mediaDur - a.in);
+      sendCommand({
+        name: 'updateAudio',
+        id: a.id,
+        patch: { duration: Number(duration.toFixed(3)) },
+      });
+    }
+    return;
+  }
+
+  // overlay：與 Timeline.tsx 的 onPointerUp 'ov' 分支同款——絕對時間軌走 trimSpan
+  // 系，anchor 模式的 in 把手要把結果換算回 offset（out 把手只改 duration，
+  // anchor/offset 完全不動，語意見該處註解）。
+  const o = doc.tracks.overlays.find((x) => x.id === sel.id);
+  const win = o && overlayWindow(doc, o);
+  if (!o || !win) return;
+  const effectiveSpan = o.duration ?? win.end - win.start;
+  if (edge === 'in') {
+    const deltaSec = playhead - win.start;
+    const { start: absStart, duration: span } = trimSpanIn(
+      { start: win.start, duration: effectiveSpan },
+      deltaSec,
+    );
+    const duration = o.duration === null ? null : Number(span.toFixed(3));
+    if (o.anchor) {
+      const idx = doc.tracks.video.findIndex((c) => c.id === o.anchor!.clipId);
+      const clipStart = idx >= 0 ? clipStartTimes(doc)[idx]! : 0;
+      const offset = Number((absStart - clipStart).toFixed(3));
+      sendCommand({
+        name: 'updateOverlay',
+        id: o.id,
+        patch:
+          duration === null
+            ? { anchor: { clipId: o.anchor.clipId, offset } }
+            : { anchor: { clipId: o.anchor.clipId, offset }, duration },
+      });
+    } else {
+      const start = Number(absStart.toFixed(3));
+      sendCommand({
+        name: 'updateOverlay',
+        id: o.id,
+        patch: duration === null ? { start } : { start, duration },
+      });
+    }
+  } else {
+    const deltaSec = playhead - (win.start + effectiveSpan);
+    const { duration: span } = trimSpanOut({ duration: effectiveSpan }, deltaSec);
+    const duration = o.duration === null ? null : Number(span.toFixed(3));
+    sendCommand({ name: 'updateOverlay', id: o.id, patch: { duration } });
+  }
+}
 
 function Toast() {
   const message = useToast((s) => s.message);
@@ -178,6 +316,16 @@ export function App() {
           usePlayback.getState().seek(at + (key === 'arrowleft' ? -step : step));
           break;
         }
+        // Plan 11 Task 3（裁決 6）：把選取項的 in/out 修到 playhead，四種軌道通用
+        // （主軌 trimIn/trimOut 語意、其餘 trimSpan 系語意）。與 Q/W 語意區隔清楚：
+        // Q/W 是 ripple 刪除、動全時間軸；[/] 只動選取項本身，是一次性命令
+        // （不像拖曳把手要跑 startTrimFollow/teardownDrag 那套 rAF 跟隨機制——
+        // playhead 已經停在修剪點上，trim 完不必再 seek）。無選取時 no-op。
+        case '[':
+        case ']':
+          e.preventDefault();
+          trimSelectedToPlayhead(key === '[' ? 'in' : 'out', at);
+          break;
       }
     };
     window.addEventListener('keydown', onKey);

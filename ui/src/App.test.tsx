@@ -299,6 +299,152 @@ describe('App', () => {
       press('Escape', { metaKey: true });
       expect(useSelection.getState().selected).toEqual({ kind: 'clip', id: 'c1' });
     });
+
+    /**
+     * Plan 11 Task 3（裁決 6）：`[`/`]` 把選取項的 in/out 修到 playhead——四種軌道
+     * 通用（主軌 trimIn/trimOut 語意、其餘 trimSpan 系語意），與 Q/W（ripple 刪除、
+     * 動全時間軸）語意區隔：`[`/`]` 只動選取項本身。playhead 固定在 3（外層
+     * beforeEach 已 seek）。
+     */
+    describe('[/] trim 選取項到 playhead（Plan 11 Task 3 裁決 6）', () => {
+      it('主軌 clip 選取：[ 送 updateClip 把 in 修到 playhead（trimIn 語意，右緣不動）', () => {
+        // c1: in=2 duration=6，時間軸起點 0 → 右緣(來源)=8。playhead=3 落在 clip 內
+        // （clipStart=0，[ 對應把「clip 起點」修到 playhead=3：deltaSec = 3-0 = 3）。
+        act(() => {
+          useSelection.getState().select({ kind: 'clip', id: 'c1' });
+        });
+        press('[');
+        expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 5, duration: 3 } }]);
+      });
+
+      it('主軌 clip 選取：] 送 updateClip 把 out 修到 playhead（trimOut 語意）', () => {
+        // clipStart=0，] 對應「clip 右緣」修到 playhead=3：deltaSec = 3 - (0+6) = -3
+        // → duration 6-3=3（clamp 到 MIN 之上，未超界）。
+        act(() => {
+          useSelection.getState().select({ kind: 'clip', id: 'c1' });
+        });
+        press(']');
+        expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { duration: 3 } }]);
+      });
+
+      it('caption 選取：[ 送 updateCaption 把 start 修到 playhead（trimSpanIn，右緣不動）', () => {
+        // cap1: start=1 duration=3，右緣=4。deltaSec = 3-1 = 2 → start=3 duration=1
+        act(() => {
+          useSelection.getState().select({ kind: 'caption', id: 'cap1' });
+        });
+        press('[');
+        expect(sent).toEqual([
+          { name: 'updateCaption', id: 'cap1', patch: { start: 3, duration: 1 } },
+        ]);
+      });
+
+      it('caption 選取：] 送 updateCaption 把右緣修到 playhead（trimSpanOut）', () => {
+        // start=1，deltaSec = 3-(1+3) = -1 → duration 3-1=2
+        act(() => {
+          useSelection.getState().select({ kind: 'caption', id: 'cap1' });
+        });
+        press(']');
+        expect(sent).toEqual([{ name: 'updateCaption', id: 'cap1', patch: { duration: 2 } }]);
+      });
+
+      it('audio 選取：[ 送 updateAudio（trimAudioIn：start/in/duration 連動，右緣不動）', () => {
+        // a1: start=2 in=1 duration=5，時間軸右緣=7。deltaSec = 3-2 = 1
+        // → start=3 in=2 duration=4
+        act(() => {
+          useSelection.getState().select({ kind: 'audio', id: 'a1' });
+        });
+        press('[');
+        expect(sent).toEqual([
+          { name: 'updateAudio', id: 'a1', patch: { start: 3, in: 2, duration: 4 } },
+        ]);
+      });
+
+      it('audio 選取：] 送 updateAudio 把右緣修到 playhead（trimSpanOut，來源長度仍夾住）', () => {
+        // start=2，deltaSec = 3-(2+5) = -4 → duration 5-4=1
+        act(() => {
+          useSelection.getState().select({ kind: 'audio', id: 'a1' });
+        });
+        press(']');
+        expect(sent).toEqual([{ name: 'updateAudio', id: 'a1', patch: { duration: 1 } }]);
+      });
+
+      it('overlay（絕對時間）選取：[ 送 updateOverlay 把 start 修到 playhead', () => {
+        // ovAbs: start=1 duration=3，右緣=4。deltaSec = 3-1 = 2 → start=3 duration=1
+        act(() => {
+          useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
+        });
+        press('[');
+        expect(sent).toEqual([
+          { name: 'updateOverlay', id: 'ovAbs', patch: { start: 3, duration: 1 } },
+        ]);
+      });
+
+      it('overlay（絕對時間）選取：] 送 updateOverlay 把右緣修到 playhead', () => {
+        // start=1，deltaSec = 3-(1+3) = -1 → duration 3-1=2
+        act(() => {
+          useSelection.getState().select({ kind: 'overlay', id: 'ovAbs' });
+        });
+        press(']');
+        expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovAbs', patch: { duration: 2 } }]);
+      });
+
+      it('overlay（錨定式）選取：[ 換算回 anchor.offset（沿用拖曳放手的同一套算式）', () => {
+        // ovAnchor: anchor={clipId:'c2',offset:0.5} duration=2。c2 起點=c1.duration=6，
+        // 絕對 start=6.5，右緣=8.5。playhead=3 < absStart，deltaSec = 3-6.5 = -3.5
+        // → absStart=3 duration=5.5（trimSpanIn clamp：start>=0 且不超過右緣-MIN，均滿足）
+        // → offset = absStart - clipStart(6) = -3
+        act(() => {
+          useSelection.getState().select({ kind: 'overlay', id: 'ovAnchor' });
+        });
+        press('[');
+        expect(sent).toEqual([
+          {
+            name: 'updateOverlay',
+            id: 'ovAnchor',
+            patch: { anchor: { clipId: 'c2', offset: -3 }, duration: 5.5 },
+          },
+        ]);
+      });
+
+      it('overlay（錨定式）選取：] 只送 duration（anchor/offset 不動，語意同拖曳 out 把手）', () => {
+        // absStart=6.5，deltaSec = 3-(6.5+2) = -5.5 → duration 2-5.5 clamp 到 MIN(0.1)
+        act(() => {
+          useSelection.getState().select({ kind: 'overlay', id: 'ovAnchor' });
+        });
+        press(']');
+        expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovAnchor', patch: { duration: 0.1 } }]);
+      });
+
+      it('無選取時 [ ] 皆為 no-op（不送任何命令）', () => {
+        expect(useSelection.getState().selected).toBeNull();
+        press('[');
+        press(']');
+        expect(sent).toEqual([]);
+      });
+
+      it('輸入框聚焦時 [ ] 不觸發（既有 INPUT/TEXTAREA 守衛）', () => {
+        act(() => {
+          useSelection.getState().select({ kind: 'clip', id: 'c1' });
+        });
+        const input = document.createElement('input');
+        document.body.appendChild(input);
+        input.focus();
+        act(() => {
+          fireEvent.keyDown(input, { key: '[', bubbles: true });
+          fireEvent.keyDown(input, { key: ']', bubbles: true });
+        });
+        expect(sent).toEqual([]);
+        input.remove();
+      });
+
+      it('] 不驅動 playhead（一次性命令，不是拖曳手勢——修剪點本來就是 playhead 本身）', () => {
+        act(() => {
+          useSelection.getState().select({ kind: 'clip', id: 'c1' });
+        });
+        press(']');
+        expect(usePlayback.getState().time).toBe(3);
+      });
+    });
   });
 
   it('reports editor context to the AI without subscribing the tree to the playhead', async () => {

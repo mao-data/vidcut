@@ -8,6 +8,7 @@ import {
   trimSpanIn,
   trimSpanOut,
   trimAudioIn,
+  isAtSourceMax,
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 
@@ -46,6 +47,25 @@ describe('trimOut', () => {
 
   it('clamps to MIN', () => {
     expect(trimOut(clip, -100, 20).duration).toBeCloseTo(MIN_CLIP_DURATION);
+  });
+});
+
+describe('isAtSourceMax（Plan 11 Task 3 裁決 5：out 把手拖到來源盡頭的視覺判定）', () => {
+  it('true when in+duration reaches mediaDuration exactly', () => {
+    expect(isAtSourceMax({ in: 5, duration: 15 }, 20)).toBe(true);
+  });
+
+  it('true when clamped past the boundary（trimOut 的輸出餵回來，浮點可能微超）', () => {
+    const clamped = trimOut({ in: 5, duration: 6 }, 100, 20); // duration: 15，恰好頂到 20
+    expect(isAtSourceMax({ in: 5, duration: clamped.duration }, 20)).toBe(true);
+  });
+
+  it('false when there is still room before the source end', () => {
+    expect(isAtSourceMax({ in: 5, duration: 6 }, 20)).toBe(false); // 5+6=11 < 20
+  });
+
+  it('false when mediaDuration is unknown (Infinity，無 probe 資料時的既有 fallback)', () => {
+    expect(isAtSourceMax({ in: 5, duration: 6 }, Infinity)).toBe(false);
   });
 });
 

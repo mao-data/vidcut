@@ -1,9 +1,13 @@
 import type { CSSProperties } from 'react';
 import { tickLabel } from './scale.js';
 
-/** trim=時長(增減)；move=起點時間。單一元件全軌道共用，見 Plan 11 範圍裁決 2。 */
+/** trim=時長(增減)；move=起點時間。單一元件全軌道共用，見 Plan 11 範圍裁決 2。
+ * `atMax`（Plan 11 Task 3 裁決 5）：主軌 out 把手已經頂到來源長度上限
+ * （`probe.duration`）——只有 trim 用得到，move 沒有「來源上限」這回事。
+ * 省略或 false＝一般 trim，不附加任何字樣。 */
 export type DragBadgeContent =
-  { kind: 'trim'; duration: number; delta: number } | { kind: 'move'; start: number };
+  | { kind: 'trim'; duration: number; delta: number; atMax?: boolean }
+  | { kind: 'move'; start: number };
 
 export interface DragBadgeState {
   /** 內容層座標（px），跟著把手/指標 1:1（不吃 CSS transition，見既有紀律） */
@@ -52,10 +56,17 @@ function formatDelta(delta: number): string {
   return `${sign}${rounded.toFixed(1)}s`;
 }
 
-/** badge 內容格式化（純函數，DragBadge 呈現層與測試共用）。 */
+/**
+ * badge 內容格式化（純函數，DragBadge 呈現層與測試共用）。
+ *
+ * 裁決 5：`atMax` 時附加 ` · max`——選這個格式而不是取代整段文字，是因為時長/增減
+ * 數字本身仍是有用資訊（使用者想知道「頂到多長」），`max` 只是額外註記「這是上限」，
+ * 不是取代掉數字。
+ */
 export function formatDragBadge(content: DragBadgeContent): string {
   if (content.kind === 'trim') {
-    return `${formatSeconds(content.duration)} (${formatDelta(content.delta)})`;
+    const base = `${formatSeconds(content.duration)} (${formatDelta(content.delta)})`;
+    return content.atMax ? `${base} · max` : base;
   }
   return formatSeconds(content.start);
 }
