@@ -4,6 +4,7 @@ import type { Command } from '@vidcut/shared';
 import { Timeline } from './Timeline.js';
 import { useView } from '../stores/view.js';
 import { usePlayback } from '../stores/playback.js';
+import { useProject } from '../stores/project.js';
 import * as ws from '../ws.js';
 import { seedProject, resetStores } from '../test/fixtures.js';
 
@@ -903,7 +904,7 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 4 });
   });
 
-  it('放手（pointerup）後 trimPreview 清回 null（teardownDrag 共用拆卸）', () => {
+  it('放手（pointerup，有實質變動）後 trimPreview 不立刻清空——與 pending 的 clip-trim 記錄綁命（review round 1 Important-1）', () => {
     const { container } = render(<Timeline />);
     const [left] = handles(chipByText(container, 'clip one'));
     act(() => {
@@ -917,10 +918,44 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     act(() => {
       fireEvent.pointerUp(left!, { clientX: 140, pointerId: 1, bubbles: true });
     });
+    // echo 還沒到（這個測試不模擬 server）：trimPreview 必須繼續蓋著，否則 player
+    // 這幾幀會用 doc 的舊 in 映射，畫面閃回舊幀（Important-1 點名的閃爍）。
+    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3 });
+    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 3, duration: 5 } }]);
+  });
+
+  it('doc echo 抵達（pending 的 clip-trim 對上）：trimPreview 隨 pending 一起清空', () => {
+    const { container, rerender } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().trimPreview).not.toBeNull();
+    // 模擬 doc echo 抵達：c1 的 in/duration 已經反映拖曳結果
+    const doc = useProject.getState().doc!;
+    act(() => {
+      useProject.setState({
+        doc: {
+          ...doc,
+          tracks: {
+            ...doc.tracks,
+            video: doc.tracks.video.map((c) => (c.id === 'c1' ? { ...c, in: 3, duration: 5 } : c)),
+          },
+        },
+      });
+    });
+    act(() => rerender(<Timeline />)); // 對帳區塊在 render body 裡跑，需要一次重渲染才會執行
     expect(usePlayback.getState().trimPreview).toBeNull();
   });
 
-  it('pointercancel 後 trimPreview 也清回 null（teardownDrag 是 up/cancel 共用的單一路徑）', () => {
+  it('pointercancel 後 trimPreview 立刻清回 null（取消語意：閃回舊幀是對的）', () => {
     const { container } = render(<Timeline />);
     const [left] = handles(chipByText(container, 'clip one'));
     act(() => {
@@ -935,9 +970,10 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
       fireEvent.pointerCancel(left!, { clientX: 140, pointerId: 1, bubbles: true });
     });
     expect(usePlayback.getState().trimPreview).toBeNull();
+    expect(sent).toEqual([]); // cancel 不 commit，也沒有 pending 可以綁
   });
 
-  it('放手時取消尚未 flush 的 rAF：trimPreview 不會在放手後才補一次寫入', () => {
+  it('放手時取消尚未 flush 的 rAF：trimPreview 從未被寫入過（維持 null），放手後也不會補寫', () => {
     const { container } = render(<Timeline />);
     const [left] = handles(chipByText(container, 'clip one'));
     act(() => {
@@ -946,11 +982,11 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     act(() => {
       fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true });
     });
-    // 故意不 flush，直接放手
+    // 故意不 flush，直接放手——trimPreview 從未經過 rAF 寫入，維持初始 null
     act(() => {
       fireEvent.pointerUp(left!, { clientX: 140, pointerId: 1, bubbles: true });
     });
-    act(() => flushRaf());
+    act(() => flushRaf()); // 已取消的 rAF：不會補寫
     expect(usePlayback.getState().trimPreview).toBeNull();
   });
 
@@ -977,6 +1013,24 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
       fireEvent.pointerMove(left!, { clientX: 120, pointerId: 1, bubbles: true });
     });
     act(() => flushRaf());
+    expect(usePlayback.getState().trimPreview).toBeNull();
+  });
+
+  it('zero-change release（按下就放，沒有任何 pointermove）：trim-in/out 仍無條件送出 updateClip——沒有獨立的「不送命令」分支，trimPreview 一路維持 null', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    // 沒有 pointermove：d.preview 仍是 onTrimStart 灌進去的原值，trimPreviewTarget 從未寫入
+    expect(usePlayback.getState().trimPreview).toBeNull();
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    // main-track trim-in/out 沒有 cap/aud/ov 那種 zero-delta 不送的守門——一律送
+    // updateClip（見 Timeline.tsx onPointerUp 的 trim-in/trim-out 分支）；echo 抵達前
+    // trimPreview 理論上該綁 pending，但這裡從未被寫入過，維持 null，不需要額外清空。
+    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 6 } }]);
     expect(usePlayback.getState().trimPreview).toBeNull();
   });
 });

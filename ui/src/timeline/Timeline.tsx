@@ -213,11 +213,28 @@ export function Timeline() {
     | null
   >(null);
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * review round 1 Important-1：`trimPreview` 的清空必須跟著 `pending.current`
+   * 的清空**同步**——兩者是同一次拖曳手勢共用的生命週期，任何只清一邊的地方都會
+   * 留下 bug（只清 pending 不清 trimPreview → 覆蓋永久卡住，比原本的閃爍更糟；
+   * 只清 trimPreview 不清 pending → 又回到 Important-1 描述的閃爍）。集中成一個
+   * helper，這裡與下方 render body 的對帳區塊都呼叫它，不重複寫兩份判斷式。
+   */
+  const clearPendingAndTrimPreview = () => {
+    const pd = pending.current;
+    pending.current = null;
+    if (pd?.mode === 'clip-trim' && usePlayback.getState().trimPreview?.clipId === pd.clipId) {
+      usePlayback.getState().setTrimPreview(null);
+    }
+  };
   const setPending = (v: NonNullable<typeof pending.current>) => {
     pending.current = v;
     if (pendingTimer.current) clearTimeout(pendingTimer.current);
     pendingTimer.current = setTimeout(() => {
-      pending.current = null;
+      // 保險絲：命令被拒/resync 掉包等情況，echo 永遠不會讓下方對帳區塊比對成立
+      // ——不清空 trimPreview 就會永久卡住，比原本要修的閃爍嚴重得多（裁決原文：
+      // 「a lingering override would permanently skew the player mapping」）。
+      clearPendingAndTrimPreview();
       rerender();
     }, 1200);
   };
@@ -315,6 +332,19 @@ export function Timeline() {
    * 使用者看起來像「按了播放沒反應」，得手動 seek 一次才能自癒。用
    * `usePlayback.seek()`（既有 clamp 到 [0,total] 的機制）而不是直接 `set`，
    * 與其餘寫入 time 的路徑一致。
+   *
+   * review round 1 Important-1：`trimPreview` **不**在這裡無條件清空。原本的寫法
+   * 會在 pointerup 當下同步清成 null，但 `sendCommand` 送出後到 doc echo 抵達之間
+   * 有一段非同步空窗（`ws.ts`／`project.ts` 的 applyServerMsg）——那幾幀
+   * `planAt(doc, time, null)` 會用 doc 裡還沒更新的舊 `in`，暫停態的漂移校正把
+   * `video.currentTime` snap 回舊幀，echo 一到又跳到新幀，形成使用者放手瞬間看到
+   * 的閃爍（整個手勢裡最顯眼的一刻）。修法：commit 路徑（有送出 command）讓
+   * `trimPreview` 繼續蓋著，生命週期與該次 `updateClip` 的 `pending` 記錄綁在一起
+   * ——清空時機交給下方 pending 對帳區塊與 1.2s 保險絲（與 `pending.current` 完全
+   * 同步的兩個清除點，不能只顧其中一個）。cancel 路徑（不 commit）與零位移放手
+   * （d.preview 從未被 onPointerMove 改過、`trimPreviewTarget` 從未寫入）維持在這裡
+   * 立刻清空——前者沒有 pending 可以綁、语意上退回舊幀本來就是對的；後者從一開始
+   * 就是 null，這裡清或不清沒有可觀察差異，寫在這裡只是防禦性保底。
    */
   const teardownDrag = (): DragState => {
     const d = drag.current;
@@ -323,10 +353,6 @@ export function Timeline() {
     cancelFollow();
     trimFollowing.current = false;
     usePlayback.getState().setDragActive(false);
-    // Plan 12 Task 2（裁決 3）：trim-in 即時首幀覆蓋是純預覽態，手勢結束（放手或
-    // 取消）一律清回 null——player 之後改用 doc 的 committed in（放手路徑很快會有
-    // sendCommand 送出、echo 抵達後 doc 本來就會反映新值；取消路徑則直接退回原值）。
-    usePlayback.getState().setTrimPreview(null);
     if (gestureOrigTotal.current !== null) {
       const restoredTotal = gestureOrigTotal.current;
       usePlayback.getState().setTotal(restoredTotal);
@@ -684,7 +710,9 @@ export function Timeline() {
         }
       })();
       if (matched) {
-        pending.current = null;
+        // review round 1 Important-1：echo 對上時，trimPreview（若這筆 pending 是
+        // clip-trim）要跟著清空——見 clearPendingAndTrimPreview 的長註解。
+        clearPendingAndTrimPreview();
         if (pendingTimer.current) {
           clearTimeout(pendingTimer.current);
           pendingTimer.current = null;
@@ -940,6 +968,12 @@ export function Timeline() {
     const d = teardownDrag();
     if (!d) return;
     if (d.mode === 'trim-in' || d.mode === 'trim-out') {
+      // review round 1 Important-1：這裡刻意不碰 `usePlayback.trimPreview`——trim-in/
+      // trim-out 沒有 cap/aud/ov 那種零位移不送的守門，一律送 updateClip 並建立
+      // pending 記錄。trimPreview（若非 null）在 teardownDrag 已經不再清空，它的
+      // 生命週期現在與這筆剛建立的 pending 綁在一起，交給下方 pending 對帳區塊與
+      // 1.2s 保險絲清除（見兩處的對應註解）。trim-out 從不寫 trimPreview，這裡走
+      // 到時它本來就是 null，無需特別處理。
       const inSec = Number(d.preview.in.toFixed(3));
       const duration = Number(d.preview.duration.toFixed(3));
       setPending({ mode: 'clip-trim', clipId: d.clipId, in: inSec, duration });
@@ -1086,6 +1120,10 @@ export function Timeline() {
    */
   const onPointerCancel = () => {
     teardownDrag();
+    // review round 1 Important-1：cancel 沒有隨後的 sendCommand/pending，不會有 echo
+    // 來清這個覆蓋——必須在這裡立刻清空，否則會永久卡住、持續拿舊 in 疊在 doc 之上
+    // （比放手瞬間的一次閃爍嚴重得多）。退回舊幀在取消語意下本來就是對的。
+    usePlayback.getState().setTrimPreview(null);
     rerender();
   };
 
