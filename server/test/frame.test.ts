@@ -89,4 +89,25 @@ describe('extractFrame：黑尾夾制與回幀', () => {
     const rel = await extractFrame(dir, p, 0);
     expect(rel).toBeNull();
   });
+
+  it('主軌被清空但其他軌延伸 output（total=0<output）：t=0 回黑幀而非 null（Plan 13 終審 review round 1 minor）', async () => {
+    const dir = await tmpDir('vidcut-frame-emptymain-tail-');
+    const p = createEmptyProject('p', 't');
+    // 所有 clip 被刪除後主軌淨空（total=0），但字幕仍延伸到 5s → output=5>total=0，
+    // 這段 [0, output) 全部都是黑尾，t=0 也在黑尾區間內，不該落到「查無片段」的錯誤。
+    p.tracks.captions = [
+      {
+        id: 'cap1',
+        text: 'hi',
+        start: 0,
+        duration: 5,
+        style: { fontFamily: 's', fontSize: 48, fill: '#fff', y: 0.8 },
+      },
+    ];
+    const rel = await extractFrame(dir, p, 0);
+    expect(rel).not.toBeNull();
+    const info = await probe(join(dir, rel!));
+    expect(info.width).toBe(1080);
+    expect(info.height).toBe(1920);
+  }, 60_000);
 });

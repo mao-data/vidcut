@@ -796,7 +796,7 @@ export function Timeline() {
     return { cls: '' };
   };
 
-  const total = totalDuration(doc); // 主軌總長——snap 候選、尺規範圍、黑尾帶起點仍以它為準
+  const total = totalDuration(doc); // 主軌總長——snap 候選、黑尾帶起點仍以它為準（尺規刻度數改鍵 output，見下方 labelCount）
   /**
    * Plan 13 裁決 5a 尾/10：輸出長度（含黑尾）。內容寬與所有 fit 路徑（見上方三顆
    * effect＋Toolbar 的 onFit）改鍵到這個值，超出主軌的內容（黑尾、音訊/字幕/overlay
@@ -2055,7 +2055,10 @@ export function Timeline() {
             {/* Plan 13 Task 4（裁決 5a）：死區——output 之後整條時間軸降暗，一眼可辨
                 「這之後不算進輸出」。貫穿尺規＋全部軌道列（TRACKS_TOTAL_H），純視覺、
                 不可互動。內容寬本身已經鍵到 output（見上方 width＝contentWidthPx），
-                所以死區右緣直接吃滿到 content 的右邊界（`right:0`），不必另外量寬度。 */}
+                所以死區右緣直接吃滿到 content 的右邊界（`right:0`），不必另外量寬度。
+                zIndex:3——尺規是 sticky top:0 + zIndex:2 的實底，死區要蓋過尺規刻度
+                才能把「output 之後」連尺規段一起降暗，否則尺規那 20px 高的帶子永遠
+                亮著（Plan 13 終審 review round 1 minor）。 */}
             <div
               data-testid="tl-deadzone"
               style={{
@@ -2064,6 +2067,7 @@ export function Timeline() {
                 left: timeToPx(output, pps),
                 right: 0,
                 height: TRACKS_TOTAL_H,
+                zIndex: 3,
                 background: 'var(--tl-deadzone-bg)',
                 pointerEvents: 'none',
               }}
@@ -2071,7 +2075,10 @@ export function Timeline() {
             {/* Plan 13 Task 4（裁決 5a）：END 柱——output 處貫穿全軌的豎線＋頂端旗標，
                 與 playhead 視覺明確區分（--line-strong/--text-2 系，不是 playhead 的
                 --accent-bright 紅蠟筆）。純視覺、不可互動；位置自動跟著 output 走
-                （單一真相來源在造成黑尾/滲出的那個 chip 本身，這裡不可拖）。 */}
+                （單一真相來源在造成黑尾/滲出的那個 chip 本身，這裡不可拖）。
+                zIndex:3（同死區）——旗標整個落在尺規的 20px 高帶內，尺規的 sticky
+                zIndex:2 實底不加這個會直接蓋掉旗標，使其不可見（Plan 13 終審 review
+                round 1 minor）。 */}
             <div
               data-testid="tl-end-marker"
               style={{
@@ -2080,6 +2087,7 @@ export function Timeline() {
                 height: TRACKS_TOTAL_H,
                 left: timeToPx(output, pps) - 1,
                 width: 2,
+                zIndex: 3,
                 background: 'var(--line-strong)',
                 pointerEvents: 'none',
               }}

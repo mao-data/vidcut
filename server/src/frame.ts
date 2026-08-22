@@ -35,7 +35,15 @@ export async function extractFrame(
   // 一幀），不是黑尾。若在這裡把 clamped 先夾到 total 再丟給 locate()，黑尾時刻會全部
   // 落在這個邊界特例上，抽到的是「seek 到來源檔案結尾」，ffmpeg 對已無畫面可讀的
   // seek 常回 234（mjpeg 編碼器收不到 frame）——曾經因此整段黑尾直接炸掉，而不是回黑幀。
-  if (clamped > total) return extractBlackFrame(projectDir, project, clamped);
+  //
+  // 黑尾區間是半開的 [total, output)：單用 `clamped > total` 在 total===0 且
+  // output>0（主軌全刪、字幕/音訊仍延伸）時會漏接 t===0——那個點嚴格來說「不大於
+  // total」，卻仍落在黑尾裡，會直接掉進下面 locate() 對空主軌回 null 的分支，害
+  // get_frame 在「有東西可回」的時刻報錯（Plan 13 終審 review round 1 minor）。
+  // 用 `output > total && clamped >= total` 才精確對齊半開區間；`output === total`
+  // （無黑尾）時這個新增條件恆為 false，t===total 仍走原本 locate() 的片尾特例，
+  // byte-identical。
+  if (output > total && clamped >= total) return extractBlackFrame(projectDir, project, clamped);
   const loc = locate(project, clamped);
   if (!loc) return null; // 空主軌：clamped<=total===0 但仍 locate 不到（tracks.video 為空）
   // 與 render.ts extractCover 同型接法：proxyPath **不保證存在**（Plan 8 起三階段

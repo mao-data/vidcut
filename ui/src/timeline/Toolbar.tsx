@@ -31,9 +31,10 @@ function fmt(t: number): string {
  * 只有 Timecode 訂閱 playback time/total：播放中 time 每幀更新（rAF），
  * 若工具列或 Timeline 本體訂閱，整條時間軸會每秒重渲染 ~60 次。
  * Plan 13 裁決 4/5c：total 直接讀 `usePlayback().total`（Player 的 doc-echo effect
- * 已改餵 outputDuration，含黑尾），不再吃呼叫端傳入的 `total` prop——那個 prop
- * 綁的是 Timeline.tsx 的主軌 totalDuration（Task 4 的 fit/寬度基準，語意不同），
- * 有黑尾時兩者會分岔，讀數必須跟著「使用者實際能播到哪」走。
+ * 已改餵 outputDuration，含黑尾），不再吃呼叫端傳入給 `TimelineToolbar` 的 `total`
+ * prop——那個 prop 是「Jump to end」的跳轉目標（見下方 SkipForward 按鈕），呼叫端
+ * （Timeline.tsx）已改傳 output，兩者現在同源，這裡獨立訂閱純粹是為了避免
+ * per-frame rerender 波及整條時間軸，不是在補一個語意分歧。
  */
 function Timecode() {
   const time = usePlayback((s) => s.time);
