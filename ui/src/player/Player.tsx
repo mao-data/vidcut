@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { totalDuration, type CaptionItem, type SnapGuide } from '@vidcut/shared';
+import { outputDuration, type CaptionItem, type SnapGuide } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
@@ -181,8 +181,11 @@ export function Player() {
     return () => ro.disconnect();
   }, [stageEl]);
 
+  // Plan 13 裁決 4：播放總長改為 outputDuration（= max(主軌總長, 各軌最遠內容)），
+  // 不再是主軌 totalDuration——黑尾（[主軌總長, outputDuration)）也要能播放/seek 到。
+  // 無黑尾專案 outputDuration === totalDuration，行為不變。
   useEffect(() => {
-    if (doc) usePlayback.getState().setTotal(totalDuration(doc));
+    if (doc) usePlayback.getState().setTotal(outputDuration(doc));
   }, [doc]);
 
   // 主時鐘：rAF + performance.now() 差分
@@ -242,8 +245,16 @@ export function Player() {
     if (!act || !spare) return;
 
     if (!plan.active) {
+      // 黑尾（Plan 13 裁決 4）／空專案：沒有主軌來源可播。三層 video 全部暫停——
+      // 停在原地不動（不 seek 歸零），視覺隱藏交給下方 render 的 vidStyle/blur 判斷，
+      // 這裡只負責「別讓它們繼續推進/出聲」。blur 背景層也要暫停，理由同 A/B：
+      // 這個 early return 之前只顧了 A/B，bg 完全沒被處理過——播放中進入黑尾時
+      // bg 會帶著上一刻的 playbackRate/來源繼續播放，畫面雖然被蓋黑但背後仍在耗資源、
+      // 且下一次離開黑尾回到主軌時可能已經漂移。
       act.pause();
       spare.pause();
+      const bg = vBg.current;
+      if (bg && !bg.paused) bg.pause();
       return;
     }
 
@@ -359,6 +370,12 @@ export function Player() {
     objectFit: 'contain',
     opacity: visible ? 1 : 0,
   });
+
+  // 黑尾（Plan 13 裁決 4）：plan.active 為 null 時（黑尾區間或空專案）三層 video 一律隱藏
+  // ——`activeIsA.current` 是進入黑尾前最後一次交換的結果，若不特判，vidStyle 仍會照它
+  // 把其中一顆判成「可見」，殘留主軌最後一幀（這正是本任務要修的 bug：舊行為只暫停
+  // video 元素，沒有隱藏，使用者會看到畫面凍結在主軌結尾而不是變黑）。
+  const showVideo = plan.active !== null;
 
   /** 1080 座標空間縮放係數——與下方 1080×1920 layer 的 transform 同一個來源，不得重算/硬編。 */
   const scale = stageW / 1080;
@@ -659,11 +676,13 @@ export function Player() {
               objectFit: 'cover',
               filter: 'blur(24px)',
               transform: 'scale(1.15)',
+              // 黑尾：背景模糊層也不得殘留末幀（同 vidStyle 的 showVideo 判斷）。
+              opacity: showVideo ? 1 : 0,
             }}
           />
         )}
-        <video ref={vA} muted playsInline style={vidStyle(activeIsA.current)} />
-        <video ref={vB} muted playsInline style={vidStyle(!activeIsA.current)} />
+        <video ref={vA} muted playsInline style={vidStyle(showVideo && activeIsA.current)} />
+        <video ref={vB} muted playsInline style={vidStyle(showVideo && !activeIsA.current)} />
         {/* 音訊軌元素（不可見；常駐讓 seek/play 不用重新載檔） */}
         {doc.tracks.audio.map((a) => {
           const media = doc.media.find((m) => m.id === a.mediaId);

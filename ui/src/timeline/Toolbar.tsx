@@ -14,19 +14,30 @@ import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
 import { useView } from '../stores/view.js';
 import { sendCommand } from '../ws.js';
+import { tickLabel } from './scale.js';
 
+/**
+ * Plan 13 裁決 5c：格式與 DragBadge 的 `formatSeconds` 一致——<60s 用一位小數的
+ * `Ns`，>=60s 借 `tickLabel` 的 `m:ss`（四捨五入到整秒）。這裡不 import DragBadge.tsx
+ * 那份（它連著 badge 專用的 clamp 常數，語意上是拖曳中的粗略回饋），改直接複用
+ * `tickLabel` 自己算，短字串、無額外耦合。
+ */
 function fmt(t: number): string {
-  const m = Math.floor(t / 60);
-  const s = t - m * 60;
-  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
+  const rounded = Math.round(t * 10) / 10;
+  return rounded < 60 ? `${rounded.toFixed(1)}s` : tickLabel(Math.round(rounded));
 }
 
 /**
- * 只有 Timecode 訂閱 playback time：播放中 time 每幀更新（rAF），
+ * 只有 Timecode 訂閱 playback time/total：播放中 time 每幀更新（rAF），
  * 若工具列或 Timeline 本體訂閱，整條時間軸會每秒重渲染 ~60 次。
+ * Plan 13 裁決 4/5c：total 直接讀 `usePlayback().total`（Player 的 doc-echo effect
+ * 已改餵 outputDuration，含黑尾），不再吃呼叫端傳入的 `total` prop——那個 prop
+ * 綁的是 Timeline.tsx 的主軌 totalDuration（Task 4 的 fit/寬度基準，語意不同），
+ * 有黑尾時兩者會分岔，讀數必須跟著「使用者實際能播到哪」走。
  */
-function Timecode({ total }: { total: number }) {
+function Timecode() {
   const time = usePlayback((s) => s.time);
+  const total = usePlayback((s) => s.total);
   return (
     <span className="mono" style={{ color: 'var(--accent-text)', marginLeft: 4 }}>
       {fmt(time)} <span className="tag">/ {fmt(total)}</span>
@@ -99,7 +110,7 @@ export function TimelineToolbar({ total, onFit }: { total: number; onFit: () => 
       >
         <SkipForward size={14} />
       </button>
-      <Timecode total={total} />
+      <Timecode />
 
       <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
         <label

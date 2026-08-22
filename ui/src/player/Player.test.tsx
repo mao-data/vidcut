@@ -206,6 +206,156 @@ describe('Player', () => {
 });
 
 /**
+ * 黑尾播放（Plan 13 Task 3，裁決 4）：主軌之後、outputDuration 之前是黑尾——
+ * 三層 video（A/B + blur 背景）都不得殘留末幀，字幕/overlay 仍照常顯示（與匯出成品一致），
+ * 播放要能真的走過黑尾、在 outputDuration 停下，seek 也要能到得了黑尾。
+ *
+ * 用 demoProject() 的 audio a1 延伸出黑尾：主軌 totalDuration=10（c1 0–6, c2 6–10）；
+ * a1 原本 start=2 duration=5（結尾 7s，在主軌內）——這裡改成 start=8 duration=5，
+ * 結尾 13s，超出主軌總長 3s，黑尾區間 = [10, 13)。
+ */
+describe('Player 黑尾播放（Plan 13 Task 3，裁決 4）', () => {
+  beforeEach(() => {
+    resetStores();
+  });
+
+  function withAudioTail(doc: ReturnType<typeof demoProject>) {
+    doc.tracks.audio = [
+      { id: 'a1', mediaId: 'm2', start: 8, in: 0, duration: 5, volume: 0.8, label: 'bgm' },
+    ];
+    return doc;
+  }
+
+  it('Player 的 total 基準改為 outputDuration：黑尾專案播放總長跟到 13s，不是主軌的 10s', () => {
+    const doc = withAudioTail(demoProject());
+    seedProject(doc);
+    render(<Player />);
+    expect(usePlayback.getState().total).toBe(13);
+  });
+
+  it('無黑尾專案：total 與主軌 totalDuration 一致，行為不變', () => {
+    const doc = demoProject(); // a1 在主軌內，無黑尾
+    seedProject(doc);
+    render(<Player />);
+    expect(usePlayback.getState().total).toBe(10);
+  });
+
+  it('黑尾區間：A/B 兩層 video 都隱藏（opacity 0），不殘留主軌末幀', () => {
+    const doc = withAudioTail(demoProject());
+    seedProject(doc);
+    const { container } = render(<Player />);
+    seek(11); // 黑尾區間 [10,13)
+
+    const [a, b] = videoEls(container);
+    expect(a!.style.opacity).toBe('0');
+    expect(b!.style.opacity).toBe('0');
+  });
+
+  it('黑尾區間：blur 背景層也隱藏，不殘留末幀模糊背景', () => {
+    const doc = withAudioTail(demoProject());
+    doc.canvas = { ...doc.canvas, fit: 'blur' };
+    seedProject(doc);
+    const { container } = render(<Player />);
+    seek(11);
+
+    const bg = container.querySelectorAll('video')[0]!; // blur 模式下 bg 是第一顆掛載的 video
+    expect(bg.style.opacity).toBe('0');
+  });
+
+  it('黑尾區間：三層 video 全部暫停（不繼續推進來源時間、不出聲殘影）', () => {
+    const doc = withAudioTail(demoProject());
+    doc.canvas = { ...doc.canvas, fit: 'blur' };
+    seedProject(doc);
+    const { container } = render(<Player />);
+    const spies = videoEls(container).map(watch);
+    play();
+    seek(11);
+
+    for (const s of spies) expect(s.pause).toHaveBeenCalled();
+  });
+
+  it('主軌區間（[0, total)）行為逐位元組不變：video 仍正常顯示', () => {
+    const doc = withAudioTail(demoProject());
+    seedProject(doc);
+    const { container } = render(<Player />);
+    seek(3); // 主軌內，c1
+
+    const [a, b] = videoEls(container);
+    expect([a!.style.opacity, b!.style.opacity]).toContain('1');
+  });
+
+  it('黑尾區間：時間窗覆蓋到黑尾的字幕/overlay 照常顯示（與匯出成品一致）', () => {
+    const doc = withAudioTail(demoProject());
+    // cap2 原本 5–8s，改成覆蓋進黑尾：11–14s
+    doc.tracks.captions = [
+      {
+        id: 'capTail',
+        text: 'tail caption',
+        start: 11,
+        duration: 3,
+        style: { fontFamily: 'sans-serif', fontSize: 48, fill: '#ffffff', y: 0.8 },
+      },
+    ];
+    doc.tracks.overlays = [
+      {
+        id: 'ovTail',
+        imagePath: 'assets/tail.png',
+        start: 11,
+        duration: 2,
+        position: { x: 0.5, y: 0.1, scale: 1 },
+      },
+    ];
+    seedProject(doc);
+    const { container } = render(<Player />);
+    seek(11.5); // 黑尾內，兩者窗內
+
+    expect(container.textContent).toContain('tail caption');
+    expect(container.querySelector('img[src="/media/assets/tail.png"]')).not.toBeNull();
+  });
+
+  it('播放可以真的走過黑尾（rAF 主時鐘不依賴任何 video 元素），到 outputDuration 停下', () => {
+    const doc = withAudioTail(demoProject());
+    seedProject(doc);
+    render(<Player />);
+    play();
+
+    act(() => {
+      // 直接推進主時鐘（同 Player 內 rAF effect 呼叫的 tick），從主軌尾端跨進黑尾。
+      usePlayback.getState().tick(9.9, 2); // 9.9 + 2 = 11.9，落在黑尾 [10,13)
+    });
+    expect(usePlayback.getState().time).toBeCloseTo(11.9);
+    expect(usePlayback.getState().playing).toBe(true); // 還沒到 outputDuration，繼續播
+
+    act(() => {
+      usePlayback.getState().tick(11.9, 2); // 13.9 > 13 → clamp 到 13、停止
+    });
+    expect(usePlayback.getState().time).toBe(13);
+    expect(usePlayback.getState().playing).toBe(false);
+  });
+
+  it('黑尾區間：音訊項目仍照常播放（activeAudioAt 不依賴 plan.active）', () => {
+    const doc = withAudioTail(demoProject());
+    seedProject(doc);
+    const { container } = render(<Player />);
+    const spy = watch(audioEls(container)[0]!);
+    play();
+    seek(11); // 黑尾內，a1（8–13s）窗內
+
+    expect(spy.play).toHaveBeenCalled();
+  });
+
+  it('seek 可達黑尾（playback.seek 的 clamp 上界已是 outputDuration）', () => {
+    const doc = withAudioTail(demoProject());
+    seedProject(doc);
+    render(<Player />);
+    seek(12);
+    expect(usePlayback.getState().time).toBe(12);
+    seek(20); // 超過 outputDuration，clamp 到 13
+    expect(usePlayback.getState().time).toBe(13);
+  });
+});
+
+/**
  * blur 背景 video 閘門（Plan 9 Task 4）：背景層曾經比對 `bg.src.endsWith(plan.active.src)`
  * ——src 是 mediaUrl(media) = proxyPath ?? path，proxyPath 由背景 ingest（A2）晚到才補進
  * doc。同一顆 clip 播放中，proxyPath 一到，src 字串換了，背景 video 就重新載入（可見的閃爍/
