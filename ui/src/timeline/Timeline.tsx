@@ -998,10 +998,16 @@ export function Timeline() {
         };
       } else {
         // trim（範圍裁決 4）：與 caption chip 同款，直接借 trimSpanIn/trimSpanOut。
-        // to-end overlay（span===null）的「目前有效時長」＝總長減 absStart——
+        // to-end overlay（span===null）的「目前有效時長」＝output 減 absStart——
+        // review round 1 Medium：Task 1 起 `overlayWindow` 對 to-end overlay 的
+        // end 已經改成跟隨 outputDuration（shared/src/timeline.ts 的不變式註解），
+        // 這裡若還用主軌 `totalDuration` 當基準，黑尾專案上會比畫面實際渲染的
+        // 視窗結尾短，讓 badge/材料化的 duration 與螢幕上看到的不一致。改吃
+        // render body 已算好的 `output`（=outputDuration(doc)，無黑尾專案
+        // output===total，行為不變）。
         // in 把手用它算右緣但不落地 duration（preview.span 維持 null）；
         // out 把手以它為起點把 duration 落地成具體數字（材料化）。
-        const effectiveSpan = d.orig.span ?? totalDuration(doc) - d.orig.absStart;
+        const effectiveSpan = d.orig.span ?? output - d.orig.absStart;
         if (d.edge === 'in') {
           const raw = trimSpanIn({ start: d.orig.absStart, duration: effectiveSpan }, deltaSec);
           const rightEdge = d.orig.absStart + effectiveSpan;
@@ -1448,9 +1454,11 @@ export function Timeline() {
           content: { kind: 'move', start: d.preview.absStart },
         };
       }
-      // to-end（span:null）未落地時借「目前有效時長」顯示，語意同 onPointerMove 的 effectiveSpan
-      const origSpan = d.orig.span ?? totalDuration(doc) - d.orig.absStart;
-      const previewSpan = d.preview.span ?? totalDuration(doc) - d.preview.absStart;
+      // to-end（span:null）未落地時借「目前有效時長」顯示，語意同 onPointerMove 的
+      // effectiveSpan——review round 1 Medium：基準同樣改成 output（見 onPointerMove
+      // 該行的長註解），badge 顯示才會跟放手材料化的 duration 一致。
+      const origSpan = d.orig.span ?? output - d.orig.absStart;
+      const previewSpan = d.preview.span ?? output - d.preview.absStart;
       const leftPx =
         d.edge === 'in'
           ? timeToPx(d.preview.absStart, pps)

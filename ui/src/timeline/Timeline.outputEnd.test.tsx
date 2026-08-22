@@ -112,6 +112,107 @@ describe('END 柱與黑尾帶（裁決 5a/5b）', () => {
   });
 });
 
+/**
+ * review round 1 Medium（binding ruling）：to-end overlay（duration:null）拖曳的
+ * `effectiveSpan` 基準——Task 1 起 `overlayWindow` 對 to-end overlay 的 end 已經
+ * 改成跟隨 outputDuration（shared/src/timeline.ts 的不變式註解），但 Timeline.tsx
+ * 三處算「目前有效時長」的地方（onPointerMove 的 in/zero-move/out 三分支共用同一個
+ * `effectiveSpan`、dragBadgeRaw 的 `origSpan`/`previewSpan`）當時沿用了舊的
+ * `totalDuration(doc)`——黑尾專案上這個基準比實際渲染的視窗結尾（output）短，
+ * 拖曳中的 badge 顯示與放手材料化的 duration 因此與畫面上看到的不一致。
+ * 修法：三處全部改讀render body 已經算好的 `output`（=outputDuration(doc)）。
+ */
+describe('to-end overlay 拖曳基準（review round 1 Medium：Task 1 起 overlayWindow 已用 outputDuration）', () => {
+  beforeEach(() => {
+    resetStores();
+    useView.setState({ pxPerSecond: PPS, snapEnabled: false });
+    sent = [];
+    vi.spyOn(ws, 'sendCommand').mockImplementation((c: Command) => {
+      sent.push(c);
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function chipByText(c: HTMLElement, text: string): HTMLElement {
+    const hits = Array.from(c.querySelectorAll('div')).filter((d) =>
+      d.textContent?.trim().startsWith(text),
+    );
+    const el = hits.find((d) => !hits.some((o) => o !== d && d.contains(o)));
+    if (!el) throw new Error(`chip not found: ${text}`);
+    return el;
+  }
+  function handles(el: Element): Element[] {
+    return Array.from(el.querySelectorAll('.handle'));
+  }
+
+  it('黑尾專案：to-end overlay 的起始有效時長吃 output（不是主軌 total），badge 與材料化 duration 一致', () => {
+    // projectWithBlackTail：主軌 total=10，output=15（audio a1 撐到 15）。
+    // to-end overlay start=5 → 正確的「目前有效時長」= output-5 = 10（修好之前是
+    // total-5 = 5）。拖 out 把手 +1s（40px）：修好後 badge 應顯示 11.0s
+    // （10+1），材料化後送出的 duration 也該是 11——修之前這裡會是 6（5+1）。
+    const doc = projectWithBlackTail();
+    doc.tracks.overlays.push({
+      id: 'ovToEnd',
+      imagePath: 'assets/lower.png',
+      start: 5,
+      duration: null,
+      position: { x: 0.5, y: 0.9, scale: 1 },
+    });
+    seedProject(doc);
+    const { container } = render(<Timeline />);
+    // 這個專案的 outputDuration（15）與 STUB_CLIENT_WIDTH（472，反推自無黑尾的
+    // demoProject 總長 10s）搭配算出的掛載自動 fit pps 不是整數——顯式覆蓋回
+    // 40，讓下面的像素位移換算保持可讀（同檔案其餘黑尾情境測試的既有手法）。
+    act(() => {
+      useView.setState({ pxPerSecond: PPS, snapEnabled: false });
+    });
+    const [, right] = handles(chipByText(container, 'lower.png'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true }); // +1s
+    });
+    // 拖曳中：badge 顯示的時長已經吃到 output 基準（11.0s，不是舊基準的 6.0s）
+    expect(container.textContent).toContain('11.0s (+1.0s)');
+    act(() => {
+      fireEvent.pointerUp(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    // 放手材料化：送出的 duration 與 badge 顯示一致
+    expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovToEnd', patch: { duration: 11 } }]);
+  });
+
+  it('無黑尾專案：outputDuration 與主軌 total 重合，行為不變（既有測試同款情境的對照組）', () => {
+    // demoProject：total=output=10。to-end overlay start=5 → 有效時長=5，
+    // 與修之前用 totalDuration 算出的值完全相同——這裡釘住「兩個函式重合時
+    // 沒有可觀察差異」，不是重新驗證既有行為（Timeline.test.tsx 的
+    // 'a to-end overlay (duration=null) only shows an out-handle behavior
+    // that materializes duration' 已經覆蓋同一情境）。
+    const doc = demoProject();
+    doc.tracks.overlays.push({
+      id: 'ovToEnd',
+      imagePath: 'assets/lower.png',
+      start: 5,
+      duration: null,
+      position: { x: 0.5, y: 0.9, scale: 1 },
+    });
+    seedProject(doc);
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'lower.png'));
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true }); // +1s
+    });
+    expect(container.textContent).toContain('6.0s (+1.0s)');
+    act(() => {
+      fireEvent.pointerUp(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(sent).toEqual([{ name: 'updateOverlay', id: 'ovToEnd', patch: { duration: 6 } }]);
+  });
+});
+
 describe('寬度/fit/min-zoom 換基準到 outputDuration（裁決 5a 尾+10a）', () => {
   beforeEach(() => {
     resetStores();
