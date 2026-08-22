@@ -314,6 +314,10 @@
   --clip-band-bg: rgba(0, 0, 0, 0.32);
   /* Timeline 捲動容器的內襯 */
   --timeline-well-bg: rgba(0, 0, 0, 0.18);
+  /* Plan 13 Task 4（裁決 5a）：END 柱之後的死區——蓋在軌道上的暗色 scrim，
+   * 讓「輸出結尾之後什麼都不會被算進去」一眼可辨。比 --timeline-well-bg 再深一階
+   * （純視覺、不影響底下 chip 的可讀性——死區本身就不該再放新內容）。 */
+  --tl-deadzone-bg: rgba(0, 0, 0, 0.38);
   /* 原生輸入框的底 */
   --input-bg: rgba(0, 0, 0, 0.25);
   --input-disabled-bg: rgba(0, 0, 0, 0.12);
@@ -555,6 +559,9 @@
   --clip-band-bg: rgba(38, 35, 29, 0.07);
   /* 時間軸捲動容器的內襯：桌面上鋪的那張稿紙 */
   --timeline-well-bg: rgba(38, 35, 29, 0.05);
+  /* Plan 13 Task 4（裁決 5a）：END 柱之後的死區——紙上用比 --timeline-well-bg
+   * 再深一階的墨色 scrim，同暗版語意（見暗版同名 token 註解）。 */
+  --tl-deadzone-bg: rgba(38, 35, 29, 0.13);
   /* 深色輸入框 → 紙上是**壓白**的欄位（比紙卡更白＝可以寫字的地方） */
   --input-bg: rgba(255, 255, 255, 0.6);
   --input-disabled-bg: rgba(38, 35, 29, 0.05);

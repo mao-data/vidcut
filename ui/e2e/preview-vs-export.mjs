@@ -751,11 +751,18 @@ async function main() {
       await sleep(250); // React 不在同一次呼叫內同步 flush
     };
 
-    /** 工具列的 timecode（`m:ss.s / m:ss.s`）——獨立驗證 playhead 真的在我們以為的時間。 */
+    /**
+     * 工具列的 timecode——獨立驗證 playhead 真的在我們以為的時間。
+     * Plan 13 Task 3（裁決 5c）把格式從舊制 `m:ss.s / m:ss.s` 改成與 DragBadge
+     * 一致：<60s 是一位小數的 `Ns`，>=60s 才是 `m:ss`（見 Toolbar.tsx 的 `fmt`）。
+     * 這支腳本量的六個 case 全部 <60s，所以只需認得 `Ns / Ns` 這個分支；正則同步
+     * 改過（舊正則永遠比對不到，讀出來一律 null，直到這次才被抓到——見
+     * Plan 13 Task 4 report 的說明：這是 Task 3 遺留、Task 4 順手修的一行）。
+     */
     const readTimecode = () =>
       evalJs(`(() => {
         const el = [...document.querySelectorAll('span')].find((s) =>
-          /^\\d+:\\d\\d\\.\\d\\s*\\/\\s*\\d+:\\d\\d\\.\\d$/.test(s.textContent.trim()));
+          /^\\d+\\.\\d+s\\s*\\/\\s*\\d+\\.\\d+s$/.test(s.textContent.trim()));
         return el ? el.textContent.trim().split('/')[0].trim() : null;
       })()`);
 
@@ -864,8 +871,8 @@ async function main() {
       await stepFrames(c.frame - atFrame);
       atFrame = c.frame;
       const tc = await readTimecode();
-      // Toolbar.tsx 的 fmt()：`${分}:${秒.toFixed(1).padStart(4,'0')}`（0.5 → "0:00.5"）
-      const wantTc = `0:${(c.frame / CANVAS.fps).toFixed(1).padStart(4, '0')}`;
+      // Toolbar.tsx 的 fmt()：<60s 用一位小數的 `Ns`（0.5 → "0.5s"，Plan 13 Task 3 裁決 5c）
+      const wantTc = `${(c.frame / CANVAS.fps).toFixed(1)}s`;
       if (tc !== wantTc) {
         throw new Error(`playhead 沒到位：timecode=${tc}，預期 ${wantTc}（第 ${c.frame} 幀）`);
       }

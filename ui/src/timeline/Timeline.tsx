@@ -12,6 +12,7 @@ import {
 import { AudioLines, Captions, Film, Image, Paperclip } from 'lucide-react';
 import {
   clipStartTimes,
+  outputDuration,
   overlayWindow,
   totalDuration,
   type AudioItem,
@@ -70,6 +71,36 @@ const GUTTER_W = 32;
  * （內距 198，餘裕 3px），這條路是為未來 >4 軌鋪的。
  */
 const TRACKS_VIEW_H = 200;
+
+/**
+ * 內容層寬度（座標換算的基準，也是「填滿視口」判斷的分母）。與 render body 內
+ * `width` 變數同一條算式（`timeToPx(total,pps)+120`，下限 600）——**兩處必須
+ * 逐字同步**，這裡抽成具名函式只是讓 (10b)/(10c) 的判斷式能在 effect 裡呼叫，
+ * render body 那行仍保留字面算式（避免多一層間接，兩者其實同一件事：改一邊要
+ * 記得改另一邊，`Timeline.outputEnd.test.tsx` 的寬度斷言守著這條）。
+ */
+function contentWidthPx(total: number, pps: number): number {
+  return Math.max(timeToPx(total, pps) + 120, 600);
+}
+
+/**
+ * 裁決 10：內容是否「填滿或超過」視口寬度——不比視口窄即可，不要求恰好相等
+ * （放大時內容本來就比視口寬，那是正常的可捲動態，不受這條約束）。
+ */
+function fillsViewport(pps: number, total: number, viewportWidth: number): boolean {
+  return contentWidthPx(total, pps) >= viewportWidth;
+}
+
+/**
+ * 秒數格式化：<60s 用一位小數的 `Ns`，>=60s 借 `tickLabel` 的 `m:ss`——與
+ * DragBadge/Toolbar 的 `formatSeconds`/`fmt` 同一套慣例（各自持有一份，見
+ * Toolbar.tsx 同名函式旁的註解：不共用一份是刻意的，各自的耦合範圍不同）。
+ * END 旗標（裁決 5a）借用同一個格式，讀數在整個時間軸上要看起來一致。
+ */
+function formatEndFlag(t: number): string {
+  const rounded = Math.round(t * 10) / 10;
+  return rounded < 60 ? `${rounded.toFixed(1)}s` : tickLabel(Math.round(rounded));
+}
 
 /**
  * playhead：紫漸層＋光暈＋圓頭。只有它（和 Toolbar 的 Timecode）訂閱 playback time：
@@ -346,8 +377,21 @@ export function Timeline() {
    * （d.preview 從未被 onPointerMove 改過、`trimPreviewTarget` 從未寫入）維持在這裡
    * 立刻清空——前者沒有 pending 可以綁、语意上退回舊幀本來就是對的；後者從一開始
    * 就是 null，這裡清或不清沒有可觀察差異，寫在這裡只是防禦性保底。
+   *
+   * Plan 13 Task 4（承接 Task 3 review 裁決）：`time > restoredTotal` 的 playhead
+   * clamp **只在非 commit 路徑跑**——`willCommit` 由呼叫端在拆卸前算好傳入。
+   * 成因：`gestureOrigTotal` 記的是手勢開始時 `usePlayback.total`，在黑尾專案上
+   * 這個值可能小於 outputDuration（例如手勢開始時 total 還沒被黑尾邏輯墊高過）。
+   * commit 路徑上主軌 trim-out 把總長拉過舊 total、`scheduleFollow` 把 playhead
+   * 追過去是**正確**的新位置；這裡若照樣把 time clamp 回 `restoredTotal`，會在
+   * `sendCommand` 送出到 doc echo 抵達之間的那個 WS round-trip 裡讓 playhead
+   * 肉眼可見地瞬間倒退、echo 一到才跳回去——比 trimPreview 那個閃爍的成因完全
+   * 同構（見上一段），修法也同構：commit 路徑放著不管，交給隨後的 doc echo
+   * （Player 的 outputDuration effect）把 total/time 收斂到正確值。cancel 路徑
+   * （pointercancel／零位移放手）沒有隨後的 echo 兜底，維持既有 clamp——不clamp
+   * 的話 playhead 會永久卡在一個「大於 total」的時間（final-review Fix 1 原文）。
    */
-  const teardownDrag = (): DragState => {
+  const teardownDrag = (willCommit: boolean): DragState => {
     const d = drag.current;
     drag.current = null;
     setSnapLine(null);
@@ -358,7 +402,7 @@ export function Timeline() {
       const restoredTotal = gestureOrigTotal.current;
       usePlayback.getState().setTotal(restoredTotal);
       gestureOrigTotal.current = null;
-      if (usePlayback.getState().time > restoredTotal) {
+      if (!willCommit && usePlayback.getState().time > restoredTotal) {
         usePlayback.getState().seek(restoredTotal);
       }
     }
@@ -544,19 +588,21 @@ export function Timeline() {
     if (!el || !doc) return;
     // 扣 GUTTER_W：clientWidth 是 scroll 容器的（含左側軌頭欄），但 fit 要餵的是
     // **content 的可視寬**。不扣的話每次 fit 都多算 32px，內容會略微溢出右緣。
+    // Plan 13 裁決 5a 尾/10：基準改為 outputDuration（含黑尾），超出主軌的內容
+    // fit 後才裝得下——無黑尾專案 outputDuration === totalDuration，行為不變。
     (window as unknown as { __vidcutFit?: () => void }).__vidcutFit = () =>
-      useView.getState().fit(totalDuration(doc), el.clientWidth - GUTTER_W);
+      useView.getState().fit(outputDuration(doc), el.clientWidth - GUTTER_W);
   }, [doc]);
 
   /**
-   * 自動 fit 政策（Plan 9 範圍裁決 #4）。
+   * 自動 fit 政策（Plan 9 範圍裁決 #4；Plan 13 裁決 5a 尾/10 擴充）。
    *
    * - `hasFitOnLoad` 分辨「這是專案第一次抵達」(a) 與「同一個 doc 之後的 patch」(b)：
    *   `doc` 每次 patch 都會換新 reference，這顆 effect 的 deps 是 `[doc]` 所以每次
    *   patch 都會重跑一次——若不記「有沒有 fit 過」，(a) 會在每次 patch 都重跑一次
    *   等同於「每次改動都 fit」，跟 (b) 的「只在**總時長**變化時 fit」政策矛盾。
-   * - `prevTotal` 記上一次看到的總時長，只有它變了才算「(b) 加/刪 clip」；
-   *   同總時長的 patch（例如純改字幕文字）不觸發。
+   * - `prevTotal` 記上一次看到的**輸出**時長（Plan 13 起是 outputDuration，含黑尾），
+   *   只有它變了才算「(b) 加/刪 clip」；同總時長的 patch（例如純改字幕文字）不觸發。
    * - (c) 拖曳中絕不 fit：`drag.current` 是同步 ref，這裡直接讀，不需要額外的
    *   響應式「isDragging」狀態——拖曳開始本身不會讓這顆 effect 重跑（它的 deps
    *   只有 doc），只有在「拖曳中途 doc 剛好也變了」時才會跑到這裡，讀 ref 拿到
@@ -566,6 +612,12 @@ export function Timeline() {
    * - fit 觸發時清掉 pending 的 wheel-zoom 捲動補償（`zoomScroll.current`）：
    *   否則下一輪 pps 落地的 layout effect 會用縮放前算好的舊補償值去蓋掉
    *   fit 剛設定的 scrollLeft，两者互相打架。
+   * - **裁決 10(b)：內容縮短到比視口窄時，即使使用者縮放過也要重新 fit 填滿**——
+   *   `fillsViewport()`（下方定義）在 `totalChanged` 分支額外多判一次；沒有
+   *   `totalChanged` 的路徑（isLoad 之外的第一次判斷）維持原本「使用者縮放過就
+   *   不搶」的語意不變，只有「總長真的變了、且變窄到比視口窄」才會蓋過
+   *   `userZoomed`。守門 (c) 沿用既有 `if (drag.current) return`——拖曳中絕不
+   *   fit，含這個新觸發（brief 明文要求複用同一個守門）。
    */
   const hasFitOnLoad = useRef(false);
   const prevTotal = useRef<number | null>(null);
@@ -574,28 +626,30 @@ export function Timeline() {
     if (!el || !doc) return;
     if (drag.current) return; // (c) 拖曳中絕不 fit；prevTotal 刻意不動，見上方註解
 
-    const total = totalDuration(doc);
+    const total = outputDuration(doc); // Plan 13 裁決 5a 尾/10：基準含黑尾
     const isLoad = !hasFitOnLoad.current;
     const totalChanged = prevTotal.current !== null && prevTotal.current !== total;
     prevTotal.current = total;
 
     if (!isLoad && !totalChanged) return; // 純內容變化（例如改字幕文字），不是 (a)/(b) 的範圍
-    if (!isLoad && useView.getState().userZoomed) return; // (b) 使用者縮放過就不搶
+    const width = el.clientWidth - GUTTER_W;
+    const wouldShrinkBelowViewport = totalChanged && !fillsViewport(pps, total, width);
+    if (!isLoad && useView.getState().userZoomed && !wouldShrinkBelowViewport) return; // (b) 使用者縮放過就不搶，除非 (10b) 已經比視口窄
 
     hasFitOnLoad.current = true;
     zoomScroll.current = null; // 與 wheel-zoom 的捲動補償互斥
-    useView.getState().fit(total, el.clientWidth - GUTTER_W);
+    useView.getState().fit(total, width);
   }, [doc]);
 
   /**
-   * (d) 視窗 resize：重算 zoomBounds；未手動縮放過時一併重新 fit。
-   * deps 是 `hasDoc`、不是 `[]`：Timeline 在專案抵達前 `return null`（見下方
-   * `!doc`），首渲染沒有 DOM，空 deps 的那唯一一次 effect 拿到的 `scrollRef.current`
-   * 是 null，`observe()` 永遠掛不上——與上面 Ctrl+wheel listener 的掛載時序陷阱
-   * 同一個坑（ui-verification.md 的 useRef+空 deps 陷阱；`Timeline.autofit.test`
-   * 就是靠先 render 再 seed 的時序守著這裡）。ResizeObserver 本身會在容器尺寸變化
-   * 時持續觸發，不需要隨 pps 重新 attach；callback 內一律用 `useProject.getState()`/
-   * `useView.getState()` 讀最新值，避免閉包捕捉舊 doc。
+   * (d) 視窗 resize：重算 zoomBounds；未手動縮放過、或縮放後比視口窄（裁決 10c）
+   * 時一併重新 fit。deps 是 `hasDoc`、不是 `[]`：Timeline 在專案抵達前 `return null`
+   * （見下方 `!doc`），首渲染沒有 DOM，空 deps 的那唯一一次 effect 拿到的
+   * `scrollRef.current` 是 null，`observe()` 永遠掛不上——與上面 Ctrl+wheel listener
+   * 的掛載時序陷阱同一個坑（ui-verification.md 的 useRef+空 deps 陷阱；
+   * `Timeline.autofit.test` 就是靠先 render 再 seed 的時序守著這裡）。ResizeObserver
+   * 本身會在容器尺寸變化時持續觸發，不需要隨 pps 重新 attach；callback 內一律用
+   * `useProject.getState()`/`useView.getState()` 讀最新值，避免閉包捕捉舊 doc。
    */
   useEffect(() => {
     const el = scrollRef.current;
@@ -603,11 +657,14 @@ export function Timeline() {
     const ro = new ResizeObserver(() => {
       const d = useProject.getState().doc;
       if (!d) return;
-      const total = totalDuration(d);
+      const total = outputDuration(d); // Plan 13 裁決 5a 尾/10：基準含黑尾
       const width = el.clientWidth - GUTTER_W;
-      if (useView.getState().userZoomed) {
-        useView.getState().setZoomBounds(total, width);
-      } else {
+      const view = useView.getState();
+      view.setZoomBounds(total, width);
+      // 裁決 10(c)：resize 後仍要「不比視口窄」——沒縮放過就照舊直接 fit；
+      // 縮放過但現值在新視口下已經比填滿值窄，同樣要 fit 拉回填滿（否則
+      // 視窗變大時內容會停留在「留白一大片」的舊 pps，不符合「永遠填滿」）。
+      if (!view.userZoomed || !fillsViewport(view.pxPerSecond, total, width)) {
         zoomScroll.current = null; // 與 wheel-zoom 的捲動補償互斥
         useView.getState().fit(total, width);
       }
@@ -739,9 +796,16 @@ export function Timeline() {
     return { cls: '' };
   };
 
-  const total = totalDuration(doc);
+  const total = totalDuration(doc); // 主軌總長——snap 候選、尺規範圍、黑尾帶起點仍以它為準
+  /**
+   * Plan 13 裁決 5a 尾/10：輸出長度（含黑尾）。內容寬與所有 fit 路徑（見上方三顆
+   * effect＋Toolbar 的 onFit）改鍵到這個值，超出主軌的內容（黑尾、音訊/字幕/overlay
+   * 滲出）才捲得到、fit 才裝得下。無黑尾專案 `output === total`，行為不變。
+   */
+  const output = outputDuration(doc);
+  const hasBlackTail = output > total;
   const starts = clipStartTimes(doc);
-  const width = Math.max(timeToPx(total, pps) + 120, 600);
+  const width = contentWidthPx(output, pps);
 
   const layout = doc.tracks.video.map((c, i) => ({
     id: c.id,
@@ -970,12 +1034,56 @@ export function Timeline() {
     }
   };
 
+  /**
+   * `teardownDrag` 的 `willCommit` 引數：在拆卸（清掉 `drag.current`）**之前**
+   * 算好「這次放手會不會送出命令」，鏡射 `onPointerUp` 下方各分支實際的送出條件
+   * ——兩處判斷式必須逐字同步，任一邊改了送出守門都要一起改這裡。trim-in/trim-out
+   * 沒有零位移守門（一律送 updateClip，見 onPointerUp 該分支的既有註解），其餘
+   * 模式（move/cap/aud/ov）都是「preview 與 orig 有差異才送」。定義放在 `if (!doc)
+   * return null` 之後（而不是跟 teardownDrag 放一起）：`move` 分支要讀 `doc`/`layout`，
+   * 兩者都是早退之後才存在的區域變數。
+   */
+  const willCommitDrag = (d: DragState): boolean => {
+    if (!d) return false;
+    switch (d.mode) {
+      case 'trim-in':
+      case 'trim-out':
+        return true;
+      case 'move': {
+        const order = reorderByDrag(
+          doc.tracks.video.map((c) => c.id),
+          d.clipId,
+          d.pointerX - d.contentLeft,
+          layout,
+        );
+        return order.some((id, i) => id !== doc.tracks.video[i]!.id);
+      }
+      case 'cap':
+        return d.preview.start !== d.orig.start || d.preview.duration !== d.orig.duration;
+      case 'aud':
+        return (
+          d.preview.start !== d.orig.start ||
+          d.preview.in !== d.orig.in ||
+          d.preview.duration !== d.orig.duration
+        );
+      case 'ov':
+        return d.edge === 'in' || d.edge === 'move'
+          ? d.preview.absStart !== d.orig.absStart
+          : d.preview.span !== d.orig.span;
+      default:
+        return false;
+    }
+  };
+
   const onPointerUp = () => {
     // 裁決 1：放手時取消尚未 flush 的 rAF（不會在放手後才補一次跳動），
     // 並解除吸附排除旗標——playhead 已經停在最後一次 flush 的邊上（不彈回），
     // 只是往後的吸附不再需要排它。fix round 1 C1/C2：與 onPointerCancel 共用
     // teardownDrag（total 還原在這條正常路徑是保底，很快會被隨後的 doc echo 蓋過）。
-    const d = teardownDrag();
+    // Plan 13 Task 4：commit 與否要在拆卸（清掉 drag.current）**之前**算好——
+    // playhead clamp 只在非 commit 路徑跑（見 teardownDrag 與 willCommitDrag 的註解）。
+    const willCommit = willCommitDrag(drag.current);
+    const d = teardownDrag(willCommit);
     if (!d) return;
     if (d.mode === 'trim-in' || d.mode === 'trim-out') {
       // review round 1 Important-1：這裡刻意不碰 `usePlayback.trimPreview`——trim-in/
@@ -1129,7 +1237,7 @@ export function Timeline() {
    * 對話框以外的地方需要收斂，直接丟棄最安全。
    */
   const onPointerCancel = () => {
-    teardownDrag();
+    teardownDrag(false); // 不 commit：見 teardownDrag 註解，clamp 照跑（既有行為）
     // review round 1 Important-1：cancel 沒有隨後的 sendCommand/pending，不會有 echo
     // 來清這個覆蓋——必須在這裡立刻清空，否則會永久卡住、持續拿舊 in 疊在 doc 之上
     // （比放手瞬間的一次閃爍嚴重得多）。退回舊幀在取消語意下本來就是對的。
@@ -1264,6 +1372,8 @@ export function Timeline() {
   const OVERLAY_ROW_TOP = ROW_TOP + ROW_H;
   const CAPTION_ROW_TOP = OVERLAY_ROW_TOP + SUB_ROW_H;
   const AUDIO_ROW_TOP = CAPTION_ROW_TOP + SUB_ROW_H;
+  /** Plan 13 Task 4（裁決 5a）：尺規＋全部軌道列的累計高度——END 柱／死區貫穿的範圍。 */
+  const TRACKS_TOTAL_H = AUDIO_ROW_TOP + AUDIO_ROW_H;
   const dragBadgeRaw: DragBadgeState | null = (() => {
     const d = drag.current;
     if (!d) {
@@ -1398,9 +1508,11 @@ export function Timeline() {
 
   // 尺規刻度密度隨縮放調整：CapCut 式像素密度自適應（標籤永遠 >=80px 間距，
   // 縮放時步距自動變粗變細；細分點視空間插在標籤之間）——計畫邏輯住在 scale.ts。
+  // Plan 13 裁決 5a：刻度要蓋到 output（含黑尾），不是只到主軌 total，否則黑尾帶
+  // 底下會沒有刻度可看。
   const { labelStepSec, dotStepSec } = tickPlanFor(pps);
-  const labelCount = Math.floor(total / labelStepSec) + 1;
-  const dotCount = dotStepSec ? Math.floor(total / dotStepSec) + 1 : 0;
+  const labelCount = Math.floor(output / labelStepSec) + 1;
+  const dotCount = dotStepSec ? Math.floor(output / dotStepSec) + 1 : 0;
 
   // 軌道之間的分隔線 2026-08-16 使用者定案移除(減線)——軌的辨識靠 gutter 圖示
   // 與 chip 本身;尺規底線(--line-strong)是結構線,保留。gutter 格的 border
@@ -1463,11 +1575,13 @@ export function Timeline() {
   return (
     <div>
       <TimelineToolbar
-        total={total}
+        // Plan 13 裁決 5：「Jump to end」目標與 fit 基準都改鍵到 output
+        // （outputDuration，含黑尾）——超出主軌的內容才跳得到、fit 才裝得下。
+        total={output}
         onFit={() => {
           const el = scrollRef.current;
           // 扣 GUTTER_W 的理由同 __vidcutFit：clientWidth 含左側軌頭欄。
-          if (el) useView.getState().fit(total, el.clientWidth - GUTTER_W);
+          if (el) useView.getState().fit(output, el.clientWidth - GUTTER_W);
         }}
       />
 
@@ -1662,6 +1776,34 @@ export function Timeline() {
                   />
                 );
               })}
+              {/* Plan 13 Task 4（裁決 5b）：黑尾帶——[主軌總長, output) 的暗色斜紋帶，
+                  純視覺、不可互動（`pointerEvents:none`），只在真的有黑尾（output>total）
+                  時畫。高度同 clip 列（`rowStyle` 已經給了這個 div ROW_H），左緣貼著
+                  主軌內容結束的地方，讓使用者一眼看出「這段是黑畫面，因為下面有 chip
+                  突出主軌」。斜紋用 repeating-linear-gradient 疊在 --clip-band-bg 上，
+                  兩者都是既有 token，不新增顏色語彙。 */}
+              {hasBlackTail && (
+                <div
+                  data-testid="tl-blacktail"
+                  title="Black tail — content on another track extends past the main track"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: timeToPx(total, pps),
+                    width: timeToPx(output - total, pps),
+                    height: ROW_H,
+                    background: `repeating-linear-gradient(
+                      45deg,
+                      var(--clip-band-bg),
+                      var(--clip-band-bg) 6px,
+                      transparent 6px,
+                      transparent 12px
+                    ), var(--panel)`,
+                    boxShadow: 'inset 0 0 0 1px var(--line-strong)',
+                    pointerEvents: 'none',
+                  }}
+                />
+              )}
             </div>
             {/* overlays 軌（拖曳平移＋左右緣 trim；錨定式改 offset）。
                 Plan 11 Task 1（範圍裁決 4）：與 caption chip 同款把手，trimSpanIn/
@@ -1902,6 +2044,58 @@ export function Timeline() {
                 }}
               />
             )}
+            {/* Plan 13 Task 4（裁決 5a）：死區——output 之後整條時間軸降暗，一眼可辨
+                「這之後不算進輸出」。貫穿尺規＋全部軌道列（TRACKS_TOTAL_H），純視覺、
+                不可互動。內容寬本身已經鍵到 output（見上方 width＝contentWidthPx），
+                所以死區右緣直接吃滿到 content 的右邊界（`right:0`），不必另外量寬度。 */}
+            <div
+              data-testid="tl-deadzone"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: timeToPx(output, pps),
+                right: 0,
+                height: TRACKS_TOTAL_H,
+                background: 'var(--tl-deadzone-bg)',
+                pointerEvents: 'none',
+              }}
+            />
+            {/* Plan 13 Task 4（裁決 5a）：END 柱——output 處貫穿全軌的豎線＋頂端旗標，
+                與 playhead 視覺明確區分（--line-strong/--text-2 系，不是 playhead 的
+                --accent-bright 紅蠟筆）。純視覺、不可互動；位置自動跟著 output 走
+                （單一真相來源在造成黑尾/滲出的那個 chip 本身，這裡不可拖）。 */}
+            <div
+              data-testid="tl-end-marker"
+              style={{
+                position: 'absolute',
+                top: 0,
+                height: TRACKS_TOTAL_H,
+                left: timeToPx(output, pps) - 1,
+                width: 2,
+                background: 'var(--line-strong)',
+                pointerEvents: 'none',
+              }}
+            >
+              <div
+                data-testid="tl-end-flag"
+                className="mono"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 4,
+                  fontSize: 10,
+                  lineHeight: 1,
+                  color: 'var(--text-2)',
+                  background: 'var(--panel)',
+                  border: '1px solid var(--line-strong)',
+                  borderRadius: 3,
+                  padding: '2px 4px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                END {formatEndFlag(output)}
+              </div>
+            </div>
             <Playhead pps={pps} />
             <DragBadge drag={dragBadge} />
           </div>
