@@ -341,6 +341,127 @@ scrollLeftAtDragStart + (timeToPx(dur) - timeToPx(origDuration))`,`Timeline.tsx`
   這兩支腳本量測的路徑上（panels 驗面板收合/展開/下拉,canvas 驗 overlay 拖曳與
   畫布縮放矩陣,皆不觸碰主軌 trim 把手或 player 內部狀態）。
 
+## Plan 13：結束語意批——輸出長度不再等於主軌,黑尾補齊、時間軸看得見（2026-08-24）
+
+目標：主軌播完但字幕/音訊/具體時長 overlay 還沒演完時,渲染直接截斷、播放器
+提前停在黑畫面、時間軸完全不畫出「其實還有內容」這件事,使用者只能盲猜、AI
+只能盲猜——**這三個缺口的根治**（下方各條即交付後的現況）。純新增語意,無黑尾
+的既有專案（絕大多數）在渲染/播放/時間軸/MCP 四層全部逐位元組行為不變——
+`output === total` 是每一層的短路條件,不是「大致相同」。
+
+- **`outputDuration` 語意（Task 1,`shared/src/timeline.ts`）**：新純函數
+  `outputDuration(p) = max(主軌總長, 各 audio 的 start+duration, 各 caption 的
+start+duration, 各**具體時長** overlay 的 start+duration)`。到片尾
+  （`duration: null`）的 overlay **不參與**這個 max——它的視窗結尾本身就是「跟隨
+  outputDuration」（`overlayWindow` 對它的 `end` 現在算 `outputDuration(p)` 而不是
+  舊的 `totalDuration(p)`）,若把它也納入 max 會變成「輸出長度取決於一個取決於
+  輸出長度的值」,是刻意避開的循環——`outputDuration` 內部改叫新的
+  `overlayStart()`（只算起點,不算 end）,不呼叫 `overlayWindow`,所以不構成遞迴。
+  無黑尾專案 `outputDuration(p) === totalDuration(p)`,這是後面每一層短路的共同前提。
+- **渲染黑尾（Task 2,`server/src/render.ts`）**：`output > total` 時,在 concat
+  之後的 `[vcat]` 上插一段 `tpad=stop_mode=add:stop_duration=(output-total):
+color=black[vtail]`,補到 outputDuration；字幕/overlay 合成鏈從 `[vtail]`
+  （而非 `[vcat]`）疊上去——這樣它們的 `overlayWindow`（Task 1 起已跟隨
+  outputDuration）落在黑尾區間時才有畫面可疊,不會疊到不存在的軌。獨立音訊項的
+  `atrim` 截斷基準同步從 `total` 換成 `output`（改回 `total` 會把撐大 outputDuration
+  的那段尾音自己剪掉）；沒有獨立音訊項但仍有黑尾時,`[aclips]` 補 `apad`+`atrim`
+  到 `output`,避免容器音軌比畫面短。渲染進度分母（`totalDuration` 回傳值）同步
+  改回報 `output`,否則 ffmpeg 的 `out_time_ms` 永遠追不上用主軌總長算出的分母,
+  進度卡在 <100% 就直接跳到 done。⚠️ **這是 concat 之後的插入點,與商業線
+  （cloud 分支）per-clip 鏈 fps= 之後的轉場 `tpad`/clone 機制不是同一處**——
+  merge 之後兩者並存,不要混在一起改（`render.ts` 該行有這條警告的原文）。
+  `output === total` 時完全不觸發黑尾相關的濾鏡插入,`render.test.ts` 的釘測試
+  守著這個位元組級不變的承諾。
+- **播放/黑尾 UI（Task 3,`ui/src/player/plan.ts`＋`Player.tsx`）**：`planAt` 新增
+  `blackTail` 旗標（`t` 落在 `[主軌總長, outputDuration)`——主軌已播完、輸出還沒
+  結束）,與 `done`（`t >= outputDuration`,改自舊的 `t >= totalDuration`）互斥。
+  黑尾區間 `active`/`next` 皆為 null,Player 依此把 A/B 兩層 video **與** blur
+  背景層一併隱藏（`showVideo = plan.active !== null`）並暫停——修的是一個真
+  bug：舊行為只暫停 video 元素不隱藏,畫面會凍結在主軌最後一幀而不是變黑,而且
+  blur 背景層完全沒被處理過,播放中進入黑尾時會帶著上一刻的 playbackRate 繼續
+  播放耗資源。**Timecode 讀數改為 output-based**：`usePlayback().total` 由 Player
+  的 doc-echo effect 餵 `outputDuration(doc)`（不再是 `totalDuration`）,工具列
+  Timecode 直接讀這個 store 值,不再吃呼叫端傳入的 `total` prop——那個 prop 綁的
+  是 Timeline.tsx 的主軌 `totalDuration`（Task 4 的 fit/寬度基準,語意不同）,有
+  黑尾時兩者會分岔,讀數必須跟著「使用者實際能播到哪」走。**順手把 Timecode 格式
+  與 DragBadge 的 `formatSeconds` 對齊**（<60s 一位小數 `Ns`,>=60s 借 `tickLabel`
+  的 `m:ss`）——`verify:wysiwyg` 的 `readTimecode` 正則同步改過（舊正則比對的是
+  已經不存在的舊格式 `m:ss.s / m:ss.s`,永遠比對不到、讀出來一律 null,直到這批
+  才被抓到；這是 Task 3 遺留、Task 4 順手修的一行）。
+- **時間軸視覺（Task 4,`ui/src/timeline/Timeline.tsx`）**：
+  - **END 柱＋旗標**：`output` 處貫穿全軌（尺規＋四條軌道列）的豎線＋頂端
+    `END Ns` 文字牌,`--line-strong`/`--text-2` 系——**與 playhead 視覺明確區分**
+    （playhead 是 `--accent-bright` 紅蠟筆漸層＋光暈＋圓頭,END 柱是結構線,見
+    `ui/DESIGN.md` 的具名規則）。純視覺、不可拖曳,位置永遠跟著 `output` 走,單一
+    真相來源在造成黑尾/滲出的那個 chip 本身。
+  - **死區降暗**：`output` 之後整條時間軸（尺規＋全部軌道列的累計高度）蓋一層
+    暗色 scrim（新 token `--tl-deadzone-bg`,比 `--timeline-well-bg` 再深一階）,
+    一眼可辨「這之後不算進輸出」。純視覺、不可互動。
+  - **黑尾帶**：`[主軌總長, output)` 這段在主軌 clip 列畫暗色斜紋帶（既有
+    `--clip-band-bg`/`--panel` token 疊 `repeating-linear-gradient`,不新增顏色
+    語彙）,只在真的有黑尾（`output > total`）時畫,讓使用者一眼看出「這段是黑
+    畫面,因為下面有 chip 突出主軌」。純視覺、不可互動。
+  - **寬度/fit/縮放下限全部改鍵到 `output`**：內容層寬度算式
+    （`contentWidthPx = timeToPx(total,pps)+120` 下限 600）、三處自動 fit
+    effect（載入、resize、`__vidcutFit` 除錯鉤子）、Toolbar 的「Jump to end」
+    目標與手動 Fit 鈕、尺規刻度密度（`labelCount`/`dotCount`）——全部把原本吃
+    `totalDuration` 的地方換成 `outputDuration`,超出主軌的內容才捲得到、fit 才
+    裝得下、刻度才蓋得到黑尾帶底下。無黑尾專案兩個函式重合,行為不變。
+  - **永遠填滿（裁決 10）**：新增 `fillsViewport(pps,total,viewportWidth)` 判斷
+    「內容是否不比視口窄」。原本「使用者手動縮放過就不再自動 fit」的政策
+    （Plan 9 範圍裁決 #4）追加例外：**總長真的變了、且變窄到比視口窄**時（例如
+    刪掉造成黑尾的那個 caption,`output` 縮回 `total`）,即使使用者縮放過也要
+    重新 fit 填滿,不留一大片空白視口；resize 時同理（視窗變大導致現有 pps 下
+    內容已經填不滿視口,同樣觸發 fit）。既有「拖曳中絕不 fit」的守門
+    （`if (drag.current) return`）原樣複用,不因這條新觸發而失守。
+  - **`willCommitDrag` 鏡射 `onPointerUp` 提交條件——已知耦合,靠註解紀律,沒有
+    機械閘門**：`teardownDrag` 新增 `willCommit` 參數,只在**非** commit 路徑
+    （cancel、零位移放手）才把「時間超出還原後 total 的 playhead」clamp 回去；
+    commit 路徑（例如主軌 trim-out 把總長拉過舊 total、`scheduleFollow` 把
+    playhead 追過去）放著不 clamp,交給隨後的 doc echo 收斂,理由與 Plan 12
+    Task 2 的 `trimPreview` 閃爍修法完全同構——若在 `sendCommand` 送出到 echo
+    抵達之間的 WS round-trip 裡搶先 clamp,playhead 會肉眼可見地瞬間倒退、
+    echo 一到又跳回去。**`willCommitDrag()` 判斷「這次放手會不會送出命令」的
+    邏輯,必須與 `onPointerUp` 下方各分支實際的送出條件逐字同步**——這是一個
+    平行維護的判斷式,靠的是函式旁的註解互相指認對方（"兩處判斷式必須逐字同步,
+    任一邊改了送出守門都要一起改這裡"）,**沒有測試或型別系統強制兩者一致**。
+    下次改 `onPointerUp` 任一分支的送出守門（例如把某個 no-op 判斷收緊/放寬）
+    務必回頭檢查 `willCommitDrag` 是否也要跟著改——這是本批唯一一個「正確性
+    依賴人讀註解」而非「正確性被結構性擋住」的地方,列在這裡是為了讓下一個
+    改這段程式碼的人（人或 AI）不會漏掉。
+- **MCP 輸出語意同步（Task 5,`server/src/mcp.ts`）**：`get_project` 的 `total`
+  欄位改回報 `outputDuration`（不再是主軌總長）,`outputSchema` 的欄位描述與
+  `set_timeline`/`render`/`get_frame` 的工具說明都補了「輸出長度＝任一軌道最遠
+  處,不只主軌;超出主軌的畫面是黑尾,字幕/音訊/overlay 在那段仍照常播放」。
+  `total` 與主軌總長不同時,`get_project` 的文字摘要額外帶一句附註（如
+  `total 8.5s (video 5.0s + 3.5s black tail)`）,讓 AI 不必自己去算兩者的差；
+  相等時（絕大多數專案）完全不提,文字摘要位元組級不變。**`get_frame`／`render`
+  的不對稱要點記在這裡,因為容易被誤推**：`get_frame` 的時間夾制上界也從主軌
+  總長換成 `outputDuration`,黑尾時刻不再回「查無片段」的錯誤,而是回一張
+  `color=black` lavfi 生成的黑幀（`server/src/frame.ts` 新增
+  `extractBlackFrame`,與 `render.ts`/`extractCover` 的黑尾合成——tpad 疊字幕/
+  overlay——是**不同機制**：get_frame 本來就只回「片段畫面」不合成任何東西,
+  黑尾時刻沒有片段可抽,用同一支黑色 lavfi 幀維持這個既有語意一致,不是走一條
+  「像 render 一樣疊字幕」的路）。**但 `render` 仍然要求主軌至少一個 clip**——
+  純字幕/音訊專案（主軌淨空）`get_frame` 在黑尾時刻會成功,`render` 卻會以
+  `timeline is empty` 失敗;`get_frame` 成功不能拿來推論「這個專案可以 render」,
+  兩個工具的描述都各自補了這句互相指認的警語,避免 AI 用前者的成功結果誤判
+  後者也會成功。
+- **驗證**：`npm run build -w @vidcut/ui` 後,`npm run verify:panels`／
+  `verify:canvas`（隔離 server,`VIDCUT_PORT=3846`）與 `npm run verify:wysiwyg`
+  三支皆全綠,均未改寫任何既有斷言/期望值（唯一改動是 Task 3 因 Timecode 格式
+  變動而必須同步的 `readTimecode` 正則,見上方 Task 3 節,那是與新格式對齊而非
+  放寬容差）。`verify:wysiwyg` 六個 case 全綠,最大墨跡外框差 1.0px（容差 4）——
+  渲染鏈這批改了 concat 後的插入點與截斷基準,`verify:wysiwyg` 覆蓋的正是這條
+  鏈路,是這批唯一必跑而非可選的真瀏覽器回歸。`bash scripts/gauntlet.sh` 全綠。
+
+**這三個缺口的根治**：渲染不再靜默截斷字幕/音訊/overlay 的尾巴——黑尾補齊,
+`output === total` 時位元組級不變;播放器不再假裝主軌播完就是全部播完——三層
+video 正確變黑、Timecode 讀數換算基準統一;時間軸不再對「其實還有內容」保持
+沉默——END 柱、死區、黑尾帶三層視覺一次交代清楚,且永遠填滿不留空視口。MCP 的
+`get_project.total` 與這三層同步换算基準,AI 讀到的數字與人在瀏覽器裡看到的
+是同一個「輸出長度」。
+
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
 字幕 WYSIWYG 四階段（含畫布拖曳）都做完、自動化測試與真瀏覽器 e2e（`verify:panels` + `verify:canvas`）都綠了，但**手感類的東西自動化測不出來**，需要你的眼睛與手：

@@ -649,6 +649,64 @@ drag the line stays where it was and only jumps to its new position on pointer-u
 The main track is exempt — its ripple layout is structurally non-overlapping, so the
 check doesn't apply there.
 
+**END marker (Plan 13 Task 4).** A 2px vertical line spans the ruler and all four
+track rows at `outputDuration` (the main track's own length when nothing on another
+track extends past it — see the Plan 13 HANDOFF section for the semantics), with a
+small flag tag (`END Ns`, same `<60s`/`m:ss` formatting as everywhere else on the
+timeline) anchored at its top. **Deliberately not playhead vocabulary**: the playhead
+is `--accent-bright` (the red-crayon gradient, with glow and a rounded cap) because it
+is the one thing on the timeline the user actively drives; the END marker is a
+structural fact about the project, not something the user is doing, so it uses the
+same `--line-strong`/`--text-2` family as the ruler and chip strokes — a thin,
+uninflected line. Confusing the two would read as "there's a second playhead," which
+is not the message. Purely visual and unclickable (`pointerEvents: none`); its
+position is derived, never dragged — the single source of truth lives on whichever
+chip is pushing the output past the main track.
+
+**Dead zone (Plan 13 Task 4).** Everything past `outputDuration` — ruler and all
+track rows — is covered by a flat scrim, a new token (`--tl-deadzone-bg`) one step
+darker than `--timeline-well-bg` in both themes. It reads as "this part of the canvas
+isn't really there" without inventing a new visual language: same darkening idiom as
+the well background, just one notch further. Unclickable; it exists purely so a
+timeline that has been zoomed out past its own content doesn't look ambiguous about
+where the content actually ends.
+
+**Black-tail strip (Plan 13 Task 4).** The interval `[main-track length,
+outputDuration)` — content on another track keeping the export alive after the main
+track itself has ended — gets a diagonal-hatched strip on the clip row, at clip-row
+height. It reuses `--clip-band-bg` and `--panel` (a `repeating-linear-gradient` of the
+former over the latter) rather than introducing a new color: the hatching pattern
+itself is the new signifier, not a new hue. Only rendered when a black tail actually
+exists; purely visual, unclickable. Together with the END marker and dead zone this is
+three distinct treatments for three distinct facts — "where output ends" (the line),
+"there's nothing here" (the scrim), and "this specific range is silent picture but
+still exporting" (the hatch) — deliberately not collapsed into one, because they
+answer different questions a user might have while scrubbing.
+
+**Always-fill-viewport / 永遠填滿 (Plan 13 Task 4, extends the Plan 9 auto-fit
+policy).** The standing rule since Plan 9 is "auto-fit on load and on
+content-length change, but never fight the user once they've manually zoomed."
+Plan 13 adds one exception: if a manual zoom leaves the content narrower than the
+viewport — most often because a black-tail-causing item got trimmed or deleted and
+`outputDuration` snapped back down — the timeline re-fits anyway, on both the
+content-length-change path and on window resize. The rationale is that a viewport
+mostly filled with empty scrollable space reads as broken, not as "respecting your
+zoom choice"; a zoom level that no longer covers the content isn't a preference worth
+preserving. The existing "never fit mid-drag" guard is reused unchanged — this new
+trigger does not bypass it.
+
+**DragBadge / Timecode format consistency.** The toolbar's Timecode component
+(`time / total`) and the timeline's DragBadge share one formatting convention,
+implemented independently in each file rather than through a shared import (kept
+local and short in both places; see each file's own comment for why): under 60
+seconds, one decimal place with an `s` suffix (`3.2s`); at or above 60 seconds,
+`m:ss` via the ruler's own `tickLabel`. Plan 13 Task 3 moved Timecode onto this
+convention (it previously used a bespoke `m:ss.s` format that didn't match
+DragBadge at all); Task 3 also switched Timecode's `total` to read
+`outputDuration` directly off the playback store rather than a `total` prop wired
+to the timeline's main-track length, so the readout tracks "how far can the user
+actually play/scrub" rather than the main track alone.
+
 ### Chat composer & the user quote card
 
 The Chat tab's composer is a **card, not a control row** (user decision 2026-08-17,
