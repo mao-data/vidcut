@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { AudioItem, HistoryBrief, OverlayItem, CaptionItem } from '@vidcut/shared';
 import {
   totalDuration,
+  outputDuration,
   overlayWindow,
   buildCaptionPages,
   DEFAULT_CAPTION_STYLE,
@@ -78,14 +79,22 @@ async function imageReply(absPath: string, structured: Record<string, unknown>, 
   };
 }
 
-/** 專案裁剪視圖（避免超過 client 輸出上限）。 */
+/**
+ * 專案裁剪視圖（避免超過 client 輸出上限）。
+ *
+ * `total` 回報 outputDuration（Plan 13 裁決 7），不是主軌總長：任何軌道
+ * （caption/audio/具體時長 overlay）延伸超出主軌都會撐大它，超出的區間在畫面上
+ * 是黑尾（render.ts 用 tpad 補黑、frame.ts 對這段時間回黑幀，見 shared/src/timeline.ts
+ * 的 outputDuration 文件）。跟主軌總長不同時，get_project 的文字摘要會帶一句附註
+ * （見下方呼叫端），讓 AI 不必自己去算兩者的差。
+ */
 function projectSummary(store: ProjectStore) {
   const d = store.doc;
   return {
     version: store.version,
     name: d.name,
     canvas: d.canvas,
-    total: totalDuration(d),
+    total: outputDuration(d),
     review: d.review,
     media: d.media.map((m) => ({
       id: m.id,
@@ -478,6 +487,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '(the clip is muted and its sound becomes a standalone audio item).' +
         "render's subtitles defaults to burn (captions burned into the picture); use embed to let viewers toggle them, " +
         'or sidecar (a separate .srt) for platforms that auto-translate subtitles — every mode except burn leaves the picture clean.' +
+        'The exported length (get_project total) is whichever track reaches furthest, not just the main track — ' +
+        'captions, audio or overlays that run past the main track extend the export, with the picture past the ' +
+        'main track rendered black while that content still plays.' +
         'For landscape footage on a vertical canvas, set_canvas_fit blur looks better than black bars.' +
         'There are two kinds of overlay, and text and imagePath are mutually exclusive — give exactly one: ' +
         'for text overlays use add_overlay/update_overlay/set_overlays with text (the server rasterizes the card and ' +
@@ -581,7 +593,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
         doc: z.unknown().optional().describe('the full project JSON, when full:true'),
         name: z.string().optional(),
         canvas: z.unknown().optional(),
-        total: z.number().optional().describe('total duration in seconds'),
+        total: z
+          .number()
+          .optional()
+          .describe(
+            'output duration in seconds — the length render will produce, which is the furthest ' +
+              'any track reaches (captions/audio/overlays can extend past the main track; that extra ' +
+              'time is a black tail in the picture). Equal to the main track length when nothing extends past it.',
+          ),
         review: z.unknown().nullable().optional(),
         media: z.array(z.unknown()).optional(),
         clips: z.array(z.unknown()).optional(),
@@ -599,9 +618,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
           'full project',
         );
       const s = projectSummary(store);
+      const mainTotal = totalDuration(store.doc);
+      // s.total 是 outputDuration；超出主軌總長的部分是黑尾（畫面補黑，caption/
+      // overlay/audio 仍照常合成）。相等時（絕大多數專案）完全不提，行為位元組級不變。
+      const tailNote =
+        s.total > mainTotal
+          ? ` (video ${mainTotal.toFixed(1)}s + ${(s.total - mainTotal).toFixed(1)}s black tail)`
+          : '';
       return result(
         s as unknown as Record<string, unknown>,
-        `v${s.version}: ${s.clips.length} clips, total ${s.total.toFixed(1)}s`,
+        `v${s.version}: ${s.clips.length} clips, total ${s.total.toFixed(1)}s${tailNote}`,
       );
     },
   );
@@ -756,7 +782,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         "Extract the frame at a given time as JPEG — the AI's eyes. Clip picture only: overlays, captions and the " +
         'blur background are NOT composited in; to check those, render or ask the user to look at the UI preview. ' +
         'Does not change project state, but does write a JPEG under derived/frames/ (re-extracted on every call, ' +
-        'not cached). time is clamped to [0, total duration]; returns an error when the main track is empty.',
+        'not cached). time is clamped to [0, output duration] — output duration is the furthest any track reaches ' +
+        '(see get_project total), which can extend past the main track when captions/audio/overlays run longer. ' +
+        'A time past the main track but within output duration returns a plain black frame (no overlays/captions ' +
+        'composited there either) instead of an error; only a genuinely empty main track (no clips and nothing ' +
+        'extending output duration) still returns an error. ⚠️ get_frame succeeding at a given time does not mean ' +
+        'render will succeed there — render additionally requires at least one clip on the main track.',
       outputSchema: {
         url: z
           .string()
@@ -1575,6 +1606,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         'Render the project to a final mp4 (1080×1920, re-encoded). Returns the output path and URL. ' +
+        'The exported length is the output duration (get_project total), not just the main track: whichever track ' +
+        '(captions/audio/overlays included) reaches furthest sets the length, and the picture past the main track ' +
+        'is black while captions/audio/overlays there still play. ' +
+        '⚠️ Despite that, render still requires at least one clip on the main track — a caption- or audio-only ' +
+        "project (main track empty) fails with 'timeline is empty' even though get_frame succeeds there with black " +
+        'frames; do not infer render-ability from get_frame success. ' +
         'subtitles defaults to burn: captions are burned into the picture, always via the Pillow-rasterized PNG card ' +
         '— the same image the preview uses (with the per-word highlight that means one card per word, so many ' +
         'captions make rendering slower). ' +
@@ -1585,9 +1622,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '⚠️ render is itself a write: it is refused while a review is in progress, and it records the render state in ' +
         'the project, so **the version advances** — an ifVersion you were holding is stale after a render and must be ' +
         're-read. ' +
-        'It fails when the main track is empty; and in burn mode, more than 600 cards in total (per-word highlight ' +
-        'means one card per word) rejects the whole render — re-run auto_caption with karaoke:false, or render in ' +
-        'sections.',
+        'In burn mode, more than 600 cards in total (per-word highlight means one card per word) rejects the whole ' +
+        'render — re-run auto_caption with karaoke:false, or render in sections.',
       outputSchema: {
         output: z.string().describe('path of the rendered file, relative to the project folder'),
         url: z.string(),

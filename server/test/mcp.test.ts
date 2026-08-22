@@ -11,6 +11,7 @@ import { makeVideo } from './fixtures.js';
 import { TextCardService } from '../src/textCards.js';
 import { PillowRasterizer } from '../src/rasterizer.js';
 import { tmpDir } from './tmp.js';
+import { DEFAULT_CAPTION_STYLE } from '@vidcut/shared';
 
 interface Structured {
   structuredContent?: Record<string, unknown>;
@@ -138,5 +139,46 @@ describe('mcp tools', () => {
     expect(sc.outcome).toBe('approved_with_notes');
     expect(sc.humanChanges.length).toBeGreaterThanOrEqual(1);
     expect(store.doc.review).toBeNull();
+  });
+
+  describe('get_project total/summary 反映 outputDuration（Plan 13 Task 5，裁決 7）', () => {
+    it('無黑尾時（無內容超出主軌）：total = 主軌總長，summary 不帶附註', async () => {
+      const { store, client } = await connect();
+      store.mutate('ai', 'seed', (d) => {
+        d.media = [
+          {
+            id: 'm1',
+            path: 'a.mp4',
+            probe: { duration: 20, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+          },
+        ];
+        d.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 0, duration: 5, volume: 1 }];
+      });
+      const r = (await client.callTool({ name: 'get_project', arguments: {} })) as Structured;
+      expect(r.structuredContent).toMatchObject({ total: 5 });
+      expect(textOf(r)).toBe('v1: 1 clips, total 5.0s');
+      expect(textOf(r)).not.toMatch(/black tail/);
+    });
+
+    it('有黑尾時（caption 延伸超出主軌）：total = outputDuration，summary 帶黑尾附註', async () => {
+      const { store, client } = await connect();
+      store.mutate('ai', 'seed', (d) => {
+        d.media = [
+          {
+            id: 'm1',
+            path: 'a.mp4',
+            probe: { duration: 20, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+          },
+        ];
+        d.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 0, duration: 5, volume: 1 }];
+        d.tracks.captions = [
+          { id: 'cap1', text: 'hi', start: 0, duration: 8.5, style: DEFAULT_CAPTION_STYLE },
+        ];
+      });
+      const r = (await client.callTool({ name: 'get_project', arguments: {} })) as Structured;
+      // outputDuration = max(5, caption end 8.5) = 8.5；主軌總長仍是 5。
+      expect(r.structuredContent).toMatchObject({ total: 8.5 });
+      expect(textOf(r)).toBe('v1: 1 clips, total 8.5s (video 5.0s + 3.5s black tail)');
+    });
   });
 });
