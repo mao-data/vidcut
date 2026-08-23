@@ -108,8 +108,8 @@ function projectSummary(store: ProjectStore) {
       in: c.in,
       duration: c.duration,
       label: c.label,
-      // 慣例同 label/volume 這類選填欄位：0（缺席語意）不帶，免得每個 clip 都多一個
-      // 恆為 0 的噪音欄位——只有真的有黑墊時才曝光。
+      // 選填欄位無意義值（這裡是 leadPad===0，即「沒有黑墊」）不主動帶進摘要，
+      // 免得每個 clip 都多一個恆為 0 的噪音欄位——只有真的有黑墊時才曝光。
       ...(c.leadPad ? { leadPad: c.leadPad } : {}),
     })),
     overlays: d.tracks.overlays.length,
@@ -1449,8 +1449,12 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'with update_caption / update_audio. (Same semantics as CapCut; not a bug.) Also, when a whole clip ' +
         'disappears, overlays anchored to it break and the reply lists which ones. ' +
         "split's cut point must fall strictly inside a clip, leaving at least 0.1s on each side — too close to an " +
-        'edge is rejected. A freeze inserts a **silent** frozen clip (it occupies timeline length, so everything ' +
-        'after it shifts right).',
+        'edge is rejected. When the clip has a leadPad, a point inside that black lead is also rejected for split ' +
+        'and freeze, even if it clears the 0.1s edge buffer — the error names the pad boundary (the lead has no ' +
+        'source frame to cut or freeze at). deleteBefore/deleteAfter handle the pad gracefully instead of ' +
+        'rejecting: a cut landing inside the lead just shortens it (or, for deleteAfter, drops the whole clip when ' +
+        'nothing but pad would be left). A freeze inserts a **silent** frozen clip (it occupies timeline length, ' +
+        'so everything after it shifts right).',
       outputSchema: clipTrackOutput,
       inputSchema: {
         op: z.enum(['split', 'deleteBefore', 'deleteAfter', 'freeze']),
