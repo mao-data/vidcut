@@ -161,15 +161,23 @@ case（鐵則：UI 與 MCP 自動都能用）。`addCaption` 要走 `validateCap
 
 ### 1. Proxy 參數可設定
 
-`ingest.ts` 目前寫死 `scale=-2:960`。實測一支 60s 1080p 的 ingest 約 8.5 秒
-（proxy 7.06s / filmstrip 1.40s / peaks 0.06s，約 7× 實時），4K 素材會顯著更慢。
-讓 proxy 高度可設定（例如 540 供快速預覽、720 供精修）可直接換取匯入速度。
+⚠️ 2026-08-20（Plan 8 快速 ingest）之後，`transcode` 分支才會走到 `scale=-2:960`——
+`proxyPlan`（`shared/src/proxyPlan.ts`）會先判斷來源，已是瀏覽器可播的 H.264（`skip`）
+就完全不產 proxy，容器不對但影像層面合格（`remux`）只秒級換封裝不重編碼，只有真的需要
+重編碼（HEVC、10-bit、解析度超標、GOP 過長…）才落到 `transcode` 這個寫死 960 的分支。
+舊的「實測 60s 1080p ingest 約 8.5 秒」數字是**改前的整段同步耗時**，現在 proxy 是背景
+A2 階段、不擋 A0 回傳，這個數字不再代表使用者的等待時間（見下一項）。讓 proxy 高度可設定
+（例如 540 供快速預覽、720 供精修）本身仍未做，只影響會落到 `transcode` 的那些來源。
 **輸出不受影響** —— render 走 `media.path` 原檔，只有封面截圖會退回 proxy。
 
 ### 2. ingest 進度與取消
 
-目前 ingest 是不可中斷的黑箱。一支 10 分鐘 1080p 約需 85 秒，使用者需要看到進度、能取消。
-`POST /api/import` 已規劃每支完成廣播一次 activity，但**單支內部**的 ffmpeg 進度尚未回報。
+⚠️ 2026-08-20（Plan 8）把 ingest 拆成三階段：**A0**（probe+登記，同步、秒級，`ingestMedia`
+回傳的時點）→**A1**（filmstrip+peaks）→**A2**（proxy，可能被 `proxyPlan` 判定整段跳過）。
+A1/A2 丟進背景佇列、不擋 A0 回傳——素材在 A0 完成後就可預覽、剪接、`render`，不再是「一支
+10 分鐘 1080p 等 85 秒」的單一黑箱等待。**仍未做的是**：背景階段（A1/A2）本身沒有進度回報
+與取消——使用者不知道 proxy/filmstrip 何時就緒，也無法中途取消單一素材的背景升級；
+UI 目前的因應是容忍衍生欄位缺席（見 HANDOFF.md ingest 節、Plan 8 Task 4）。
 
 ### 3. 離線素材重新連結（relink）
 

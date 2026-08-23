@@ -1079,3 +1079,139 @@ describe('setAudio 驗證', () => {
     expect(store.doc.tracks.audio).toEqual([]);
   });
 });
+
+// updateMediaDerived：background ingest（A1 filmstrip/peaks、A2 proxy）寫回 derived 欄位
+// 的唯一管道，與 registerMedia 同一種「內部命令」定位——見 commands.ts 的豁免註解。
+describe('updateMediaDerived', () => {
+  it('合法更新：逐欄可選，寫進 doc', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: {
+        proxyPath: 'media/m1/proxy.mp4',
+        filmstripPath: 'media/m1/filmstrip.jpg',
+        filmstripTiles: 12,
+        peaksPath: 'media/m1/peaks.json',
+      },
+    });
+    expect(r.ok).toBe(true);
+    const m1 = store.doc.media.find((m) => m.id === 'm1');
+    expect(m1).toMatchObject({
+      proxyPath: 'media/m1/proxy.mp4',
+      filmstripPath: 'media/m1/filmstrip.jpg',
+      filmstripTiles: 12,
+      peaksPath: 'media/m1/peaks.json',
+    });
+  });
+
+  it('只帶單一欄位也合法（部分完成的階段先寫入）', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { peaksPath: 'media/m1/peaks.json' },
+    });
+    expect(r.ok).toBe(true);
+    const m1 = store.doc.media.find((m) => m.id === 'm1');
+    expect(m1?.peaksPath).toBe('media/m1/peaks.json');
+    expect(m1?.proxyPath).toBeUndefined();
+  });
+
+  it('未提供的欄位不得覆蓋既有值', async () => {
+    const store = await storeWithClips();
+    applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { proxyPath: 'media/m1/proxy.mp4', peaksPath: 'media/m1/peaks.json' },
+    });
+    // 第二次只更新 filmstripPath，前一次寫入的 proxyPath/peaksPath 應維持不變
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { filmstripPath: 'media/m1/filmstrip.jpg', filmstripTiles: 8 },
+    });
+    expect(r.ok).toBe(true);
+    const m1 = store.doc.media.find((m) => m.id === 'm1');
+    expect(m1).toMatchObject({
+      proxyPath: 'media/m1/proxy.mp4',
+      peaksPath: 'media/m1/peaks.json',
+      filmstripPath: 'media/m1/filmstrip.jpg',
+      filmstripTiles: 8,
+    });
+  });
+
+  it('mediaId 不存在 → 拒絕', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'nope',
+      patch: { peaksPath: 'media/nope/peaks.json' },
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('路徑帶 .. → 拒絕', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { proxyPath: '../outside/proxy.mp4' },
+    });
+    expect(r.ok).toBe(false);
+    expect(store.doc.media.find((m) => m.id === 'm1')?.proxyPath).toBeUndefined();
+  });
+
+  it('絕對路徑 → 拒絕（derived 檔一律專案內相對路徑，與 asset.path 的零複製匯入語意不同）', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { filmstripPath: '/etc/passwd' },
+    });
+    expect(r.ok).toBe(false);
+    expect(store.doc.media.find((m) => m.id === 'm1')?.filmstripPath).toBeUndefined();
+  });
+
+  it('filmstripTiles 非正整數 → 拒絕（0）', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { filmstripTiles: 0 },
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('filmstripTiles 非正整數 → 拒絕（負數）', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { filmstripTiles: -1 },
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('filmstripTiles 非整數 → 拒絕', async () => {
+    const store = await storeWithClips();
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { filmstripTiles: 1.5 },
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('驗證失敗時整批不寫入（不得半套）', async () => {
+    const store = await storeWithClips();
+    const before = structuredClone(store.doc.media.find((m) => m.id === 'm1'));
+    const r = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { peaksPath: 'media/m1/peaks.json', filmstripTiles: -1 },
+    });
+    expect(r.ok).toBe(false);
+    expect(store.doc.media.find((m) => m.id === 'm1')).toEqual(before);
+  });
+});

@@ -113,6 +113,21 @@ export function trimSpanOut(
 }
 
 /**
+ * ClipBlock 的 filmstrip 背景位移（px）。filmstrip 是「每格代表 secPerTile 秒」的
+ * 橫向 sprite，clip.in 秒對應到第 `in/secPerTile` 格，乘上單格寬 frameW 就是要往左
+ * 推的像素量。
+ *
+ * secPerTile 缺省（媒體沒有 filmstripTiles，即本欄位加入之前 ingest 的舊資產）預設
+ * 1——與舊版「每秒一格」逐位元組一致。長片（filmstripPlan 把格數夾在 JPEG 65500px
+ * 上限內、降頻取樣）secPerTile > 1，不能再假設一格一秒，否則長片的縮圖與 clip.in
+ * 對不上（2026-08-20 bug：filmstrip 本身直接因超過上限 ffmpeg 炸掉，這裡是配套的
+ * 顯示端修正）。
+ */
+export function filmstripBgOffset(inSec: number, frameW: number, secPerTile = 1): number {
+  return -((inSec / secPerTile) * frameW);
+}
+
+/**
  * 音訊左緣：時間軸右緣不動，start/in/duration 連動（聲音內容不滑動）。
  * clamp：in>=0、start>=0、duration>=MIN——三者取最嚴格的位移。
  */

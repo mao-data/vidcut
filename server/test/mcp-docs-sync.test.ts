@@ -40,6 +40,7 @@ const COMMAND_VARIANT_MAP: Record<Command['name'], true> = {
   setAudio: true,
   setCanvasFit: true,
   registerMedia: true,
+  updateMediaDerived: true,
   setCover: true,
   setPublish: true,
   undo: true,
@@ -158,6 +159,10 @@ const MCP_EXEMPT_COMMANDS: Record<string, string> = {
   freezeFrame: '由 timeline_op 的 op:"freeze" 觸達',
   registerMedia: '由 import_media 內部呼叫觸達',
   setPublish: '由 export_publish_package 內部呼叫觸達（Task 4）',
+  updateMediaDerived:
+    '刻意連間接路徑都沒有——背景 ingest pipeline（Plan 8 A1/A2 階段）內部呼叫' +
+    'applyCommand 寫回 derived 檔欄位，不經過任何 MCP 工具（不像 registerMedia' +
+    '有 import_media 頂著）。這是鐵則三的顯式豁免，見 commands.ts 該 case 的註解。',
 };
 
 describe('Command variant 都能從 MCP 觸達', () => {

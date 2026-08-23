@@ -745,6 +745,8 @@ export async function renderCoverImage(
   } else {
     const loc = locate(project, Math.min(Math.max(time, 0), totalDuration(project)));
     if (!loc) throw new Error('cover: no clip at that time');
+    // proxyPath 不保證存在（Plan 8 三階段 ingest：proxy 是背景 A2，skip 判準命中時
+    // 永遠不產）——`?? path` 直接退回原檔是正常分支，見 frame.ts 同款接法的註解。
     src = resolveMediaPath(projectDir, loc.media.proxyPath ?? loc.media.path);
     seek = loc.clip.frozen ? loc.clip.in : loc.clip.in + loc.offsetInClip;
   }

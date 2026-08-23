@@ -21,9 +21,9 @@ export async function extractFrame(
   const total = totalDuration(project);
   const loc = locate(project, Math.min(Math.max(t, 0), total));
   if (!loc) return null;
-  // 與 render.ts:523 extractCover 同型接法：proxyPath 一律存在（ingestMedia 是唯一寫
-  // doc.media 的地方且必寫 proxyPath），今日不可達絕對路徑分支，換 resolveMediaPath
-  // 純為防禦性一致化（見 EVIDENCE「補記：素材匯入 階段 1」）。
+  // 與 render.ts extractCover 同型接法：proxyPath **不保證存在**（Plan 8 起三階段
+  // ingest——A0 probe+登記完就可用，proxy 是 A2 的背景升級，skip 判準命中時永遠不產）。
+  // 沒有 proxy 就直接吃原檔：`?? path` 是這條路徑的正常分支，不是防禦性殘留。
   const src = resolveMediaPath(projectDir, loc.media.proxyPath ?? loc.media.path);
   const sourceTime = loc.clip.in + loc.offsetInClip;
 

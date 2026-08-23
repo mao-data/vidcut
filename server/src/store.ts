@@ -17,6 +17,22 @@ export interface HistoryEntry {
   ts: string;
   patches: JsonPatch[];
   inversePatches: JsonPatch[];
+  /**
+   * 這筆變更是「系統對某個既有物件補記的衍生事實」，不是使用者/AI 的編輯意圖——
+   * `revertSince`（審核退回）跳過它，不把它算進要反轉的範圍。目前唯一的寫入者是
+   * `updateMediaDerived`（見 commands.ts 該 case 的註解）：background ingest 階段
+   * （A1/A2）寫入 proxy/filmstrip/peaks 路徑時，若這筆恰好落在「審核開始之後、
+   * 退回發生之前」的時間窗，一般的 revertSince 會把它當成該輪審核的一部分反轉掉
+   * ——doc 上的欄位被抹除，但 `derived/<id>/` 底下的檔案仍在磁碟上，而且沒有任何
+   * 機制會重跑那個階段（A1/A2 刻意不重試），素材因此永久降級。
+   *
+   * 與 `#replaying`／`runWithoutUndo` 是**正交**的兩個旗標：後者管「要不要進使用者的
+   * undo/redo 堆疊」，這個管「審核退回要不要反轉它」。`updateMediaDerived` 兩邊都不進，
+   * 但只有**這個**是靠明講的 `excludeFromRevert` 選項；undo 排除是**白拿的**——
+   * 它動的是 `media` 路徑，`isUndoable()` 只認 `tracks`／`canvas` 開頭的 patch，
+   * 媒體補丁天生就落在 undo 範圍外，不需要（也沒有）額外旗標去關掉它。
+   */
+  excludeFromRevert?: boolean;
 }
 
 export interface ChangeEvent {
@@ -97,6 +113,7 @@ export class ProjectStore {
     source: MutationSource,
     label: string,
     recipe: (draft: Project) => void,
+    opts?: { excludeFromRevert?: boolean },
   ): { version: number; patches: JsonPatch[] } {
     const [next, patches, inversePatches] = produceWithPatches(this.#doc, recipe);
     if (patches.length === 0) return { version: this.#version, patches: [] };
@@ -110,6 +127,7 @@ export class ProjectStore {
       ts,
       patches: patches as JsonPatch[],
       inversePatches: inversePatches as JsonPatch[],
+      ...(opts?.excludeFromRevert ? { excludeFromRevert: true } : {}),
     };
     this.#history.push(entry);
     if (this.#history.length > HISTORY_MAX) {
@@ -178,9 +196,22 @@ export class ProjectStore {
   /**
    * 一筆回滾 version 之後的全部變更（審核退回用）。走歷史而非 undo 堆疊——
    * 回滾範圍含非編輯 mutation，且不應動到使用者的 undo/redo 游標。
+   *
+   * ⚠️ **跳過 `excludeFromRevert` 的 entry**（見該欄位在 `HistoryEntry` 的註解）：
+   * background ingest 階段（A1/A2）可能剛好在 `sinceVersion` 之後、退回發生之前
+   * 把 proxy/filmstrip/peaks 寫回某支素材——那支素材本身多半是審核開始「之前」就
+   * 登記的（`registerMedia` 在 sinceVersion 之前），只是背景轉檔還沒跑完。若照舊
+   * 反轉這幾筆，doc 上的欄位會被抹掉，但 `derived/<id>/` 底下的檔案仍在磁碟上，
+   * 而且沒有任何機制會重跑那個階段——素材因此永久降級（可用但畫質/縮圖/波形
+   * 永遠比原本該有的差）。這些欄位是「檔案系統上的既成事實」，不是這輪審核想
+   * 撤銷的編輯意圖，跳過它們才是正確的回滾範圍。
+   *
+   * 邊界情況（刻意維持現況）：若回滾點落在**該素材的 `registerMedia` 之前**，
+   * 那筆本身會被反轉，整支素材連同其 derived 欄位一起從 doc 消失——這是對的
+   * （doc 前後一致），孤兒檔案的清理不在這個範圍內。
    */
   revertSince(version: number): { version: number } | null {
-    const entries = this.#history.filter((h) => h.version > version);
+    const entries = this.#history.filter((h) => h.version > version && !h.excludeFromRevert);
     if (entries.length === 0) return null;
     const inverse = entries.reverse().flatMap((h) => h.inversePatches);
     this.#replaying = true;

@@ -26,6 +26,8 @@ export async function runFfmpeg(args: string[]): Promise<void> {
 
 interface FfprobeStream {
   codec_type: string;
+  codec_name?: string;
+  pix_fmt?: string;
   width?: number;
   height?: number;
   r_frame_rate?: string;
@@ -34,7 +36,19 @@ interface FfprobeStream {
   tags?: Record<string, string>;
 }
 
-export async function probe(file: string): Promise<ProbeInfo> {
+export interface ProbeOpts {
+  /**
+   * 量測 keyframe（I-frame）平均間距（見 probeKeyframeInterval）。**預設關閉**
+   * （Plan 8 final review F4）：這是額外一次 ffprobe 呼叫，掃前 60 秒封包流，
+   * 只有 A0（`prepareMedia`）決定 `proxyPlan`（remux vs transcode）需要這個數字；
+   * render 路徑的 `withProbedChannels`（render.ts）只要 `audioChannels`，卻因為
+   * 舊版 `probe()` 無條件量測而白白扛了這筆成本——渲染時延不該被一個它用不到的
+   * 量測拖慢。只有呼叫端明確要求才做。
+   */
+  keyframes?: boolean;
+}
+
+export async function probe(file: string, opts: ProbeOpts = {}): Promise<ProbeInfo> {
   const { stdout } = await run('ffprobe', [
     '-v',
     'error',
@@ -46,7 +60,7 @@ export async function probe(file: string): Promise<ProbeInfo> {
   ]);
   const data = JSON.parse(stdout) as {
     streams: FfprobeStream[];
-    format: { duration?: string };
+    format: { duration?: string; format_name?: string };
   };
   const v = data.streams.find((s) => s.codec_type === 'video');
   const a = data.streams.find((s) => s.codec_type === 'audio');
@@ -56,6 +70,8 @@ export async function probe(file: string): Promise<ProbeInfo> {
     ? (v.side_data_list?.find((s) => s.rotation !== undefined)?.rotation ??
       Number(v.tags?.rotate ?? 0))
     : 0;
+  const container = data.format.format_name?.split(',')[0];
+  const keyframeIntervalSec = v && opts.keyframes ? await probeKeyframeInterval(file) : undefined;
   return {
     duration: Number(data.format.duration ?? 0),
     width: v?.width ?? 0,
@@ -65,5 +81,44 @@ export async function probe(file: string): Promise<ProbeInfo> {
     rotation: Math.abs(rotation) % 360,
     hasVideo: v !== undefined,
     ...(a?.channels !== undefined ? { audioChannels: a.channels } : {}),
+    ...(v?.codec_name !== undefined ? { codec: v.codec_name } : {}),
+    ...(v?.pix_fmt !== undefined ? { pixFmt: v.pix_fmt } : {}),
+    ...(container !== undefined ? { container } : {}),
+    ...(keyframeIntervalSec !== undefined ? { keyframeIntervalSec } : {}),
   };
+}
+
+/**
+ * 量測一支影片開頭 keyframe（I-frame）的平均間距（秒）。只讀前 60 秒
+ * （`-read_intervals %+60`）——這是成本上限,28 分鐘的檔不能為了量測掃全檔,
+ * 抓開頭一段當代表值。少於 2 個 keyframe 量不出間距,保守回 undefined
+ * （見 shared/src/proxyPlan.ts 檔頭：量測失敗一律讓 proxyPlan 走 transcode）。
+ */
+export async function probeKeyframeInterval(file: string): Promise<number | undefined> {
+  const { stdout } = await run('ffprobe', [
+    '-v',
+    'error',
+    '-read_intervals',
+    '%+60',
+    '-select_streams',
+    'v:0',
+    '-show_entries',
+    'packet=pts_time,flags',
+    '-of',
+    'csv=p=0',
+    file,
+  ]);
+  const keyTimes: number[] = [];
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const [ptsTime, flags] = trimmed.split(',');
+    if (flags?.startsWith('K') && ptsTime !== undefined) {
+      const t = Number(ptsTime);
+      if (!Number.isNaN(t)) keyTimes.push(t);
+    }
+  }
+  if (keyTimes.length < 2) return undefined;
+  const span = keyTimes[keyTimes.length - 1]! - keyTimes[0]!;
+  return span / (keyTimes.length - 1);
 }

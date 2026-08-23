@@ -3,6 +3,7 @@ import { act, render } from '@testing-library/react';
 import { AudioChip } from './AudioChip.js';
 import { useTheme } from '../stores/theme.js';
 import * as waveform from './waveform.js';
+import { __resetPeaksCacheForTests } from './usePeaks.js';
 import { demoProject, resetStores } from '../test/fixtures.js';
 
 /**
@@ -23,6 +24,7 @@ const peaksFile = {
 
 beforeEach(() => {
   resetStores();
+  __resetPeaksCacheForTests();
   useTheme.setState({ theme: 'dark' });
   document.documentElement.removeAttribute('data-theme');
   vi.stubGlobal(

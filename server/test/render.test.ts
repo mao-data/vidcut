@@ -12,7 +12,7 @@ import {
 import { buildDemoProject } from '../src/demo.js';
 import { ProjectStore } from '../src/store.js';
 import { probe, runFfmpeg } from '../src/ffmpeg.js';
-import { ingestMedia } from '../src/ingest.js';
+import { ingestMedia, waitForIngestQueue } from '../src/ingest.js';
 import { createEmptyProject, type Project } from '@vidcut/shared';
 import { tmpDir } from './tmp.js';
 
@@ -327,6 +327,10 @@ describe('render (integration)', () => {
     const dir = await tmpDir('vidcut-ext-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const mediaId = await ingestMedia(store, dir, src);
+    // 排空背景 A1/A2：這條測試不驗 A0 語意，只是要一支已登記的素材可以拿去 render——
+    // 不排空的話背景階段會跨到下一條測試才收尾，殘留 console.error 噪音（見 Plan 8
+    // review round 1 Important 2）。
+    await waitForIngestQueue();
     store.mutate('ai', 'seed', (d) => {
       d.tracks.video = [{ id: 'c1', mediaId, in: 0, duration: 1, volume: 1 }];
     });
@@ -358,6 +362,7 @@ describe('render (integration)', () => {
     const dir = await tmpDir('vidcut-ext-frozen-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const mediaId = await ingestMedia(store, dir, src);
+    await waitForIngestQueue(); // 見上一條測試同款註解（Plan 8 review round 1 Important 2）
     store.mutate('ai', 'seed', (d) => {
       d.tracks.video = [{ id: 'c1', mediaId, in: 0, duration: 1, volume: 0, frozen: true }];
     });
@@ -385,6 +390,10 @@ describe('render (integration)', () => {
     const dir = await tmpDir('vidcut-gone-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const mediaId = await ingestMedia(store, dir, src);
+    // 排空背景 A1/A2 再刪原檔：不排空的話背景階段會在 rm(src) 之後才跑到，對著
+    // 已經不存在的檔案跑 ffmpeg 而 console.error，噪音跟這條測試想驗的東西無關
+    // （見 Plan 8 review round 1 Important 2）。
+    await waitForIngestQueue();
     store.mutate('ai', 'seed', (d) => {
       d.tracks.video = [{ id: 'c1', mediaId, in: 0, duration: 1, volume: 1 }];
     });
@@ -429,6 +438,7 @@ describe('render (integration)', () => {
     const dir = await tmpDir('vidcut-gone-frozen-proj-');
     const store = await ProjectStore.load(join(dir, 'project.json'));
     const mediaId = await ingestMedia(store, dir, src);
+    await waitForIngestQueue(); // 見上一條測試同款註解（Plan 8 review round 1 Important 2）
     store.mutate('ai', 'seed', (d) => {
       d.tracks.video = [{ id: 'c1', mediaId, in: 0, duration: 1, volume: 1, frozen: true }];
     });

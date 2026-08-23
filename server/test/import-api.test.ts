@@ -8,6 +8,7 @@ import { runFfmpeg } from '../src/ffmpeg.js';
 import { existsSync } from 'node:fs';
 import { makeAudio } from './fixtures.js';
 import { tmpDir } from './tmp.js';
+import { waitForIngestQueue } from '../src/ingest.js';
 
 async function startTestServer() {
   const dir = await tmpDir('vidcut-imp-proj-');
@@ -233,6 +234,10 @@ describe('純音訊素材（合併 main 後）', () => {
       const j = (await res.json()) as ImportRes;
       expect(j.failed).toEqual([]);
       expect(j.ok).toHaveLength(1);
+
+      // /api/import 現在只做到 A0（探測+登記）就回應；peaks 是 A1 的背景升級，
+      // 要等佇列排空才會出現在 doc 上（Plan 8：ingestMedia 語意變更）。
+      await waitForIngestQueue();
 
       const media = store.doc.media.find((m) => m.id === j.ok[0]!.mediaId)!;
       expect(media.path).toBe(join(src, 'bgm.mp3')); // 零複製：原檔留在素材夾

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ProjectStore } from '../src/store.js';
+import { applyCommand } from '../src/commands.js';
 import { ChatStore } from '../src/chatStore.js';
 import { EditorContext } from '../src/editorContext.js';
 import { ReviewManager } from '../src/reviews.js';
@@ -313,6 +314,32 @@ describe('MCP tools that had no coverage', () => {
   it('get_feedback requires sinceVersion', async () => {
     const r = await call('get_feedback', {});
     expect(r.isError).toBe(true);
+  });
+
+  // Plan 8 final review F3：background ingest（A1/A2）補寫的 updateMediaDerived 是
+  // source==='human'，但不是使用者的編輯意圖，不該出現在 get_feedback 的 humanChanges。
+  it('get_feedback excludes background updateMediaDerived from humanChanges', async () => {
+    const since = store.version;
+    const derived = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId,
+      patch: { filmstripPath: 'derived/x/filmstrip.jpg', filmstripTiles: 4 },
+    });
+    expect(derived.ok).toBe(true);
+    const clip = store.doc.tracks.video[0]!;
+    const real = applyCommand(store, 'human', {
+      name: 'updateClip',
+      clipId: clip.id,
+      patch: { label: 'human renamed' },
+    });
+    expect(real.ok).toBe(true);
+
+    const r = await call('get_feedback', { sinceVersion: since });
+    const sc = r.structuredContent as { humanChanges: Array<{ label: string }> };
+    expect(sc.humanChanges.some((h) => h.label.includes('update media derived'))).toBe(false);
+    // 真人編輯（updateClip）的歷史 label 是 `edit ${clip.label ?? clip.id}`（見 commands.ts
+    // 的 updateClip）——這裡用原本的 label/id 比對，確認它沒被連坐排除。
+    expect(sc.humanChanges.some((h) => h.label === `edit ${clip.label ?? clip.id}`)).toBe(true);
   });
 });
 

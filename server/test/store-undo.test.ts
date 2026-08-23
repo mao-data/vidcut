@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
+import { applyCommand } from '../src/commands.js';
 import type { VideoClip } from '@vidcut/shared';
 import { tmpDir } from './tmp.js';
 
@@ -112,6 +113,75 @@ describe('游標式 undo/redo（B4）', () => {
     expect(ids()).toEqual(['c1']);
     expect(store.doc.canvas.fit).toBeUndefined();
     expect(store.history().at(-1)!.label).toBe('review rollback');
+  });
+
+  // Plan 8 review round 1（Important 1）：background ingest（A1/A2）用 updateMediaDerived
+  // 補寫 proxy/filmstrip/peaks 路徑，這幾筆若剛好落在 sinceVersion 之後、退回發生之前
+  // ——舊行為會把它們當成這輪審核的一部分反轉掉：doc 上的欄位被抹除，但
+  // derived/<id>/ 底下的檔案仍在磁碟上，而且沒有任何機制會重跑那個階段，素材因此
+  // 永久降級。這條測試釘住修法：registerMedia 在 sinceVersion 之前（不受影響），
+  // updateMediaDerived 在 sinceVersion 之後（審核期間才跑完的背景階段）——revertSince
+  // 必須跳過後者，讓 derived 欄位在退回之後依然完整。
+  it('revertSince 跳過 updateMediaDerived：background ingest 補寫的衍生欄位在退回後仍存活', () => {
+    const reg = applyCommand(store, 'human', {
+      name: 'registerMedia',
+      asset: {
+        id: 'm1',
+        path: 'a.mp4',
+        probe: { duration: 4, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+      },
+    });
+    expect(reg.ok).toBe(true);
+
+    const since = store.version; // 審核從這裡開始
+
+    // 審核期間：AI 加了一段剪輯……
+    pushClip('c1');
+    // ……同時 background ingest（A1）剛好跑完，把 filmstrip/peaks 補寫回這支
+    // 「審核開始之前」就登記好的素材。
+    const derived = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { filmstripPath: 'derived/m1/filmstrip.jpg', filmstripTiles: 4 },
+    });
+    expect(derived.ok).toBe(true);
+
+    const r = store.revertSince(since);
+    expect(r).not.toBeNull();
+
+    // 審核範圍內的編輯（c1）照樣被撤掉……
+    expect(ids()).toEqual([]);
+    // ……但衍生欄位不是這輪審核想撤銷的編輯意圖，必須存活
+    const m1 = store.doc.media.find((m) => m.id === 'm1');
+    expect(m1?.filmstripPath).toBe('derived/m1/filmstrip.jpg');
+    expect(m1?.filmstripTiles).toBe(4);
+  });
+
+  // 邊界情況（刻意維持現況，不是遺漏）：回滾點落在 registerMedia **之前**時，
+  // 那筆本身也在反轉範圍內，整支素材（含它的衍生欄位）一起從 doc 消失——
+  // 這是 doc 前後一致的正確行為，孤兒檔案的清理不在這個範圍內。
+  it('回滾點在 registerMedia 之前：素材連同衍生欄位整筆消失（doc 一致性優先）', () => {
+    const since = store.version; // 審核在素材登記之前就開始
+
+    const reg = applyCommand(store, 'human', {
+      name: 'registerMedia',
+      asset: {
+        id: 'm1',
+        path: 'a.mp4',
+        probe: { duration: 4, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+      },
+    });
+    expect(reg.ok).toBe(true);
+    const derived = applyCommand(store, 'human', {
+      name: 'updateMediaDerived',
+      mediaId: 'm1',
+      patch: { filmstripPath: 'derived/m1/filmstrip.jpg', filmstripTiles: 4 },
+    });
+    expect(derived.ok).toBe(true);
+
+    const r = store.revertSince(since);
+    expect(r).not.toBeNull();
+    expect(store.doc.media.find((m) => m.id === 'm1')).toBeUndefined();
   });
 });
 

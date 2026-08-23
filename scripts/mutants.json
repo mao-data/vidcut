@@ -419,10 +419,10 @@
   {
     "id": "addclip-media-exists",
     "file": "server/src/commands.ts",
-    "find": "if (!media) return { ok: false, error: `media not found: ${cmd.mediaId}` };",
-    "replace": "",
+    "find": "  const media = store.doc.media.find((m) => m.id === cmd.mediaId);\n  if (!media) return { ok: false, error: `media not found: ${cmd.mediaId}` };\n  if (media.probe.hasVideo === false) {",
+    "replace": "  const media = store.doc.media.find((m) => m.id === cmd.mediaId);\n  if (media && media.probe.hasVideo === false) {",
     "tests": "server/test/commands.test.ts",
-    "note": "不檢查 mediaId 存在 → 未知 mediaId 斷言必須抓到"
+    "note": "不檢查 mediaId 存在 → 未知 mediaId 斷言必須抓到（find 收窄到含下一行 audio-only 檢查，Plan 8 Task 2 新增的 updateMediaDerived 用同一句錯誤字串，原本的單行 find 從此在 commands.ts 命中兩次）"
   },
   {
     "id": "addclip-bounds",
@@ -479,14 +479,6 @@
     "replace": "      await Promise.all(names.map(async (name) => {\n        try {\n          const abs = join(dir, basename(name)); // basename 防 traversal\n          const mediaId = await ingestMedia(store, projectDir, abs, { label: name });\n          if (addToTimeline) {\n            const media = store.doc.media.find((m) => m.id === mediaId)!;\n            const r = applyCommand(store, 'human', {\n              name: 'addClip',\n              mediaId,\n              in: 0,\n              duration: media.probe.duration,\n              label: name,\n            });\n            if (!r.ok) throw new Error(r.error);\n          }\n          ok.push({ name, mediaId });\n        } catch (e) {\n          failed.push({ name, error: (e as Error).message });\n        }\n      }));",
     "tests": "server/test/import-api.test.ts",
     "note": "序列 for...await 改寫成 Promise.all 併行 → maxInFlight 恆為 1 的斷言必須抓到（Task 8 controller 指定：Task 6 審查曾實測『expected 3 to be 1』，本次以完整迴圈區塊當 find/replace 重現，非單行取代）"
-  },
-  {
-    "id": "ingest-cleanup",
-    "file": "server/src/ingest.ts",
-    "find": "await rm(derivedAbs, { recursive: true, force: true });",
-    "replace": "",
-    "tests": "server/test/ingest.test.ts",
-    "note": "proxy/filmstrip/peaks 任一步失敗時不清理半成品 derived/<id> 目錄 → 半成品殘留斷言必須抓到"
   },
   {
     "id": "render-precheck",
@@ -563,10 +555,10 @@
   {
     "id": "ingest-pcm-cleanup",
     "file": "server/src/ingest.ts",
-    "find": "    } finally {\n      await rm(pcmDir, { recursive: true, force: true });\n    }",
-    "replace": "    } finally {\n      /* mutant: 不清 PCM 暫存目錄 */\n    }",
+    "find": "  } finally {\n    await rm(pcmDir, { recursive: true, force: true });\n  }",
+    "replace": "  } finally {\n    /* mutant: 不清 PCM 暫存目錄 */\n  }",
     "tests": "server/test/ingest.test.ts",
-    "note": "拿掉 PCM 中間產物目錄的清理 → 產品程式碼每匯入一支素材就在系統 temp 漏一個 vidcut-pcm-* 目錄；成功路徑與 peaks.json 失敗路徑兩條測試都必須抓到"
+    "note": "拿掉 PCM 中間產物目錄的清理 → 產品程式碼每匯入一支素材就在系統 temp 漏一個 vidcut-pcm-* 目錄；成功路徑與 peaks.json 失敗路徑兩條測試都必須抓到（find 縮排 2026-08-20 隨 Plan 8 Task 3 把 filmstrip+peaks 抽成 runFilmstripAndPeaks 少了兩層縮排，之前是 4 空格）"
   },
   {
     "id": "tmp-cleanup-off",
@@ -1079,5 +1071,21 @@
     "replace": "",
     "tests": "ui/src/panels/Chat.test.tsx",
     "note": "訊息列的 aria-label 被拔 → 署名字樣移除後讀屏完全無從得知作者(視覺線索是版面,AT 讀不到);aria-label 斷言必須抓到"
+  },
+  {
+    "id": "proxyplan-container-always-skip",
+    "file": "shared/src/proxyPlan.ts",
+    "find": "  if (MP4_CONTAINERS.has(p.container)) return 'skip';",
+    "replace": "  if (true) return 'skip';",
+    "tests": "shared/src/proxyPlan.test.ts",
+    "note": "容器白名單判斷永遠成立 → 非 mp4/mov 容器（如 matroska）也被誤判 skip，跳過需要的 remux；container=matroska 的 remux 斷言必須抓到（Plan 8 final review F8）"
+  },
+  {
+    "id": "store-revert-includes-derived",
+    "file": "server/src/store.ts",
+    "find": "    const entries = this.#history.filter((h) => h.version > version && !h.excludeFromRevert);",
+    "replace": "    const entries = this.#history.filter((h) => h.version > version);",
+    "tests": "server/test/store-undo.test.ts",
+    "note": "revertSince 不再跳過 excludeFromRevert 的 entry → background ingest（A1/A2）補寫的 updateMediaDerived 被連坐反轉，衍生欄位在退回後消失；「background ingest 補寫的衍生欄位在退回後仍存活」的斷言必須抓到（Plan 8 final review F8）"
   }
 ]

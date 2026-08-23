@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { nanoid } from 'nanoid';
 import { ProjectStore } from './store.js';
-import { ingestMedia } from './ingest.js';
+import { ingestMediaFully } from './ingest.js';
 import { runFfmpeg } from './ffmpeg.js';
 
 const CLIPS = [
@@ -66,7 +66,7 @@ export async function buildDemoProject(dir: string): Promise<void> {
 
   const store = await ProjectStore.load(join(dir, 'project.json'));
   for (const [i, c] of CLIPS.entries()) {
-    await ingestMedia(store, dir, c.name, { label: `No.${5 - i}` });
+    await ingestMediaFully(store, dir, c.name, { label: `No.${5 - i}` });
   }
   store.mutate('ai', 'demo timeline', (d) => {
     d.tracks.video = d.media.map((m) => ({
