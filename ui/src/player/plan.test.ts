@@ -276,6 +276,18 @@ describe('planAt leadPad 前把手黑墊（Plan 14 Task 3）', () => {
     expect(later.active).toMatchObject({ clipId: 'c1', sourceTime: 2, frozen: true }); // 仍是 in，未推進
   });
 
+  it('frozen clip、無 leadPad（既有行為）：sourceTime 恆為 in，不隨 offset 推進（review round 1 finding 1 回歸釘）', () => {
+    // 這條與上一條（frozen + leadPad=2）的差異就是這裡完全不設 leadPad——
+    // 專門判別性守住「無 leadPad 時 frozen 分支別被誤改成會用 offsetInClip 推進
+    // sourceTime」這個既有行為（Global Constraint 1：無 leadPad 逐欄位不變也適用
+    // frozen clip，且必須有測試釘住，不能只靠 leadPad>0 的 frozen 案例間接掩護）。
+    const p = proj();
+    p.tracks.video[0]!.frozen = true; // c1: in=2，不設 leadPad
+    expect(planAt(p, 0).active).toMatchObject({ clipId: 'c1', sourceTime: 2, frozen: true });
+    expect(planAt(p, 1).active).toMatchObject({ clipId: 'c1', sourceTime: 2, frozen: true });
+    expect(planAt(p, 5.9).active).toMatchObject({ clipId: 'c1', sourceTime: 2, frozen: true }); // 仍是 in，未推進
+  });
+
   it('trimPreview 帶 leadPad：目標 clip 即時套用預覽 pad，黑墊邊界跟著移動', () => {
     const p = proj(); // c1 doc 無 leadPad
     // 拖曳中把 c1 的 leadPad 預覽成 3：offset=1 現在落在黑墊內（doc 沒設時不會）
@@ -285,6 +297,22 @@ describe('planAt leadPad 前把手黑墊（Plan 14 Task 3）', () => {
     // 同一時刻不帶 leadPad 覆蓋（省略）：沿用 doc 的 leadPad（此例 undefined→0），不受黑墊影響
     const withoutPreviewPad = planAt(p, 1, { clipId: 'c1', in: 2 });
     expect(withoutPreviewPad.active).toMatchObject({ clipId: 'c1', sourceTime: 3 }); // in 2 + offset 1
+  });
+
+  it('trimPreview 省略 leadPad、doc 既有非零 leadPad：回退到 doc 值而非 0（review round 1 finding 2 判別性回歸釘）', () => {
+    // 上一條的「省略＝沿用 doc」案例用的是 doc leadPad=undefined，回退到 undefined 或
+    // 硬寫死 0 結果都一樣是 0，測試對這兩種寫法沒有判別力。這裡改成 doc 上 c1.leadPad=3，
+    // 若 fallback 誤寫成 `?? 0`（忽略 doc 既有值），offset=1 會被誤判成已過黑墊
+    // （active 非 null），這條就會抓到。
+    const p = proj();
+    p.tracks.video[0]!.leadPad = 3; // doc 既有黑墊
+    // 拖曳中只帶新的 in，沒帶 leadPad（Task 4 目前寫入端就是這樣呼叫）
+    const plan = planAt(p, 1, { clipId: 'c1', in: 5 }); // offset=1 < doc pad 3 → 仍在黑墊內
+    expect(plan.active).toBeNull();
+    expect(plan.next).toMatchObject({ clipId: 'c1', sourceTime: 5 }); // 內容起點＝預覽 in（5），pad 沿用 doc 的 3
+    // 對照組：offset 過了 doc 的 pad（3）就不再是黑墊，驗證沿用的確實是 3 不是別的數字
+    const pastPad = planAt(p, 4, { clipId: 'c1', in: 5 }); // offset=4 >= pad 3
+    expect(pastPad.active).toMatchObject({ clipId: 'c1', sourceTime: 6 }); // in 5 + (4 - pad 3)
   });
 
   it('trimPreview.leadPad 只影響目標 clip，不干擾其他 clip', () => {

@@ -6,6 +6,7 @@ import {
   totalDuration,
   type CaptionItem,
   type Project,
+  type VideoClip,
 } from '@vidcut/shared';
 import { mediaUrl } from '../ws.js';
 
@@ -84,6 +85,22 @@ export function overlayView(
  */
 export type TrimPreview = { clipId: string; in: number; leadPad?: number } | null;
 
+/**
+ * clip 的有效黑墊長度（review round 1 finding 3）：trimPreview 若指名這個 clip，
+ * 優先用預覽的 `leadPad`；省略 leadPad 時回退到 doc 既有值（不能回退成 0——
+ * 那會讓「只帶 in、沒帶 leadPad」的呼叫點在拖曳中把既有黑墊瞬間視覺移除，
+ * 需求書點名的風險）；trimPreview 不指名這個 clip 就直接用 doc 值。
+ * `sourceFor`／`planAt` 共用同一份計算，避免同一條 fallback 規則兩處手打各改一次。
+ */
+function effectivePadFor(
+  clip: Pick<VideoClip, 'id' | 'leadPad'>,
+  trimPreview: TrimPreview,
+): number {
+  const pad =
+    clip.id === trimPreview?.clipId ? (trimPreview.leadPad ?? clip.leadPad) : clip.leadPad;
+  return pad ?? 0;
+}
+
 function sourceFor(
   p: Project,
   clipIndex: number,
@@ -99,7 +116,7 @@ function sourceFor(
   // 起點 trim-in 不會移動，見 Timeline.tsx scheduleFollow(clipStart) 的註解）。
   const isTarget = clip.id === trimPreview?.clipId;
   const effectiveClip = isTarget
-    ? { in: trimPreview!.in, leadPad: trimPreview!.leadPad ?? clip.leadPad }
+    ? { in: trimPreview!.in, leadPad: effectivePadFor(clip, trimPreview) }
     : clip;
   if (clip.frozen) {
     // 定格幀：黑墊之後才開始定格畫面（裁決原文）——offsetInClip 落在 pad 內同樣回 null，
@@ -172,12 +189,7 @@ export function planAt(p: Project, t: number, trimPreview: TrimPreview = null): 
   // 才能無縫接上畫面。pad 要吃 trimPreview 覆蓋（拖曳中即時調整黑墊長度時，premount
   // 目標要跟著變，理由同 sourceFor 內 effectiveClip 的覆蓋）。不在黑墊內（含無 leadPad
   // 的既有行為）維持原本「premount 下一個 clip」不變。
-  const effectivePad =
-    loc !== null
-      ? ((loc.clip.id === trimPreview?.clipId
-          ? (trimPreview.leadPad ?? loc.clip.leadPad)
-          : loc.clip.leadPad) ?? 0)
-      : 0;
+  const effectivePad = loc !== null ? effectivePadFor(loc.clip, trimPreview) : 0;
   const inOwnPad = loc !== null && active === null && loc.offsetInClip < effectivePad;
   const next = loc
     ? inOwnPad
