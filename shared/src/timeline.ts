@@ -52,6 +52,27 @@ function overlayStart(p: Project, o: OverlayItem): number | null {
   return null;
 }
 
+/**
+ * clip 內偏移（時間軸座標，從 clip 開頭算起）→ 來源時間。落在黑墊內回 `null`
+ * （該畫黑，沒有對應的來源畫面）——這是 `leadPad` 唯一的真相來源，frame.ts / render
+ * cover / plan.ts / mcp 端一律走這支，不得各自手算 `in + offset`（那正是本函式要消滅的
+ * 隱式假設：沒有 leadPad 時 `in + offset` 剛好是對的，一旦有了黑墊就會把黑墊段誤算成
+ * 來源時間，抽出一張不該存在的畫面）。
+ */
+export function clipSourceTime(
+  clip: Pick<VideoClip, 'in' | 'leadPad'>,
+  offsetInClip: number,
+): number | null {
+  const pad = clip.leadPad ?? 0;
+  if (offsetInClip < pad) return null;
+  return clip.in + (offsetInClip - pad);
+}
+
+/** 內容長度＝`duration − leadPad`（黑墊不算內容）。無 leadPad 的 clip 回傳值＝duration。 */
+export function clipContentDuration(clip: Pick<VideoClip, 'duration' | 'leadPad'>): number {
+  return clip.duration - (clip.leadPad ?? 0);
+}
+
 /** 每個 clip 在時間軸上的起點（累加）。 */
 export function clipStartTimes(p: Project): number[] {
   const starts: number[] = [];

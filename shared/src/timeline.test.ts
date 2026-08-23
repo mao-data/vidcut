@@ -6,6 +6,8 @@ import {
   locate,
   overlayWindow,
   outputDuration,
+  clipSourceTime,
+  clipContentDuration,
 } from './timeline.js';
 
 function proj(): Project {
@@ -183,5 +185,39 @@ describe('outputDuration（Plan 13 裁決 1）', () => {
 
   it('空專案：outputDuration 為 0', () => {
     expect(outputDuration(createEmptyProject('x', 'x'))).toBe(0);
+  });
+});
+
+// Plan 14 Task 1：leadPad 前把手黑墊——clipSourceTime / clipContentDuration 是唯一真相來源。
+describe('clipSourceTime / clipContentDuration（Plan 14 leadPad）', () => {
+  it('無 leadPad：等同舊式子 in + offset（回歸釘）', () => {
+    const clip = { in: 5, duration: 6 };
+    expect(clipSourceTime(clip, 0)).toBe(5);
+    expect(clipSourceTime(clip, 3)).toBe(8);
+    expect(clipContentDuration(clip)).toBe(6);
+  });
+
+  it('leadPad=0（顯式）行為與缺席相同', () => {
+    const clip = { in: 5, duration: 6, leadPad: 0 };
+    expect(clipSourceTime(clip, 0)).toBe(5);
+    expect(clipSourceTime(clip, 3)).toBe(8);
+    expect(clipContentDuration(clip)).toBe(6);
+  });
+
+  it('offset 落在黑墊內回 null（該畫黑，沒有來源畫面）', () => {
+    const clip = { in: 5, leadPad: 2 };
+    expect(clipSourceTime(clip, 0)).toBeNull();
+    expect(clipSourceTime(clip, 1.9)).toBeNull();
+  });
+
+  it('offset 落在黑墊之後：來源時間 = in + (offset - leadPad)', () => {
+    const clip = { in: 5, leadPad: 2 };
+    expect(clipSourceTime(clip, 2)).toBe(5); // 黑墊剛結束，緊接著來源 in
+    expect(clipSourceTime(clip, 5)).toBe(8);
+  });
+
+  it('clipContentDuration = duration - leadPad', () => {
+    expect(clipContentDuration({ duration: 10, leadPad: 3 })).toBe(7);
+    expect(clipContentDuration({ duration: 10, leadPad: 0 })).toBe(10);
   });
 });

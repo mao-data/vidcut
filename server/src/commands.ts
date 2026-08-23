@@ -11,7 +11,7 @@ import type {
   CaptionItem,
   VideoClip,
 } from '@vidcut/shared';
-import { totalDuration } from '@vidcut/shared';
+import { totalDuration, clipSourceTime, clipContentDuration } from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
 import { cardRequestError } from './cardBudget.js';
 import { capToCardRequest } from './cardSync.js';
@@ -209,6 +209,7 @@ function numericError(cmd: Command): string | null {
         optNum('patch.in', cmd.patch.in),
         optNum('patch.duration', cmd.patch.duration),
         optNum('patch.volume', cmd.patch.volume),
+        optNum('patch.leadPad', cmd.patch.leadPad),
       );
     case 'setTimeline':
       return firstIssue(
@@ -216,7 +217,14 @@ function numericError(cmd: Command): string | null {
           num(`clips[${i}].in`, c.in),
           num(`clips[${i}].duration`, c.duration),
           optNum(`clips[${i}].volume`, c.volume),
+          optNum(`clips[${i}].leadPad`, c.leadPad),
         ]),
+      );
+    case 'addClip':
+      return firstIssue(
+        num('in', cmd.in),
+        num('duration', cmd.duration),
+        optNum('leadPad', cmd.leadPad),
       );
     case 'addOverlay':
       return overlayIssue('overlay', cmd.overlay);
@@ -552,11 +560,22 @@ function updateClip(
 
   const nextIn = cmd.patch.in ?? clip.in;
   const nextDur = cmd.patch.duration ?? clip.duration;
+  const nextPad = cmd.patch.leadPad ?? clip.leadPad ?? 0;
+  const nextContentDur = nextDur - nextPad;
   if (nextIn < 0) return { ok: false, error: 'in must be >= 0' };
-  if (nextDur < MIN_CLIP_DURATION)
-    return { ok: false, error: `duration must be >= ${MIN_CLIP_DURATION}` };
-  if (nextIn + nextDur > srcDur + 1e-6) {
-    return { ok: false, error: `in+duration (${nextIn + nextDur}) exceeds source ${srcDur}` };
+  if (nextPad < 0) return { ok: false, error: 'leadPad must be >= 0' };
+  if (nextContentDur < MIN_CLIP_DURATION)
+    return {
+      ok: false,
+      error: `content duration (duration − leadPad = ${nextContentDur}) must be >= ${MIN_CLIP_DURATION}`,
+    };
+  // 無 leadPad（pad=0）時這條就是舊式子 `nextIn + nextDur <= srcDur`——換式子不是回歸，
+  // 是把「內容長度」換成「時間軸長度」的正確算法：黑墊段不佔來源時長，不該被算進來源邊界。
+  if (nextIn + nextContentDur > srcDur + 1e-6) {
+    return {
+      ok: false,
+      error: `in+content duration (${nextIn + nextContentDur}) exceeds source ${srcDur}`,
+    };
   }
   if (cmd.patch.volume !== undefined && (cmd.patch.volume < 0 || cmd.patch.volume > 2)) {
     return { ok: false, error: 'volume must be within 0..2' };
@@ -569,6 +588,7 @@ function updateClip(
       if (cmd.patch.duration !== undefined) c.duration = cmd.patch.duration;
       if (cmd.patch.volume !== undefined) c.volume = cmd.patch.volume;
       if (cmd.patch.label !== undefined) c.label = cmd.patch.label;
+      if (cmd.patch.leadPad !== undefined) c.leadPad = cmd.patch.leadPad;
     }),
   );
 }
@@ -621,7 +641,16 @@ function addClip(
   }
   if (cmd.duration <= 0) return { ok: false, error: 'clip duration must be > 0' };
   if (cmd.in < 0) return { ok: false, error: 'clip in must be >= 0' };
-  if (cmd.in + cmd.duration > media.probe.duration + 1e-6) {
+  const leadPad = cmd.leadPad ?? 0;
+  if (leadPad < 0) return { ok: false, error: 'leadPad must be >= 0' };
+  const contentDur = cmd.duration - leadPad;
+  if (contentDur < MIN_CLIP_DURATION) {
+    return {
+      ok: false,
+      error: `content duration (duration − leadPad = ${contentDur}) must be >= ${MIN_CLIP_DURATION}`,
+    };
+  }
+  if (cmd.in + contentDur > media.probe.duration + 1e-6) {
     return { ok: false, error: `clip out of bounds for ${cmd.mediaId}` };
   }
   return ok(
@@ -633,6 +662,7 @@ function addClip(
         duration: cmd.duration,
         volume: 1,
         ...(cmd.label ? { label: cmd.label } : {}),
+        ...(cmd.leadPad ? { leadPad: cmd.leadPad } : {}),
       });
     }),
   );
@@ -658,7 +688,21 @@ function setTimeline(
     if (media.probe.hasVideo === false) {
       return { ok: false, error: `${c.mediaId} is audio-only — put it on the audio track` };
     }
-    if (c.in < 0 || c.duration <= 0 || c.in + c.duration > media.probe.duration + 1e-6) {
+    if (c.in < 0 || c.duration <= 0) {
+      return { ok: false, error: `clip out of bounds for ${c.mediaId}` };
+    }
+    // setTimeline 是整組替換：沒帶 leadPad 就是 0（不沿用舊值——與其他欄位同語意，見
+    // TimelineClipSpec.leadPad 的註解）。
+    const leadPad = c.leadPad ?? 0;
+    if (leadPad < 0) return { ok: false, error: `leadPad must be >= 0 for ${c.mediaId}` };
+    const contentDur = c.duration - leadPad;
+    if (contentDur < MIN_CLIP_DURATION) {
+      return {
+        ok: false,
+        error: `content duration (duration − leadPad = ${contentDur}) must be >= ${MIN_CLIP_DURATION} for ${c.mediaId}`,
+      };
+    }
+    if (c.in + contentDur > media.probe.duration + 1e-6) {
       return { ok: false, error: `clip out of bounds for ${c.mediaId}` };
     }
     if (c.volume !== undefined && (c.volume < 0 || c.volume > 2)) {
@@ -680,6 +724,7 @@ function setTimeline(
         duration: c.duration,
         volume: c.volume ?? 1,
         ...(c.label ? { label: c.label } : {}),
+        ...(c.leadPad ? { leadPad: c.leadPad } : {}),
         ...(c.meta ? { meta: c.meta } : {}),
       }));
     }),
@@ -910,26 +955,40 @@ function updateCaption(
   );
 }
 
-/** 在時間軸絕對時間切開片段（playhead 分割）。切點須嚴格落在片段內部。 */
+/**
+ * 在時間軸絕對時間切開片段（playhead 分割）。切點須嚴格落在片段內部。
+ *
+ * 有 leadPad 時，切點還不能落在黑墊內——左半若切在黑墊內會變成一支「沒有內容」的
+ * clip（純黑墊，不合法，見 VideoClip.leadPad 的裁決）。無 leadPad（pad=0）時
+ * `offset < leadPad + MIN` 就是 `offset < MIN`，與舊式子逐位元組相同。
+ */
 function splitAt(store: ProjectStore, source: MutationSource, time: number): CommandResult {
   const clips = store.doc.tracks.video;
   const hit = clipAt(clips, time);
   if (!hit) return { ok: false, error: `no clip at ${time}s` };
   const clip = clips[hit.index]!;
+  const pad = clip.leadPad ?? 0;
   const left = hit.offset;
   const right = clip.duration - hit.offset;
-  if (left < MIN_CLIP_DURATION || right < MIN_CLIP_DURATION) {
+  if (left < pad + MIN_CLIP_DURATION) {
+    return { ok: false, error: `split point is inside the black lead (${left}s < ${pad}s pad)` };
+  }
+  if (right < MIN_CLIP_DURATION) {
     return { ok: false, error: `split point too close to clip edge (${left}s / ${right}s)` };
   }
   return ok(
     store.mutate(source, `split ${clip.label ?? clip.id}`, (d) => {
       const c = d.tracks.video[hit.index]!;
+      // 左半：保留原本的黑墊（在切點之前，切點必然已經過了黑墊）；
+      // 右半：黑墊清 0——它從「原 clip 黑墊結束後」的來源時間接著畫，沒有自己的黑墊。
+      // 無 leadPad 時 `delete second.leadPad` 是 no-op（本來就沒有這個鍵），逐位元組不變。
       const second: VideoClip = {
         ...c,
         id: nanoid(6),
-        in: c.in + left,
+        in: c.in + (left - pad),
         duration: right,
       };
+      delete second.leadPad;
       c.duration = left;
       d.tracks.video.splice(hit.index + 1, 0, second);
     }),
@@ -939,6 +998,17 @@ function splitAt(store: ProjectStore, source: MutationSource, time: number): Com
 /**
  * 刪除 playhead 一側的畫面（CapCut 的 Q / W）。磁性主軌自動閉合。
  * 只影響影片主軌；overlay/字幕/音訊不動（與 CapCut 同語意）。
+ *
+ * leadPad 語意（無 leadPad 的 clip 全部落在「切點在內容」分支，式子與舊版逐位元組相同）：
+ * - deleteBefore 切點落在黑墊內：只削黑墊本身（`leadPad -= cut`、`duration -= cut`），
+ *   內容完全不動（in 不變）——切掉的是「還沒開始的黑」，不是內容。
+ * - deleteBefore 切點落在內容內：黑墊整段被切掉（黑墊在內容之前），`leadPad = 0`，
+ *   來源起點用 `clipSourceTime` 映射（不是手算 `in + cut`）。殘餘長度改用**內容**殘餘
+ *   跟 MIN_CLIP_DURATION 比。
+ * - deleteAfter 切點落在黑墊內：左半只剩黑墊、沒有任何內容——整支必須刪掉
+ *   （無內容 clip 不合法）。
+ * - deleteAfter 切點落在內容內：`duration` 截斷到切點，`leadPad` 保留不變，
+ *   內容殘餘（`rest − pad`）< MIN 就整支刪。
  */
 function deleteSide(
   store: ProjectStore,
@@ -959,22 +1029,36 @@ function deleteSide(
   clips.forEach((c, i) => {
     const s = starts[i]!;
     const e = s + c.duration;
+    const pad = c.leadPad ?? 0;
     if (side === 'before') {
       if (e <= time) return; // 整段在左側 → 丟掉
       if (s < time) {
-        const cut = time - s; // 片段被切掉的前半
-        const rest = c.duration - cut;
-        if (rest < MIN_CLIP_DURATION) return;
-        kept.push({ ...c, in: c.in + cut, duration: rest });
+        const cut = time - s; // 片段被切掉的前半（clip 內偏移）
+        if (cut < pad) {
+          // 切點在黑墊內：只削黑墊，內容完全不動。
+          const nextPad = pad - cut;
+          const nextDur = c.duration - cut;
+          kept.push({ ...c, duration: nextDur, ...(nextPad > 0 ? { leadPad: nextPad } : {}) });
+          return;
+        }
+        // 切點在內容內：黑墊整段被切掉（黑墊必然在內容之前）。
+        const nextIn = clipSourceTime(c, cut)!; // cut >= pad，必定有值
+        const nextDur = c.duration - cut; // leadPad 歸零後 duration === 內容長度
+        if (nextDur < MIN_CLIP_DURATION) return;
+        const next = { ...c, in: nextIn, duration: nextDur };
+        delete next.leadPad;
+        kept.push(next);
         return;
       }
       kept.push(c);
     } else {
       if (s >= time) return; // 整段在右側 → 丟掉
       if (e > time) {
-        const rest = time - s;
-        if (rest < MIN_CLIP_DURATION) return;
-        kept.push({ ...c, duration: rest });
+        const rest = time - s; // 保留到切點的長度（clip 內偏移，含黑墊）
+        if (rest <= pad) return; // 切點在黑墊內：左半沒有任何內容 → 整支刪
+        const contentRest = rest - pad;
+        if (contentRest < MIN_CLIP_DURATION) return;
+        kept.push({ ...c, duration: rest }); // leadPad 不變：黑墊仍在開頭，內容被截短
         return;
       }
       kept.push(c);
@@ -992,7 +1076,10 @@ function deleteSide(
   );
 }
 
-/** 在 time 處插入一段定格幀（畫面凍結，渲染時抽單幀成靜圖）。 */
+/**
+ * 在 time 處插入一段定格幀（畫面凍結，渲染時抽單幀成靜圖）。
+ * time 落在黑墊內 → 拒絕（黑墊沒有對應的來源畫面可以凍結，措辭同 splitAt）。
+ */
 function freezeFrame(
   store: ProjectStore,
   source: MutationSource,
@@ -1004,7 +1091,14 @@ function freezeFrame(
   const hit = clipAt(clips, time);
   if (!hit) return { ok: false, error: `no clip at ${time}s` };
   const clip = clips[hit.index]!;
-  const atSource = clip.in + hit.offset; // 要凍結的來源時間點
+  const atSource = clipSourceTime(clip, hit.offset); // 要凍結的來源時間點
+  if (atSource === null) {
+    const pad = clip.leadPad ?? 0;
+    return {
+      ok: false,
+      error: `freeze point is inside the black lead (${hit.offset}s < ${pad}s pad)`,
+    };
+  }
 
   return ok(
     store.mutate(source, `freeze frame @${time.toFixed(2)}s`, (d) => {
@@ -1025,13 +1119,15 @@ function freezeFrame(
         // 貼在片段結尾 → 插在它後面
         d.tracks.video.splice(hit.index + 1, 0, frozen);
       } else {
-        // 中間 → 切成兩段，定格插在中間
+        // 中間 → 切成兩段，定格插在中間。黑墊（若有）整段留在前半——同 splitAt，
+        // 後半的來源起點用 clipSourceTime 映射、leadPad 清 0。
         const second: VideoClip = {
           ...clip,
           id: nanoid(6),
-          in: clip.in + hit.offset,
+          in: atSource,
           duration: clip.duration - hit.offset,
         };
+        delete second.leadPad;
         c.duration = hit.offset;
         d.tracks.video.splice(hit.index + 1, 0, frozen, second);
       }
@@ -1042,6 +1138,9 @@ function freezeFrame(
 /**
  * 把片段的聲音抽成獨立音訊項（片段轉靜音），之後可單獨調音量/淡化/刪除。
  * 音訊項用絕對時間，抽出後不跟隨片段搬動（與 CapCut 同語意）。
+ *
+ * 黑墊段本來就無聲，不屬於抽出範圍：`start` 往後移 `leadPad`、`duration` 用內容長度
+ * （`clipContentDuration`）——無 leadPad 時 `leadPad=0`，兩者都與舊式子逐位元組相同。
  */
 function extractAudio(store: ProjectStore, source: MutationSource, clipId: string): CommandResult {
   const clips = store.doc.tracks.video;
@@ -1051,16 +1150,17 @@ function extractAudio(store: ProjectStore, source: MutationSource, clipId: strin
   const media = store.doc.media.find((m) => m.id === clip.mediaId);
   if (!media) return { ok: false, error: `media not found: ${clip.mediaId}` };
   if (!media.probe.hasAudio) return { ok: false, error: 'clip has no audio to extract' };
-  const start = startsOf(clips)[index]!;
+  const clipStart = startsOf(clips)[index]!;
+  const pad = clip.leadPad ?? 0;
 
   return ok(
     store.mutate(source, `extract audio from ${clip.label ?? clip.id}`, (d) => {
       d.tracks.audio.push({
         id: nanoid(6),
         mediaId: clip.mediaId,
-        start,
+        start: clipStart + pad,
         in: clip.in,
-        duration: clip.duration,
+        duration: clipContentDuration(clip),
         volume: clip.volume || 1,
         label: `🔊 ${clip.label ?? clip.id}`,
       });
