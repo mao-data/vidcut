@@ -468,6 +468,85 @@ describe('add_clip', () => {
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/stale/);
   });
+
+  it('帶 leadPad：黑墊落進新 clip，且沒有轉發漏字（曾經只在 schema 加了欄位卻沒接進 cmd）', async () => {
+    const r = await call('add_clip', { mediaId, in: 0, duration: 3, leadPad: 1 });
+    expect(r.isError ?? false).toBe(false);
+    const sc = r.structuredContent as { clipId: string };
+    const clip = store.doc.tracks.video.find((c) => c.id === sc.clipId);
+    expect(clip?.leadPad).toBe(1);
+  });
+});
+
+/**
+ * Plan 14 Task 5：MCP 工具面曝光 leadPad（前把手黑墊，秒，duration 含墊、
+ * 內容長度 = duration − leadPad）。命令層驗證早在 Task 1 落地（commands.ts），
+ * 這裡只釘「MCP 這一層真的把欄位轉發進去、真的擋住非法值」。
+ */
+describe('leadPad（Plan 14 Task 5）', () => {
+  it('update_clip 帶 leadPad 成功寫入', async () => {
+    const clipId = store.doc.tracks.video[0]!.id;
+    const r = await call('update_clip', { clipId, patch: { leadPad: 1.5 } });
+    expect(r.isError ?? false).toBe(false);
+    expect(store.doc.tracks.video[0]!.leadPad).toBe(1.5);
+  });
+
+  it('update_clip 的 leadPad 使內容長度低於下限時被拒（0.1s），文件不變', async () => {
+    // beforeAll 的第一個 clip duration=3；leadPad=2.95 → 內容長度僅 0.05s < MIN_CLIP_DURATION
+    const clipId = store.doc.tracks.video[0]!.id;
+    const before = structuredClone(store.doc.tracks.video[0]!);
+    const r = await call('update_clip', { clipId, patch: { leadPad: 2.95 } });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/content duration/);
+    expect(store.doc.tracks.video[0]).toEqual(before);
+  });
+
+  it('update_clip 的 leadPad 為負數被拒', async () => {
+    const clipId = store.doc.tracks.video[0]!.id;
+    const r = await call('update_clip', { clipId, patch: { leadPad: -1 } });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/leadPad must be >= 0/);
+  });
+
+  it('set_timeline 不帶 leadPad 時歸零——既有 clip 的墊會被洗掉（整組替換的既定語意，非沿用）', async () => {
+    // 先讓第一個 clip 帶上黑墊
+    const clipId = store.doc.tracks.video[0]!.id;
+    await call('update_clip', { clipId, patch: { leadPad: 1 } });
+    expect(store.doc.tracks.video[0]!.leadPad).toBe(1);
+
+    // 整組重送，spec 裡完全不帶 leadPad
+    const spec = store.doc.tracks.video.map((c) => ({
+      mediaId: c.mediaId,
+      in: c.in,
+      duration: c.duration,
+    }));
+    const r = await call('set_timeline', { clips: spec });
+    expect(r.isError ?? false).toBe(false);
+    for (const c of store.doc.tracks.video) expect(c.leadPad).toBeUndefined();
+  });
+
+  it('set_timeline 帶 leadPad 能設定，且內容長度不足時整批拒絕、文件不變', async () => {
+    const before = structuredClone(store.doc.tracks.video);
+    const r = await call('set_timeline', {
+      clips: [{ mediaId, in: 0, duration: 2, leadPad: 1.95 }],
+    });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/content duration/);
+    expect(store.doc.tracks.video).toEqual(before);
+  });
+
+  it('get_project 摘要：leadPad>0 才曝光，=0/缺席不帶（與既有可選欄位慣例一致）', async () => {
+    const padId = store.doc.tracks.video[0]!.id;
+    const plainId = store.doc.tracks.video[1]!.id;
+    await call('update_clip', { clipId: padId, patch: { leadPad: 0.5 } });
+
+    const r = await call('get_project', {});
+    const clips = (r.structuredContent as { clips: Array<Record<string, unknown>> }).clips;
+    const padClip = clips.find((c) => c.id === padId)!;
+    const plainClip = clips.find((c) => c.id === plainId)!;
+    expect(padClip.leadPad).toBe(0.5);
+    expect(plainClip.leadPad).toBeUndefined();
+  });
 });
 
 /**
