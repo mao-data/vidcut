@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { outputDuration } from '@vidcut/shared';
 import { render, renderCoverImage } from '../src/render.js';
 import { extractFrame } from '../src/frame.js';
 import { ProjectStore } from '../src/store.js';
@@ -256,6 +257,103 @@ describe('render leadPad 黑墊落地（Plan 14 Task 2，真 ffmpeg）', () => {
     expect(info.duration).toBeGreaterThan(0.85);
     expect(info.duration).toBeLessThan(1.15);
   }, 120_000);
+
+  // 終審 Minor-3(a)：fit=blur 路徑的 per-clip tpad 專測。靜態核對過 blur 分支最後 push
+  // 的那行同樣以 `,setpts=PTS-STARTPTS[v${i}]` 結尾，`replace` 理應命中——但這是靠字串
+  // 尾端的巧合，日後有人在 blur 鏈尾 `setpts` 之後再插一個濾鏡，`replace` 會靜默落空、
+  // blur+黑墊的成品少了黑墊且總長縮短，且不會有任何測試變紅。這裡直接量真輸出釘住。
+  it('fit=blur 時 leadPad 黑墊照常補上：黑墊段抽幀近黑、容器總長含墊、內容段非黑', async () => {
+    const dir = await tmpDir('vidcut-leadpad-blur-');
+    await makeVideo(dir, 'v.mp4', { duration: 4, withAudio: true });
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    store.mutate('ai', 'seed', (d) => {
+      d.canvas = { width: 320, height: 568, fps: 30, fit: 'blur' };
+      d.media = [
+        {
+          id: 'mv',
+          path: 'v.mp4',
+          probe: { duration: 4, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+        },
+      ];
+      // 同「基本黑墊」case 的幾何：時間軸 0-3s、leadPad 1s → 黑墊 [0,1)，內容 [1,3)
+      d.tracks.video = [{ id: 'c1', mediaId: 'mv', in: 0, duration: 3, leadPad: 1, volume: 1 }];
+    });
+
+    const res = await render(store, dir, 'leadpad-blur');
+    const outAbs = join(dir, res.outPath);
+    const info = await probe(outAbs);
+
+    // 容器總時長＝時間軸長度（黑墊也計時）——若 tpad 沒插入（replace 落空），blur 分支
+    // 的 input 只吃了內容 2s，總長會縮短到 ~2s 而非 ~3s，這條斷言會抓到。
+    expect(info.duration).toBeGreaterThan(2.85);
+    expect(info.duration).toBeLessThan(3.15);
+
+    // 黑墊區間（0-1s）抽幀近乎全黑——blur 分支若漏插 tpad，這裡會被 concat 出的
+    // 內容畫面（testsrc2 經過模糊放大合成，同樣不是全黑）填滿，斷言落空。
+    const padBrightness = await meanBrightnessAt(outAbs, 0.5, dir, 'leadpad-blur-pad-frame');
+    expect(padBrightness).toBeLessThan(10);
+
+    // 內容區間（1-3s）在 blur 合成之後仍是非黑畫面
+    const contentBrightness = await meanBrightnessAt(outAbs, 2, dir, 'leadpad-blur-content-frame');
+    expect(contentBrightness).toBeGreaterThan(30);
+  }, 180_000);
+
+  // 終審 Minor-3(b)：leadPad（per-clip、concat 之前的 start_mode tpad）與 Plan 13 黑尾
+  // （[vcat] 之後、concat 之後的 stop_mode tpad）並存。兩個插入點物理隔離（見上面
+  // render.ts 的註解），這裡直接驗總長 = outputDuration，且兩段黑分別對應各自的成因：
+  // clip 自己的黑墊（時間軸前段）與超出主軌總長的黑尾（時間軸後段，caption 撐開）。
+  it('leadPad 黑墊與 Plan 13 黑尾並存：總長=outputDuration，兩段黑互不干擾、內容段仍正常', async () => {
+    const dir = await tmpDir('vidcut-leadpad-blacktail-');
+    await makeVideo(dir, 'v.mp4', { duration: 4, withAudio: true });
+    const store = await ProjectStore.load(join(dir, 'project.json'));
+    store.mutate('ai', 'seed', (d) => {
+      d.canvas = { width: 320, height: 568, fps: 30 };
+      d.media = [
+        {
+          id: 'mv',
+          path: 'v.mp4',
+          probe: { duration: 4, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
+        },
+      ];
+      // 主軌單一 clip：時間軸 0-3s、leadPad 1s → 黑墊 [0,1)，內容 [1,3)，主軌總長 3s。
+      d.tracks.video = [{ id: 'c1', mediaId: 'mv', in: 0, duration: 3, leadPad: 1, volume: 1 }];
+      // caption 從 1.2s 開始、播 3.8s → 結束於 5s（超過主軌總長 3s）→ outputDuration = 5，
+      // 黑尾區間 (3,5]。
+      d.tracks.captions = [
+        {
+          id: 'cap1',
+          text: 'hi',
+          start: 1.2,
+          duration: 3.8,
+          style: { fontFamily: 'sans-serif', fontSize: 64, fill: '#ffffff', y: 0.5 },
+        },
+      ];
+    });
+    const expectedOutput = outputDuration(store.doc);
+    expect(expectedOutput).toBeGreaterThan(4.5); // 確認黑尾真的被觸發（否則這支測試沒測到東西）
+
+    const res = await render(store, dir, 'leadpad-blacktail');
+    const outAbs = join(dir, res.outPath);
+    const info = await probe(outAbs);
+
+    // 容器總時長 = outputDuration（黑墊 + 主軌內容 + 黑尾都算進去）
+    expect(info.duration).toBeGreaterThan(expectedOutput - 0.15);
+    expect(info.duration).toBeLessThan(expectedOutput + 0.15);
+
+    // 黑墊段（clip 自己的 tpad，時間軸 0-1s）近乎全黑
+    const padBrightness = await meanBrightnessAt(outAbs, 0.5, dir, 'leadpad-tail-pad-frame');
+    expect(padBrightness).toBeLessThan(10);
+
+    // 內容段（時間軸 1-3s）非黑——字幕疊在上面，但整幀 8x8 平均仍應遠高於純黑底
+    const contentBrightness = await meanBrightnessAt(outAbs, 2, dir, 'leadpad-tail-content-frame');
+    expect(contentBrightness).toBeGreaterThan(30);
+
+    // 黑尾段（[vcat] 之後的 tpad，時間軸 3s 之後、outputDuration 之前）——字幕仍延伸到
+    // 這裡（enable 視窗到 5s），該時刻不是純黑，證明黑墊與黑尾兩個插入點互不干擾、
+    // 字幕照常疊在黑尾底上（同 Plan 13 黑尾整合測試「caption 延伸到黑尾」case 的精神）。
+    const tailBrightness = await meanBrightnessAt(outAbs, 4, dir, 'leadpad-tail-tail-frame');
+    expect(tailBrightness).toBeGreaterThan(0);
+  }, 180_000);
 });
 
 describe('extractFrame / renderCoverImage：黑墊回黑幀（Plan 14 Task 2）', () => {

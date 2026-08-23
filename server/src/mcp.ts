@@ -1002,8 +1002,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     {
       description:
         "Change one clip's in/duration/volume/label/leadPad (its position in the main track is untouched). " +
-        'Bounds are checked against the **post-patch** shape: in >= 0, duration >= 0.1s, in+duration must not exceed ' +
-        'the source length, volume within 0–2. ' +
+        'Bounds are checked against the **post-patch** shape: in >= 0, duration >= 0.1s, ' +
+        'in + (duration − leadPad) must not exceed the source length, volume within 0–2. ' +
         "leadPad puts a black, silent lead before the clip's content — duration is unchanged and already includes " +
         'it, so content length = duration − leadPad, which must still be >= 0.1s with in + content length not ' +
         'exceeding the source length; omitting leadPad in the patch leaves the current value alone (unlike ' +

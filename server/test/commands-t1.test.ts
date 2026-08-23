@@ -307,6 +307,62 @@ describe('updateClip：leadPad 邊界（Plan 14 Task 1）', () => {
     });
     expect(r2.ok).toBe(false);
   });
+
+  // 終審 Info-1：顯式送 leadPad:0（例如 UI 的 trim-out、或吸附回 0 的 trim-in）不該
+  // 在 project.json 落盤成顯式 `"leadPad": 0`——收斂到 addClip/setTimeline/splitAt/
+  // deleteBefore 共用的省略式慣例：>0 才寫鍵，否則整個鍵消失。
+  it('顯式送 leadPad:0：清除既有黑墊，落盤後鍵完全消失（不是留下 leadPad:0）', async () => {
+    const store = await seededWithPad(); // p1 現有 leadPad=2
+    const r = applyCommand(store, 'human', {
+      name: 'updateClip',
+      clipId: 'p1',
+      patch: { leadPad: 0 },
+    });
+    expect(r.ok).toBe(true);
+    const c = store.doc.tracks.video[0]!;
+    expect(c.leadPad).toBeUndefined();
+    expect(Object.hasOwn(c, 'leadPad')).toBe(false);
+  });
+
+  it('本來沒有 leadPad 的 clip 送 leadPad:0：仍然不落盤這個鍵（no-op 之於形狀）', async () => {
+    const store = await seeded(); // c1 無 leadPad
+    const r = applyCommand(store, 'human', {
+      name: 'updateClip',
+      clipId: 'c1',
+      patch: { leadPad: 0 },
+    });
+    expect(r.ok).toBe(true);
+    const c = store.doc.tracks.video[0]!;
+    expect(Object.hasOwn(c, 'leadPad')).toBe(false);
+  });
+
+  it('送正的 leadPad 仍正常落盤（回歸：省略式改動不影響 >0 的既有路徑）', async () => {
+    const store = await seeded(); // c1 無 leadPad
+    const r = applyCommand(store, 'human', {
+      name: 'updateClip',
+      clipId: 'c1',
+      patch: { leadPad: 1.5 },
+    });
+    expect(r.ok).toBe(true);
+    expect(store.doc.tracks.video[0]!.leadPad).toBe(1.5);
+  });
+
+  it('省略式落盤不影響 undo/redo 可逆性：送 0 清除黑墊可 undo 回舊值、redo 回清除後狀態', async () => {
+    const store = await seededWithPad(); // p1 現有 leadPad=2
+    const r = applyCommand(store, 'human', {
+      name: 'updateClip',
+      clipId: 'p1',
+      patch: { leadPad: 0 },
+    });
+    expect(r.ok).toBe(true);
+    expect(Object.hasOwn(store.doc.tracks.video[0]!, 'leadPad')).toBe(false);
+
+    expect(store.undo('human')).not.toBeNull();
+    expect(store.doc.tracks.video[0]!.leadPad).toBe(2); // 還原成刪鍵之前的值
+
+    expect(store.redo('human')).not.toBeNull();
+    expect(Object.hasOwn(store.doc.tracks.video[0]!, 'leadPad')).toBe(false); // 鍵再次消失
+  });
 });
 
 describe('addClip：leadPad（Plan 14 Task 1）', () => {
@@ -608,6 +664,54 @@ describe('freezeFrame：黑墊（Plan 14 Task 1）', () => {
     const v = store.doc.tracks.video;
     expect(v[1]).toMatchObject({ frozen: true, in: 2, duration: 1.5, volume: 0 });
     expect(v[2]).toMatchObject({ in: 2, duration: 2 });
+    expect(v[2]!.leadPad).toBeUndefined();
+  });
+
+  // 終審 Important-1：中段分支曾經沒守左半內容長下限——time 落在 [pad, pad+MIN) 時
+  // `atSource !== null`（守門放行），但左半內容長 < MIN_CLIP_DURATION（甚至 0），
+  // 產生一支之後任何 updateClip 都會被擋下的死 clip。三個等號邊界都要釘住。
+  it('time 恰好在黑墊邊界（offset === pad）：內容長 0，不能落在中段分支，插在片段前面且不切原片段', async () => {
+    const store = await seededWithPad(); // p1: in=3, duration=6, leadPad=2
+    const r = applyCommand(store, 'human', { name: 'freezeFrame', time: 2, duration: 1 });
+    expect(r.ok).toBe(true);
+    const v = store.doc.tracks.video;
+    expect(v).toHaveLength(2);
+    expect(v[0]).toMatchObject({ frozen: true, in: 3, duration: 1 }); // atSource=clipSourceTime(2)=3
+    // 原片段完整保留（沒有被切成內容長 0 的死 clip）
+    expect(v[1]).toMatchObject({ id: 'p1', in: 3, leadPad: 2, duration: 6 });
+  });
+
+  it('time 落在 (pad, pad+MIN) 區間（offset=2.05）：內容長 0.05 < MIN，仍插在片段前面而非中段切割', async () => {
+    const store = await seededWithPad(); // p1: in=3, duration=6, leadPad=2
+    const r = applyCommand(store, 'human', { name: 'freezeFrame', time: 2.05, duration: 1 });
+    expect(r.ok).toBe(true);
+    const v = store.doc.tracks.video;
+    expect(v).toHaveLength(2);
+    expect(v[0]).toMatchObject({ frozen: true, duration: 1 });
+    // 原片段完整保留，沒有被切出一支內容長 0.05s（< MIN_CLIP_DURATION）的死 clip
+    expect(v[1]).toMatchObject({ id: 'p1', in: 3, leadPad: 2, duration: 6 });
+  });
+
+  it('time 恰好 = pad + MIN（offset=2.1）：內容長剛好等於 MIN，通過並正常中段切割', async () => {
+    const store = await seededWithPad(); // p1: in=3, duration=6, leadPad=2
+    const r = applyCommand(store, 'human', { name: 'freezeFrame', time: 2.1, duration: 1 });
+    expect(r.ok).toBe(true);
+    const v = store.doc.tracks.video;
+    // 中段分支：原片段被切成兩段 + 定格插在中間 = 3 段
+    expect(v).toHaveLength(3);
+    expect(v[0]).toMatchObject({ id: 'p1', in: 3, leadPad: 2, duration: 2.1 }); // 左半內容長=0.1=MIN
+    expect(v[1]).toMatchObject({ frozen: true, duration: 1 });
+    expect(v[2]!.leadPad).toBeUndefined(); // 右半清 0
+  });
+
+  it('回歸：offset=4（原本就綠的深在內容內 case）仍走中段分支、行為不變', async () => {
+    const store = await seededWithPad(); // in=3, leadPad=2
+    const r = applyCommand(store, 'human', { name: 'freezeFrame', time: 4, duration: 1 });
+    expect(r.ok).toBe(true);
+    const v = store.doc.tracks.video;
+    expect(v).toHaveLength(3);
+    expect(v[0]).toMatchObject({ id: 'p1', leadPad: 2, duration: 4 });
+    expect(v[1]).toMatchObject({ frozen: true, in: 5, duration: 1 });
     expect(v[2]!.leadPad).toBeUndefined();
   });
 });

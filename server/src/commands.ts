@@ -588,7 +588,14 @@ function updateClip(
       if (cmd.patch.duration !== undefined) c.duration = cmd.patch.duration;
       if (cmd.patch.volume !== undefined) c.volume = cmd.patch.volume;
       if (cmd.patch.label !== undefined) c.label = cmd.patch.label;
-      if (cmd.patch.leadPad !== undefined) c.leadPad = cmd.patch.leadPad;
+      // 終審 Info-1：收斂到 addClip/setTimeline/splitAt/deleteBefore 共用的省略式慣例
+      // ——leadPad<=0 就 delete 鍵，不落盤顯式 `leadPad: 0`。patch 語意不變：省略
+      // `cmd.patch.leadPad`（undefined）仍是「不動」；顯式送 0 是「清除黑墊」，
+      // 落盤後 `leadPad` 鍵消失，讀取端 `?? 0` 與省略時逐位元組相同。
+      if (cmd.patch.leadPad !== undefined) {
+        if (cmd.patch.leadPad > 0) c.leadPad = cmd.patch.leadPad;
+        else delete c.leadPad;
+      }
     }),
   );
 }
@@ -1079,6 +1086,15 @@ function deleteSide(
 /**
  * 在 time 處插入一段定格幀（畫面凍結，渲染時抽單幀成靜圖）。
  * time 落在黑墊內 → 拒絕（黑墊沒有對應的來源畫面可以凍結，措辭同 splitAt）。
+ *
+ * 終審 Important-1：只擋「切點在黑墊內」（`atSource === null`）還不夠——中段分支會把
+ * 左半保留原 `leadPad`、`duration` 設成 `hit.offset`，若 `hit.offset` 落在
+ * `[pad, pad+MIN)`，左半內容長 `hit.offset - pad` 會 < MIN_CLIP_DURATION（甚至為 0，
+ * 純黑墊、零內容），卻沒有守門擋下——之後任何 updateClip 都會被 :567 的內容長驗證
+ * 擋下，變成改不動的死 clip。修法：把「貼在開頭、不切」分支的進入條件從
+ * `hit.offset < MIN` 擴充成 `hit.offset < pad + MIN`——語意上也合理，左半內容還沒
+ * 累積到 MIN，定格就該插在整支片段之前，不留下一個近乎空的左半。
+ * 無 leadPad（pad=0）時 `pad + MIN === MIN`，與舊式子逐位元組相同。
  */
 function freezeFrame(
   store: ProjectStore,
@@ -1091,9 +1107,9 @@ function freezeFrame(
   const hit = clipAt(clips, time);
   if (!hit) return { ok: false, error: `no clip at ${time}s` };
   const clip = clips[hit.index]!;
+  const pad = clip.leadPad ?? 0;
   const atSource = clipSourceTime(clip, hit.offset); // 要凍結的來源時間點
   if (atSource === null) {
-    const pad = clip.leadPad ?? 0;
     return {
       ok: false,
       error: `freeze point is inside the black lead (${hit.offset}s < ${pad}s pad)`,
@@ -1112,15 +1128,17 @@ function freezeFrame(
         label: `❄ ${clip.label ?? clip.id}`,
       };
       const c = d.tracks.video[hit.index]!;
-      if (hit.offset < MIN_CLIP_DURATION) {
-        // 貼在片段開頭 → 直接插在它前面，不切
+      if (hit.offset < pad + MIN_CLIP_DURATION) {
+        // 貼在片段開頭 → 直接插在它前面，不切。含黑墊情形：左半內容還不到 MIN
+        // （終審 Important-1），與其產生一支近乎空的左半，不如視同「內容還沒開始」。
         d.tracks.video.splice(hit.index, 0, frozen);
       } else if (clip.duration - hit.offset < MIN_CLIP_DURATION) {
         // 貼在片段結尾 → 插在它後面
         d.tracks.video.splice(hit.index + 1, 0, frozen);
       } else {
         // 中間 → 切成兩段，定格插在中間。黑墊（若有）整段留在前半——同 splitAt，
-        // 後半的來源起點用 clipSourceTime 映射、leadPad 清 0。
+        // 後半的來源起點用 clipSourceTime 映射、leadPad 清 0。左半內容長已由上面的
+        // `hit.offset < pad + MIN` 分支排除過短情形，這裡必定 ≥ MIN。
         const second: VideoClip = {
           ...clip,
           id: nanoid(6),

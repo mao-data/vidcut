@@ -1151,6 +1151,11 @@ export function Timeline() {
       // Plan 14 Task 4：一併送 leadPad——trim-out 不動 pad，`d.preview.leadPad` 沿用
       // onTrimStart 灌進去的原值（見其定義處，onTrimStart 用 `{ ...clip }` 起始
       // preview，所以 trim-out 手勢全程沒動過這個欄位）；trim-in 由本次拖曳算出。
+      // 終審 fix wave Info-1：這裡**必須**顯式送 leadPad（含 0）——updateClip 的 patch
+      // 語意是「省略＝不動」，若拖曳把黑墊縮回 0（snappedAtZero 分支）卻省略這個欄位，
+      // server 會沿用舊的 leadPad>0，黑墊縮不掉（Info-1 討論過的「UI 端只在 >0 才帶」
+      // 修法會壞掉這個功能，故裁定不採，改在 server 端 commands.ts 收斂成省略式落盤：
+      // 顯式 0 照樣落地，只是落地後不是顯式 `leadPad:0` 而是刪鍵）。
       const inSec = Number(d.preview.in.toFixed(3));
       const duration = Number(d.preview.duration.toFixed(3));
       const leadPad = Number((d.preview.leadPad ?? 0).toFixed(3));
