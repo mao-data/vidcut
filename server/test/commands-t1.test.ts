@@ -426,6 +426,22 @@ describe('addClip：leadPad（Plan 14 Task 1）', () => {
     expect(store.doc.tracks.video[0]!.leadPad).toBeUndefined();
     expect(Object.hasOwn(store.doc.tracks.video[0]!, 'leadPad')).toBe(false);
   });
+
+  // gauntlet fix：舊守門 `cmd.duration <= 0` 已刪（冗餘，被下面這條內容長下限完全
+  // 涵蓋）。這裡專門釘「in 合法、無 leadPad、duration 是正數但過短」——不靠 duration=0
+  // 這種同時也會撞上其他條件的邊界值，判別性地確認內容長下限本身在擋，而不是某個
+  // 剛好同時成立的別的守門。
+  it('無 leadPad、duration=0.05（正數但 < MIN_CLIP_DURATION）：被內容長下限拒絕', async () => {
+    const store = await storeWithMedia();
+    const r = applyCommand(store, 'human', {
+      name: 'addClip',
+      mediaId: 'm1',
+      in: 3,
+      duration: 0.05,
+    });
+    expect(r.ok).toBe(false);
+    expect(store.doc.tracks.video).toHaveLength(0);
+  });
 });
 
 describe('setTimeline：leadPad pass-through 與「沒帶＝0」語意（Plan 14 Task 1）', () => {

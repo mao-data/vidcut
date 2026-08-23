@@ -646,7 +646,6 @@ function addClip(
   if (media.probe.hasVideo === false) {
     return { ok: false, error: `${cmd.mediaId} is audio-only — put it on the audio track` };
   }
-  if (cmd.duration <= 0) return { ok: false, error: 'clip duration must be > 0' };
   if (cmd.in < 0) return { ok: false, error: 'clip in must be >= 0' };
   const leadPad = cmd.leadPad ?? 0;
   if (leadPad < 0) return { ok: false, error: 'leadPad must be >= 0' };

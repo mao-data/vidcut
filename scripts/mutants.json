@@ -427,18 +427,18 @@
   {
     "id": "addclip-bounds",
     "file": "server/src/commands.ts",
-    "find": "if (cmd.in + cmd.duration > media.probe.duration + 1e-6) {",
+    "find": "if (cmd.in + contentDur > media.probe.duration + 1e-6) {",
     "replace": "if (false) {",
     "tests": "server/test/commands.test.ts",
-    "note": "不檢查超界 → in+duration 超出素材長度的斷言必須抓到"
+    "note": "不檢查超界 → in+content 長度超出素材長度的斷言必須抓到（Plan 14 leadPad：錨點從舊式 in+duration 換成 in+contentDur，字面已改）"
   },
   {
     "id": "addclip-duration",
     "file": "server/src/commands.ts",
-    "find": "if (cmd.duration <= 0) return { ok: false, error: 'clip duration must be > 0' };",
-    "replace": "",
-    "tests": "server/test/commands.test.ts",
-    "note": "允許 duration=0 → 零長度斷言必須抓到"
+    "find": "if (contentDur < MIN_CLIP_DURATION) {\n    return {\n      ok: false,\n      error: `content duration (duration − leadPad = ${contentDur}) must be >= ${MIN_CLIP_DURATION}`,\n    };\n  }",
+    "replace": "if (false) {\n    return {\n      ok: false,\n      error: `content duration (duration − leadPad = ${contentDur}) must be >= ${MIN_CLIP_DURATION}`,\n    };\n  }",
+    "tests": "server/test/commands-t1.test.ts",
+    "note": "Plan 14 gauntlet fix：舊守門 `cmd.duration <= 0` 已刪（被這條內容長下限完全涵蓋，duration<=0 時 contentDur=duration-leadPad<=0<MIN 照樣拒，前者是冗餘死碼）。改盯這條真正的守門——內容長 < MIN_CLIP_DURATION 必須被拒，過短內容（含無 leadPad 的 duration=0.05 case）的斷言必須抓到"
   },
   {
     "id": "scan-hidden",
