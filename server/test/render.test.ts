@@ -377,6 +377,73 @@ describe('黑尾（Plan 13 Task 2）', () => {
 });
 
 /**
+ * leadPad 前把手黑墊落地成品（Plan 14 Task 2）：per-clip input 只吃內容長度、
+ * per-clip 影片鏈補 tpad(start_mode) 把黑墊墊回去、per-clip 音訊補 adelay 前置靜音。
+ * ⚠️ 這是 **per-clip、start_mode** 的 tpad，插在每個 clip 自己的 `fps=,setpts=` 之後、
+ * `[v${i}]` 標籤之前——跟 concat 之後 `[vcat]` 的 stop_mode 黑尾（Plan 13 裁決 2）、
+ * 商業線轉場的 tpad clone 都不是同一個插入點，三者互不相干。
+ * 「無 leadPad 時位元組級不變」由上面「無黑尾時 buildRenderArgs 位元組級不變」那條
+ * 既有測試守著——demoLikeProject 的兩個 clip 都沒有 leadPad，同一條 pin 涵蓋了
+ * 這個 Task 新加的三處改動（input trim / tpad / adelay）全部不觸發的情形。
+ */
+describe('leadPad 前把手黑墊（Plan 14 Task 2）', () => {
+  function paddedProject(): Project {
+    const p = demoLikeProject();
+    p.tracks.overlays = []; // 不需要 overlay 干擾這裡的斷言
+    p.tracks.video[0]!.leadPad = 1; // c1: in=1, duration=3, leadPad=1 → 內容長度 2
+    return p;
+  }
+
+  it('per-clip input 的 -t 用內容長度（duration − leadPad），不是時間軸長度', () => {
+    const plan = buildRenderArgs(paddedProject(), '/proj', '/proj/out.mp4', {});
+    // c1 原本 -ss 1 -t 3；有 leadPad=1 之後 -t 改成內容長度 2（-ss 不變，仍是來源 in）
+    const iIdx = plan.args.indexOf('-i');
+    expect(plan.args.slice(iIdx - 4, iIdx + 1)).toEqual(['-ss', '1', '-t', '2', '-i']);
+  });
+
+  it('per-clip 影片鏈在 fps=,setpts= 之後插 tpad(start_mode)，緊接著才是 [v0] 標籤', () => {
+    const plan = buildRenderArgs(paddedProject(), '/proj', '/proj/out.mp4', {});
+    const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    expect(fc).toContain(
+      'fps=30,setpts=PTS-STARTPTS,tpad=start_mode=add:start_duration=1:color=black[v0]',
+    );
+    // 沒有 leadPad 的 c2 不受影響，維持原樣（沒有 tpad）
+    expect(fc).toContain(
+      '[1:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,setpts=PTS-STARTPTS[v1]',
+    );
+  });
+
+  it('per-clip 音訊在 aresample 之後補 adelay，前置靜音長度＝leadPad（毫秒）', () => {
+    const plan = buildRenderArgs(paddedProject(), '/proj', '/proj/out.mp4', {});
+    const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    expect(fc).toContain(
+      '[0:a]volume=1,asetpts=PTS-STARTPTS,aresample=44100,adelay=1000.000|1000.000[a0]',
+    );
+    // 沒有 leadPad 的 c2 音訊鏈不受影響（c2 在 demoLikeProject 裡是無聲素材，走 anullsrc，
+    // d= 用的本來就是時間軸長度，這條路徑本來就與 leadPad 無關，見 buildRenderArgs 註解）
+    expect(fc).toContain('anullsrc=channel_layout=stereo:sample_rate=44100:d=2[a1]');
+  });
+
+  it('frozen clip 帶 leadPad：黑墊之後才開始定格畫面，input -t 與 tpad 同步套用', () => {
+    const p = demoLikeProject();
+    p.tracks.overlays = [];
+    p.tracks.video = [
+      { id: 'f1', mediaId: 'm1', in: 2, duration: 4, leadPad: 1.5, frozen: true, volume: 0 },
+    ];
+    const plan = buildRenderArgs(p, '/proj', '/proj/out.mp4', {});
+    // frozen input：-loop 1 -t (4-1.5=2.5) -i <定格幀路徑>
+    const iIdx = plan.args.indexOf('-i');
+    expect(plan.args.slice(iIdx - 4, iIdx + 1)).toEqual(['-loop', '1', '-t', '2.5', '-i']);
+    const fc = plan.args[plan.args.indexOf('-filter_complex') + 1]!;
+    expect(fc).toContain(
+      'fps=30,setpts=PTS-STARTPTS,tpad=start_mode=add:start_duration=1.5:color=black[v0]',
+    );
+    // frozen 無聲：anullsrc 的 d= 仍是時間軸長度（含黑墊），不受這個 Task 影響
+    expect(fc).toContain('anullsrc=channel_layout=stereo:sample_rate=44100:d=4[a0]');
+  });
+});
+
+/**
  * `stamp` 直接變成 `output/<stamp>.mp4` 的檔名，而它有**兩個**入口（MCP 的 render 工具、
  * WS 的 `{type:'render'}`），兩邊以前都沒驗。`../../x` 會把成品寫到專案目錄外，
  * 並讓 `render.lastOutput` 指向一個逃出去的相對路徑——之後 extractCover 拿它抽封面

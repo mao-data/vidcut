@@ -237,6 +237,35 @@ describe('updateClip：leadPad 邊界（Plan 14 Task 1）', () => {
     expect(store.doc.tracks.video[0]!.leadPad).toBe(2); // 未變
   });
 
+  // 等號側邊界（Plan 14 Task 1 review round 1 minor）：`nextContentDur < MIN_CLIP_DURATION`
+  // 用嚴格 `<`，內容長度「恰好貼齊 0.1」應該通過，差一格（下一個可表示浮點數）就該拒絕。
+  // ⚠️ 0.1 這種十進位小數在 IEEE754 底下沒有精確表示：`duration=6` 時，任何 `leadPad`
+  // 都無法讓 `6 - leadPad` 位元組級等於 `0.1` 這個字面值（`6-5.9` 實際是
+  // 0.09999999999999964，`6-5.899999999999999` 是 0.10000000000000142，中間沒有任何
+  // 可表示的浮點數落在兩者之間）——所以這裡測的是「兩個相鄰浮點數剛好跨過 0.1 這條線」，
+  // 這是浮點數底下能做到最貼近「恰好等於」的邊界測試，比手打一個湊出來的十進位常數更
+  // 貼近程式碼實際比較的那個值。
+  it('內容長度貼齊 MIN_CLIP_DURATION（相鄰浮點數跨界）：剛好夠的通過，差一格的拒絕', async () => {
+    const store = await seededWithPad(); // duration=6
+    // leadPad=5.899999999999999 → 內容長度 0.10000000000000142（> 0.1，應通過）
+    const rOk = applyCommand(store, 'human', {
+      name: 'updateClip',
+      clipId: 'p1',
+      patch: { leadPad: 5.899999999999999 },
+    });
+    expect(rOk.ok).toBe(true);
+    expect(store.doc.tracks.video[0]!.leadPad).toBe(5.899999999999999);
+
+    // leadPad=5.9（只差一個可表示的浮點數）→ 內容長度 0.09999999999999964（< 0.1，應拒絕）
+    const rReject = applyCommand(store, 'human', {
+      name: 'updateClip',
+      clipId: 'p1',
+      patch: { leadPad: 5.9 },
+    });
+    expect(rReject.ok).toBe(false);
+    expect(store.doc.tracks.video[0]!.leadPad).toBe(5.899999999999999); // 未變
+  });
+
   it('用「內容」長度（不是時間軸長度）算來源邊界：黑墊夠大時原本會超界的 duration 反而合法', async () => {
     const store = await seededWithPad();
     // in=3, srcDur=20 → 內容長度上限 17。duration=25、leadPad=10 → 內容長度 15 ≤ 17，合法。
@@ -419,6 +448,29 @@ describe('splitAt：黑墊（Plan 14 Task 1）', () => {
     // 右半：offset - leadPad = 3-2 = 1 → in = 3+1 = 4；duration = 6-3 = 3；leadPad 清 0
     expect(v[1]).toMatchObject({ mediaId: 'm1', in: 4, duration: 3 });
     expect(v[1]!.leadPad).toBeUndefined();
+  });
+
+  // 等號側邊界（Plan 14 Task 2 brief 指名的 minor）：`left < pad + MIN_CLIP_DURATION` 用
+  // 嚴格 `<`，offset 恰好 = leadPad + MIN（2 + 0.1 = 2.1）應該通過，差一點點（2.1 之下）
+  // 才落在「黑墊內」被拒絕。
+  it('分割點 offset 恰好 = leadPad + MIN（2.1）通過；差一點點（2.09…）落在黑墊內被拒絕', async () => {
+    const store = await seededWithPad(); // p1: in=3, duration=6, leadPad=2
+    const rOk = applyCommand(store, 'human', { name: 'splitAt', time: 2.1 }); // offset=2.1
+    expect(rOk.ok).toBe(true);
+    const v = store.doc.tracks.video;
+    expect(v).toHaveLength(2);
+    expect(v[0]).toMatchObject({ id: 'p1', in: 3, leadPad: 2, duration: 2.1 });
+    // 右半：offset - leadPad = 2.1-2 = 0.1 → in = 3+0.1 = 3.1；duration = 6-2.1 = 3.9
+    expect(v[1]).toMatchObject({ mediaId: 'm1', in: 3.1, duration: 3.9 });
+    expect(v[1]!.leadPad).toBeUndefined();
+  });
+
+  it('分割點 offset 差一點點未達邊界（2.09999）仍落在黑墊內被拒絕', async () => {
+    const store = await seededWithPad();
+    const r = applyCommand(store, 'human', { name: 'splitAt', time: 2.09999 });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/inside the black lead/);
+    expect(store.doc.tracks.video).toHaveLength(1);
   });
 
   it('分割點在內容內部（不靠黑墊邊界）：正常分割，右半沒有黑墊', async () => {

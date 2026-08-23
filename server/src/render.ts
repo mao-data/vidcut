@@ -6,7 +6,15 @@ import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CaptionItem, Project, RenderOptions, SubtitleExportMode } from '@vidcut/shared';
-import { locate, outputDuration, overlayWindow, serializeSrt, totalDuration } from '@vidcut/shared';
+import {
+  clipContentDuration,
+  clipSourceTime,
+  locate,
+  outputDuration,
+  overlayWindow,
+  serializeSrt,
+  totalDuration,
+} from '@vidcut/shared';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import type { ProjectStore } from './store.js';
 import { applyCommand } from './commands.js';
@@ -300,16 +308,21 @@ export function buildRenderArgs(
   const output = outputDuration(project);
 
   const args: string[] = [];
-  // 每個 clip 一個 input。定格幀改吃靜圖（-loop 1 -t D）；一般片段 input-level trim
+  // 每個 clip 一個 input。定格幀改吃靜圖（-loop 1 -t D）；一般片段 input-level trim。
+  // Plan 14 Task 2：input 只吃「內容」長度（clipContentDuration = duration − leadPad），
+  // 黑墊不是來源畫面的一部分、不能拿去 -ss/-t 這支素材——黑墊由下面影片鏈的 tpad 補回去，
+  // 讓這個 input 的輸出長度回到 clip.duration。無 leadPad 的 clip：clipContentDuration
+  // 回傳值 === duration，這裡與舊式子逐位元組相同。
   for (const clip of clips) {
     const media = project.media.find((m) => m.id === clip.mediaId);
     if (!media) throw new Error(`render: media not found for clip ${clip.id}`);
+    const contentDur = clipContentDuration(clip);
     if (clip.frozen) {
       args.push(
         '-loop',
         '1',
         '-t',
-        String(clip.duration),
+        String(contentDur),
         '-i',
         join(projectDir, frozenFramePath(clip.id)),
       );
@@ -318,7 +331,7 @@ export function buildRenderArgs(
         '-ss',
         String(clip.in),
         '-t',
-        String(clip.duration),
+        String(contentDur),
         '-i',
         resolveMediaPath(projectDir, media.path),
       );
@@ -346,7 +359,7 @@ export function buildRenderArgs(
 
   const fc: string[] = [];
   // 影片鏈：contain = 黑邊；blur = 模糊放大填滿再把原比例疊在中央
-  clips.forEach((_clip, i) => {
+  clips.forEach((clip, i) => {
     if (fit === 'blur') {
       fc.push(
         `[${i}:v]split=2[bg${i}][fg${i}]`,
@@ -359,6 +372,18 @@ export function buildRenderArgs(
       fc.push(
         `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
           `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},setpts=PTS-STARTPTS[v${i}]`,
+      );
+    }
+    // Plan 14 Task 2：leadPad>0 時在這個 clip 自己的鏈尾補黑墊——**per-clip、start_mode**
+    // 的 tpad，插在 fps=,setpts= 之後、[v${i}] 標籤之前，把這個 input（只吃了內容長度）
+    // 的輸出長度墊回 clip.duration（含黑墊）。⚠️ 這跟下面 concat 之後、[vcat] 的
+    // stop_mode 黑尾（Plan 13 裁決 2）、以及商業線轉場的 tpad clone 都不是同一個插入點，
+    // merge 時三者要分開改，不要混在一起。無 leadPad 的 clip 不插這段，逐位元組不變。
+    const pad = clip.leadPad ?? 0;
+    if (pad > 0) {
+      fc[fc.length - 1] = fc[fc.length - 1]!.replace(
+        `,setpts=PTS-STARTPTS[v${i}]`,
+        `,setpts=PTS-STARTPTS,tpad=start_mode=add:start_duration=${pad}:color=black[v${i}]`,
       );
     }
   });
@@ -385,9 +410,15 @@ export function buildRenderArgs(
     m?.probe.audioChannels === 1 ? `${MONO_UPMIX},` : '';
   clips.forEach((clip, i) => {
     const media = project.media.find((m) => m.id === clip.mediaId)!;
+    const pad = clip.leadPad ?? 0;
     if (media.probe.hasAudio && !clip.frozen) {
+      // Plan 14 Task 2：黑墊段無聲，聲音要往後移 leadPad 秒（前置靜音），總長回到
+      // duration——這個 input 只吃了內容長度（見上方 input trim），aresample 之後補
+      // adelay 用毫秒移到片段內正確的絕對位置。無 leadPad 時 pad=0、adelay 不插入，
+      // 逐位元組不變。
+      const delay = pad > 0 ? `,adelay=${(pad * 1000).toFixed(3)}|${(pad * 1000).toFixed(3)}` : '';
       fc.push(
-        `[${i}:a]${monoUp(media)}volume=${clip.volume},asetpts=PTS-STARTPTS,aresample=44100[a${i}]`,
+        `[${i}:a]${monoUp(media)}volume=${clip.volume},asetpts=PTS-STARTPTS,aresample=44100${delay}[a${i}]`,
       );
     } else {
       fc.push(`anullsrc=channel_layout=stereo:sample_rate=44100:d=${clip.duration}[a${i}]`);
@@ -766,22 +797,55 @@ export async function renderCoverImage(
 
   const last = project.render.lastOutput;
   const lastAbs = last ? join(projectDir, last) : null;
-  let src: string;
-  let seek = time;
   if (lastAbs && existsSync(lastAbs)) {
-    src = lastAbs;
-  } else {
-    const loc = locate(project, Math.min(Math.max(time, 0), totalDuration(project)));
-    if (!loc) throw new Error('cover: no clip at that time');
-    // proxyPath 不保證存在（Plan 8 三階段 ingest：proxy 是背景 A2，skip 判準命中時
-    // 永遠不產）——`?? path` 直接退回原檔是正常分支，見 frame.ts 同款接法的註解。
-    src = resolveMediaPath(projectDir, loc.media.proxyPath ?? loc.media.path);
-    seek = loc.clip.frozen ? loc.clip.in : loc.clip.in + loc.offsetInClip;
+    // 已有成品：所見即所得（含 overlay/字幕/黑墊，全部已經燒進成片），直接抽幀即可，
+    // 不必再走 clipSourceTime——成片本身沒有「黑墊段」與「內容段」的區分。
+    await runFfmpeg([
+      '-ss',
+      String(time),
+      '-i',
+      lastAbs,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      join(projectDir, relPath),
+    ]);
+    return relPath;
   }
+
+  const loc = locate(project, Math.min(Math.max(time, 0), totalDuration(project)));
+  if (!loc) throw new Error('cover: no clip at that time');
+  // Plan 14 Task 2：黑墊判定一律走 clipSourceTime（落在墊內回 null——該時刻沒有來源畫面，
+  // 退而直接生成黑幀，同 frame.ts 的 extractBlackFrame 手法）。但「墊內回 null 之外」的
+  // 實際 seek 值不能直接沿用 clipSourceTime 的回傳值：frozen clip 定格在單一來源時刻
+  // `clip.in`，內容段任何 offset 都是同一幀，不是 clipSourceTime 那種隨 offset 前進的
+  // 線性映射（那支是給「一般片段」設計的通用映射，對 frozen 語意不適用）。
+  // 無 leadPad 的 clip：兩種分支都與舊式子（frozen: in；否則 in+offsetInClip）逐位元組相同。
+  const mapped = clipSourceTime(loc.clip, loc.offsetInClip);
+  const sourceTime = mapped === null ? null : loc.clip.frozen ? loc.clip.in : mapped;
+  if (sourceTime === null) {
+    const { width, height } = project.canvas;
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      `color=c=black:s=${width}x${height}:d=1`,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      join(projectDir, relPath),
+    ]);
+    return relPath;
+  }
+  // proxyPath 不保證存在（Plan 8 三階段 ingest：proxy 是背景 A2，skip 判準命中時
+  // 永遠不產）——`?? path` 直接退回原檔是正常分支，見 frame.ts 同款接法的註解。
+  const src = resolveMediaPath(projectDir, loc.media.proxyPath ?? loc.media.path);
 
   await runFfmpeg([
     '-ss',
-    String(seek),
+    String(sourceTime),
     '-i',
     src,
     '-frames:v',

@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Project } from '@vidcut/shared';
-import { locate, outputDuration, totalDuration } from '@vidcut/shared';
+import { clipSourceTime, locate, outputDuration, totalDuration } from '@vidcut/shared';
 import { runFfmpeg } from './ffmpeg.js';
 import { resolveMediaPath } from './paths.js';
 
@@ -46,11 +46,16 @@ export async function extractFrame(
   if (output > total && clamped >= total) return extractBlackFrame(projectDir, project, clamped);
   const loc = locate(project, clamped);
   if (!loc) return null; // 空主軌：clamped<=total===0 但仍 locate 不到（tracks.video 為空）
+  // Plan 14 Task 2：clip 內偏移 → 來源時間一律走 clipSourceTime，落在黑墊內回 null——
+  // 該畫黑，沒有對應的來源畫面（不能再手算 `in + offsetInClip`，那會把黑墊段誤算成
+  // 來源時間，抽出一張不該存在的畫面）。無 leadPad 的 clip：clipSourceTime 回傳值與
+  // 舊式子 `in + offsetInClip` 逐位元組相同。
+  const sourceTime = clipSourceTime(loc.clip, loc.offsetInClip);
+  if (sourceTime === null) return extractBlackFrame(projectDir, project, clamped);
   // 與 render.ts extractCover 同型接法：proxyPath **不保證存在**（Plan 8 起三階段
   // ingest——A0 probe+登記完就可用，proxy 是 A2 的背景升級，skip 判準命中時永遠不產）。
   // 沒有 proxy 就直接吃原檔：`?? path` 是這條路徑的正常分支，不是防禦性殘留。
   const src = resolveMediaPath(projectDir, loc.media.proxyPath ?? loc.media.path);
-  const sourceTime = loc.clip.in + loc.offsetInClip;
 
   const outRel = join('derived', 'frames', `t${t.toFixed(2)}.jpg`);
   const outAbs = join(projectDir, outRel);
