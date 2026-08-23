@@ -205,3 +205,106 @@ describe('planAt trimPreview override（Plan 12 Task 2/裁決 3）', () => {
     expect(second.active!.sourceTime).toBe(9); // 6 + offset 3
   });
 });
+
+describe('planAt leadPad 前把手黑墊（Plan 14 Task 3）', () => {
+  it('無 leadPad 專案：planAt 輸出逐欄位不變（回歸釘）', () => {
+    // proj() 的 c1/c2 都沒有 leadPad 欄位——所有既有斷言必須維持逐位元組相同，
+    // 這裡額外用 toEqual 整份比對，確保新增的 leadPad 分支不動到既有路徑。
+    const p = proj();
+    const t3 = planAt(p, 3);
+    expect(t3).toEqual({
+      active: {
+        clipIndex: 0,
+        clipId: 'c1',
+        src: '/media/derived/m1/proxy.mp4',
+        sourceTime: 5,
+        frozen: false,
+        volume: 1,
+      },
+      next: {
+        clipIndex: 1,
+        clipId: 'c2',
+        src: '/media/derived/m2/proxy.mp4',
+        sourceTime: 0,
+        frozen: false,
+        volume: 1,
+      },
+      overlays: t3.overlays,
+      captions: t3.captions,
+      audio: t3.audio,
+      ducked: t3.ducked,
+      blackTail: false,
+      done: false,
+    });
+    // c1 clipStart=0；t=1 落在 c1 的 offset=1，無 leadPad 時不受影響
+    expect(planAt(p, 1).active).toMatchObject({ clipId: 'c1', sourceTime: 3 });
+  });
+
+  it('offset 落在黑墊內：active 為 null，next premount 本 clip 內容起點（不是下一 clip）', () => {
+    const p = proj();
+    p.tracks.video[0]!.leadPad = 2; // c1: duration 6、pad 2 → 內容從 offset 2 開始（sourceTime = in 2）
+    // t=1 < pad 2：黑墊內，該 clip 當下無畫面
+    const plan = planAt(p, 1);
+    expect(plan.active).toBeNull();
+    expect(plan.next).toMatchObject({ clipId: 'c1', sourceTime: 2 }); // 本 clip 內容起點＝clip.in
+    expect(plan.blackTail).toBe(false); // 黑墊不是黑尾：與 Plan 13 的黑尾機制互不影響
+  });
+
+  it('offset 落在黑墊邊界（offset === pad）：已算內容起點，active 非 null', () => {
+    const p = proj();
+    p.tracks.video[0]!.leadPad = 2;
+    const plan = planAt(p, 2); // offsetInClip = 2 = pad，邊界歸內容（clipSourceTime: offset < pad 才回 null）
+    expect(plan.active).toMatchObject({ clipId: 'c1', sourceTime: 2 }); // in 2 + (2 - pad 2)
+    expect(plan.next).toMatchObject({ clipId: 'c2', sourceTime: 0 }); // 已過黑墊，next 照舊指向下一 clip
+  });
+
+  it('黑墊過後、clip 內容段中：sourceTime 映射照 clipSourceTime（in + (offset - pad)）', () => {
+    const p = proj();
+    p.tracks.video[0]!.leadPad = 2;
+    const plan = planAt(p, 5); // offsetInClip = 5，pad 2 → sourceTime = in 2 + (5 - 2) = 5
+    expect(plan.active).toMatchObject({ clipId: 'c1', sourceTime: 5 });
+  });
+
+  it('frozen clip 帶 leadPad：黑墊內 active 為 null，過墊後定格於 clip.in（不推進）', () => {
+    const p = proj();
+    p.tracks.video[0]!.frozen = true;
+    p.tracks.video[0]!.leadPad = 2;
+    expect(planAt(p, 1).active).toBeNull(); // 黑墊內
+    const afterPad = planAt(p, 4); // 過墊：offset 4 >= pad 2
+    expect(afterPad.active).toMatchObject({ clipId: 'c1', sourceTime: 2, frozen: true }); // 定格於 in，不論 offset
+    const later = planAt(p, 5.9);
+    expect(later.active).toMatchObject({ clipId: 'c1', sourceTime: 2, frozen: true }); // 仍是 in，未推進
+  });
+
+  it('trimPreview 帶 leadPad：目標 clip 即時套用預覽 pad，黑墊邊界跟著移動', () => {
+    const p = proj(); // c1 doc 無 leadPad
+    // 拖曳中把 c1 的 leadPad 預覽成 3：offset=1 現在落在黑墊內（doc 沒設時不會）
+    const withPreviewPad = planAt(p, 1, { clipId: 'c1', in: 2, leadPad: 3 });
+    expect(withPreviewPad.active).toBeNull();
+    expect(withPreviewPad.next).toMatchObject({ clipId: 'c1', sourceTime: 2 }); // 內容起點＝預覽 in
+    // 同一時刻不帶 leadPad 覆蓋（省略）：沿用 doc 的 leadPad（此例 undefined→0），不受黑墊影響
+    const withoutPreviewPad = planAt(p, 1, { clipId: 'c1', in: 2 });
+    expect(withoutPreviewPad.active).toMatchObject({ clipId: 'c1', sourceTime: 3 }); // in 2 + offset 1
+  });
+
+  it('trimPreview.leadPad 只影響目標 clip，不干擾其他 clip', () => {
+    const p = proj();
+    p.tracks.video[1]!.leadPad = 1; // c2 帶自己的 leadPad（與預覽無關）
+    // override 指名 c1，但目前 active 是 c2（t=7）——c2 的黑墊判斷應不受 c1 override 影響
+    const plan = planAt(p, 7, { clipId: 'c1', in: 99, leadPad: 99 });
+    // c2 clipStart=6，offset=1，pad=1 → offset(1) < pad(1) 為 false，剛好在邊界，非黑墊
+    expect(plan.active).toMatchObject({ clipId: 'c2', sourceTime: 0 }); // in 0 + (1 - pad 1)
+  });
+
+  it('overlays/captions/獨立 audio 在黑墊段照常顯示（不讀 clip，天然成立）', () => {
+    const p = proj();
+    p.tracks.video[0]!.leadPad = 2;
+    const plan = planAt(p, 1); // 落在 c1 黑墊內
+    expect(plan.active).toBeNull();
+    expect(plan.overlays).toHaveLength(1); // o1 是 start:0/duration:null 的 to-end overlay
+    // audio a1 窗口 [2,7)：t=1 尚未進窗，驗證的是「audio 判斷邏輯不讀 clip/leadPad」而非此刻有值
+    expect(plan.audio).toHaveLength(0);
+    const plan5 = planAt(p, 5); // 進 a1 窗口、離開 c1 黑墊
+    expect(plan5.audio).toMatchObject([{ id: 'a1' }]);
+  });
+});

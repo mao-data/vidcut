@@ -1,4 +1,5 @@
 import {
+  clipSourceTime,
   locate,
   outputDuration,
   overlayWindow,
@@ -12,7 +13,10 @@ export interface ActiveSource {
   clipIndex: number;
   clipId: string;
   src: string;
-  /** clip.in + clip 內偏移（定格幀固定為 clip.in） */
+  /**
+   * clip.in + clip 內偏移（定格幀固定為 clip.in）——經 `clipSourceTime` 換算，
+   * 落在黑墊（leadPad）內時 `sourceFor` 回 `null` 整個 ActiveSource（見下方）。
+   */
   sourceTime: number;
   /** 定格幀：畫面凍結，播放器不應推進此來源 */
   frozen: boolean;
@@ -71,8 +75,14 @@ export function overlayView(
   return { id: o.id, src: `/media/${o.imagePath}`, position: o.position };
 }
 
-/** Plan 12 Task 2（裁決 3）：trim-in 拖曳中的即時 source 覆蓋，只認 clipId 相符的 clip。 */
-export type TrimPreview = { clipId: string; in: number } | null;
+/**
+ * Plan 12 Task 2（裁決 3）：trim-in 拖曳中的即時 source 覆蓋，只認 clipId 相符的 clip。
+ * Plan 14 Task 3：加可選 `leadPad`——拖進黑墊時（把手往右拖過內容起點）播放器要即時
+ * 顯示黑，而不是繼續用 doc 舊的 leadPad 算出一個過期的來源時間。省略＝沿用 doc 的
+ * `clip.leadPad`（Task 4 的拖曳寫入端目前還不帶這個欄位，正是靠這個可選設計維持
+ * typecheck 過——沒帶 leadPad 的呼叫點行為不變）。
+ */
+export type TrimPreview = { clipId: string; in: number; leadPad?: number } | null;
 
 function sourceFor(
   p: Project,
@@ -84,16 +94,35 @@ function sourceFor(
   if (!clip) return null;
   const media = p.media.find((m) => m.id === clip.mediaId);
   if (!media) return null;
-  // trimPreview 只覆蓋 in：非目標 clip（clipId 不符）維持用 doc 的 clip.in，
-  // 目標 clip 則用預覽值取代——offsetInClip 不受影響（clip 在時間軸上的起點
-  // trim-in 不會移動，見 Timeline.tsx scheduleFollow(clipStart) 的註解）。
-  const effectiveIn = clip.id === trimPreview?.clipId ? trimPreview.in : clip.in;
+  // trimPreview 只覆蓋 in（與 leadPad，Plan 14）：非目標 clip（clipId 不符）維持用 doc 的
+  // clip.in/leadPad，目標 clip 則用預覽值取代——offsetInClip 不受影響（clip 在時間軸上的
+  // 起點 trim-in 不會移動，見 Timeline.tsx scheduleFollow(clipStart) 的註解）。
+  const isTarget = clip.id === trimPreview?.clipId;
+  const effectiveClip = isTarget
+    ? { in: trimPreview!.in, leadPad: trimPreview!.leadPad ?? clip.leadPad }
+    : clip;
+  if (clip.frozen) {
+    // 定格幀：黑墊之後才開始定格畫面（裁決原文）——offsetInClip 落在 pad 內同樣回 null，
+    // 過了 pad 就固定顯示來源的 in（不推進，語意與無 leadPad 時相同）。
+    const pad = effectiveClip.leadPad ?? 0;
+    if (offsetInClip < pad) return null;
+    return {
+      clipIndex,
+      clipId: clip.id,
+      src: mediaUrl(media),
+      sourceTime: effectiveClip.in,
+      frozen: true,
+      volume: clip.volume,
+    };
+  }
+  const sourceTime = clipSourceTime(effectiveClip, offsetInClip);
+  if (sourceTime === null) return null; // 落在黑墊內：該 clip 當下無畫面
   return {
     clipIndex,
     clipId: clip.id,
     src: mediaUrl(media),
-    sourceTime: clip.frozen ? effectiveIn : effectiveIn + offsetInClip,
-    frozen: clip.frozen === true,
+    sourceTime,
+    frozen: false,
     volume: clip.volume,
   };
 }
@@ -137,7 +166,24 @@ export function planAt(p: Project, t: number, trimPreview: TrimPreview = null): 
   const blackTail = output > total && !done && t >= total;
   const loc = blackTail ? null : locate(p, Math.min(t, total));
   const active = loc ? sourceFor(p, loc.clipIndex, loc.offsetInClip, trimPreview) : null;
-  const next = loc ? sourceFor(p, loc.clipIndex + 1, 0, trimPreview) : null;
+  // Plan 14 Task 3：premount 語意——offset 落在本 clip 的黑墊內時（active === null 但
+  // loc 有效，即「該 clip 當下無畫面」的情形），next 要指向**本 clip 的內容起點**
+  // （offsetInClip = pad，換算後 sourceTime = clip.in），不是下一個 clip：黑墊結束時
+  // 才能無縫接上畫面。pad 要吃 trimPreview 覆蓋（拖曳中即時調整黑墊長度時，premount
+  // 目標要跟著變，理由同 sourceFor 內 effectiveClip 的覆蓋）。不在黑墊內（含無 leadPad
+  // 的既有行為）維持原本「premount 下一個 clip」不變。
+  const effectivePad =
+    loc !== null
+      ? ((loc.clip.id === trimPreview?.clipId
+          ? (trimPreview.leadPad ?? loc.clip.leadPad)
+          : loc.clip.leadPad) ?? 0)
+      : 0;
+  const inOwnPad = loc !== null && active === null && loc.offsetInClip < effectivePad;
+  const next = loc
+    ? inOwnPad
+      ? sourceFor(p, loc.clipIndex, effectivePad, trimPreview)
+      : sourceFor(p, loc.clipIndex + 1, 0, trimPreview)
+    : null;
   const overlays = p.tracks.overlays
     .filter((o) => {
       const w = overlayWindow(p, o);
