@@ -462,6 +462,83 @@ video 正確變黑、Timecode 讀數換算基準統一;時間軸不再對「其�
 `get_project.total` 與這三層同步换算基準,AI 讀到的數字與人在瀏覽器裡看到的
 是同一個「輸出長度」。
 
+## Plan 14：clip 前把手黑墊——leadPad(2026-08-23)
+
+目標：主軌 clip 的前（in）把手拉過來源起點時,CapCut 等競品是「長出一段黑畫面
+（黑墊）」,vidcut 之前是硬停（Plan 12 的 `isAtSourceMin`/`danger+min`）。這批把
+硬停換成黑墊,資料模型、命令層、渲染、播放器、時間軸 UI、MCP 六層全部落地
+（commits `938cfb9`→`9833d4a`）。
+
+- **資料模型**：`VideoClip.leadPad?`(秒,≥0,缺席＝0,`shared/src/types.ts`)。
+  `duration` 語意不變——**仍是時間軸長度、含黑墊**;內容長度＝`duration − leadPad`,
+  內容從來源 `in` 開始播。黑墊本身＝黑畫面無聲,沒有對應的來源畫面。來源時間映射
+  唯一真相來源是 `shared/src/timeline.ts` 新增的 `clipSourceTime(clip, offsetInClip)`
+  （落在黑墊內回 `null`）與 `clipContentDuration(clip)`（＝`duration − leadPad`）——
+  render/frame/player/MCP 四層一律走這兩支,不得各自手算 `in + offset`
+  （commands.ts、render.ts、frame.ts、player/plan.ts 的 diff 都印證這點）。
+  `server/src/commands.ts` 的 `updateClip`/`addClip`/`setTimeline` 驗證把邊界式子
+  從「`in+duration<=srcDur`」換成「`in+內容長度<=srcDur`」,並新增「內容長度
+  ≥ `MIN_CLIP_DURATION`」;`splitAt`/`freezeFrame` 拒絕切點/凍結點落在黑墊內
+  （黑墊沒有來源畫面可切/凍）;`deleteBefore`/`deleteAfter` 依切點落在黑墊或內容
+  分支處理（黑墊內只削墊,不拒絕;deleteAfter 若切完只剩黑墊則整支刪）;
+  `extractAudio` 抽出範圍跳過黑墊段（`start` 往後移 `leadPad`、`duration` 用
+  `clipContentDuration`）。無 leadPad 的既有專案在全部命令下逐位元組行為不變
+  （`server/test/commands-t1.test.ts` 的回歸釘）。
+- **拖曳語意（`ui/src/timeline/dragMath.ts`＋`Timeline.tsx`）**：新增
+  `trimInPad(clip, deltaSec)` 取代主軌拖曳分支原本的 `trimIn`——越過來源起點不再
+  硬停,而是往左長出 `leadPad`,`duration` 同步增長以維持時間軸右界不動。純函數
+  不吸附;`in=0`（黑墊歸零、回到純內容）的吸附是 `Timeline.tsx` 自己在來源座標系
+  做的（`snapExtendedX`,沿用既有 `SNAP_THRESHOLD_PX`,吸附命中時畫吸附導線於
+  `clipStart`）。拖曳中 badge（`DragBadge.tsx` 的 `formatDragBadge`）在 `pad>0`
+  時附加 `· black +X.Xs`（英文一位小數）——**取代**舊的 `atMin`/`· min` 語彙
+  （`isAtSourceMin` 已廢止,理由：黑墊不是「拉不動」的錯誤狀態,是使用者刻意要的
+  效果）。`ClipBlock.tsx` 的 in 把手改用 `.handle.accent`（`--accent-bright`,
+  playhead 同色系,語意「使用者手上正在做的事」）而非 `.handle.danger`,並新增
+  黑墊視覺（clip 左緣起 `leadPad×pps` px 的斜紋帶,與 Plan 13 黑尾帶同一組
+  `--clip-band-bg`/`--panel` token）;filmstrip 縮圖區跟著右移 `padPx`（黑墊沒有
+  素材畫面可畫縮圖）。⚠️ **`[` 鍵盤快捷鍵（`App.tsx` 呼叫的仍是舊 `trimIn`）維持
+  硬停語意,尚未接上黑墊**——拖曳把手與鍵盤快捷鍵目前是兩套不同行為,是已知不一致
+  （見下方「已知不一致」）。
+- **渲染插入點（`server/src/render.ts`）**：per-clip input 只吃內容長度
+  （`clipContentDuration`）;`leadPad>0` 時在**這個 clip 自己的濾鏡鏈尾**（`fps=`/
+  `setpts=` 之後、`[v${i}]` 標籤之前）補一段 `tpad=start_mode=add:start_duration=
+${pad}:color=black`,把這個 input 的輸出長度墊回 `clip.duration`;音訊補
+  `adelay` 前置靜音把聲音移到正確絕對位置。⚠️ **這是 per-clip、`concat` 之前的
+  插入點,與另外兩個插入點是不同位置,merge 時不要混在一起改**：Plan 13 的黑尾是
+  `concat` **之後**、`[vcat]` 上的 `tpad=stop_mode=add`（補在時間軸尾端）;商業線
+  （cloud-p0）的轉場 tpad/clone 又是另一個 per-clip 但語意不同的插入點。三者並存,
+  `render.ts` 該處原始碼留了這條警告。`renderCoverImage`／`server/src/frame.ts`
+  的 `extractFrame` 同步改走 `clipSourceTime`,落在黑墊內回既有的 `extractBlackFrame`
+  （frozen clip 保留「內容段固定抽 `in`」的定格語意不受影響）。無 leadPad 的既有
+  專案三處改動全不觸發,`render.test.ts`/`render-leadpad.test.ts` 有逐位元組回歸釘
+  與真 ffmpeg 整合測試（黑墊像素級全黑）。
+- **播放器（`ui/src/player/plan.ts`）**：`sourceFor` 改走 `clipSourceTime`,
+  offset 落在黑墊內回 `null`（`active=null`）——`Player.tsx` 既有的黑尾遮黑/靜音
+  機制（`active !== null` 判斷,見 Plan 13 Task 3）天然覆蓋黑墊段,`Player.tsx`
+  本身零改動。`planAt` 的 `next` premount 語意：offset 落在本 clip 黑墊內時,
+  `next` 指向**本 clip 的內容起點**（而不是下一個 clip）,黑墊播完時無縫接上畫面。
+  `TrimPreview` 型別擴為 `{clipId, in, leadPad?}`,拖曳中 `Timeline.tsx` 每幀都
+  帶明確 `leadPad`（含 0）,否則縮回、黑墊歸零那一刻 player 會繼續顯示黑畫面
+  （`plan.ts` 內 `TrimPreview` 註解、`effectivePadFor` helper）。
+- **MCP 曝光（`server/src/mcp.ts`）**：`update_clip`/`set_timeline`/`add_clip`
+  的輸入 schema 與 description 都補了 `leadPad`（`set_timeline` 是整組替換,不帶
+  ＝歸零,不沿用舊值;`update_clip` 是 partial patch,不帶＝維持現值）。
+  `get_project` 的 clip 摘要只在 `leadPad>0` 時才帶這個欄位（與其他選填欄位的
+  慣例一致,見 `projectSummary()` 註解）。`get_frame`／`timeline_op` 的 description
+  各補一句：黑墊時刻回黑幀（同黑尾語意）;`split`/`freeze` 的切點/凍結點落在黑墊內
+  會被拒絕（即使離兩側都有 0.1s 邊界緩衝也一樣,理由是黑墊沒有來源畫面可切/凍）,
+  `deleteBefore`/`deleteAfter` 則優雅處理（削墊或整支刪,不拒絕）。工具面鎖進
+  `server/test/__snapshots__/mcp-surface.snap.json`,改動已核對 diff 屬實後 `-u`。
+- **已知不一致**：主軌拖曳把手（滑鼠）已經是黑墊語意（`trimInPad`）,但
+  `App.tsx` 的 `[` 鍵盤快捷鍵仍呼叫舊的 `trimIn`,越過來源起點時維持**硬停**
+  （不會長出黑墊）。同一個操作（trim-in）兩種輸入方式行為不一致,是這批刻意留下
+  的範圍裁決（`isAtSourceMin` 廢止後只有滑鼠路徑跟著換,鍵盤路徑未動）,尚未排入
+  下一批。
+- **P1 待辦**：**尾端黑墊（tailPad,clip 結尾往後墊黑畫面）未做**——這批只做了
+  前把手（leadPad）,對稱的尾端黑墊留待後續評估,不要與 Plan 13 的「輸出黑尾」
+  （主軌播完、其他軌道還沒演完時墊在整條時間軸尾端）混為一談,tailPad 是
+  **單一 clip** 自己的尾端黑墊,是不同粒度的功能。
+
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
 字幕 WYSIWYG 四階段（含畫布拖曳）都做完、自動化測試與真瀏覽器 e2e（`verify:panels` + `verify:canvas`）都綠了，但**手感類的東西自動化測不出來**，需要你的眼睛與手：
