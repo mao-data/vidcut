@@ -17,6 +17,37 @@ export function trimIn(
 }
 
 /**
+ * Plan 14 Task 4：拖左 handle（trim-in）的黑墊版——`trimIn` 的替代品，主軌拖曳分支
+ * 改用這支。與 `trimIn` 的差異：越過來源起點（`in=0`）不再硬停，而是繼續往左長出
+ * `leadPad`（黑墊），`duration` 同步增長以保持時間軸右界不動（黑墊算在 duration 裡，
+ * 見 `VideoClip.leadPad` 的裁決）。
+ *
+ * 式子照 brief 逐字照用：
+ *   延伸左座標 x = in − leadPad（pad>0 時為負）
+ *   來源右界 R = in + (duration − leadPad)（拖曳中不變）
+ *   x' = x + deltaSec，夾制：x' ≤ R − MIN_CLIP_DURATION（內容下限；無下界）
+ *   x' ≥ 0 → { in: x', leadPad: 0, duration: R − x' }
+ *   x' <  0 → { in: 0, leadPad: −x', duration: R + (−x') }
+ *
+ * 純函數、不吸附——in=0 邊界的來源座標吸附是 Timeline.tsx 層的事（見其註解），
+ * 與 `trimOut`/`maybeSnap` 分工一致。無下界：leadPad 不設上限（與 CapCut 同，
+ * 只驗有限性與 ≥0，見裁決；有限性交給呼叫端的浮點輸入本身保證）。
+ */
+export function trimInPad(
+  clip: Pick<VideoClip, 'in' | 'duration' | 'leadPad'>,
+  deltaSec: number,
+): { in: number; leadPad: number; duration: number } {
+  const pad = clip.leadPad ?? 0;
+  const x = clip.in - pad; // 延伸左座標（可為負）
+  const rightEdge = clip.in + (clip.duration - pad); // 來源右界 R（拖曳中不變）
+  const nextX = Math.min(x + deltaSec, rightEdge - MIN_CLIP_DURATION);
+  if (nextX >= 0) {
+    return { in: nextX, leadPad: 0, duration: rightEdge - nextX };
+  }
+  return { in: 0, leadPad: -nextX, duration: rightEdge + -nextX };
+}
+
+/**
  * 拖右 handle（out point）：只改 duration。
  * clamp：duration>=MIN、in+duration<=mediaDuration。
  */
@@ -45,19 +76,6 @@ export function isAtSourceMax(
 ): boolean {
   if (!Number.isFinite(mediaDuration)) return false;
   return clip.in + clip.duration >= mediaDuration;
-}
-
-/**
- * Plan 12 Task 3（裁決 4）：主軌 in 把手是否已經頂到來源起點——`trimIn` 的 clamp
- * 讓 in 再也拉不出更多素材了（`in<=0`），這裡把「拉不動」變成一個可查詢的布林，
- * 供 Timeline.tsx 決定要不要畫 danger 態把手 + badge `min`。與 `isAtSourceMax`
- * 對稱：`in` 恆 ≥0（無 Infinity 議題，來源起點永遠是 0，不像 `mediaDuration`
- * 那樣可能缺席），所以不需要它那層 `Number.isFinite` guard。用 `<=` 而非 `===`：
- * 拖曳中的浮點運算理論上不會讓 `in` 微幅小於 0（`trimIn` 已 clamp 到 `Math.max(0, …)`），
- * 但這裡多一層容錯，精神上鏡射 `isAtSourceMax` 的「>= 邊界」寫法。
- */
-export function isAtSourceMin(clip: Pick<VideoClip, 'in'>): boolean {
-  return clip.in <= 0;
 }
 
 /**

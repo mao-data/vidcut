@@ -497,13 +497,13 @@ describe('ClipBlock 把手：來源上限 danger 態（Plan 11 Task 3 裁決 5�
 });
 
 /**
- * Plan 12 Task 3（裁決 4）：主軌 in 把手拖到來源起點（`in<=0`，素材用盡）時同款
- * danger 態——`outAtMax` 的對稱雙生。判定本身（`isAtSourceMin`）已由
- * `dragMath.test.ts` 覆蓋，這裡只驗證 ClipBlock 有沒有把 `inAtMin` prop 正確
- * 轉成 DOM：只有 in 把手變 danger，out 把手不受影響（來源起點只約束左緣）。
+ * Plan 14 Task 4：黑墊（leadPad）視覺——取代舊的 `inAtMin` prop／danger 態
+ * （Plan 12 Task 3 裁決 4 的「danger+min 硬停」語意已廢止）。`clip.leadPad`
+ * 直接從傳入的 clip 讀（不是獨立 prop，見 ClipBlock.tsx 該欄位的定義處註解），
+ * 把手改用 `accent` class，不是 `danger`（黑墊不是錯誤狀態）。
  */
-describe('ClipBlock 把手：來源起點 danger 態（Plan 12 Task 3 裁決 4）', () => {
-  it('inAtMin=false（預設）：兩把手都沒有 danger class', () => {
+describe('ClipBlock 黑墊視覺（Plan 14 Task 4）', () => {
+  it('無 leadPad（省略欄位）：不畫黑帶，in 把手沒有 accent class——渲染輸出與改動前逐位元組相同', () => {
     const p = demoProject();
     const { container } = render(
       <ClipBlock
@@ -520,16 +520,18 @@ describe('ClipBlock 把手：來源起點 danger 態（Plan 12 Task 3 裁決 4�
       />,
     );
     const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.className).not.toContain('accent');
     expect(left!.className).not.toContain('danger');
     expect(right!.className).not.toContain('danger');
+    expect(container.querySelector('[data-testid="clip-leadpad"]')).toBeNull();
   });
 
-  it('inAtMin=true：只有 in 把手帶 danger class，out 把手不受影響', () => {
+  it('leadPad=0（顯式 0）：同無 leadPad，不畫黑帶', () => {
     const p = demoProject();
     const { container } = render(
       <ClipBlock
         p={p}
-        clip={p.tracks.video[0]}
+        clip={{ ...p.tracks.video[0], leadPad: 0 }}
         leftPx={0}
         pps={40}
         selected={true}
@@ -538,11 +540,86 @@ describe('ClipBlock 把手：來源起點 danger 態（Plan 12 Task 3 裁決 4�
         onTrimStart={noop}
         onMoveStart={noop}
         onSelect={noop}
-        inAtMin={true}
+      />,
+    );
+    expect(container.querySelector('[data-testid="clip-leadpad"]')).toBeNull();
+  });
+
+  it('leadPad>0：畫黑帶，寬度＝leadPad×pps；in 把手帶 accent class（不是 danger）', () => {
+    const p = demoProject();
+    const clip = { ...p.tracks.video[0], leadPad: 1.5 }; // 1.5s @ 40pps = 60px
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const band = container.querySelector<HTMLElement>('[data-testid="clip-leadpad"]');
+    expect(band).not.toBeNull();
+    expect(band!.style.width).toBe('60px');
+    expect(band!.style.left).toBe('0px');
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.className).toContain('accent');
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).not.toContain('accent');
+  });
+
+  it('leadPad>0 時 filmstrip 內容區右移同寬（tile 左緣 >= padPx）', () => {
+    const p = demoProject();
+    const clip = { ...p.tracks.video[0], leadPad: 1.5 }; // 60px
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const tiles = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-testid="filmstrip-tile"]'),
+    );
+    expect(tiles.length).toBeGreaterThan(0);
+    for (const t of tiles) {
+      expect(Number.parseFloat(t.style.left)).toBeGreaterThanOrEqual(60);
+    }
+  });
+
+  it('outAtMax 與 leadPad>0 同時成立：out 把手仍是 danger，in 把手仍是 accent（互不干擾）', () => {
+    const p = demoProject();
+    const clip = { ...p.tracks.video[0], leadPad: 1.5 };
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        outAtMax={true}
       />,
     );
     const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.className).toContain('danger');
-    expect(right!.className).not.toContain('danger');
+    expect(left!.className).toContain('accent');
+    expect(left!.className).not.toContain('danger');
+    expect(right!.className).toContain('danger');
+    expect(right!.className).not.toContain('accent');
   });
 });

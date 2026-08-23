@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { TrimPreview } from '../player/plan.js';
 
 interface PlaybackState {
   time: number;
@@ -29,10 +30,12 @@ interface PlaybackState {
    * command、不進 history**。Timeline 在 trim-in 的 rAF 節流回呼（與 scheduleFollow
    * 同一節奏，不是逐 pointermove 都寫）裡寫入，`teardownDrag`（pointerup／
    * pointercancel 共用）一律清回 null。只認 clipId 相符的那個 clip；其餘 clip
-   * 的映射不受影響。
+   * 的映射不受影響。Plan 14 Task 4：型別改吃 `plan.ts` 匯出的 `TrimPreview`
+   * （新增可選 `leadPad`）——單一真相來源，不在這裡另開一份窄化的形狀，否則
+   * `setTrimPreview` 會拒收 leadPad 欄位，Timeline.tsx 的 trim-in 分支就傳不進去。
    */
-  trimPreview: { clipId: string; in: number } | null;
-  setTrimPreview: (v: { clipId: string; in: number } | null) => void;
+  trimPreview: TrimPreview;
+  setTrimPreview: (v: TrimPreview) => void;
 }
 
 export const usePlayback = create<PlaybackState>((set, get) => ({

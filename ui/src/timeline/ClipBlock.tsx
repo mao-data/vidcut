@@ -26,7 +26,6 @@ export const ClipBlock = memo(function ClipBlock({
   fxDelay,
   visibleRange,
   outAtMax = false,
-  inAtMin = false,
 }: {
   p: Project;
   clip: VideoClip;
@@ -48,16 +47,19 @@ export const ClipBlock = memo(function ClipBlock({
    * Timeline.tsx 算好傳下來）。只影響 out 把手（來源上限只約束右緣），in 把手不受影響。
    * 預設 false——多數呼叫端（測試、非拖曳中的一般 render）不必逐個傳。 */
   outAtMax?: boolean;
-  /** Plan 12 Task 3（裁決 4）：in 把手是否已經拉到來源起點（`dragMath.isAtSourceMin`，
-   * Timeline.tsx 算好傳下來）。`outAtMax` 的對稱雙生——只影響 in 把手（來源起點只
-   * 約束左緣），out 把手不受影響。預設 false，理由同 `outAtMax`。 */
-  inAtMin?: boolean;
   /** 目前捲動視窗覆蓋的內容座標區間（含 buffer，Timeline 傳下來、已量化）。
    * 缺省＝不裁窗（渲染全部格）——測試與極簡呼叫端不必每次都造一個視窗。 */
   visibleRange?: VisibleRange;
 }) {
   const media = p.media.find((m) => m.id === clip.mediaId);
   const w = timeToPx(clip.duration, pps);
+  // Plan 14 Task 4：黑墊（leadPad）視覺——取代舊的 `inAtMin` prop（`isAtSourceMin`
+  // 的「danger+min 硬停」語意已廢止）。`clip.leadPad` 直接讀 props 傳入的 clip
+  // （Timeline.tsx 的 `trimmedClips` 已經把拖曳中的 preview／pending 值攤平進去，
+  // 這裡不必另外接一個拖曳專用的 prop）。padPx 供黑帶寬度與 filmstrip 內容區右移
+  // 共用同一個數字——單一真相來源，不分兩處各自用 `leadPad * pps` 算一次。
+  const pad = clip.leadPad ?? 0;
+  const padPx = timeToPx(pad, pps);
   // Plan 11 Task 1（範圍裁決 3b/3c，review round 1 Important 1 修正）：算式與
   // Timeline.tsx 的 `handleOffset` 同款（三處手動同步——ClipBlock／AudioChip／
   // Timeline 的 caption+overlay chip，改一處記得改另外兩處）：選取態命中區 12px
@@ -83,16 +85,24 @@ export const ClipBlock = memo(function ClipBlock({
   // Plan 9 範圍裁決 #5：時間對齊逐格渲染（取代舊的單一 background-image 紋理）+
   // #6 windowing（visibleRange 缺省＝不裁窗）。frozen 或無 filmstrip 維持底色
   // （現行為，見下方 JSX），不生成任何 tile。
+  // Plan 14 Task 4：filmstrip 只覆蓋「內容區」——寬度改吃 `clip.duration - pad`
+  // （黑墊不是素材畫面，沒有 tile 可畫），windowing 的參照原點跟著右移 `padPx`
+  // （`filmstripTilesFor` 內部用 `clipLeftPx` 換算 visibleRange 交集，內容區左緣
+  // 已經不是 clip 左緣本身）。回傳的 tile.x 是「相對內容區左緣」的偏移，渲染時
+  // 再加回 `padPx` 換算成「相對 clip 左緣」（見下方 JSX 的 `left: t.x + padPx`）
+  // ——無 leadPad 時 pad=0/padPx=0，這條路徑與改動前逐位元組相同（回歸釘見
+  // ClipBlock.test.tsx「無 leadPad 渲染輸出不變」）。
+  const contentDur = clip.duration - pad;
   const tiles =
-    filmstrip && !clip.frozen && media
+    filmstrip && !clip.frozen && media && contentDur > 0
       ? filmstripTilesFor(
           clip.in,
-          clip.duration,
+          contentDur,
           pps,
           frameW,
           secPerTile,
           media.filmstripTiles ?? Math.ceil(media.probe.duration),
-          leftPx,
+          leftPx + padPx,
           visibleRange,
         )
       : [];
@@ -170,7 +180,9 @@ export const ClipBlock = memo(function ClipBlock({
               data-testid="filmstrip-tile"
               style={{
                 position: 'absolute',
-                left: t.x,
+                // t.x 是相對內容區左緣的偏移（見上方 tiles 計算的註解），加回 padPx
+                // 換算成相對 clip 左緣——無 leadPad 時 padPx=0，逐位元組不變。
+                left: t.x + padPx,
                 top: 0,
                 width: t.w,
                 height: '100%',
@@ -181,9 +193,34 @@ export const ClipBlock = memo(function ClipBlock({
               }}
             />
           ))}
+        {/* Plan 14 Task 4：黑墊視覺——clip 左緣起 `leadPad × pps` px 的黑帶，視覺語彙
+            對齊 Plan 13 的黑尾斜紋帶（同一組 --clip-band-bg 斜紋疊 --panel，見
+            Timeline.tsx 的 `tl-blacktail`）。純視覺、不可互動；pad<=0 時不畫（既有
+            專案 / 未拖出黑墊時逐位元組不變，不多渲染一個空 div 的邊界情形也不畫，
+            避免無意義的 DOM 節點）。 */}
+        {pad > 0 && (
+          <div
+            data-testid="clip-leadpad"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: padPx,
+              height: '100%',
+              background: `repeating-linear-gradient(
+                45deg,
+                var(--clip-band-bg),
+                var(--clip-band-bg) 6px,
+                transparent 6px,
+                transparent 12px
+              ), var(--panel)`,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
       </div>
       <div
-        className={'handle' + (inAtMin ? ' danger' : '')}
+        className={'handle' + (pad > 0 ? ' accent' : '')}
         style={{ left: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();

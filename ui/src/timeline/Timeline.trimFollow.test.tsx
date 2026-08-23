@@ -804,17 +804,18 @@ describe('主軌 trim-in 捲動補償——邊釘手指下（Plan 12 Task 1，�
     expect(lines).toHaveLength(0);
   });
 
-  it('主軌 trim-in 期間 in 仍在 0 硬停點 clamp（裁決 2 只拿掉吸附，不動既有 clamp）', () => {
+  it('主軌 trim-in 期間拖過 in=0：不再硬停，長出 leadPad（Plan 14 Task 4，取代舊的 0 clamp 語意）', () => {
     const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6
+    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6，來源右界 R=8
     act(() => {
       fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
     });
     act(() => {
-      // 往左拉 3s（120px）：in 2→0 恰好落地；duration 6→8（in=0 clamp 生效）
+      // 往左拉 3s（120px）：x=2，x'=2-3=-1（遠超 8px/40pps=0.2s 吸附閾值，不吸附）
+      // → in=0, leadPad=1, duration=R+1=9
       fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
     });
-    expect(container.textContent).toContain('8.0s (+2.0s)');
+    expect(container.textContent).toContain('9.0s (+3.0s) · black +1.0s');
   });
 
   it('絕對時間軌（audio）的 trim-in 拖曳不觸發任何 scrollLeft 補償', () => {
@@ -970,7 +971,8 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     // rAF 還沒 flush：與 followTarget 同節奏，不該提早寫入
     expect(usePlayback.getState().trimPreview).toBeNull();
     act(() => flushRaf());
-    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3 });
+    // Plan 14 Task 4：trimPreview 每幀都帶明確 leadPad（這裡未拖出黑墊，值為 0）。
+    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3, leadPad: 0 });
   });
 
   it('同一節奏內連續兩次 pointermove 只在 flush 時寫入最後一次的值（不逐 move 都寫）', () => {
@@ -987,7 +989,7 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     });
     expect(usePlayback.getState().trimPreview).toBeNull();
     act(() => flushRaf());
-    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 4 });
+    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 4, leadPad: 0 });
   });
 
   it('放手（pointerup，有實質變動）後 trimPreview 不立刻清空——與 pending 的 clip-trim 記錄綁命（review round 1 Important-1）', () => {
@@ -1006,8 +1008,11 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     });
     // echo 還沒到（這個測試不模擬 server）：trimPreview 必須繼續蓋著，否則 player
     // 這幾幀會用 doc 的舊 in 映射，畫面閃回舊幀（Important-1 點名的閃爍）。
-    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3 });
-    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 3, duration: 5 } }]);
+    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3, leadPad: 0 });
+    // Plan 14 Task 4：commit 一併帶 leadPad。
+    expect(sent).toEqual([
+      { name: 'updateClip', clipId: 'c1', patch: { in: 3, duration: 5, leadPad: 0 } },
+    ]);
   });
 
   it('doc echo 抵達（pending 的 clip-trim 對上）：trimPreview 隨 pending 一起清空', () => {
@@ -1116,7 +1121,9 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     // main-track trim-in/out 沒有 cap/aud/ov 那種 zero-delta 不送的守門——一律送
     // updateClip（見 Timeline.tsx onPointerUp 的 trim-in/trim-out 分支）；echo 抵達前
     // trimPreview 理論上該綁 pending，但這裡從未被寫入過，維持 null，不需要額外清空。
-    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 6 } }]);
+    expect(sent).toEqual([
+      { name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 6, leadPad: 0 } },
+    ]);
     expect(usePlayback.getState().trimPreview).toBeNull();
   });
 });
@@ -1179,11 +1186,12 @@ describe('badge 邊界 clamp（fix round 1 I3）', () => {
   });
 });
 
-describe('主軌 in=0 素材用盡的視覺語言（Plan 12 Task 3 裁決 4，isAtSourceMax 的對稱雙生）', () => {
-  // c1：in=2 duration=6，往左拉 2s（80px @ 40pps）恰好頂到 in=0。
+describe('主軌拖出黑墊的視覺語言（Plan 14 Task 4，取代舊的 in=0 danger/min 語意）', () => {
+  // c1：in=2 duration=6，往左拉 2.5s（100px @ 40pps）：x=2, x'=2-2.5=-0.5
+  // （遠超 8px/40pps=0.2s 吸附閾值，不吸附）→ in=0, leadPad=0.5, duration=8.5。
   const TO_ZERO_PX = 2 * PPS; // 80
 
-  it('trim-in 拖到 in=0：in 把手帶 danger class，out 把手不受影響', () => {
+  it('trim-in 拖出黑墊：in 把手帶 accent class（不是 danger），out 把手不受影響', () => {
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');
     const [left, right] = handles(clip);
@@ -1191,14 +1199,15 @@ describe('主軌 in=0 素材用盡的視覺語言（Plan 12 Task 3 裁決 4，is
       fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
     });
     act(() => {
-      // 拖超過剩餘素材（+20px）：clamp 應把 in 頂在 0
       fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
     });
-    expect(left!.className).toContain('danger');
+    expect(left!.className).toContain('accent');
+    expect(left!.className).not.toContain('danger');
     expect(right!.className).not.toContain('danger');
+    expect(right!.className).not.toContain('accent');
   });
 
-  it('trim-in 拖到 in=0：badge 附加 min 標記', () => {
+  it('trim-in 拖出黑墊：badge 附加 black +X.Xs 標記', () => {
     const { container } = render(<Timeline />);
     const [left] = handles(chipByText(container, 'clip one'));
     act(() => {
@@ -1207,10 +1216,10 @@ describe('主軌 in=0 素材用盡的視覺語言（Plan 12 Task 3 裁決 4，is
     act(() => {
       fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
     });
-    expect(container.textContent).toContain('· min');
+    expect(container.textContent).toContain('8.5s (+2.5s) · black +0.5s');
   });
 
-  it('trim-in 未拖到 in=0：沒有 danger class，badge 沒有 min 標記', () => {
+  it('trim-in 未拖出黑墊：沒有 accent class，badge 沒有 black 標記', () => {
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');
     const [left, right] = handles(clip);
@@ -1218,15 +1227,16 @@ describe('主軌 in=0 素材用盡的視覺語言（Plan 12 Task 3 裁決 4，is
       fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
     });
     act(() => {
-      // 只拖 -1s，遠不到 in=0（還剩 1s 素材）
+      // 只拖 -1s，遠不到 in=0（還剩 1s 素材，不進黑墊）
       fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
     });
+    expect(left!.className).not.toContain('accent');
     expect(left!.className).not.toContain('danger');
     expect(right!.className).not.toContain('danger');
-    expect(container.textContent).not.toContain('min');
+    expect(container.textContent).not.toContain('black');
   });
 
-  it('trim-out 拖曳（非 in 把手）：即使同一個 clip，min danger 態不觸發（in=0 只約束左緣）', () => {
+  it('trim-out 拖曳（非 in 把手）：即使同一個 clip，accent 態不觸發（黑墊只約束左緣）', () => {
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');
     const [left, right] = handles(clip);
@@ -1236,11 +1246,12 @@ describe('主軌 in=0 素材用盡的視覺語言（Plan 12 Task 3 裁決 4，is
     act(() => {
       fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true }); // +1s
     });
+    expect(left!.className).not.toContain('accent');
     expect(left!.className).not.toContain('danger');
     expect(right!.className).not.toContain('danger');
   });
 
-  it('放手後 danger 態與 min 標記一起消失（回到一般顯示）', () => {
+  it('放手後 accent 態與 black 標記一起消失（回到一般顯示，但 ClipBlock 上黑帶仍照 committed leadPad 顯示——見下方 pending 覆蓋測試）', () => {
     const { container } = render(<Timeline />);
     const [left] = handles(chipByText(container, 'clip one'));
     act(() => {
@@ -1249,12 +1260,112 @@ describe('主軌 in=0 素材用盡的視覺語言（Plan 12 Task 3 裁決 4，is
     act(() => {
       fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
     });
-    expect(left!.className).toContain('danger');
+    expect(left!.className).toContain('accent');
     act(() => {
       fireEvent.pointerUp(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
     });
-    expect(left!.className).not.toContain('danger');
-    expect(container.textContent).not.toContain('min');
+    // 放手後 badge（浮動時長標籤）消失，不再顯示帶號增減——但 pending 覆蓋讓 ClipBlock
+    // 本身繼續用新 leadPad 顯示黑帶（下方測試覆蓋這條），accent handle class 是 badge
+    // 拖曳態的一部分，這裡驗證的是「拖曳中專屬的視覺（badge/class）跟著手勢結束」。
+    expect(container.textContent).not.toMatch(/\(\+|\(−/);
+  });
+
+  it('拖出黑墊、放手（pending 尚未被 echo 對帳掉）：ClipBlock 黑帶仍照 pending 的新 leadPad 顯示', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+    });
+    const band = container.querySelector<HTMLElement>('[data-testid="clip-leadpad"]');
+    expect(band).not.toBeNull();
+    expect(band!.style.width).toBe('20px'); // 0.5s @ 40pps
+  });
+
+  it('拉過界長出黑墊、再縮回：先吃掉黑墊，in 仍為 0（trimInPad 的往返語意，見 dragMath.test.ts 的純函數覆蓋）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6，R=8
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // -3s（120px）：x=2, x'=2-3=-1 → in=0 leadPad=1 duration=9
+      fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).toContain('9.0s (+3.0s) · black +1.0s');
+    act(() => {
+      // 縮回 0.5s（+20px）：x'=-1+0.5=-0.5 → 仍 <0，in=0 leadPad=0.5 duration=8.5
+      // （先吃黑墊，in 還沒開始動）
+      fireEvent.pointerMove(left!, { clientX: 0, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).toContain('8.5s (+2.5s) · black +0.5s');
+  });
+
+  it('拉過界後完全縮回起點：黑墊吃完、in 開始從 0 回升，回到拖曳前的原值', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // -3s：in=0 leadPad=1 duration=9
+      fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 完全縮回起點（+3s，回到 clientX=100）：deltaSec 相對起手點=0 → 原值 duration=6
+      fireEvent.pointerMove(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).toContain('6.0s (+0.0s)');
+    expect(container.textContent).not.toContain('black');
+  });
+
+  it("in=0 邊界來源座標吸附：在 8px 閾值內時黏住 x'=0（leadPad 落地為 0，不進黑墊）", () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6，R=8
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // -2s（80px）+ 5px：x=2, 未吸附時 x'=2-2.125=-0.125（0.125s=5px @ 40pps，
+      // 在 8px 閾值內）→ 吸附黏住 x'=0 → in=0 leadPad=0 duration=8
+      fireEvent.pointerMove(left!, { clientX: 100 - 80 - 5, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).toContain('8.0s (+2.0s)');
+    expect(container.textContent).not.toContain('black');
+  });
+
+  it('in=0 邊界吸附命中時畫吸附導線於 clipStart（沿用既有 boxShadow 視覺語彙）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 100 - 80 - 5, pointerId: 1, bubbles: true }); // 吸附命中
+    });
+    const lines = Array.from(container.querySelectorAll('div')).filter(
+      (d) => (d as HTMLElement).style.boxShadow === '0 0 6px var(--accent-glow-strong)',
+    );
+    expect(lines.length).toBeGreaterThan(0);
+  });
+
+  it('超出 8px 閾值：不吸附，正常長出黑墊（對照組，確認吸附有邊界不是全域生效）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // -2s + 9px：0.225s（9px）超過閾值，不吸附
+      fireEvent.pointerMove(left!, { clientX: 100 - 80 - 9, pointerId: 1, bubbles: true });
+    });
+    expect(container.textContent).not.toContain('8.0s (+2.0s)');
+    expect(container.textContent).toContain('black');
   });
 });
 

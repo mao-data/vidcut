@@ -34,4 +34,10 @@ describe('usePlayback', () => {
     usePlayback.getState().setTrimPreview(null);
     expect(usePlayback.getState().trimPreview).toBeNull();
   });
+
+  it('Plan 14 Task 4: setTrimPreview accepts an optional leadPad field (TrimPreview from plan.ts)', () => {
+    usePlayback.getState().setTrimPreview({ clipId: 'c1', in: 0, leadPad: 1.2 });
+    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 0, leadPad: 1.2 });
+    usePlayback.getState().setTrimPreview(null);
+  });
 });

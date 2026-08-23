@@ -297,7 +297,10 @@ describe('Timeline drags', () => {
     const clip = chipByText(container, 'clip one');
     const [, right] = handles(clip);
     drag(right!, 100, 140); // c1 duration 6 → 7
-    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 7 } }]);
+    // Plan 14 Task 4：commit 一併帶 leadPad（trim-out 不動 pad，沿用原值 0）。
+    expect(sent).toEqual([
+      { name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 7, leadPad: 0 } },
+    ]);
   });
 
   it('a drag that does not move sends no command', () => {

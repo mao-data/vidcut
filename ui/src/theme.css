@@ -2217,6 +2217,24 @@ a {
   background: var(--danger);
 }
 
+/* Plan 14 Task 4：in 把手拖出黑墊時的視覺——**不是** danger 態（黑墊不是錯誤，
+ * 是使用者刻意要的效果，見 brief「把手用 accent 態」的裁決），改吃 `--accent-bright`
+ * 這個既有 token（playhead 標記同一色，語意是「使用者手上正在做的事」，不是警告）。
+ * 疊法與 `.handle.danger` 同款：只覆蓋顏色，命中區幾何仍由選取態那條規則決定。
+ * `accent` class 只加在 in 把手本身（ClipBlock.tsx 的 `padded` prop），out 把手
+ * 不受影響——與 `danger` 只加在 out 把手互為鏡射。 */
+.clipblk .handle.accent,
+.clipblk.selected .handle.accent {
+  background: color-mix(in srgb, var(--accent-bright) 28%, transparent);
+}
+.clipblk .handle.accent:hover,
+.clipblk.selected .handle.accent:hover {
+  background: color-mix(in srgb, var(--accent-bright) 50%, transparent);
+}
+.clipblk.selected .handle.accent::after {
+  background: var(--accent-bright);
+}
+
 /* 面板伸縮把手：平常隱形，hover/拖曳時中央亮 2px 紫線 */
 .resizer::after {
   content: '';

@@ -524,8 +524,11 @@ describe('teardownDrag 的 playhead clamp 只在非 commit 路徑跑（承接 Ta
       fireEvent.pointerUp(right!, { clientX: 180, pointerId: 1, bubbles: true });
     });
 
-    // commit 路徑：確實送出了 updateClip
-    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c2', patch: { in: 0, duration: 6 } }]);
+    // commit 路徑：確實送出了 updateClip（Plan 14 Task 4：trim-out 也帶 leadPad，
+    // 這裡是 trim-out 手勢、preview.leadPad 沿用 onTrimStart 灌進去的原值＝0）。
+    expect(sent).toEqual([
+      { name: 'updateClip', clipId: 'c2', patch: { in: 0, duration: 6, leadPad: 0 } },
+    ]);
     // total 一樣會還原（保底，隨後由 doc echo 覆寫，這部分行為不變）……
     expect(usePlayback.getState().total).toBe(10);
     // ……但 playhead **不能**在放手當下被夾回 10——這正是要修的 bug：commit 路徑上
