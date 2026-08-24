@@ -623,3 +623,199 @@ describe('ClipBlock 黑墊視覺（Plan 14 Task 4）', () => {
     expect(right!.className).not.toContain('accent');
   });
 });
+
+/**
+ * Plan 15 Task 1：trim 拖曳佔位黑墊——統一拖曳模型的視覺積木。`placeholderHead`／
+ * `placeholderTail` 是 Timeline.tsx（Task 2，本任務不接線）拖曳期才會傳非零值的
+ * 純視覺 prop；這裡只驗證 ClipBlock 有沒有把它們正確轉成 DOM：缺席時渲染輸出
+ * 逐位元組不變（回歸釘），有值時佔位區寬度/位置正確、與 leadPad 黑帶共存時排列
+ * 順序正確（頭端 `[佔位][leadPad][內容]`）、filmstrip 對位吃進佔位寬度。
+ */
+describe('ClipBlock trim 佔位黑墊（Plan 15 Task 1）', () => {
+  it('缺席（不傳 props）：不畫任何佔位區，chip 寬度＝原本 duration 換算的寬（逐位元組不變回歸釘）', () => {
+    const p = demoProject();
+    const clip = p.tracks.video[0]; // duration=6, pps=40 → w=240
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const chip = container.querySelector<HTMLElement>('.clipblk')!;
+    expect(chip.style.width).toBe('240px');
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
+  });
+
+  it('placeholderHead=0／placeholderTail=0（顯式 0）：同缺席，不畫佔位區', () => {
+    const p = demoProject();
+    const clip = p.tracks.video[0];
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        placeholderHead={0}
+        placeholderTail={0}
+      />,
+    );
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
+  });
+
+  it('placeholderHead>0：頭端畫佔位區，寬度＝placeholderHead×pps，chip 總寬多算進去', () => {
+    const p = demoProject();
+    const clip = p.tracks.video[0]; // duration=6
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        placeholderHead={2} // 2s*40pps=80px
+      />,
+    );
+    const chip = container.querySelector<HTMLElement>('.clipblk')!;
+    // 240（內容）+ 80（頭端佔位）= 320
+    expect(chip.style.width).toBe('320px');
+    const head = container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]')!;
+    expect(head).not.toBeNull();
+    expect(head.style.width).toBe('80px');
+    expect(head.style.left).toBe('0px');
+    expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
+  });
+
+  it('placeholderTail>0：尾端畫佔位區，寬度＝placeholderTail×pps，貼右緣（right:0）', () => {
+    const p = demoProject();
+    const clip = p.tracks.video[0]; // duration=6
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        placeholderTail={1.5} // 1.5s*40pps=60px
+      />,
+    );
+    const chip = container.querySelector<HTMLElement>('.clipblk')!;
+    // 240 + 60 = 300
+    expect(chip.style.width).toBe('300px');
+    const tail = container.querySelector<HTMLElement>('[data-testid="clip-placeholder-tail"]')!;
+    expect(tail).not.toBeNull();
+    expect(tail.style.width).toBe('60px');
+    expect(tail.style.right).toBe('0px');
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+  });
+
+  it('頭端佔位與真 leadPad 同時存在：排列 [佔位][leadPad][內容]，兩條黑帶各自定位不重疊', () => {
+    const p = demoProject();
+    const clip = { ...p.tracks.video[0], leadPad: 1 }; // 1s*40pps=40px
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        placeholderHead={0.5} // 0.5s*40pps=20px
+      />,
+    );
+    const head = container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]')!;
+    const pad = container.querySelector<HTMLElement>('[data-testid="clip-leadpad"]')!;
+    expect(head.style.left).toBe('0px');
+    expect(head.style.width).toBe('20px');
+    // leadPad 左緣緊接佔位右緣（20px），不是貼齊 chip 左緣（0px）
+    expect(pad.style.left).toBe('20px');
+    expect(pad.style.width).toBe('40px');
+  });
+
+  it('頭端佔位與 leadPad 同時存在時，filmstrip 內容區左緣＝佔位寬＋leadPad 寬', () => {
+    const p = demoProject();
+    const clip = { ...p.tracks.video[0], leadPad: 1 }; // 40px
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        placeholderHead={0.5} // 20px
+      />,
+    );
+    const tiles = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-testid="filmstrip-tile"]'),
+    );
+    expect(tiles.length).toBeGreaterThan(0);
+    for (const t of tiles) {
+      // 20（佔位）+ 40（leadPad）= 60
+      expect(Number.parseFloat(t.style.left)).toBeGreaterThanOrEqual(60);
+    }
+  });
+
+  it('頭尾佔位同時存在：各自獨立畫出，chip 寬度把兩者都算進去', () => {
+    const p = demoProject();
+    const clip = p.tracks.video[0]; // duration=6 → 240px
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        placeholderHead={1} // 40px
+        placeholderTail={0.5} // 20px
+      />,
+    );
+    const chip = container.querySelector<HTMLElement>('.clipblk')!;
+    // 240 + 40 + 20 = 300
+    expect(chip.style.width).toBe('300px');
+    expect(
+      container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]')!.style.width,
+    ).toBe('40px');
+    expect(
+      container.querySelector<HTMLElement>('[data-testid="clip-placeholder-tail"]')!.style.width,
+    ).toBe('20px');
+  });
+});

@@ -62,6 +62,19 @@ export function trimOut(
 }
 
 /**
+ * Plan 15 Task 1（統一拖曳模型核心式子）：修剪方向的佔位量（秒）。一次 trim 手勢內，
+ * 以起手時的 `orig.duration` 為基準，每幀由 `trimInPad`/`trimOut` 算出 `next.duration`，
+ * 兩者差即為「clip 的時間軸足跡該墊多少」——修剪方向（`next < orig`）佔位 > 0，
+ * clip 足跡維持 `orig.duration` 不變，其他 clip 不 ripple；擴張方向（`next >= orig`）
+ * 佔位恆為 0，行為與現況（Plan 12/14 已驗收的即時 ripple）逐位元組相同。
+ * 單獨抽出是讓 Timeline.tsx 的 trim-in／trim-out 兩個把手分支共用同一個式子，
+ * 不各自手打 `Math.max(0, ...)`。
+ */
+export function trimPlaceholder(origDuration: number, nextDuration: number): number {
+  return Math.max(0, origDuration - nextDuration);
+}
+
+/**
  * Plan 11 Task 3（裁決 5）：主軌 out 把手是否已經頂到來源長度上限（`probe.duration`）
  * ——`trimOut` 的 clamp 讓 duration 增長不了了，這裡只是把「拉不動」這件事變成一個
  * 可查詢的布林，供 Timeline.tsx 決定要不要畫 danger 態把手 + badge `max`。

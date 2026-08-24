@@ -3,6 +3,7 @@ import {
   trimIn,
   trimInPad,
   trimOut,
+  trimPlaceholder,
   reorderByDrag,
   layoutByOrder,
   clampStart,
@@ -133,6 +134,30 @@ describe('trimInPad（Plan 14 Task 4：主軌 trim-in 黑墊版，取代主軌�
   it('leadPad 缺席（undefined）等同 0（既有 clip 型別是 optional 欄位）', () => {
     const bare = { in: 5, duration: 6 }; // 型別上沒有 leadPad 欄位
     expect(trimInPad(bare, -7)).toEqual({ in: 0, leadPad: 2, duration: 13 });
+  });
+});
+
+describe('trimPlaceholder（Plan 15 Task 1：統一拖曳模型核心式子——修剪方向佔位量）', () => {
+  it('修剪方向（next < orig）：佔位量＝縮掉的秒數', () => {
+    expect(trimPlaceholder(10, 6)).toBe(4);
+  });
+
+  it('擴張方向（next > orig）：佔位恆為 0（現況 ripple 行為不變）', () => {
+    expect(trimPlaceholder(10, 15)).toBe(0);
+  });
+
+  it('相等（next === orig）：佔位為 0（無淨修剪）', () => {
+    expect(trimPlaceholder(10, 10)).toBe(0);
+  });
+
+  it('浮點：微幅修剪與微幅擴張都不因浮點誤差翻面', () => {
+    expect(trimPlaceholder(10, 9.9999)).toBeCloseTo(0.0001);
+    expect(trimPlaceholder(10, 10.0001)).toBe(0);
+  });
+
+  it('origDuration 為 0（理論邊界，不應發生但式子仍需良態）：只可能是擴張或相等，恆為 0', () => {
+    expect(trimPlaceholder(0, 5)).toBe(0);
+    expect(trimPlaceholder(0, 0)).toBe(0);
   });
 });
 

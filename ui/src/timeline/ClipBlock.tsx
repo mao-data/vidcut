@@ -26,6 +26,8 @@ export const ClipBlock = memo(function ClipBlock({
   fxDelay,
   visibleRange,
   outAtMax = false,
+  placeholderHead,
+  placeholderTail,
 }: {
   p: Project;
   clip: VideoClip;
@@ -50,9 +52,26 @@ export const ClipBlock = memo(function ClipBlock({
   /** 目前捲動視窗覆蓋的內容座標區間（含 buffer，Timeline 傳下來、已量化）。
    * 缺省＝不裁窗（渲染全部格）——測試與極簡呼叫端不必每次都造一個視窗。 */
   visibleRange?: VisibleRange;
+  /** Plan 15 Task 1：拖曳期佔位（秒）——修剪方向的統一拖曳模型，見 dragMath.ts
+   * 的 `trimPlaceholder` 與需求書「統一拖曳模型」。trim-in 佔位在頭端（黑墊右緣＝
+   * 把手＝手指），trim-out 佔位在尾端（黑墊左緣＝把手）。缺席＝0＝現況渲染
+   * **逐位元組不變**（回歸釘見 ClipBlock.test.tsx）——Timeline.tsx 只在拖曳中的
+   * clip 才會傳非零值，其餘呼叫端（測試、非拖曳中的一般 render）不必傳。
+   * 頭端排列固定為 `[佔位][leadPad][內容]`，兩種黑墊可同時存在、寬度各自換算。 */
+  placeholderHead?: number;
+  /** 同上，尾端佔位（trim-out 方向）。排列 `[內容][佔位]`。 */
+  placeholderTail?: number;
 }) {
   const media = p.media.find((m) => m.id === clip.mediaId);
-  const w = timeToPx(clip.duration, pps);
+  const placeholderHeadSec = placeholderHead ?? 0;
+  const placeholderTailSec = placeholderTail ?? 0;
+  const placeholderHeadPx = timeToPx(placeholderHeadSec, pps);
+  const placeholderTailPx = timeToPx(placeholderTailSec, pps);
+  // 統一拖曳模型：chip 的可視寬度＝內容 duration（已含 leadPad）＋頭尾佔位——
+  // 修剪方向「clip 的時間軸足跡維持 orig.duration 不變」正是靠這裡把佔位算進寬度，
+  // 而不是讓 clip.duration 本身變動（duration 仍是 next.duration，佔位是純視覺墊）。
+  // 無佔位（兩者皆 0）時 w 與改動前的 `timeToPx(clip.duration, pps)` 逐位元組相同。
+  const w = timeToPx(clip.duration, pps) + placeholderHeadPx + placeholderTailPx;
   // Plan 14 Task 4：黑墊（leadPad）視覺——取代舊的 `inAtMin` prop（`isAtSourceMin`
   // 的「danger+min 硬停」語意已廢止）。`clip.leadPad` 直接讀 props 傳入的 clip
   // （Timeline.tsx 的 `trimmedClips` 已經把拖曳中的 preview／pending 值攤平進去，
@@ -92,6 +111,8 @@ export const ClipBlock = memo(function ClipBlock({
   // 再加回 `padPx` 換算成「相對 clip 左緣」（見下方 JSX 的 `left: t.x + padPx`）
   // ——無 leadPad 時 pad=0/padPx=0，這條路徑與改動前逐位元組相同（回歸釘見
   // ClipBlock.test.tsx「無 leadPad 渲染輸出不變」）。
+  // Plan 15 Task 1：頭端排列 `[佔位][leadPad][內容]`，內容區左緣再右移
+  // `placeholderHeadPx`——無佔位時為 0，與改動前逐位元組相同（回歸釘同上）。
   const contentDur = clip.duration - pad;
   const tiles =
     filmstrip && !clip.frozen && media && contentDur > 0
@@ -102,7 +123,7 @@ export const ClipBlock = memo(function ClipBlock({
           frameW,
           secPerTile,
           media.filmstripTiles ?? Math.ceil(media.probe.duration),
-          leftPx + padPx,
+          leftPx + placeholderHeadPx + padPx,
           visibleRange,
         )
       : [];
@@ -180,9 +201,10 @@ export const ClipBlock = memo(function ClipBlock({
               data-testid="filmstrip-tile"
               style={{
                 position: 'absolute',
-                // t.x 是相對內容區左緣的偏移（見上方 tiles 計算的註解），加回 padPx
-                // 換算成相對 clip 左緣——無 leadPad 時 padPx=0，逐位元組不變。
-                left: t.x + padPx,
+                // t.x 是相對內容區左緣的偏移（見上方 tiles 計算的註解），加回
+                // placeholderHeadPx + padPx 換算成相對 chip 左緣——無佔位、無
+                // leadPad 時兩者皆 0，逐位元組不變。
+                left: t.x + placeholderHeadPx + padPx,
                 top: 0,
                 width: t.w,
                 height: '100%',
@@ -193,20 +215,74 @@ export const ClipBlock = memo(function ClipBlock({
               }}
             />
           ))}
+        {/* Plan 15 Task 1：頭端佔位黑墊——修剪方向拖曳中，被修掉的區段以「佔位」
+            形式停在原地（clip 時間軸足跡維持 orig.duration，不 ripple），放手才真正
+            收斂。黑墊右緣＝leadPad 左緣＝把手／手指所在位置，符合需求書「trim-in
+            的佔位黑墊在頭端」。視覺語彙與 leadPad 黑帶同一組 token（同款 hatch＋
+            --panel 底色），但疊加額外透明度（opacity 0.6）區分「將被移除、還沒
+            定案」vs leadPad 的「已經是這樣了」——放手 commit 前使用者應該能一眼
+            分辨這條墊子是暫時的。純視覺、不可互動；<=0 不畫（缺席＝0＝逐位元組
+            不變，回歸釘見 ClipBlock.test.tsx）。 */}
+        {placeholderHeadSec > 0 && (
+          <div
+            data-testid="clip-placeholder-head"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: placeholderHeadPx,
+              height: '100%',
+              opacity: 0.6,
+              background: `repeating-linear-gradient(
+                45deg,
+                var(--clip-band-bg),
+                var(--clip-band-bg) 6px,
+                transparent 6px,
+                transparent 12px
+              ), var(--panel)`,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         {/* Plan 14 Task 4：黑墊視覺——clip 左緣起 `leadPad × pps` px 的黑帶，視覺語彙
             對齊 Plan 13 的黑尾斜紋帶（同一組 --clip-band-bg 斜紋疊 --panel，見
             Timeline.tsx 的 `tl-blacktail`）。純視覺、不可互動；pad<=0 時不畫（既有
             專案 / 未拖出黑墊時逐位元組不變，不多渲染一個空 div 的邊界情形也不畫，
-            避免無意義的 DOM 節點）。 */}
+            避免無意義的 DOM 節點）。Plan 15 Task 1：左緣改吃 `placeholderHeadPx`
+            ——頭端排列 `[佔位][leadPad][內容]`，無佔位時為 0，逐位元組不變。 */}
         {pad > 0 && (
           <div
             data-testid="clip-leadpad"
             style={{
               position: 'absolute',
               top: 0,
-              left: 0,
+              left: placeholderHeadPx,
               width: padPx,
               height: '100%',
+              background: `repeating-linear-gradient(
+                45deg,
+                var(--clip-band-bg),
+                var(--clip-band-bg) 6px,
+                transparent 6px,
+                transparent 12px
+              ), var(--panel)`,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {/* Plan 15 Task 1：尾端佔位黑墊——trim-out 方向，排列 `[內容][佔位]`，
+            黑墊左緣＝把手／手指所在位置。視覺語彙與頭端佔位相同（同款 hatch＋
+            額外透明度）。 */}
+        {placeholderTailSec > 0 && (
+          <div
+            data-testid="clip-placeholder-tail"
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              width: placeholderTailPx,
+              height: '100%',
+              opacity: 0.6,
               background: `repeating-linear-gradient(
                 45deg,
                 var(--clip-band-bg),
