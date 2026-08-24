@@ -558,9 +558,8 @@ nextDuration) = max(0, orig-next)`,`dragMath.ts`）,版面凍結、把手跟手,
 
 ### Plan 15 終審 fix wave（2026-08-24）：trimPreview 佔位映射 + 文件/註解修正
 
-終審抓到 1 Critical / 2 Important / 5 Minor,全部併入這一輪修完（見
-`.superpowers/sdd/2026-08-26-trim-placeholder/final-review.md` 與同目錄
-`fix-wave-report.md` 的逐條對應）：
+終審抓到 1 Critical / 2 Important / 5 Minor,全部併入這一輪修完（審查工作檔隨
+SDD workspace 清掉,不入版控;逐條結論已內化到下面各點與對應測試）：
 
 - **Critical 1（player 顯示錯誤畫面）**：修剪方向拖曳中 `scheduleFollow` 把
   playhead 帶到「clipStart + 頭端佔位」,但 `plan.ts` 的 `sourceFor`/`planAt` 吃的是
