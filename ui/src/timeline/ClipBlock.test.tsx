@@ -383,6 +383,41 @@ describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', (
     expect(right!.style.right).toBe('0px');
   });
 
+  it('final-review Minor 4 回歸釘：內容窄但佔位撐大總寬——窄片外推吃內容寬，不吃含佔位的總寬', () => {
+    const p = demoProject();
+    // 內容 duration 0.5s*40pps=20px（<28px 門檻，本身該外推），但頭端佔位 1s*40pps=40px
+    // 把總寬 w 撐到 60px（>28px 門檻）。修法前：外推判斷吃含佔位的 w=60px，判定「不窄」，
+    // overflowOffset 只有 -6（SELECTED_HANDLE_W/2），把手命中區比預期窄。
+    // 修法後：判斷吃 contentW = w - placeholderHeadPx - placeholderTailPx = 20px，
+    // 仍 <28px，照樣觸發外推。
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={{ ...p.tracks.video[0], duration: 0.5 }}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        placeholderHead={1}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    // left handle 的 style.left = overflowOffset + placeholderHeadPx（40px，這裡的
+    // placeholderHead=1s*40pps）——外推觸發與否要看 overflowOffset 本身，不能直接拿
+    // leftPx 跟純 -6 比（那會被 +40 的頭端佔位偏移蓋過）。right handle 沒有頭端佔位，
+    // style.right 就是 overflowOffset 本身，直接比對即可。
+    const leftPx = parseFloat(left!.style.left);
+    const rightPx = parseFloat(right!.style.right);
+    const overflowOffsetFromLeft = leftPx - 40; // 扣掉 placeholderHeadPx
+    // 外推觸發：偏移比純 -6（SELECTED_HANDLE_W/2）更負（外溢量 > 0）。
+    expect(overflowOffsetFromLeft).toBeLessThan(-6);
+    expect(rightPx).toBeLessThan(-6);
+  });
+
   /**
    * review round 1 Critical 1：主軌片段是頭尾相接的（無間隙），窄片選取後外溢的
    * out 把手會伸進「下一個 DOM 序在後的 sibling」的地盤。沒有 z-index 抬升時，

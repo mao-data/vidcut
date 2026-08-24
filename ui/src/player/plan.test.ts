@@ -206,6 +206,66 @@ describe('planAt trimPreview override（Plan 12 Task 2/裁決 3）', () => {
   });
 });
 
+describe('planAt trimPreview.placeholderHead（Plan 15 終審 fix wave Critical 1）', () => {
+  /**
+   * 判別性測試：把「playhead 在把手位置」（time）與「trimPreview」一起餵 planAt，
+   * 驗算 sourceTime。這正是 final-review 指出既有測試從未做過的接縫——
+   * Timeline.trimFollow.test.tsx 只驗 usePlayback.time 本身的值，plan.test.ts
+   * 以前的 trimPreview 測試從不知道 playhead 會被 scheduleFollow 帶離 clipStart。
+   * 使用者原話場景：0–50s clip（c1: in=0 duration=50，clipStart=0）從 in=0 拉到
+   * in=20——修剪方向，佔位 20s，playhead 追到把手位置 clipStart+placeholder=20。
+   * 少了 placeholderHead 扣除：offsetInClip=20（locate 的原始值）,
+   * sourceTime = trimPreview.in(20) + 20 = 40（誤差＝修剪量，見 final-review C1
+   * 實測）。扣除後：offsetInClip = 20-20=0, sourceTime = 20（正確：新首幀）。
+   */
+  function trimScenario(): Project {
+    const p = proj();
+    p.tracks.video = [{ id: 'c1', mediaId: 'm1', in: 0, duration: 50, volume: 1 }];
+    return p;
+  }
+
+  it('playhead 在把手位置（clipStart+placeholderHead）時 sourceTime 必須等於 trimPreview.in（不扣 placeholderHead 會紅）', () => {
+    const p = trimScenario();
+    const plan = planAt(p, 20, { clipId: 'c1', in: 20, leadPad: 0, placeholderHead: 20 });
+    expect(plan.active).toMatchObject({ clipId: 'c1', sourceTime: 20 });
+  });
+
+  it('省略 placeholderHead（等同 0）：映射與現行行為逐位元組相同（回歸釘）', () => {
+    const p = trimScenario();
+    // 沒有 placeholderHead 欄位：offsetInClip 不扣，t=3 時 offsetInClip=3。
+    const withField = planAt(p, 3, { clipId: 'c1', in: 5 });
+    const withZero = planAt(p, 3, { clipId: 'c1', in: 5, placeholderHead: 0 });
+    expect(withField).toEqual(withZero);
+    expect(withField.active).toMatchObject({ clipId: 'c1', sourceTime: 8 }); // 5 + offset 3，未扣
+  });
+
+  it('playhead 介於 clipStart 與把手位置之間（offset < placeholderHead）：夾在 0，不會算出負的 sourceTime 偏移', () => {
+    // deltaSec 扣完若小於 0，stripPlaceholderHead 夾在 0——這裡驗證夾制生效
+    // （理論上 playhead 不會被排到比把手位置更左，但保底邏輯仍要驗證）。
+    const p = trimScenario();
+    const plan = planAt(p, 5, { clipId: 'c1', in: 20, leadPad: 0, placeholderHead: 20 });
+    // offsetInClip=5，扣 20 後夾成 0：sourceTime = 20 + 0 = 20（不是負的 -15 偏移）
+    expect(plan.active).toMatchObject({ clipId: 'c1', sourceTime: 20 });
+  });
+
+  it('override 的 clipId 不是目前 active clip：placeholderHead 不套用到非目標 clip', () => {
+    const p = proj(); // c1 clipStart=0 duration=6, c2 clipStart=6
+    // t=7 時 active 是 c2；override 指名 c1 且帶 placeholderHead，不該影響 c2 的映射
+    const plan = planAt(p, 7, { clipId: 'c1', in: 99, placeholderHead: 99 });
+    expect(plan.active).toMatchObject({ clipId: 'c2', sourceTime: 1 }); // c2 in 0 + offset 1，不受干擾
+  });
+
+  it('trim-out 對稱推演：out 把手拖曳中不寫 trimPreview（Timeline.tsx 從不在 trim-out 分支賦值），placeholderHead 恆缺席，映射不受影響', () => {
+    // trim-out 方向 clipStart 座標系裡的 offset 本來就落在 clip 內容裡（不像 trim-in
+    // 需要佔位偏移校正）——這裡用「trimPreview 為 null」模擬 trim-out 拖曳中的真實
+    // 呼叫（Timeline.tsx 的 trim-out 分支從不寫 trimPreviewTarget），驗證映射與
+    // 沒有 Critical 1 修法介入時完全一致。
+    const p = trimScenario();
+    const plan = planAt(p, 30, null); // playhead 在 clip 內容中段，trim-out 拖曳中常見的位置
+    expect(plan.active).toMatchObject({ clipId: 'c1', sourceTime: 30 }); // in 0 + offset 30，無佔位校正介入
+  });
+});
+
 describe('planAt leadPad 前把手黑墊（Plan 14 Task 3）', () => {
   it('無 leadPad 專案：planAt 輸出逐欄位不變（回歸釘）', () => {
     // proj() 的 c1/c2 都沒有 leadPad 欄位——所有既有斷言必須維持逐位元組相同，

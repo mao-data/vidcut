@@ -84,10 +84,16 @@ export const ClipBlock = memo(function ClipBlock({
   // Timeline 的 caption+overlay chip，改一處記得改另外兩處）：選取態命中區 12px
   // 跨邊界置中（基準 -6），窄片（<28px）再疊加向外推的量，讓移動帶維持 [6, w-6]
   // 不縮水。未選取維持貼齊（inline `left:0`/`right:0`，行為不變）。
+  // final-review Minor 4（承 Plan 15 Task 1 review Minor）：窄片判斷吃「內容寬」
+  // （`w` 扣掉頭尾佔位），不是含佔位的 `w` 本身——「內容很窄但被佔位撐大」的 clip
+  // 不該因為佔位撐出的視覺寬度就被判定成「不窄」而少推一段外推量，否則把手命中區
+  // 會略窄於預期（無佔位時 `contentW === w`，逐位元組不變）。
   const NARROW_THRESHOLD = 28;
   const SELECTED_HANDLE_W = 12;
+  const contentW = w - placeholderHeadPx - placeholderTailPx;
   const overflowOffset = selected
-    ? -SELECTED_HANDLE_W / 2 + (w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0)
+    ? -SELECTED_HANDLE_W / 2 +
+      (contentW < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - contentW) / 2) : 0)
     : 0;
   // 2026-08-16 使用者定案:主軌**不顯示**波形帶,filmstrip 吃滿列高。
   // 波形機制(clipWave 查表/--wave-clip-* token/繪製器)完整保留——音訊軌仍用,

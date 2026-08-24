@@ -82,8 +82,21 @@ export function overlayView(
  * 顯示黑，而不是繼續用 doc 舊的 leadPad 算出一個過期的來源時間。省略＝沿用 doc 的
  * `clip.leadPad`（Task 4 的拖曳寫入端目前還不帶這個欄位，正是靠這個可選設計維持
  * typecheck 過——沒帶 leadPad 的呼叫點行為不變）。
+ * Plan 15 終審 fix wave（Critical 1）：加可選 `placeholderHead`（秒）——修剪方向拖曳中
+ * Timeline 把 playhead 帶到「clipStart + 頭端佔位」（把手跟手的位置，見 Timeline.tsx
+ * scheduleFollow），但 `doc` 本身在拖曳中不變（clip 仍是 orig.duration、起點仍是
+ * clipStart），`locate()` 算出的 `offsetInClip` 因此等於佔位量，不是 0——`sourceFor`
+ * 若照舊直接拿 offsetInClip 換算會多算一段「佔位量」的偏移（等同誤差＝修剪量，見
+ * final-review C1）。這個欄位就是用來把那段佔位量從 offsetInClip 扣回去，讓映射回到
+ * 「playhead 在把手位置時 sourceTime = trimPreview.in」的正確結果。省略＝0＝行為不變
+ * （擴張方向、非拖曳、trim-out 皆不帶，逐位元組相同）。
  */
-export type TrimPreview = { clipId: string; in: number; leadPad?: number } | null;
+export type TrimPreview = {
+  clipId: string;
+  in: number;
+  leadPad?: number;
+  placeholderHead?: number;
+} | null;
 
 /**
  * clip 的有效黑墊長度（review round 1 finding 3）：trimPreview 若指名這個 clip，
@@ -101,6 +114,30 @@ function effectivePadFor(
   return pad ?? 0;
 }
 
+/**
+ * Plan 15 終審 fix wave（Critical 1）：把 `locate()` 的原始 offsetInClip 換算成
+ * 「相對新內容起點」的 offset——只對 trimPreview 指名的目標 clip 扣掉頭端佔位量
+ * （非目標 clip 或無 placeholderHead 時原樣回傳，逐位元組不變）。夾在 >= 0 是保底
+ * （playhead 理論上不會被排到比把手位置更左，見 Timeline.tsx scheduleFollow）。
+ * 只有拿到「locate() 原始偏移」的呼叫點要用這個——`planAt` 的 premount 分支已經自己
+ * 算好新座標系的 offset，直接傳給 `sourceFor` 即可，不能再扣一次。
+ */
+function stripPlaceholderHead(
+  clip: Pick<VideoClip, 'id'>,
+  offsetInClip: number,
+  trimPreview: TrimPreview,
+): number {
+  if (clip.id !== trimPreview?.clipId) return offsetInClip;
+  return Math.max(0, offsetInClip - (trimPreview.placeholderHead ?? 0));
+}
+
+/**
+ * `offsetInClip` 這裡一律當「相對新內容起點」的偏移——呼叫端若手上是 `locate()` 的原始
+ * 偏移（含修剪方向的頭端佔位量），要先用 `stripPlaceholderHead` 扣掉才能傳進來。
+ * Plan 15 終審 fix wave（Critical 1）：不在這裡內部扣，是因為 `planAt` 的 `next`
+ * 分支已經自己算好「相對新內容起點」的 offset（`effectivePad`）直接傳入，若這裡再扣一次
+ * 會把 placeholderHead 扣兩遍——扣除只能在「原始 locate() 偏移」那一個源頭做一次。
+ */
 function sourceFor(
   p: Project,
   clipIndex: number,
@@ -112,8 +149,8 @@ function sourceFor(
   const media = p.media.find((m) => m.id === clip.mediaId);
   if (!media) return null;
   // trimPreview 只覆蓋 in（與 leadPad，Plan 14）：非目標 clip（clipId 不符）維持用 doc 的
-  // clip.in/leadPad，目標 clip 則用預覽值取代——offsetInClip 不受影響（clip 在時間軸上的
-  // 起點 trim-in 不會移動，見 Timeline.tsx scheduleFollow(clipStart) 的註解）。
+  // clip.in/leadPad，目標 clip 則用預覽值取代——offsetInClip 已經是呼叫端換算好的「相對
+  // 新內容起點」值（見上方函式註解），這裡不再對它做任何座標系轉換。
   const isTarget = clip.id === trimPreview?.clipId;
   const effectiveClip = isTarget
     ? { in: trimPreview!.in, leadPad: effectivePadFor(clip, trimPreview) }
@@ -182,7 +219,14 @@ export function planAt(p: Project, t: number, trimPreview: TrimPreview = null): 
   // 不是「主軌播完、其他軌還在演」。
   const blackTail = output > total && !done && t >= total;
   const loc = blackTail ? null : locate(p, Math.min(t, total));
-  const active = loc ? sourceFor(p, loc.clipIndex, loc.offsetInClip, trimPreview) : null;
+  // Plan 15 終審 fix wave（Critical 1）：`loc.offsetInClip` 是 locate() 的原始偏移，
+  // 修剪方向拖曳中 playhead 停在「clipStart + placeholderHead」（見 Timeline.tsx
+  // scheduleFollow），offset 因此比「相對新內容起點」多算出一段佔位量——先用
+  // stripPlaceholderHead 扣回去，`active`／`inOwnPad` 都要吃這個換算後的值，兩者才在
+  // 同一個座標系下比較（`effectivePad` 本來就是新座標系）。
+  const offsetInClip =
+    loc !== null ? stripPlaceholderHead(loc.clip, loc.offsetInClip, trimPreview) : 0;
+  const active = loc ? sourceFor(p, loc.clipIndex, offsetInClip, trimPreview) : null;
   // Plan 14 Task 3：premount 語意——offset 落在本 clip 的黑墊內時（active === null 但
   // loc 有效，即「該 clip 當下無畫面」的情形），next 要指向**本 clip 的內容起點**
   // （offsetInClip = pad，換算後 sourceTime = clip.in），不是下一個 clip：黑墊結束時
@@ -190,7 +234,7 @@ export function planAt(p: Project, t: number, trimPreview: TrimPreview = null): 
   // 目標要跟著變，理由同 sourceFor 內 effectiveClip 的覆蓋）。不在黑墊內（含無 leadPad
   // 的既有行為）維持原本「premount 下一個 clip」不變。
   const effectivePad = loc !== null ? effectivePadFor(loc.clip, trimPreview) : 0;
-  const inOwnPad = loc !== null && active === null && loc.offsetInClip < effectivePad;
+  const inOwnPad = loc !== null && active === null && offsetInClip < effectivePad;
   const next = loc
     ? inOwnPad
       ? sourceFor(p, loc.clipIndex, effectivePad, trimPreview)

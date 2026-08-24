@@ -311,8 +311,12 @@ aae6e75..HEAD --stat -- server/` 為空,含 Task 1–3；MCP 未觸及,不需同
   是 transient 欄位（`{clipId, in}`）,不進 doc、不是 command、不進 history,與
   `scheduleFollow` 共用同一個 rAF 節流節奏寫入（不逐 pointermove 都寫）。
   `plan.ts` 的 `planAt`/`sourceFor` 消費這個 override：只覆蓋 clipId 相符的 clip
-  的 `in`,`offsetInClip` 不受影響（trim-in 不移動 clip 的時間軸起點）;省略/null
-  時映射與現行行為逐位元組相同。**生命週期綁 pending,不是綁拖曳手勢本身**
+  的 `in`;省略/null 時映射與現行行為逐位元組相同。
+  ⚠️ **這句話從 Plan 15 起有限定詞,見下方 Plan 15 小節**：`offsetInClip`
+  **不再**恆不受影響——修剪方向拖曳中 playhead 被 `scheduleFollow` 帶到
+  `clipStart + 頭端佔位`,`locate()` 算出的 offset 因此含一段佔位量,`TrimPreview`
+  多了一個可選的 `placeholderHead` 欄位把它扣回去（Plan 15 終審 fix wave Critical 1,
+  見下方）。**生命週期綁 pending,不是綁拖曳手勢本身**
   （review round 1 修正）：原本 `teardownDrag`（pointerup/pointercancel 共用拆卸）
   在放手當下就同步清空 `trimPreview`,但 `sendCommand` 送出到 doc echo 抵達之間
   有非同步空窗——那幾幀 `planAt(doc, time, null)` 用 doc 裡還沒更新的舊 `in`,
@@ -546,10 +550,47 @@ ${pad}:color=black`,把這個 input 的輸出長度墊回 `clip.duration`;音訊
 被修掉的區段以半透明黑墊佔位撐住 clip 的時間軸足跡（`trimPlaceholder(origDuration,
 nextDuration) = max(0, orig-next)`,`dragMath.ts`）,版面凍結、把手跟手,放手
 才真正閉合收斂(`f0aa5d2`+`cc20293`)。擴張方向（還原素材/長 leadPad）維持 Plan 12/14
-的即時 ripple+捲動補償不變。**捲動補償因此收斂為只在擴張方向套用**
-（`Timeline.tsx` 的 `dur >= d.origDuration` 守門,見上方 Plan 12 Task 1 小節的
-限定詞）——修剪方向完全不碰 `scrollLeft`,把手位置改靠佔位邊界（`ClipBlock` 的
+的即時 ripple+捲動補償不變。**捲動補償量因此收斂為只在擴張方向非零**
+（`Timeline.tsx` 的 `dur >= d.origDuration` 決定 `deltaPx`,見上方 Plan 12 Task 1 小節的
+限定詞）——修剪方向的補償量恆為 0（每幀寫回 `scrollLeftAtDragStart`,不是完全
+不寫,見下方 fix wave Minor 2）,把手位置改靠佔位邊界（`ClipBlock` 的
 `placeholderHeadPx`/`placeholderTailPx`）本身跟手。
+
+### Plan 15 終審 fix wave（2026-08-24）：trimPreview 佔位映射 + 文件/註解修正
+
+終審抓到 1 Critical / 2 Important / 5 Minor,全部併入這一輪修完（見
+`.superpowers/sdd/2026-08-26-trim-placeholder/final-review.md` 與同目錄
+`fix-wave-report.md` 的逐條對應）：
+
+- **Critical 1（player 顯示錯誤畫面）**：修剪方向拖曳中 `scheduleFollow` 把
+  playhead 帶到「clipStart + 頭端佔位」,但 `plan.ts` 的 `sourceFor`/`planAt` 吃的是
+  committed `doc`（clip 起點/duration 拖曳中不變）,`locate()` 算出的
+  `offsetInClip` 因此多算了一段等於佔位量的偏移,`sourceTime` 誤差恆等於「修剪量」
+  （0–50s clip 拖到 in=20,播放器顯示 40s 畫面而不是 20s）。**修法：`TrimPreview`
+  加可選欄位 `placeholderHead`**（`plan.ts`）,`Timeline.tsx` 每幀連同 `in`/`leadPad`
+  一起寫入（`trimPreviewTarget.current.placeholderHead`）;`planAt` 用
+  `stripPlaceholderHead()` 把 `locate()` 的原始 offset 換算成「相對新內容起點」
+  的 offset 再傳給 `sourceFor`（只對 trimPreview 指名的目標 clip 做,省略/0＝
+  逐位元組不變）。trim-out 不受影響（`trimPreviewTarget` 從不在 trim-out 分支寫入）。
+  回歸測試：`plan.test.ts` 新增「(time, trimPreview) 一起餵 planAt」的判別性測試。
+- **Important 1（兩個 origDuration 來源分岔）**：`onTrimStart` 改成兩個 edge 都賦值
+  `origDuration`（原本只有 trim-in），`dragPlaceholder` 改讀 `d.origDuration`（凍結值）
+  取代原本的 `doc.tracks.video.find(...)`（live doc）——三個消費者
+  （`trimPreviewTarget.placeholderHead`／捲動補償／`dragPlaceholder`）統一吃同一個
+  「手勢起手時凍結」的數字，不再因為拖曳中 AI echo 改到同一支 clip 而分岔。
+- **Important 2（本節你正在讀的這句）**：上方 Task 2 小節「`offsetInClip` 不受影響」
+  那句已經加了限定詞,指回這裡。
+- **Minor 1（吸附導線位置）**：`setSnapLine` 的 in=0 吸附導線改畫在
+  `clipStart + placeholder`（佔位右緣＝內容起點），不是 `clipStart`（佔位左緣）。
+- **Minor 2（跨方向手勢 scrollLeft 殘留）**：修剪方向補償量恆為 0 時**仍寫回**
+  `el.scrollLeft = scrollLeftAtDragStart`，不是完全不碰——先擴張（寫了 scrollLeft）
+  再修剪的手勢現在會正確回退，不留擴張階段的殘留值。
+- **Minor 3**：`DragState` 的註解更新，反映 `origDuration` 現在兩個 edge 都用、
+  trim-out 也有佔位與版面凍結的新現實。
+- **Minor 4**：`ClipBlock.tsx` 的 `NARROW_THRESHOLD` 外推判斷改吃內容寬
+  （`w - placeholderHeadPx - placeholderTailPx`），不是含佔位的 `w`。
+- **Minor 5**：隨 Important 1 修完自然消失（`dragPlaceholder` 現在讀
+  `d.origDuration`，不再需要解釋「為何不用它」）。
 
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 

@@ -168,9 +168,14 @@ type DragState =
   // Plan 12 Task 1（幾何解）：main-track trim-in 每幀用 scrollLeftAtDragStart +
   // origDuration 做「絕對重算」的捲動補償（scrollLeft = origin + (durationPx -
   // origDurationPx)），不是逐幀累加——撞 0 clamp 後往回拖才不會殘留幻影偏移
-  // （見 plan 範圍裁決 1）。trim-out 不用這兩個欄位（右緣本來就跟手，維持
-  // Plan 11 行為），但共用同一個 mode union 分支，欄位放在同一個 variant 上
-  // 較貼近既有結構，未使用時保持 undefined。
+  // （見 plan 範圍裁決 1）。`scrollLeftAtDragStart` 只有 trim-in 用得到（trim-out
+  // 從不套用捲動補償，右緣本來就跟手，維持 Plan 11 行為）。
+  // final-review Minor 3（承 I1 修法）：`origDuration` 兩個 edge 都賦值——除了
+  // trim-in 的捲動補償，Plan 15 起 trim-in／trim-out 拖曳中都要靠它算修剪方向的
+  // 佔位量（`dragPlaceholder`／`trimPreviewTarget.placeholderHead`，見 onTrimStart
+  // 與 dragPlaceholder 的註解），trim-out 也有尾端佔位與版面凍結（不再是純 Plan 11
+  // 行為）。兩個欄位共用同一個 mode union 分支只是貼近既有結構，未使用時保持
+  // undefined。
   | {
       mode: 'trim-in' | 'trim-out';
       clipId: string;
@@ -315,8 +320,18 @@ export function Timeline() {
    * Plan 14 Task 4：型別加 `leadPad`——拖曳中每幀都要帶明確值（含 0），省略會讓
    * player 端沿用 doc 舊的 leadPad（見 plan.ts `TrimPreview` 的省略語意註解），
    * 在「縮回、黑墊變 0」那一刻會錯誤地繼續顯示黑畫面。
+   * Plan 15 終審 fix wave（Critical 1）：型別加 `placeholderHead`——修剪方向拖曳中
+   * playhead 被 `scheduleFollow` 帶到「clipStart + 頭端佔位」，`plan.ts` 的
+   * `sourceFor` 需要這個數字把 offsetInClip 扣回「相對新內容起點」才能算出正確
+   * sourceTime（見 plan.ts `TrimPreview.placeholderHead` 的註解）。與 `leadPad`
+   * 同款：每幀都要帶明確值（含 0），省略等於 0＝行為不變。
    */
-  const trimPreviewTarget = useRef<{ clipId: string; in: number; leadPad: number } | null>(null);
+  const trimPreviewTarget = useRef<{
+    clipId: string;
+    in: number;
+    leadPad: number;
+    placeholderHead: number;
+  } | null>(null);
   const scheduleFollow = (edgeSec: number) => {
     followTarget.current = edgeSec;
     if (followRaf.current !== null) return; // 同一幀内已排過，等它執行時撈最新值
@@ -435,10 +450,14 @@ export function Timeline() {
       clipId: clip.id,
       startX: e.clientX,
       preview: { ...clip },
-      // 只有 trim-in 用得到（捲動補償的起手基準）；trim-out 保持 undefined。
-      ...(edge === 'in'
-        ? { scrollLeftAtDragStart: scrollRef.current?.scrollLeft ?? 0, origDuration: clip.duration }
-        : {}),
+      // final-review Important 1：`origDuration` 兩個 edge 都帶（手勢起手時的
+      // committed duration，凍結值）——`dragPlaceholder`／捲動補償／trimPreview 的
+      // placeholderHead 都要吃同一個「一次手勢以起手值為基準」的數字，不能各自一半吃
+      // 凍結值一半吃 live doc（否則拖曳中 AI echo 改到同一支 clip 時兩條線會分岔，
+      // 見 final-review I1）。`scrollLeftAtDragStart` 只有 trim-in 用得到（捲動補償
+      // 的起手基準，trim-out 從不套用捲動補償），保持 undefined。
+      origDuration: clip.duration,
+      ...(edge === 'in' ? { scrollLeftAtDragStart: scrollRef.current?.scrollLeft ?? 0 } : {}),
     };
   }, []);
 
@@ -961,25 +980,41 @@ export function Timeline() {
         const final = snappedAtZero ? { in: 0, leadPad: 0, duration: R } : raw;
         const dur = final.duration;
         d.preview = { ...clip, in: final.in, leadPad: final.leadPad, duration: dur };
-        // 吸附住 x'=0 時畫吸附導線於 clipStart（來源座標吸附，不是 maybeSnap 的
-        // 時間軸座標系——但視覺上「來源 in=0」剛好對齊「clip 內容起點」，用同一條
-        // 導線語彙沒有歧義）；沒吸附住則不畫線（裁決見 task-4-report：這個吸附點
-        // 只有一個候選，不像 maybeSnap 那樣要在多個候選間挑，畫線的訊息量有限，
+        // Plan 15 Task 2（統一拖曳模型接線）：in 把手的螢幕/追隨位置＝頭端佔位右緣
+        // （`clipStart + placeholder`）——修剪方向 clip 的時間軸足跡維持
+        // `orig.duration` 不變，把手不再釘在 `clipStart` 本身，而是跟著佔位黑墊的
+        // 右緣走（＝leadPad／內容左緣＝手指所在位置）；擴張方向 placeholder 恆 0，
+        // `clipStart + 0 === clipStart`，與改動前逐位元組相同。要先算出來才能同時
+        // 交給吸附導線（下方 setSnapLine）、trimPreviewTarget（player 端扣偏移用）與
+        // scheduleFollow（playhead 用）。
+        const placeholder = d.origDuration !== undefined ? trimPlaceholder(d.origDuration, dur) : 0;
+        // final-review Minor 1：吸附住 x'=0 時畫吸附導線於「佔位右緣」
+        // （`clipStart + placeholder`），不是 clip 時間軸起點本身（＝佔位**左**緣）。
+        // 吸附語意是「來源 in=0 對齊 clip 內容起點」，內容起點在佔位右緣（見 ClipBlock
+        // 的 `[佔位][leadPad][內容]` 排列）——多數情況下吸附成立時 placeholder=0
+        // （落地成 duration=R>=orig.duration，擴張方向），兩者重合；只有原 clip 帶
+        // leadPad、吸回 0 導致 duration 反而縮短時 placeholder>0，這時導線才會與舊寫法
+        // （`clipStart`）產生可觀察差異。沒吸附住則不畫線（裁決見 task-4-report：這個
+        // 吸附點只有一個候選，不像 maybeSnap 那樣要在多個候選間挑，畫線的訊息量有限，
         // 且 Plan 12 已定案 trim-in 期間 snapLine 恆 null——這裡刻意維持同一語意，
         // 只在真正吸附命中的那一幀短暫例外）。
-        setSnapLine(snappedAtZero ? clipStart : null);
+        setSnapLine(snappedAtZero ? clipStart + placeholder : null);
         // Plan 12 Task 2（裁決 3）：player 該顯示的新首幀——與 scheduleFollow 同一個
         // rAF 節流節奏寫入，不逐 pointermove 都寫（見上方 trimPreviewTarget 註解）。
         // Plan 14 Task 4：一併帶 leadPad——trimPreview 省略 leadPad 時 player 端會
         // 沿用 doc 舊值（見 plan.ts TrimPreview 註解），拖曳中必須每幀都帶明確值
         // （包括 0，才能在「縮回、黑墊變 0」那一刻正確清掉黑墊畫面）。
-        trimPreviewTarget.current = { clipId: clip.id, in: final.in, leadPad: final.leadPad };
-        // Plan 15 Task 2（統一拖曳模型接線）：in 把手的螢幕/追隨位置＝頭端佔位右緣
-        // （`clipStart + placeholder`）——修剪方向 clip 的時間軸足跡維持
-        // `orig.duration` 不變，把手不再釘在 `clipStart` 本身，而是跟著佔位黑墊的
-        // 右緣走（＝leadPad／內容左緣＝手指所在位置）；擴張方向 placeholder 恆 0，
-        // `clipStart + 0 === clipStart`，與改動前逐位元組相同。
-        const placeholder = d.origDuration !== undefined ? trimPlaceholder(d.origDuration, dur) : 0;
+        // final-review Critical 1：一併帶 `placeholderHead`（＝上面算好的 `placeholder`）
+        // ——playhead 被 scheduleFollow 帶到 `clipStart + placeholder`，plan.ts 的
+        // `sourceFor` 要用同一個數字把 offsetInClip 扣回「相對新內容起點」，否則會多算
+        // 一段等於修剪量的偏移（見 plan.ts `TrimPreview.placeholderHead` 註解、
+        // final-review C1）。
+        trimPreviewTarget.current = {
+          clipId: clip.id,
+          in: final.in,
+          leadPad: final.leadPad,
+          placeholderHead: placeholder,
+        };
         scheduleFollow(clipStart + placeholder);
 
         // Plan 12（幾何解）：捲動補償——每幀把 scrollLeft 絕對重算成
@@ -988,23 +1023,26 @@ export function Timeline() {
         // 讓位）。用絕對重算而非逐幀累加，是因為 scrollLeft 在瀏覽器端會被夾在
         // >=0——用累加的話，撞底之後再往回拖，累加值會跟真實 scrollLeft 脫勾，
         // 之後的補償量全部算錯；絕對重算每幀都從同一個起點出發，天然免疫這個問題。
-        // Plan 15 Task 2（統一拖曳模型裁決）：**只在擴張方向**（`dur >= d.origDuration`，
-        // 還原素材或長出真 leadPad；`>=` 與需求書「統一拖曳模型」的分界一致——
-        // `next.duration === orig.duration` 這個邊界歸擴張方向，placeholder 恆為 0）
-        // 套用——這個方向的內容座標確實在往左長，需要捲動才跟得上手指，是 Plan 12/14
-        // 已驗收、要逐位元組保留的行為。修剪方向（`dur < d.origDuration`）完全不碰
-        // scrollLeft：clip 的時間軸足跡靠佔位黑墊撐住（見 `dragPlaceholder`），把手的
-        // 螢幕位置本來就跟手，不需要、也不該再挪動捲動——這正是修使用者回報的「第一支
-        // clip 從 0 往右拉把手不跟手」的那一刀（原成因：scrollLeft 被無條件夾在 >=0，
-        // 補償量為負時被截斷，把手因此脫手）。
+        // Plan 15 Task 2（統一拖曳模型裁決）：捲動補償量**只在擴張方向**
+        // （`dur >= d.origDuration`，還原素材或長出真 leadPad；`>=` 與需求書「統一拖曳
+        // 模型」的分界一致——`next.duration === orig.duration` 這個邊界歸擴張方向，
+        // placeholder 恆為 0）非零——這個方向的內容座標確實在往左長，需要捲動才跟得上
+        // 手指，是 Plan 12/14 已驗收、要逐位元組保留的行為。修剪方向
+        // （`dur < d.origDuration`）補償量恆為 0：clip 的時間軸足跡靠佔位黑墊撐住
+        // （見 `dragPlaceholder`），把手的螢幕位置本來就跟手，不需要額外挪動——這正是
+        // 修使用者回報的「第一支 clip 從 0 往右拉把手不跟手」的那一刀（原成因：
+        // scrollLeft 被無條件夾在 >=0，補償量為負時被截斷，把手因此脫手）。
+        //
+        // final-review Minor 2：補償量為 0 時**仍然寫回** `el.scrollLeft`
+        // （= `d.scrollLeftAtDragStart`），不是完全不碰。舊寫法在修剪方向整個 if 區塊
+        // no-op，「絕對重算」設計本意是每幀從同一起點重算、天然免疫殘留，但
+        // no-op 反而讓跨方向手勢（先擴張寫了 scrollLeft、再轉修剪）殘留擴張階段最後一幀
+        // 的值，不會隨修剪回退。改成「補償量恆為 0」而非「不套用補償」後，修剪方向每幀
+        // 都把 scrollLeft 釘回起手值，跨方向手勢也天然免疫殘留。
         const el = scrollRef.current;
-        if (
-          el &&
-          d.scrollLeftAtDragStart !== undefined &&
-          d.origDuration !== undefined &&
-          dur >= d.origDuration
-        ) {
-          const deltaPx = timeToPx(dur, pps) - timeToPx(d.origDuration, pps);
+        if (el && d.scrollLeftAtDragStart !== undefined && d.origDuration !== undefined) {
+          const deltaPx =
+            dur >= d.origDuration ? timeToPx(dur, pps) - timeToPx(d.origDuration, pps) : 0;
           el.scrollLeft = Math.max(0, d.scrollLeftAtDragStart + deltaPx);
         }
       }
@@ -1376,21 +1414,29 @@ export function Timeline() {
 
   /**
    * Plan 15 Task 2（統一拖曳模型的接線）：正在拖 trim-in/trim-out 的 clip，修剪方向
-   * 的佔位量（秒）——`trimPlaceholder(orig.duration, next.duration)`，`orig` 是手勢
-   * 開始時的 committed doc 值（拖曳期間 `doc` 本身不變，直到 server echo 落地才會變，
-   * 見 `pending`/echo 對帳區塊），`next` 是這一幀的 `d.preview`。修剪方向
-   * （`next.duration < orig.duration`）算出正值，clip 的時間軸足跡維持
-   * `orig.duration` 不變；擴張方向恆為 0，行為與 Plan 12/14 已驗收的即時 ripple
-   * 逐位元組相同（見 dragMath.ts `trimPlaceholder` 與需求書「統一拖曳模型」）。
+   * 的佔位量（秒）——`trimPlaceholder(orig.duration, next.duration)`，`next` 是這一幀
+   * 的 `d.preview`。修剪方向（`next.duration < orig.duration`）算出正值，clip 的
+   * 時間軸足跡維持 `orig.duration` 不變；擴張方向恆為 0，行為與 Plan 12/14 已驗收的
+   * 即時 ripple 逐位元組相同（見 dragMath.ts `trimPlaceholder` 與需求書「統一拖曳模型」）。
    * 非拖曳中／拖別的 clip 時為 null——`trimmedClips.map` 下方套用時以「無佔位」
    * 處理，與改動前逐位元組相同。
+   *
+   * final-review Important 1：`orig` 改讀 `d.origDuration`（手勢起手時凍結的
+   * committed duration），不再即時查 `doc.tracks.video.find(...)`。舊寫法在拖曳期間
+   * 大多數情況下等價（`doc` 本身要放手 echo 才會變），但 `applyServerMsg`
+   * （`ui/src/stores/project.ts`）對拖曳中沒有守門——AI 編輯／背景 ingest 若在使用者
+   * 拖 in 把手的那幾百毫秒內改到同一支 clip 的 duration，這裡讀到的「orig」會跟著
+   * live doc 跳、但 `trimPreviewTarget`／捲動補償那兩個消費者仍吃 `d.origDuration`
+   * 這個凍結值，三處分岔（見 final-review「同一次手勢有兩個 orig.duration 來源」）。
+   * 統一吃 `d.origDuration`（`onTrimStart` 現在兩個 edge 都賦值）後三處永遠同源，
+   * 且與需求書「一次手勢以起手值為基準」的字面一致。
    */
   const dragPlaceholder: { clipId: string; head: number; tail: number } | null = (() => {
     const d = drag.current;
-    if (!d || (d.mode !== 'trim-in' && d.mode !== 'trim-out')) return null;
-    const orig = doc.tracks.video.find((c) => c.id === d.clipId);
-    if (!orig) return null;
-    const placeholder = trimPlaceholder(orig.duration, d.preview.duration);
+    if (!d || (d.mode !== 'trim-in' && d.mode !== 'trim-out') || d.origDuration === undefined) {
+      return null;
+    }
+    const placeholder = trimPlaceholder(d.origDuration, d.preview.duration);
     return {
       clipId: d.clipId,
       head: d.mode === 'trim-in' ? placeholder : 0,

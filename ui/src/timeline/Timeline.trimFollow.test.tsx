@@ -976,7 +976,13 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     expect(usePlayback.getState().trimPreview).toBeNull();
     act(() => flushRaf());
     // Plan 14 Task 4：trimPreview 每幀都帶明確 leadPad（這裡未拖出黑墊，值為 0）。
-    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3, leadPad: 0 });
+    // final-review Critical 1：一併帶 placeholderHead（duration 6→5，佔位 1s）。
+    expect(usePlayback.getState().trimPreview).toEqual({
+      clipId: 'c1',
+      in: 3,
+      leadPad: 0,
+      placeholderHead: 1,
+    });
   });
 
   it('同一節奏內連續兩次 pointermove 只在 flush 時寫入最後一次的值（不逐 move 都寫）', () => {
@@ -993,7 +999,13 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     });
     expect(usePlayback.getState().trimPreview).toBeNull();
     act(() => flushRaf());
-    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 4, leadPad: 0 });
+    // duration 6→4，佔位 2s。
+    expect(usePlayback.getState().trimPreview).toEqual({
+      clipId: 'c1',
+      in: 4,
+      leadPad: 0,
+      placeholderHead: 2,
+    });
   });
 
   it('放手（pointerup，有實質變動）後 trimPreview 不立刻清空——與 pending 的 clip-trim 記錄綁命（review round 1 Important-1）', () => {
@@ -1012,7 +1024,12 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     });
     // echo 還沒到（這個測試不模擬 server）：trimPreview 必須繼續蓋著，否則 player
     // 這幾幀會用 doc 的舊 in 映射，畫面閃回舊幀（Important-1 點名的閃爍）。
-    expect(usePlayback.getState().trimPreview).toEqual({ clipId: 'c1', in: 3, leadPad: 0 });
+    expect(usePlayback.getState().trimPreview).toEqual({
+      clipId: 'c1',
+      in: 3,
+      leadPad: 0,
+      placeholderHead: 1,
+    });
     // Plan 14 Task 4：commit 一併帶 leadPad。
     expect(sent).toEqual([
       { name: 'updateClip', clipId: 'c1', patch: { in: 3, duration: 5, leadPad: 0 } },
@@ -1514,8 +1531,9 @@ describe('trim 拖曳佔位黑墊（Plan 15 Task 2，統一拖曳模型接線）
       // 往右拖 2s（80px）：in 2→4，duration 6→4（修剪方向，佔位 2s＝80px）
       fireEvent.pointerMove(left!, { clientX: 180, pointerId: 1, bubbles: true });
     });
-    // scrollLeft 完全不被碰（修剪方向不補償，这正是使用者回報的 bug 成因：
-    // 舊行為會把負補償量截斷在 0，把手因此脫手）
+    // 修剪方向補償量恆為 0（final-review Minor 2 修法：釘回起手值，不是完全不寫）
+    // ——這裡起手值本身就是 0，所以看起來像「沒被碰」，這正是使用者回報的 bug 成因：
+    // 舊行為會把負補償量截斷在 0，把手因此脫手。
     expect(scrollEl.scrollLeft).toBe(0);
     // 把手跟手：留在頭端佔位右緣＝clipStart(0) + placeholderPx(80)，選取態
     // overflowOffset=-6（chip 未進入窄片門檻，w=240px）。
@@ -1623,6 +1641,37 @@ describe('trim 拖曳佔位黑墊（Plan 15 Task 2，統一拖曳模型接線）
     // 擴張方向：捲動補償重新套用，行為與 Plan 12 逐位元組相同
     // （deltaPx = timeToPx(7,40) - timeToPx(6,40) = 40）
     expect(scrollEl.scrollLeft).toBe(40);
+  });
+
+  it('final-review Minor 2 回歸釘：同手勢先擴張再修剪（相反順序），scrollLeft 隨修剪回退到起手值，不殘留擴張階段的值', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = Array.from(container.querySelectorAll('div')).find(
+      (d) => (d as HTMLElement).style.overflow === 'auto',
+    ) as HTMLDivElement;
+    const [left] = handles(chipByText(container, 'clip one')); // in=2 duration=6
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往左拖過起點 1s（40px）：deltaSec=-1 → duration 6→7（擴張方向，還原素材）
+      // deltaPx = timeToPx(7,40) - timeToPx(6,40) = 40，scrollLeft 從起手值 0 寫成 40。
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    expect(scrollEl.scrollLeft).toBe(40);
+
+    act(() => {
+      // 轉向修剪：deltaSec 恆相對 d.startX（100）重算，不是相對上一幀增量——
+      // clientX=180 → deltaSec=+2 → nextX=min(2+2,7.9)=4 → in=4, duration=8-4=4
+      // （修剪方向，相對起手 orig.duration=6 的佔位＝2s=80px）。
+      // 舊寫法（完全不碰 scrollLeft）會讓它停留在擴張階段最後一幀寫入的 40，不回退——
+      // 這正是 final-review Minor 2 記錄的殘留。新寫法每幀都把它釘回起手值 0。
+      fireEvent.pointerMove(left!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    expect(
+      container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]')!.style.width,
+    ).toBe('80px'); // 2s*40pps
+    expect(scrollEl.scrollLeft).toBe(0); // 回退到起手值，不殘留擴張階段的 40
   });
 
   it('帶 leadPad 的 clip 往右修：先吃墊（排列 [佔位][餘墊][內容]）', () => {
