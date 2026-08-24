@@ -529,11 +529,15 @@ describe('teardownDrag 的 playhead clamp 只在非 commit 路徑跑（承接 Ta
     expect(sent).toEqual([
       { name: 'updateClip', clipId: 'c2', patch: { in: 0, duration: 6, leadPad: 0 } },
     ]);
-    // total 一樣會還原（保底，隨後由 doc echo 覆寫，這部分行為不變）……
-    expect(usePlayback.getState().total).toBe(10);
-    // ……但 playhead **不能**在放手當下被夾回 10——這正是要修的 bug：commit 路徑上
-    // 不該跑「time > restoredTotal → seek(restoredTotal)」那段 clamp。
-    expect(usePlayback.getState().time).toBe(12);
+    // residue bugfix（2026-08-24）：teardown 仍先把 total 還原到 10（保底機制不變，
+    // 由 pointercancel 對照組釘著），但 commit 分支隨後的決定性 seek（邊 12 − 半幀）
+    // 超過還原值時會照 scheduleFollow rAF body 同款手法把 total 頂到 seek 目標——
+    // 暫態，echo 抵達後由 committed doc 覆寫。
+    expect(usePlayback.getState().total).toBeCloseTo(12 - 0.5 / 30, 6);
+    // playhead **不能**在放手當下被夾回 10（本測試原本要釘的 bug 不回歸）——新語意下
+    // 它停在「切點 − 半幀」＝保留段最後一幀，不再是正邊界 12（正邊界 locate 歸屬
+    // 右側，顯示的不是保留段，residue bugfix 的核心裁決）。
+    expect(usePlayback.getState().time).toBeCloseTo(12 - 0.5 / 30, 6);
   });
 
   /** 對照組：pointercancel（不 commit）維持既有行為——playhead 仍會被夾回。 */

@@ -1195,8 +1195,10 @@ export function Timeline() {
 
   const onPointerUp = () => {
     // 裁決 1：放手時取消尚未 flush 的 rAF（不會在放手後才補一次跳動），
-    // 並解除吸附排除旗標——playhead 已經停在最後一次 flush 的邊上（不彈回），
-    // 只是往後的吸附不再需要排它。fix round 1 C1/C2：與 onPointerCancel 共用
+    // 並解除吸附排除旗標。主軌 trim 的 playhead 最終位置**不靠**「最後一次 flush 的邊」
+    // ——那是 rAF 節流下的競態值（可能停在倒數第二拍），改由下方 commit 分支決定性
+    // seek 到切點（見該處 bugfix 長註解）；其餘拖曳模式維持「停在最後一次 flush 的
+    // 邊上（不彈回）」的既有語意。fix round 1 C1/C2：與 onPointerCancel 共用
     // teardownDrag（total 還原在這條正常路徑是保底，很快會被隨後的 doc echo 蓋過）。
     // Plan 13 Task 4：commit 與否要在拆卸（清掉 drag.current）**之前**算好——
     // playhead clamp 只在非 commit 路徑跑（見 teardownDrag 與 willCommitDrag 的註解）。
@@ -1222,6 +1224,40 @@ export function Timeline() {
       const duration = Number(d.preview.duration.toFixed(3));
       const leadPad = Number((d.preview.leadPad ?? 0).toFixed(3));
       setPending({ mode: 'clip-trim', clipId: d.clipId, in: inSec, duration, leadPad });
+      // bugfix（trim 放手殘留錯位，2026-08-24 使用者回報「從後面往前拉會有殘留」）：
+      // 放手後 playhead 的最終位置改為**決定性 seek**，不再依賴拖曳中最後一顆 rAF 有沒有
+      // 來得及 flush——`scheduleFollow` 是 rAF 節流的，手勢最後一次 pointerMove 的目標值
+      // 可能還躺在 `followTarget` 裡就被 teardownDrag 的 `cancelFollow()` 丟棄，於是
+      // `usePlayback.time` 停在倒數第二拍（trim-out 縮短時＝比送出的 duration **大**），
+      // 落進下一個 clip 的範圍：畫面顯示下一段的首幀、且無後續事件修正（真瀏覽器實測
+      // 持續 >1s，見 residue 診斷）。就算 flush 成功，time 恰在切點邊界也一樣錯——
+      // `locate()` 邊界歸屬右側，正邊界顯示的是下一段首幀，不是使用者剛修完的保留段。
+      // 語意定案：放手後 playhead 停在**切點、顯示保留側的畫面**——
+      // - trim-in：切點＝保留內容的起點＝clipStart（邊界歸屬右側＝本 clip，天然正確）；
+      //   trimPreview 同步用最終值顯式覆蓋（rAF 未 flush 時它也可能停在倒數第二拍的
+      //   in——pending 綁定的生命週期不變，只是值收斂到與送出的 patch 一致）。
+      // - trim-out：切點＝clipStart + duration，但正邊界屬右側 → 往內退**半個輸出幀**
+      //   （0.5/fps），顯示保留段的最後一幀。
+      // trim-out 拉長過舊 total 時（最後一段往右拉），seek 會被還原後的舊 total 夾住
+      // ——先照 `scheduleFollow` rAF body 的同款手法把 total 頂上去，echo 抵達後
+      // Player 的 outputDuration effect 會覆寫回 committed 值。
+      {
+        const idx = doc.tracks.video.findIndex((c) => c.id === d.clipId);
+        const clipStart = starts[idx] ?? 0;
+        if (d.mode === 'trim-in') {
+          usePlayback.getState().setTrimPreview({
+            clipId: d.clipId,
+            in: inSec,
+            leadPad,
+            placeholderHead: 0, // playhead 收斂到 clipStart（offset 0），佔位量已無意義
+          });
+          usePlayback.getState().seek(clipStart);
+        } else {
+          const target = clipStart + duration - 0.5 / (doc.canvas.fps || 30);
+          if (target > usePlayback.getState().total) usePlayback.getState().setTotal(target);
+          usePlayback.getState().seek(Math.max(clipStart, target));
+        }
+      }
       sendCommand({
         name: 'updateClip',
         clipId: d.clipId,

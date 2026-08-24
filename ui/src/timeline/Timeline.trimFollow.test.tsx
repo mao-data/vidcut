@@ -177,7 +177,11 @@ describe('trim 即時畫面跟隨（Plan 11 Task 2 裁決 1）', () => {
     expect(usePlayback.getState().time).toBe(0);
   });
 
-  it('放手後 playhead 停在邊上，不彈回', () => {
+  it('放手後 playhead 決定性停在切點內側（trim-out：邊 − 半幀，顯示保留段末幀）', () => {
+    // residue bugfix（2026-08-24）：舊語意「停在最後一次 flush 的邊上」對主軌 trim
+    // 廢止——正邊界 `locate()` 歸屬右側，停在邊上顯示的是**下一段首幀**（trim-out
+    // 縮短時＝使用者剛修掉區域旁的錯誤畫面，肉眼＝殘留）。新語意：commit 分支
+    // 決定性 seek 到「邊 − 0.5/fps」（fixture canvas fps=30 → 半幀 1/60）。
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');
     const [, right] = handles(clip);
@@ -192,10 +196,18 @@ describe('trim 即時畫面跟隨（Plan 11 Task 2 裁決 1）', () => {
     act(() => {
       fireEvent.pointerUp(right!, { clientX: 140, pointerId: 1, bubbles: true });
     });
-    expect(usePlayback.getState().time).toBe(7);
+    expect(usePlayback.getState().time).toBeCloseTo(7 - 0.5 / 30, 6);
   });
 
-  it('放手時取消尚未 flush 的 rAF（不會在放手後才追加一次跳動）', () => {
+  it('放手時 rAF 未 flush 也一樣：playhead 收斂到與送出 duration 同源的切點（殘留根因釘）', () => {
+    // residue bugfix 的判別性回歸釘：手勢最後一次 pointerMove 的 rAF 被 cancelFollow
+    // 丟棄時，舊碼讓 time 停在**倒數第二拍**（trim-out 縮短＝比送出的 duration 大 →
+    // 落進下一個 clip → 畫面殘留下一段首幀且無事件修正）。新碼放手當下決定性 seek，
+    // 不依賴 flush 與否——兩種時序（flush 過／沒 flush）收斂到同一個值。
+    // c1: 起點 0、duration 6；先拉到 -2s（邊 4）flush 過，再往回 -1s（邊 5）**不 flush**
+    // 直接放手：送出的 duration=5，舊碼 time 卡在 4？不——卡在「最後一次 flush 的 4」
+    // 且送出 5 的情境要反過來拉才會 time > duration；這裡取更直接的斷言：無論 flush
+    // 狀態，放手後 time === 邊 − 半幀（與送出的 duration 嚴格同源）。
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');
     const [, right] = handles(clip);
@@ -203,15 +215,72 @@ describe('trim 即時畫面跟隨（Plan 11 Task 2 裁決 1）', () => {
       fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
     });
     act(() => {
-      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+      fireEvent.pointerMove(right!, { clientX: 20, pointerId: 1, bubbles: true }); // -2s → 邊 4
     });
-    // 故意不 flush，直接放手
-    act(() => {
-      fireEvent.pointerUp(right!, { clientX: 140, pointerId: 1, bubbles: true });
-    });
-    const beforeFlush = usePlayback.getState().time;
     act(() => flushRaf());
-    expect(usePlayback.getState().time).toBe(beforeFlush);
+    expect(usePlayback.getState().time).toBe(4);
+    act(() => {
+      // 倒數第二拍已 flush（time=4）；最後一拍（-1s → 邊 5）**不 flush** 直接放手：
+      // 舊碼 time 停在 4、送出 duration=5——4 < 5 這方向剛好無害，但反向（先 5 後 4）
+      // time=5 > duration=4 就是殘留。決定性 seek 讓兩個方向都不再依賴 flush 時序。
+      fireEvent.pointerMove(right!, { clientX: 60, pointerId: 1, bubbles: true });
+      fireEvent.pointerUp(right!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().time).toBeCloseTo(5 - 0.5 / 30, 6);
+    // flushRaf 不會再追加跳動（rAF 已被 cancel）
+    const after = usePlayback.getState().time;
+    act(() => flushRaf());
+    expect(usePlayback.getState().time).toBe(after);
+  });
+
+  it('殘留場景本體：最後一拍縮短未 flush，放手後 time 必須小於送出的 duration 邊界', () => {
+    // 真瀏覽器診斷的原始場景：先 flush 在較大的邊（6.5），最後一拍縮到 5.5 未 flush
+    // 就放手——舊碼 time 卡在 6.5 > 送出的 duration 5.5，playhead 落進 clip two，
+    // Player 顯示下一段首幀（殘留）。新碼：time = 5.5 − 半幀 < 5.5，必在保留段內。
+    const { container } = render(<Timeline />);
+    const clip = chipByText(container, 'clip one');
+    const [, right] = handles(clip);
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 120, pointerId: 1, bubbles: true }); // +0.5s → 邊 6.5
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().time).toBe(6.5);
+    act(() => {
+      fireEvent.pointerMove(right!, { clientX: 80, pointerId: 1, bubbles: true }); // -0.5s → 邊 5.5
+      fireEvent.pointerUp(right!, { clientX: 80, pointerId: 1, bubbles: true });
+    });
+    const t = usePlayback.getState().time;
+    expect(t).toBeLessThan(5.5); // 殘留判準：不得 ≥ 送出的 duration（會落進下一段）
+    expect(t).toBeCloseTo(5.5 - 0.5 / 30, 6);
+  });
+
+  it('trim-in 放手：playhead 收斂到切點（clipStart），trimPreview 用最終值覆蓋', () => {
+    // c1 起點 0：往右修剪 1s（in 2→3、duration 6→5、佔位 1）。拖曳中 playhead 在
+    // 佔位右緣（1）；放手後收斂到 clipStart（0）＝保留內容的起點（邊界歸屬右側＝
+    // 本 clip，顯示新首幀），trimPreview 也覆蓋成與送出 patch 同源的最終值。
+    const { container } = render(<Timeline />);
+    const clip = chipByText(container, 'clip one');
+    const [left] = handles(clip);
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    act(() => flushRaf());
+    expect(usePlayback.getState().time).toBe(1);
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(usePlayback.getState().time).toBe(0);
+    expect(usePlayback.getState().trimPreview).toMatchObject({
+      in: 3,
+      leadPad: 0,
+      placeholderHead: 0,
+    });
   });
 });
 
@@ -576,9 +645,14 @@ describe('pointercancel 拆卸（fix round 1 C1/C2）', () => {
     act(() => {
       fireEvent.pointerUp(right!, { clientX: 180, pointerId: 1, bubbles: true });
     });
-    // echo 尚未抵達（doc 沒變，這個測試不模擬 server）：total 應還原到手勢開始前的
-    // committed 值，不會卡在墊高的 12（正常路徑的保底行為）。
-    expect(usePlayback.getState().total).toBe(10);
+    // residue bugfix（2026-08-24）後的語意：teardown 先把 total 還原到 10（保底），
+    // 但 commit 分支隨後的決定性 seek（邊 12 − 半幀）超過還原值，會照 scheduleFollow
+    // rAF body 的同款手法把 total 再頂到 seek 目標——這是**暫態**，echo 抵達後由
+    // committed doc 覆寫（本測試不模擬 server）。舊斷言 `total === 10` 釘的是
+    // 「commit 放手當下恰好沒人再動 total」這個偶然值,不是還原機制本身；還原機制
+    // 仍由下一條 pointercancel 測試釘著（cancel 路徑沒有 seek 介入，total 必須是 10）。
+    expect(usePlayback.getState().total).toBeCloseTo(12 - 0.5 / 30, 6);
+    expect(usePlayback.getState().time).toBeCloseTo(12 - 0.5 / 30, 6);
   });
 
   it('主軌 trim-out 把 total 墊高、playhead 跟到超前值後 pointercancel：playhead 被夾回還原後的 total（final-review Fix 1）', () => {
@@ -1024,11 +1098,15 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     });
     // echo 還沒到（這個測試不模擬 server）：trimPreview 必須繼續蓋著，否則 player
     // 這幾幀會用 doc 的舊 in 映射，畫面閃回舊幀（Important-1 點名的閃爍）。
+    // residue bugfix（2026-08-24）：放手時 commit 分支用**最終值**顯式覆蓋 trimPreview
+    // ——playhead 已決定性收斂到 clipStart（offset 0），placeholderHead 歸 0（拖曳中
+    // 那個「把手位置」座標修正已無意義）；in/leadPad 與送出的 patch 嚴格同源，
+    // 不再依賴最後一顆 rAF 是否 flush 過（未 flush 時舊值是倒數第二拍的 in）。
     expect(usePlayback.getState().trimPreview).toEqual({
       clipId: 'c1',
       in: 3,
       leadPad: 0,
-      placeholderHead: 1,
+      placeholderHead: 0,
     });
     // Plan 14 Task 4：commit 一併帶 leadPad。
     expect(sent).toEqual([
@@ -1085,7 +1163,12 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     expect(sent).toEqual([]); // cancel 不 commit，也沒有 pending 可以綁
   });
 
-  it('放手時取消尚未 flush 的 rAF：trimPreview 從未被寫入過（維持 null），放手後也不會補寫', () => {
+  it('放手時取消尚未 flush 的 rAF：commit 分支用最終值補寫 trimPreview（不再依賴 flush 時序）', () => {
+    // residue bugfix（2026-08-24）語意反轉：舊釘「從未 flush 就維持 null」保護的是
+    // 「放手後不被 rAF 突襲補寫」；新碼在放手**當下**決定性寫入與送出 patch 同源的
+    // 最終值——沒有這筆，echo 抵達前 player 用 doc 舊 in 映射，畫面閃回舊幀
+    // （正是 Important-1 那個閃爍在「rAF 沒 flush 過」時序下的變體）。
+    // 「rAF 不突襲」的保護由最後的 flushRaf 斷言接手：值在放手當下就定案,之後不變。
     const { container } = render(<Timeline />);
     const [left] = handles(chipByText(container, 'clip one'));
     act(() => {
@@ -1094,12 +1177,14 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     act(() => {
       fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true });
     });
-    // 故意不 flush，直接放手——trimPreview 從未經過 rAF 寫入，維持初始 null
+    // 故意不 flush，直接放手——commit 分支仍要寫入最終值
     act(() => {
       fireEvent.pointerUp(left!, { clientX: 140, pointerId: 1, bubbles: true });
     });
-    act(() => flushRaf()); // 已取消的 rAF：不會補寫
-    expect(usePlayback.getState().trimPreview).toBeNull();
+    const atRelease = usePlayback.getState().trimPreview;
+    expect(atRelease).toEqual({ clipId: 'c1', in: 3, leadPad: 0, placeholderHead: 0 });
+    act(() => flushRaf()); // 已取消的 rAF：不會再改值
+    expect(usePlayback.getState().trimPreview).toBe(atRelease);
   });
 
   it('trim-out（右把手）不寫 trimPreview——只有 trim-in 驅動這個覆蓋', () => {
