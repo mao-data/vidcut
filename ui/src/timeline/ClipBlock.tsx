@@ -297,7 +297,14 @@ export const ClipBlock = memo(function ClipBlock({
       </div>
       <div
         className={'handle' + (pad > 0 ? ' accent' : '')}
-        style={{ left: overflowOffset }}
+        // Plan 15 Task 2（Task 1 審查移交的 Important）：in 把手命中區/視覺位置要跟著
+        // 頭端佔位移動——修剪方向拖曳中，佔位黑墊右緣＝leadPad 左緣＝把手／手指所在
+        // 位置（見需求書「統一拖曳模型」）。chip 本身的 left/width 已經含佔位（見上方
+        // `w` 的算式），但 `.handle` 是相對 chip 自身盒子定位，不會因為盒子變寬而自動
+        // 跟著佔位邊界走——`left:0`（overflowOffset≈0）永遠落在 chip 左緣＝佔位左緣，
+        // 不是佔位右緣。加上 `placeholderHeadPx` 把它推到佔位右緣；無佔位時為 0，與
+        // 改動前逐位元組相同。
+        style={{ left: overflowOffset + placeholderHeadPx }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onSelect(clip.id);
@@ -306,7 +313,11 @@ export const ClipBlock = memo(function ClipBlock({
       />
       <div
         className={'handle' + (outAtMax ? ' danger' : '')}
-        style={{ right: overflowOffset }}
+        // 對稱：out 把手要跟著尾端佔位——佔位黑墊左緣＝內容右緣＝把手所在位置。
+        // `right:0`（overflowOffset≈0）落在 chip 右緣＝佔位右緣，加上
+        // `placeholderTailPx`（`right` 是從盒子右緣往左量，加值＝往左推）把它推到
+        // 內容右緣／佔位左緣；無佔位時為 0，逐位元組不變。
+        style={{ right: overflowOffset + placeholderTailPx }}
         onPointerDown={(e) => {
           e.stopPropagation();
           onSelect(clip.id);

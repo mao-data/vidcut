@@ -41,6 +41,7 @@ import {
   trimSpanOut,
   trimAudioIn,
   isAtSourceMax,
+  trimPlaceholder,
   MIN_CLIP_DURATION,
 } from './dragMath.js';
 import { ClipBlock, ROW_H } from './ClipBlock.js';
@@ -936,6 +937,10 @@ export function Timeline() {
         // 裁決 1：out 把手＝clip 的新右緣。clipStart 是本地 preview layout 的起點
         // （trim 不移動自己的起點，只有它之後的片段會被 ripple——見上方常數區塊
         // trimmedClips/leftById 的註解），不必額外換算。
+        // Plan 15 Task 2：這裡的目標點與需求書「trim-out 把手位置＝內容右緣
+        // （clipStart + durPx）」天然一致，不必另外加尾端佔位——尾端佔位畫在內容
+        // 右緣**之後**（`ClipBlock` 的 `[內容][佔位]` 排列），把手釘在佔位左緣＝
+        // 內容右緣＝這裡算的 `clipStart + dur`，無需改動。
         scheduleFollow(clipStart + dur);
       } else {
         // Plan 12（範圍裁決 2）：main-track trim-in 不再吸內容座標——舊行為吸的是
@@ -969,8 +974,13 @@ export function Timeline() {
         // 沿用 doc 舊值（見 plan.ts TrimPreview 註解），拖曳中必須每幀都帶明確值
         // （包括 0，才能在「縮回、黑墊變 0」那一刻正確清掉黑墊畫面）。
         trimPreviewTarget.current = { clipId: clip.id, in: final.in, leadPad: final.leadPad };
-        // in 把手：clip 的起點時間本身不動（trim 只改 in/duration），追的邊就是 clipStart。
-        scheduleFollow(clipStart);
+        // Plan 15 Task 2（統一拖曳模型接線）：in 把手的螢幕/追隨位置＝頭端佔位右緣
+        // （`clipStart + placeholder`）——修剪方向 clip 的時間軸足跡維持
+        // `orig.duration` 不變，把手不再釘在 `clipStart` 本身，而是跟著佔位黑墊的
+        // 右緣走（＝leadPad／內容左緣＝手指所在位置）；擴張方向 placeholder 恆 0，
+        // `clipStart + 0 === clipStart`，與改動前逐位元組相同。
+        const placeholder = d.origDuration !== undefined ? trimPlaceholder(d.origDuration, dur) : 0;
+        scheduleFollow(clipStart + placeholder);
 
         // Plan 12（幾何解）：捲動補償——每幀把 scrollLeft 絕對重算成
         // 「起手時的 scrollLeft + 這一幀的 duration 變化量（px）」，讓被拖的前緣
@@ -978,8 +988,22 @@ export function Timeline() {
         // 讓位）。用絕對重算而非逐幀累加，是因為 scrollLeft 在瀏覽器端會被夾在
         // >=0——用累加的話，撞底之後再往回拖，累加值會跟真實 scrollLeft 脫勾，
         // 之後的補償量全部算錯；絕對重算每幀都從同一個起點出發，天然免疫這個問題。
+        // Plan 15 Task 2（統一拖曳模型裁決）：**只在擴張方向**（`dur >= d.origDuration`，
+        // 還原素材或長出真 leadPad；`>=` 與需求書「統一拖曳模型」的分界一致——
+        // `next.duration === orig.duration` 這個邊界歸擴張方向，placeholder 恆為 0）
+        // 套用——這個方向的內容座標確實在往左長，需要捲動才跟得上手指，是 Plan 12/14
+        // 已驗收、要逐位元組保留的行為。修剪方向（`dur < d.origDuration`）完全不碰
+        // scrollLeft：clip 的時間軸足跡靠佔位黑墊撐住（見 `dragPlaceholder`），把手的
+        // 螢幕位置本來就跟手，不需要、也不該再挪動捲動——這正是修使用者回報的「第一支
+        // clip 從 0 往右拉把手不跟手」的那一刀（原成因：scrollLeft 被無條件夾在 >=0，
+        // 補償量為負時被截斷，把手因此脫手）。
         const el = scrollRef.current;
-        if (el && d.scrollLeftAtDragStart !== undefined && d.origDuration !== undefined) {
+        if (
+          el &&
+          d.scrollLeftAtDragStart !== undefined &&
+          d.origDuration !== undefined &&
+          dur >= d.origDuration
+        ) {
           const deltaPx = timeToPx(dur, pps) - timeToPx(d.origDuration, pps);
           el.scrollLeft = Math.max(0, d.scrollLeftAtDragStart + deltaPx);
         }
@@ -1351,6 +1375,42 @@ export function Timeline() {
   });
 
   /**
+   * Plan 15 Task 2（統一拖曳模型的接線）：正在拖 trim-in/trim-out 的 clip，修剪方向
+   * 的佔位量（秒）——`trimPlaceholder(orig.duration, next.duration)`，`orig` 是手勢
+   * 開始時的 committed doc 值（拖曳期間 `doc` 本身不變，直到 server echo 落地才會變，
+   * 見 `pending`/echo 對帳區塊），`next` 是這一幀的 `d.preview`。修剪方向
+   * （`next.duration < orig.duration`）算出正值，clip 的時間軸足跡維持
+   * `orig.duration` 不變；擴張方向恆為 0，行為與 Plan 12/14 已驗收的即時 ripple
+   * 逐位元組相同（見 dragMath.ts `trimPlaceholder` 與需求書「統一拖曳模型」）。
+   * 非拖曳中／拖別的 clip 時為 null——`trimmedClips.map` 下方套用時以「無佔位」
+   * 處理，與改動前逐位元組相同。
+   */
+  const dragPlaceholder: { clipId: string; head: number; tail: number } | null = (() => {
+    const d = drag.current;
+    if (!d || (d.mode !== 'trim-in' && d.mode !== 'trim-out')) return null;
+    const orig = doc.tracks.video.find((c) => c.id === d.clipId);
+    if (!orig) return null;
+    const placeholder = trimPlaceholder(orig.duration, d.preview.duration);
+    return {
+      clipId: d.clipId,
+      head: d.mode === 'trim-in' ? placeholder : 0,
+      tail: d.mode === 'trim-out' ? placeholder : 0,
+    };
+  })();
+
+  /**
+   * 版面用的「視覺時長」陣列——`layoutByOrder` 只認 `duration`，修剪方向要讓
+   * 正在拖的 clip 在版面上維持 `orig.duration`（= `next.duration + placeholder`）
+   * 不縮水，後續 clip 才不會 ripple。擴張方向 placeholder 恆 0，
+   * `visualDuration === next.duration`，與改動前逐位元組相同。
+   */
+  const layoutClips = trimmedClips.map((c) =>
+    dragPlaceholder && dragPlaceholder.clipId === c.id
+      ? { ...c, duration: c.duration + dragPlaceholder.head + dragPlaceholder.tail }
+      : c,
+  );
+
+  /**
    * Plan 11 Task 3（裁決 5）：正在拖 out 把手、且已經頂到來源長度上限的 clip id
    * （單選模型，最多一個）。只在 `trim-out` 拖曳期間有意義——`isAtSourceMax` 讀的
    * 是拖曳中的 preview，不是 committed doc，所以放手後（pending/一般顯示）不會
@@ -1419,7 +1479,11 @@ export function Timeline() {
    * 渲染時**維持原本的順序**、只改 left —— 若讓 React 依 key 重排，DOM 節點會被搬移，
    * CSS transition 會被中斷、變成瞬間跳位（動畫就沒了）。
    */
-  const leftById = layoutByOrder(trimmedClips, previewOrder, pps);
+  // Plan 15 Task 2：版面吃 `layoutClips`（修剪方向的視覺時長），不是 `trimmedClips`
+  // 本身——後者拖曳中的 duration 已經是縮小後的 `next.duration`，直接餵給
+  // `layoutByOrder` 會讓後續 clip 立刻 ripple 補上這段空隙，正是使用者回報的
+  // bug 成因。無拖曳／擴張方向兩者相等，逐位元組不變。
+  const leftById = layoutByOrder(layoutClips, previewOrder, pps);
 
   /** 被拖曳的片段：用「原始位置 + 游標位移」1:1 跟手，不吃讓位後的排版 */
   const draggedLeftPx = (() => {
@@ -1846,6 +1910,16 @@ export function Timeline() {
                     onSelect={onSelect}
                     visibleRange={visibleRange ?? undefined}
                     outAtMax={outAtMaxClipId === c.id}
+                    placeholderHead={
+                      dragPlaceholder && dragPlaceholder.clipId === c.id
+                        ? dragPlaceholder.head
+                        : undefined
+                    }
+                    placeholderTail={
+                      dragPlaceholder && dragPlaceholder.clipId === c.id
+                        ? dragPlaceholder.tail
+                        : undefined
+                    }
                   />
                 );
               })}

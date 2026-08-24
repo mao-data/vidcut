@@ -6,7 +6,7 @@ import { useView } from '../stores/view.js';
 import { usePlayback } from '../stores/playback.js';
 import { useProject } from '../stores/project.js';
 import * as ws from '../ws.js';
-import { seedProject, resetStores } from '../test/fixtures.js';
+import { seedProject, resetStores, demoProject } from '../test/fixtures.js';
 
 /**
  * Plan 11 Task 2（裁決 1、2）：trim 拖曳中 playhead 跟隨被拖的邊，rAF 節流；
@@ -82,13 +82,17 @@ describe('trim 即時畫面跟隨（Plan 11 Task 2 裁決 1）', () => {
       fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
     });
     act(() => {
-      // c1: in=2 duration=6，clip 起點 0；+1s(40px) → in 3 duration 5，clip 起點仍 0
+      // c1: in=2 duration=6，clip 起點 0；+1s(40px) → in 3 duration 5（修剪方向，
+      // 佔位 1s）
       fireEvent.pointerMove(left!, { clientX: 140, pointerId: 1, bubbles: true });
     });
     // rAF 還沒 flush：不該提早跳
     expect(usePlayback.getState().time).toBe(0);
     act(() => flushRaf());
-    expect(usePlayback.getState().time).toBe(0); // trim-in 邊＝clip 新起點，仍是 0（in 拖不動起點時間）
+    // Plan 15 Task 2：修剪方向把手位置＝clipStart + placeholder（頭端佔位右緣），
+    // 不再是 clip 起點本身——clip 的時間軸足跡靠佔位撐住維持 orig.duration=6 不變，
+    // 佔位 = 6-5 = 1，把手停在 0+1=1（不是舊模型的「起點時間不動＝0」）。
+    expect(usePlayback.getState().time).toBe(1);
   });
 
   it('main track trim-out 拖曳中 playhead 追到 clip 的（ripple）右緣時間', () => {
@@ -1480,5 +1484,239 @@ describe('audio out 把手頂到來源長度上限的視覺語言（Plan 12 Task
     });
     expect(right!.className).not.toContain('danger');
     expect(container.textContent).not.toContain('max');
+  });
+});
+
+/**
+ * Plan 15 Task 2：trim 拖曳佔位黑墊——把 Task 1 的積木（`trimPlaceholder`／
+ * ClipBlock 的 `placeholderHead`/`placeholderTail`）接進 Timeline.tsx 的兩個 trim
+ * 分支。統一拖曳模型核心式子見需求書：修剪方向（`next.duration < orig.duration`）
+ * clip 的時間軸足跡維持 `orig.duration` 不變，其他 clip 不 ripple；擴張方向
+ * （`next.duration >= orig.duration`）placeholder 恆 0，行為與 Plan 12/14 逐位元組
+ * 相同。demo 專案：c1 in=2 duration=6（clipStart=0），c2 in=0 duration=4
+ * （clipStart=6，frozen），總長 10，PPS=40。
+ */
+describe('trim 拖曳佔位黑墊（Plan 15 Task 2，統一拖曳模型接線）', () => {
+  it('【使用者回報的原始場景】第一支 clip、scrollLeft=0、往右修剪：把手跟手、後續 clip 版面每幀不動、放手後 commit 正確且版面閉合', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = Array.from(container.querySelectorAll('div')).find(
+      (d) => (d as HTMLElement).style.overflow === 'auto',
+    ) as HTMLDivElement;
+    expect(scrollEl.scrollLeft).toBe(0);
+    const c2Before = chipByText(container, 'clip two');
+    expect(c2Before.style.left).toBe('240px'); // clipStart=6 * 40pps
+
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往右拖 2s（80px）：in 2→4，duration 6→4（修剪方向，佔位 2s＝80px）
+      fireEvent.pointerMove(left!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    // scrollLeft 完全不被碰（修剪方向不補償，这正是使用者回報的 bug 成因：
+    // 舊行為會把負補償量截斷在 0，把手因此脫手）
+    expect(scrollEl.scrollLeft).toBe(0);
+    // 把手跟手：留在頭端佔位右緣＝clipStart(0) + placeholderPx(80)，選取態
+    // overflowOffset=-6（chip 未進入窄片門檻，w=240px）。
+    const [leftAfter] = handles(chipByText(container, 'clip one'));
+    expect((leftAfter as HTMLElement).style.left).toBe('74px'); // -6 + 80
+    // 後續 clip（c2）版面不動——足跡由佔位撐住，orig.duration=6 不變。
+    const c2Mid = chipByText(container, 'clip two');
+    expect(c2Mid.style.left).toBe('240px');
+    // c1 自身 chip 寬度＝含佔位的視覺足跡，維持 orig.duration=6 對應的 240px。
+    const c1Chip = c2Mid.parentElement
+      ? Array.from(c2Mid.parentElement.children).find((el) =>
+          (el as HTMLElement).title?.startsWith('clip one'),
+        )
+      : null;
+    expect((c1Chip as HTMLElement).style.width).toBe('240px');
+
+    act(() => flushRaf());
+    // playhead 追到把手實際位置（clipStart + placeholder = 0 + 2 = 2）
+    expect(usePlayback.getState().time).toBe(2);
+
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    // 放手 commit：欄位不變（in/duration/leadPad），版面閉合——佔位消失，
+    // c1 收斂回真實 duration=4（160px），c2 仍在 240px（未受影響)。
+    expect(sent).toEqual([
+      { name: 'updateClip', clipId: 'c1', patch: { in: 4, duration: 4, leadPad: 0 } },
+    ]);
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    const c1After = Array.from(container.querySelectorAll('div')).find((d) =>
+      (d as HTMLElement).title?.startsWith('clip one'),
+    ) as HTMLElement;
+    expect(c1After.style.width).toBe('160px'); // 4s*40pps，佔位收斂
+    // 版面閉合：佔位消失後 c1 的真實足跡縮短為 4s，c2 這時才 ripple 補上——
+    // 拖曳「過程」中 c2 不動（上面已驗證），commit 落地才是它真正該讓位的時機。
+    const c2After = chipByText(container, 'clip two');
+    expect(c2After.style.left).toBe('160px'); // clipStart 收斂到 c1 的新 duration
+  });
+
+  it('trim-out 往左修剪（尾端佔位）：把手停在內容右緣，chip 寬度維持 orig.duration，後續 clip 不動', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one')); // c1 duration=6
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往左拖 2s（80px）：duration 6→4（修剪方向，尾端佔位 2s）
+      fireEvent.pointerMove(right!, { clientX: 20, pointerId: 1, bubbles: true });
+    });
+    const tail = container.querySelector<HTMLElement>('[data-testid="clip-placeholder-tail"]');
+    expect(tail).not.toBeNull();
+    expect(tail!.style.width).toBe('80px'); // 2s*40pps
+    // out 把手＝內容右緣＝佔位左緣，overflowOffset(-6) + placeholderTailPx(80)
+    const [, rightAfter] = handles(chipByText(container, 'clip one'));
+    expect((rightAfter as HTMLElement).style.right).toBe('74px');
+    // c1 chip 寬度維持 orig.duration=6 對應的 240px；c2 版面不動。
+    const c1Chip = Array.from(container.querySelectorAll('div')).find((d) =>
+      (d as HTMLElement).title?.startsWith('clip one'),
+    ) as HTMLElement;
+    expect(c1Chip.style.width).toBe('240px');
+    expect(chipByText(container, 'clip two').style.left).toBe('240px');
+
+    act(() => flushRaf());
+    expect(usePlayback.getState().time).toBe(4); // clipStart(0) + dur(4)
+
+    act(() => {
+      fireEvent.pointerUp(right!, { clientX: 20, pointerId: 1, bubbles: true });
+    });
+    expect(sent).toEqual([
+      { name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 4, leadPad: 0 } },
+    ]);
+    expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
+  });
+
+  it('同手勢往右再往左跨方向：placeholder 連續歸零、擴張接手（scrollLeft 補償重新套用）', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = Array.from(container.querySelectorAll('div')).find(
+      (d) => (d as HTMLElement).style.overflow === 'auto',
+    ) as HTMLDivElement;
+    const [left] = handles(chipByText(container, 'clip one')); // in=2 duration=6
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往右拖 2s：duration 6→4（修剪方向，佔位 2s）
+      fireEvent.pointerMove(left!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    expect(
+      container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]')!.style.width,
+    ).toBe('80px');
+    expect(scrollEl.scrollLeft).toBe(0); // 修剪方向不補償
+
+    act(() => {
+      // 拉回起點：delta=0 → duration=6（== orig，邊界歸擴張方向，佔位=0）
+      fireEvent.pointerMove(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    expect(scrollEl.scrollLeft).toBe(0); // 補償量 0（回到 orig）
+
+    act(() => {
+      // 繼續往左拖過起點 1s（40px）：deltaSec=-1 → duration 6→7（擴張方向，還原素材）
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
+    });
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    // 擴張方向：捲動補償重新套用，行為與 Plan 12 逐位元組相同
+    // （deltaPx = timeToPx(7,40) - timeToPx(6,40) = 40）
+    expect(scrollEl.scrollLeft).toBe(40);
+  });
+
+  it('帶 leadPad 的 clip 往右修：先吃墊（排列 [佔位][餘墊][內容]）', () => {
+    const doc = demoProject();
+    doc.tracks.video[0]!.leadPad = 1; // c1 起手已有 1s 真 leadPad（in=2 leadPad=1）
+    seedProject(doc);
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往右拖 0.5s（20px）：x=in-leadPad=2-1=1，x'=1.5，duration 6→5.5（修剪方向，
+      // 佔位 0.5s）——leadPad 先被吃掉一部分（trimInPad 的 x'>=0 分支落地 leadPad=0，
+      // 見 dragMath.ts 註解），不是先動內容。
+      fireEvent.pointerMove(left!, { clientX: 120, pointerId: 1, bubbles: true });
+    });
+    const head = container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]');
+    expect(head).not.toBeNull();
+    expect(head!.style.width).toBe('20px'); // 0.5s*40pps
+    // leadPad 已被吃到 0（trimInPad x'=1.5>=0 分支：leadPad:0, in:1.5）——
+    // 排列此刻是 [佔位 20px][leadPad 0px][內容]，沒有殘留黑帶。
+    expect(container.querySelector('[data-testid="clip-leadpad"]')).toBeNull();
+
+    act(() => flushRaf());
+    act(() => {
+      fireEvent.pointerUp(left!, { clientX: 120, pointerId: 1, bubbles: true });
+    });
+    expect(sent).toEqual([
+      { name: 'updateClip', clipId: 'c1', patch: { in: 1.5, duration: 5.5, leadPad: 0 } },
+    ]);
+  });
+
+  it('回歸釘：擴張方向（trim-in 拉超過來源起點、長出真 leadPad）不畫佔位，捲動補償與現況一致', () => {
+    const { container } = render(<Timeline />);
+    const scrollEl = Array.from(container.querySelectorAll('div')).find(
+      (d) => (d as HTMLElement).style.overflow === 'auto',
+    ) as HTMLDivElement;
+    const [left] = handles(chipByText(container, 'clip one')); // in=2 duration=6，R=8
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往左拖 3s（120px）：x=2, x'=-1（超過 8px 吸附閾值）→ in=0 leadPad=1 duration=9
+      fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
+    });
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
+    // 既有黑帶（真 leadPad）仍照舊顯示——與佔位是兩回事
+    const pad = container.querySelector<HTMLElement>('[data-testid="clip-leadpad"]');
+    expect(pad).not.toBeNull();
+    expect(pad!.style.width).toBe('40px'); // leadPad=1s*40pps
+    // 捲動補償：deltaPx = timeToPx(9,40) - timeToPx(6,40) = 120（Plan 12 既有行為）
+    expect(scrollEl.scrollLeft).toBe(120);
+  });
+
+  it('回歸釘：trim-out 擴張方向（拉長）維持現況即時 ripple，不出現尾端佔位', () => {
+    const { container } = render(<Timeline />);
+    const [, right] = handles(chipByText(container, 'clip one')); // duration=6
+    act(() => {
+      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      // 往右拖 1s（40px）：duration 6→7（擴張，ripple 立即生效）
+      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true });
+    });
+    expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
+    // c2 立即 ripple 到新位置（7s*40pps=280px），不是停在原地
+    expect(chipByText(container, 'clip two').style.left).toBe('280px');
+  });
+
+  it('回歸釘：無拖曳時渲染輸出不變（無 placeholder 相關 DOM）', () => {
+    const { container } = render(<Timeline />);
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
+    expect(chipByText(container, 'clip one').style.width).toBe('240px'); // 6s*40pps
+    expect(chipByText(container, 'clip two').style.left).toBe('240px'); // clipStart=6
+  });
+
+  it('cancel 路徑：修剪方向拖出佔位後 pointercancel，佔位消失且不 commit（preview 清掉即可，無新狀態要清）', () => {
+    const { container } = render(<Timeline />);
+    const [left] = handles(chipByText(container, 'clip one'));
+    act(() => {
+      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+    });
+    act(() => {
+      fireEvent.pointerMove(left!, { clientX: 180, pointerId: 1, bubbles: true }); // +2s，佔位 2s
+    });
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).not.toBeNull();
+    act(() => {
+      fireEvent.pointerCancel(left!, { clientX: 180, pointerId: 1, bubbles: true });
+    });
+    expect(sent).toEqual([]); // 不 commit
+    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
+    expect(chipByText(container, 'clip one').style.width).toBe('240px'); // 退回原值
   });
 });
