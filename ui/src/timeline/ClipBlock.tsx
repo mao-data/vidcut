@@ -199,28 +199,45 @@ export const ClipBlock = memo(function ClipBlock({
           overflow: 'hidden',
         }}
       >
-        {filmstrip &&
-          !clip.frozen &&
-          tiles.map((t, i) => (
-            <div
-              key={`${t.x}-${t.tileIndex}-${i}`}
-              data-testid="filmstrip-tile"
-              style={{
-                position: 'absolute',
-                // t.x 是相對內容區左緣的偏移（見上方 tiles 計算的註解），加回
-                // placeholderHeadPx + padPx 換算成相對 chip 左緣——無佔位、無
-                // leadPad 時兩者皆 0，逐位元組不變。
-                left: t.x + placeholderHeadPx + padPx,
-                top: 0,
-                width: t.w,
-                height: '100%',
-                backgroundImage: `url(${filmstrip})`,
-                backgroundPosition: `${-t.tileIndex * frameW}px 0`,
-                backgroundSize: 'auto 100%',
-                backgroundRepeat: 'no-repeat',
-              }}
-            />
-          ))}
+        {/* 內容區裁切框：filmstrip 格是固定寬 frameW、最後一格不裁窄
+            （filmstripTilesFor 的契約——「由呼叫端的 overflow:hidden 裁掉」），而
+            Plan 15 之後 chip 層的 overflow 邊界含尾端佔位，最後一格會穿過切點、
+            從半透明佔位墊底下透出來（trim-out 拖曳中畫面看起來比手多出最多
+            frameW÷pps 秒）。這層框把裁切邊界釘回「內容右緣」；無佔位時框右緣＝
+            chip 右緣，裁切結果與改動前相同。 */}
+        {filmstrip && !clip.frozen && tiles.length > 0 && (
+          <div
+            data-testid="filmstrip-content-clip"
+            style={{
+              position: 'absolute',
+              left: placeholderHeadPx + padPx,
+              top: 0,
+              width: contentW - padPx,
+              height: '100%',
+              overflow: 'hidden',
+            }}
+          >
+            {tiles.map((t, i) => (
+              <div
+                key={`${t.x}-${t.tileIndex}-${i}`}
+                data-testid="filmstrip-tile"
+                style={{
+                  position: 'absolute',
+                  // t.x 是相對內容區左緣的偏移（見上方 tiles 計算的註解）；裁切框
+                  // 自身已經位在 placeholderHeadPx + padPx，這裡不再加回。
+                  left: t.x,
+                  top: 0,
+                  width: t.w,
+                  height: '100%',
+                  backgroundImage: `url(${filmstrip})`,
+                  backgroundPosition: `${-t.tileIndex * frameW}px 0`,
+                  backgroundSize: 'auto 100%',
+                  backgroundRepeat: 'no-repeat',
+                }}
+              />
+            ))}
+          </div>
+        )}
         {/* Plan 15 Task 1：頭端佔位黑墊——修剪方向拖曳中，被修掉的區段以「佔位」
             形式停在原地（clip 時間軸足跡維持 orig.duration，不 ripple），放手才真正
             收斂。黑墊右緣＝leadPad 左緣＝把手／手指所在位置，符合需求書「trim-in

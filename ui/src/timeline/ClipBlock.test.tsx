@@ -607,7 +607,7 @@ describe('ClipBlock 黑墊視覺（Plan 14 Task 4）', () => {
     expect(right!.className).not.toContain('accent');
   });
 
-  it('leadPad>0 時 filmstrip 內容區右移同寬（tile 左緣 >= padPx）', () => {
+  it('leadPad>0 時 filmstrip 內容區右移同寬（裁切框左緣 = padPx，tile 相對框內 >= 0）', () => {
     const p = demoProject();
     const clip = { ...p.tracks.video[0], leadPad: 1.5 }; // 60px
     const { container } = render(
@@ -624,12 +624,17 @@ describe('ClipBlock 黑墊視覺（Plan 14 Task 4）', () => {
         onSelect={noop}
       />,
     );
+    // 右移量現在由「內容區裁切框」承載（tile 的 left 改為相對框內座標）——
+    // 語意不變：filmstrip 畫面整體從 padPx 起畫。
+    const clipBox = container.querySelector<HTMLElement>('[data-testid="filmstrip-content-clip"]')!;
+    expect(clipBox).not.toBeNull();
+    expect(clipBox.style.left).toBe('60px');
     const tiles = Array.from(
       container.querySelectorAll<HTMLElement>('[data-testid="filmstrip-tile"]'),
     );
     expect(tiles.length).toBeGreaterThan(0);
     for (const t of tiles) {
-      expect(Number.parseFloat(t.style.left)).toBeGreaterThanOrEqual(60);
+      expect(Number.parseFloat(t.style.left)).toBeGreaterThanOrEqual(0);
     }
   });
 
@@ -814,14 +819,41 @@ describe('ClipBlock trim 佔位黑墊（Plan 15 Task 1）', () => {
         placeholderHead={0.5} // 20px
       />,
     );
+    // 左緣位置由「內容區裁切框」承載：20（佔位）+ 40（leadPad）= 60。
+    const clipBox = container.querySelector<HTMLElement>('[data-testid="filmstrip-content-clip"]')!;
+    expect(clipBox).not.toBeNull();
+    expect(clipBox.style.left).toBe('60px');
     const tiles = Array.from(
       container.querySelectorAll<HTMLElement>('[data-testid="filmstrip-tile"]'),
     );
     expect(tiles.length).toBeGreaterThan(0);
-    for (const t of tiles) {
-      // 20（佔位）+ 40（leadPad）= 60
-      expect(Number.parseFloat(t.style.left)).toBeGreaterThanOrEqual(60);
-    }
+  });
+
+  it('placeholderTail>0：filmstrip 裁切框寬＝內容寬（最後一格不會穿過切點透進佔位墊）', () => {
+    const p = demoProject();
+    const clip = p.tracks.video[0]; // duration=6 → 內容 240px
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={clip}
+        leftPx={0}
+        pps={40}
+        selected={false}
+        animate={false}
+        floating={false}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+        placeholderTail={1.5} // 60px → chip 總寬 300px
+      />,
+    );
+    // bug 釘（trim-out 拖曳中畫面比手多出最多 frameW÷pps 秒）：修法是把裁切邊界
+    // 從 chip 層（含佔位、300px）釘回內容右緣——裁切框寬必須是內容寬 240px 且
+    // overflow:hidden，最後一格（固定寬 frameW、可能超出內容右緣）才會被精準裁掉。
+    const clipBox = container.querySelector<HTMLElement>('[data-testid="filmstrip-content-clip"]')!;
+    expect(clipBox).not.toBeNull();
+    expect(clipBox.style.width).toBe('240px');
+    expect(clipBox.style.overflow).toBe('hidden');
   });
 
   it('頭尾佔位同時存在：各自獨立畫出，chip 寬度把兩者都算進去', () => {

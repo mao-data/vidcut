@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { clipStartTimes, overlayWindow } from '@vidcut/shared';
 import { gsap, useGSAP, motionOK } from './motion.js';
 import { useProject } from './stores/project.js';
