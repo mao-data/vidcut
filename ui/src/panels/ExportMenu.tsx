@@ -170,6 +170,67 @@ export function ExportMenu() {
               Render failed: {render.error}
             </span>
           )}
+
+          {render?.status === 'done' && (
+            <>
+              <span className="panel-head">Upload</span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <a
+                  className="tag"
+                  href="https://www.tiktok.com/tiktokstudio/upload"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  TikTok
+                </a>
+                <a
+                  className="tag"
+                  href="https://studio.youtube.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  YouTube
+                </a>
+                <a
+                  className="tag"
+                  href="https://www.instagram.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Instagram
+                </a>
+                <a
+                  className="tag"
+                  href="https://www.facebook.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Facebook
+                </a>
+              </div>
+              {render.publish && (
+                <>
+                  <span className="panel-head">Publish package</span>
+                  {render.publish.files.map((f) => (
+                    <a
+                      key={f}
+                      href={`/media/${f}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: 12 }}
+                    >
+                      {f.split('/').pop()}
+                    </a>
+                  ))}
+                  {render.publish.warnings.map((w) => (
+                    <span key={w} style={{ fontSize: 12, opacity: 0.85 }}>
+                      ⚠ {w}
+                    </span>
+                  ))}
+                </>
+              )}
+            </>
+          )}
         </div>
       )}
 

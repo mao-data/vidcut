@@ -131,6 +131,7 @@ overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1
 - `ui/DESIGN.md` —— 編輯器設計系統（雙主題 token、named rules、反面清單）；
   **動編輯器 UI 前先讀**。landing 的設計系統在 `site/DESIGN.md`，兩者不互蓋
 - `docs/ROADMAP.md` —— 上線計劃與可行方向
+- `docs/PUBLISH.md` —— 發佈路徑（發佈包／Buffer 工作流；P0 不接平台 API）
 - `docs/superpowers/specs/` —— 設計定案；`docs/superpowers/plans/` —— 實作計畫
 - `.claude/rules/wysiwyg.md`、`.claude/rules/ui-verification.md` —— 檔案範圍限定的
   深度規則（帶 `paths:` frontmatter，動到相關檔案時才載入）

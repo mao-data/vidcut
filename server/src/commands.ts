@@ -524,6 +524,16 @@ export function applyCommand(
         }),
       );
     }
+    case 'setPublish': {
+      if (!cmd.info.dir) return { ok: false, error: 'publish dir must not be empty' };
+      if (cmd.info.platforms.length === 0)
+        return { ok: false, error: 'publish platforms must not be empty' };
+      return ok(
+        store.mutate(source, 'publish package', (d) => {
+          d.render.publish = cmd.info;
+        }),
+      );
+    }
     case 'undo': {
       const r = store.undo(source, cmd.steps ?? 1);
       return r ? { ok: true, version: r.version } : { ok: false, error: 'nothing to undo' };
