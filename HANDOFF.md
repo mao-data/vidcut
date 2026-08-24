@@ -294,18 +294,18 @@ filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（
 的根治**（下方各條即交付後的現況）。純 UI 批,**`server/` 全程零改動**（`git diff
 aae6e75..HEAD --stat -- server/` 為空,含 Task 1–3；MCP 未觸及,不需同步 `mcp.ts`）。
 
-- **主軌 trim-in 捲動補償**（Task 1）：拖曳中每幀把 `scrollLeft` **絕對重算**成
-  「起手時的 scrollLeft ＋ 這一幀的 duration 變化量（px）」（`el.scrollLeft =
-scrollLeftAtDragStart + (timeToPx(dur) - timeToPx(origDuration))`,`Timeline.tsx`
-  的 `onPointerMove` trim-in 分支）,讓被拖的前緣**釘在指標下方**、clip 既有內容
-  與其後片段在螢幕上靜止,前面的片段讓位——不是逐幀累加。選絕對重算是因為
-  `scrollLeft` 會被瀏覽器夾在 `>=0`：累加值撞底之後再往回拖會跟真實 scrollLeft
-  脫勾,之後的補償全部算錯;絕對重算每幀都從同一個起點出發,天然免疫這個問題。
-  同批**移除 main-track trim-in 的 snap**（不再吸內容座標）——舊行為吸的是「右緣」,
-  但補償模型下右緣（clip 起點）本身不移動、左緣的內容座標也不是使用者在看的東西,
-  兩者都沒有可吸的意義；`setSnapLine(null)` 恆成立,in=0 的硬停點仍由 `trimIn`
-  純函數的既有 clamp 負責,不需要 snap 這層再夾一次。trim-out 不受影響（右緣本來
-  就跟手,維持 Plan 11 行為）。
+- **主軌 trim-in 捲動補償**（Task 1；⚠️ **Plan 15 起這條只適用擴張方向**,見下方
+  Plan 15 小節）：拖曳中每幀把 `scrollLeft` **絕對重算**成「起手時的 scrollLeft ＋
+  這一幀的 duration 變化量（px）」（`el.scrollLeft = scrollLeftAtDragStart +
+(timeToPx(dur) - timeToPx(origDuration))`,`Timeline.tsx` 的 `onPointerMove`
+  trim-in 分支）,讓被拖的前緣**釘在指標下方**、clip 既有內容與其後片段在螢幕上
+  靜止,前面的片段讓位——不是逐幀累加。選絕對重算是因為 `scrollLeft` 會被瀏覽器
+  夾在 `>=0`：累加值撞底之後再往回拖會跟真實 scrollLeft 脫勾,之後的補償全部算錯;
+  絕對重算每幀都從同一個起點出發,天然免疫這個問題。同批**移除 main-track trim-in
+  的 snap**（不再吸內容座標）——舊行為吸的是「右緣」,但補償模型下右緣（clip 起點）
+  本身不移動、左緣的內容座標也不是使用者在看的東西,兩者都沒有可吸的意義；
+  `setSnapLine(null)` 恆成立,in=0 的硬停點仍由 `trimIn` 純函數的既有 clamp 負責,
+  不需要 snap 這層再夾一次。trim-out 不受影響（右緣本來就跟手,維持 Plan 11 行為）。
 - **player 即時顯示新首幀**（Task 2,`usePlayback.trimPreview`）：main-track
   trim-in 拖曳中,player 立即顯示新首幀而非拖曳前的舊值——`trimPreview`
   是 transient 欄位（`{clipId, in}`）,不進 doc、不是 command、不進 history,與
@@ -538,6 +538,18 @@ ${pad}:color=black`,把這個 input 的輸出長度墊回 `clip.duration`;音訊
   前把手（leadPad）,對稱的尾端黑墊留待後續評估,不要與 Plan 13 的「輸出黑尾」
   （主軌播完、其他軌道還沒演完時墊在整條時間軸尾端）混為一談,tailPad 是
   **單一 clip** 自己的尾端黑墊,是不同粒度的功能。
+
+## Plan 15：trim 拖曳佔位黑墊——修剪方向不再即時 ripple（2026-08-24）
+
+純 UI 批（`shared/`/`server/`/命令層/MCP 全程零改動,`dragMath.trimPlaceholder`
+是唯一新函數,不進 doc）。修剪方向（拖窄）拖曳中不再即時 ripple 後續 clip:
+被修掉的區段以半透明黑墊佔位撐住 clip 的時間軸足跡（`trimPlaceholder(origDuration,
+nextDuration) = max(0, orig-next)`,`dragMath.ts`）,版面凍結、把手跟手,放手
+才真正閉合收斂(`f0aa5d2`+`cc20293`)。擴張方向（還原素材/長 leadPad）維持 Plan 12/14
+的即時 ripple+捲動補償不變。**捲動補償因此收斂為只在擴張方向套用**
+（`Timeline.tsx` 的 `dur >= d.origDuration` 守門,見上方 Plan 12 Task 1 小節的
+限定詞）——修剪方向完全不碰 `scrollLeft`,把手位置改靠佔位邊界（`ClipBlock` 的
+`placeholderHeadPx`/`placeholderTailPx`）本身跟手。
 
 ## 明天第一件事：親眼驗收（我驗不了「體感」與 Claude Code 實連）
 
