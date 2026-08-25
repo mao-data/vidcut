@@ -69,50 +69,45 @@ export async function prepareMedia(
 }
 
 /**
- * A1：filmstrip（非純音訊）+ peaks——寫進 `derived/<mediaId>/`，完成後透過
- * `updateMediaDerived` 落盤。失敗**不拋、不清目錄**：呼叫端（背景佇列）只需要
- * console.error，素材本身（A0 已登記的原檔）照樣可用，見 Plan 8 範圍裁決 §2。
- *
- * 直接呼叫（不經佇列）時失敗會拋出——`ingestMediaFully` 靠這個把失敗傳上去。
+ * A1 的檔案工作（store-free，素材庫入庫共用）：filmstrip 單列 sprite 寫進 derivedAbs。
+ * 呼叫端保證 info.hasVideo !== false。回傳 filmstripPlan 算出的 tiles。
  */
-async function runFilmstripAndPeaks(
-  store: ProjectStore,
-  projectDir: string,
-  mediaId: string,
+export async function writeFilmstrip(
   abs: string,
+  derivedAbs: string,
   info: ProbeInfo,
-): Promise<void> {
-  const derivedRel = join('derived', mediaId);
-  const derivedAbs = join(projectDir, derivedRel);
-  const audioOnly = info.hasVideo === false;
+): Promise<number> {
   await mkdir(derivedAbs, { recursive: true });
+  // filmstrip —— 單列 sprite，格數與取樣頻率由 filmstripPlan 決定。
+  // 短片（≲7.7 分鐘 16:9）逐秒一格，跟以前行為一致；長片單列寬度會撞上
+  // JPEG 編碼器 65500px 上限（實測 exit 234），filmstripPlan 把格數夾在
+  // 上限內、改用 <1 的 fps 均勻降頻取樣，覆蓋整支影片而不是只取前段。
+  const { tiles, fps } = filmstripPlan({
+    durationSec: info.duration,
+    width: info.width,
+    height: info.height,
+  });
+  await runFfmpeg([
+    '-i',
+    abs,
+    '-vf',
+    // fps 用 toFixed 避免極小值被序列化成科學記號（ffmpeg 的 fps 濾鏡吃不了 1e-7）
+    `fps=${fps.toFixed(6)},scale=-2:80,tile=${tiles}x1`,
+    '-frames:v',
+    '1',
+    '-q:v',
+    '3',
+    join(derivedAbs, 'filmstrip.jpg'),
+  ]);
+  return tiles;
+}
 
-  let filmstripTiles: number | undefined;
-  if (!audioOnly) {
-    // filmstrip —— 單列 sprite，格數與取樣頻率由 filmstripPlan 決定。
-    // 短片（≲7.7 分鐘 16:9）逐秒一格，跟以前行為一致；長片單列寬度會撞上
-    // JPEG 編碼器 65500px 上限（實測 exit 234），filmstripPlan 把格數夾在
-    // 上限內、改用 <1 的 fps 均勻降頻取樣，覆蓋整支影片而不是只取前段。
-    const { tiles, fps } = filmstripPlan({
-      durationSec: info.duration,
-      width: info.width,
-      height: info.height,
-    });
-    filmstripTiles = tiles;
-    await runFfmpeg([
-      '-i',
-      abs,
-      '-vf',
-      // fps 用 toFixed 避免極小值被序列化成科學記號（ffmpeg 的 fps 濾鏡吃不了 1e-7）
-      `fps=${fps.toFixed(6)},scale=-2:80,tile=${tiles}x1`,
-      '-frames:v',
-      '1',
-      '-q:v',
-      '3',
-      join(derivedAbs, 'filmstrip.jpg'),
-    ]);
-  }
-
+/**
+ * A1 的檔案工作（store-free，素材庫入庫共用）：peaks.json 寫進 derivedAbs。
+ * 無音軌時用 anullsrc 合成同時長靜音來源（原因見原註解，一併搬來）。
+ */
+export async function writePeaks(abs: string, derivedAbs: string, info: ProbeInfo): Promise<void> {
+  await mkdir(derivedAbs, { recursive: true });
   // peaks —— 8kHz mono s16le → 160 樣本/桶 max|amp| 正規化 0–1
   const pcmDir = await mkdtemp(join(tmpdir(), 'vidcut-pcm-'));
   // a.pcm 只是算 peaks 的中間產物，peaks.json 寫完就沒用了。用 finally 而不是把 rm
@@ -173,44 +168,20 @@ async function runFilmstripAndPeaks(
   } finally {
     await rm(pcmDir, { recursive: true, force: true });
   }
-
-  const patch: Pick<MediaAsset, 'peaksPath' | 'filmstripPath' | 'filmstripTiles'> = {
-    peaksPath: join(derivedRel, 'peaks.json'),
-    ...(audioOnly ? {} : { filmstripPath: join(derivedRel, 'filmstrip.jpg'), filmstripTiles }),
-  };
-  const r = applyCommand(store, 'human', { name: 'updateMediaDerived', mediaId, patch });
-  if (!r.ok) throw new Error(`updateMediaDerived (A1) ${mediaId}: ${r.error}`);
 }
 
 /**
- * A2：proxy——判準來自 `proxyPlan`（shared）。純音訊素材沒有視訊流，整段跳過。
- * `skip`：不產任何檔案，`proxyPath` 永遠缺席。`remux`：`-c copy` 秒級封裝進
- * mp4（容器不對，但影像層面已經是 web-compatible）。`transcode`：現行完整參數。
+ * A2 的檔案工作（store-free，素材庫入庫共用）：依 mode 產 proxy.mp4。
+ * mode 由呼叫端決定：專案路徑用 proxyPlan（skip 時根本不呼叫這裡）；
+ * 素材庫一律 transcode（庫檔要能直接預覽、匯入專案後不依賴絕對路徑原檔的播放路徑）。
  */
-async function runProxy(
-  store: ProjectStore,
-  projectDir: string,
-  mediaId: string,
+export async function writeProxy(
   abs: string,
+  derivedAbs: string,
   info: ProbeInfo,
+  mode: 'remux' | 'transcode',
 ): Promise<void> {
-  if (info.hasVideo === false) return; // 純音訊：無視訊流，不產 proxy
-
-  const mode = proxyPlan({
-    codec: info.codec,
-    pixFmt: info.pixFmt,
-    container: info.container,
-    width: info.width,
-    height: info.height,
-    fps: info.fps,
-    keyframeIntervalSec: info.keyframeIntervalSec,
-  });
-  if (mode === 'skip') return; // 來源已是瀏覽器可播的 H.264，播放/抽幀直接吃原檔
-
-  const derivedRel = join('derived', mediaId);
-  const derivedAbs = join(projectDir, derivedRel);
   await mkdir(derivedAbs, { recursive: true });
-  const proxyRel = join(derivedRel, 'proxy.mp4');
   const proxyAbs = join(derivedAbs, 'proxy.mp4');
 
   if (mode === 'remux') {
@@ -252,11 +223,68 @@ async function runProxy(
     proxyArgs.push('-movflags', '+faststart', proxyAbs);
     await runFfmpeg(proxyArgs);
   }
+}
+
+/**
+ * A1：filmstrip（非純音訊）+ peaks——寫進 `derived/<mediaId>/`，完成後透過
+ * `updateMediaDerived` 落盤。失敗**不拋、不清目錄**：呼叫端（背景佇列）只需要
+ * console.error，素材本身（A0 已登記的原檔）照樣可用，見 Plan 8 範圍裁決 §2。
+ *
+ * 直接呼叫（不經佇列）時失敗會拋出——`ingestMediaFully` 靠這個把失敗傳上去。
+ */
+async function runFilmstripAndPeaks(
+  store: ProjectStore,
+  projectDir: string,
+  mediaId: string,
+  abs: string,
+  info: ProbeInfo,
+): Promise<void> {
+  const derivedRel = join('derived', mediaId);
+  const derivedAbs = join(projectDir, derivedRel);
+  const audioOnly = info.hasVideo === false;
+  const filmstripTiles = audioOnly ? undefined : await writeFilmstrip(abs, derivedAbs, info);
+  await writePeaks(abs, derivedAbs, info);
+
+  const patch: Pick<MediaAsset, 'peaksPath' | 'filmstripPath' | 'filmstripTiles'> = {
+    peaksPath: join(derivedRel, 'peaks.json'),
+    ...(audioOnly ? {} : { filmstripPath: join(derivedRel, 'filmstrip.jpg'), filmstripTiles }),
+  };
+  const r = applyCommand(store, 'human', { name: 'updateMediaDerived', mediaId, patch });
+  if (!r.ok) throw new Error(`updateMediaDerived (A1) ${mediaId}: ${r.error}`);
+}
+
+/**
+ * A2：proxy——判準來自 `proxyPlan`（shared）。純音訊素材沒有視訊流，整段跳過。
+ * `skip`：不產任何檔案，`proxyPath` 永遠缺席。`remux`：`-c copy` 秒級封裝進
+ * mp4（容器不對，但影像層面已經是 web-compatible）。`transcode`：現行完整參數。
+ */
+async function runProxy(
+  store: ProjectStore,
+  projectDir: string,
+  mediaId: string,
+  abs: string,
+  info: ProbeInfo,
+): Promise<void> {
+  if (info.hasVideo === false) return; // 純音訊：無視訊流，不產 proxy
+
+  const mode = proxyPlan({
+    codec: info.codec,
+    pixFmt: info.pixFmt,
+    container: info.container,
+    width: info.width,
+    height: info.height,
+    fps: info.fps,
+    keyframeIntervalSec: info.keyframeIntervalSec,
+  });
+  if (mode === 'skip') return; // 來源已是瀏覽器可播的 H.264，播放/抽幀直接吃原檔
+
+  const derivedRel = join('derived', mediaId);
+  await writeProxy(abs, join(projectDir, derivedRel), info, mode);
 
   const r = applyCommand(store, 'human', {
     name: 'updateMediaDerived',
     mediaId,
-    patch: { proxyPath: proxyRel },
+    patch: { proxyPath: join(derivedRel, 'proxy.mp4') },
   });
   if (!r.ok) throw new Error(`updateMediaDerived (A2) ${mediaId}: ${r.error}`);
 }
