@@ -176,6 +176,28 @@ describe('addToLibrary: image kind', () => {
     expect(await readdir(join(libDir, 'files'))).toHaveLength(1); // 只有 a.png 那筆
   }, 30_000);
 
+  it('svg：內容嗅探擋垃圾偽裝檔，合法 svg（即使量不到尺寸）仍入庫', async () => {
+    const { lib, srcDir, libDir } = await setup();
+    // 垃圾內容偽裝 .svg：ffprobe 量不到尺寸，但也不是真的 svg——不得因為副檔名
+    // 是 .svg 就照單全收，必須嗅探內容找 <svg 標記才放行。
+    await writeFile(join(srcDir, 'junk.svg'), 'not an svg at all');
+    await expect(
+      addToLibrary(lib, join(srcDir, 'junk.svg'), { origin: { type: 'source' } }),
+    ).rejects.toThrow();
+    expect(await readdir(join(libDir, 'files'))).toEqual([]); // 零殘留
+
+    // 最小合法 svg：ffprobe 可能有／沒有 svg decoder（環境而異），兩種結果都該入庫成功。
+    await writeFile(
+      join(srcDir, 'ok.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
+    );
+    const { asset } = await addToLibrary(lib, join(srcDir, 'ok.svg'), {
+      origin: { type: 'source' },
+    });
+    expect(asset.kind).toBe('image');
+    expect(await readdir(join(libDir, 'files'))).toHaveLength(1);
+  }, 30_000);
+
   it('prepareFromLibrary 拒絕 image kind', async () => {
     const { lib, srcDir } = await setup();
     await runFfmpeg([

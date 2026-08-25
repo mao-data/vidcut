@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
-import { copyFile, rename, rm, stat, cp } from 'node:fs/promises';
+import { copyFile, open, rename, rm, stat, cp } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { LibraryAsset, ProbeInfo, MediaAsset } from '@vidcut/shared';
@@ -20,9 +20,32 @@ export async function hashFile(abs: string): Promise<string> {
 }
 
 /**
+ * 輕量內容嗅探：讀檔案開頭 4KB（UTF-8），大小寫不敏感找 `<svg` 標記。
+ * 只用來擋「垃圾內容偽裝 .svg」——不是完整的 svg 驗證（合法 svg 也可能把 `<svg`
+ * 標記放在 4KB 之後，例如前面塞了大段 XML 註解/DOCTYPE，那種極端案例這裡量不到，
+ * 但比起完全不驗證，先擋住最常見的「隨便一個 .txt 改副檔名」已經是淨改善）。
+ */
+async function looksLikeSvg(abs: string): Promise<boolean> {
+  const fh = await open(abs, 'r');
+  try {
+    const buf = Buffer.alloc(4096);
+    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+    return buf.subarray(0, bytesRead).toString('utf8').toLowerCase().includes('<svg');
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
  * 圖片尺寸（資訊性）。svg 等 ffprobe 量不到尺寸的回 0×0——匯入分流看 kind，
  * 不靠這裡的數值；ffprobe 完全失敗（壞圖，非 svg）才視為壞檔丟錯，
  * 在任何落地之前擋下（與 probe() 對影音壞檔的把關同一個位置）。
+ *
+ * .svg 的 0×0 fallback 前先做內容嗅探（looksLikeSvg）：ffprobe 對合法 svg 也常常
+ * 量不到尺寸（環境是否有 svg decoder而異），所以不能只憑「ffprobe 失敗 + 副檔名是
+ * .svg」就放行——那樣任何內容是垃圾文字、副檔名硬改成 .svg 的檔案都會被照收，
+ * 違反「壞圖在落地前拒收、零殘留」。嗅探到 `<svg` 才視為合法 svg 回 {0,0}，
+ * 嗅探不到就是偽裝檔，一律當壞圖丟錯。
  */
 async function probeImageSize(abs: string): Promise<{ width: number; height: number }> {
   try {
@@ -42,7 +65,9 @@ async function probeImageSize(abs: string): Promise<{ width: number; height: num
     if (!s?.width || !s?.height) throw new Error('no dimensions');
     return { width: s.width, height: s.height };
   } catch {
-    if (extname(abs).toLowerCase() === '.svg') return { width: 0, height: 0 };
+    if (extname(abs).toLowerCase() === '.svg' && (await looksLikeSvg(abs))) {
+      return { width: 0, height: 0 };
+    }
     throw new Error(`not a decodable image: ${abs}`);
   }
 }
