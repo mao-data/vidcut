@@ -1,8 +1,8 @@
 import express from 'express';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, extname, isAbsolute, join } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { ProjectStore } from './store.js';
 import { listSource, MEDIA_EXTENSIONS } from './sourceFolder.js';
@@ -14,6 +14,7 @@ import type { TextCardService } from './textCards.js';
 import { cardRequestError } from './cardBudget.js';
 import type { LibraryStore } from './libraryStore.js';
 import { addToLibrary, prepareFromLibrary, discardPrepared } from './libraryIngest.js';
+import { resolveMediaPath } from './paths.js';
 
 /**
  * POST /text-card/preview 的手寫 body 驗證（故意不用 zod）：回 null 代表通過，否則回錯誤訊息。
@@ -203,6 +204,67 @@ export function createApp(
     res.status(msg.startsWith('no library asset') ? 404 : 400).json({ error: msg });
   };
 
+  // 反向沉澱：人監修時把 AI 匯入的好素材一鍵入庫（Veed 式，spec §UI 三區）
+  app.post('/api/library/from-media', (req, res, next) => {
+    void (async () => {
+      if (!lib) {
+        res.status(503).json({ error: 'library unavailable' });
+        return;
+      }
+      const { mediaId, label, tags } = (req.body ?? {}) as {
+        mediaId?: string;
+        label?: string;
+        tags?: string[];
+      };
+      const m = mediaId ? store.doc.media.find((x) => x.id === mediaId) : undefined;
+      if (!m) {
+        res.status(404).json({ error: `no media ${mediaId ?? ''} in this project` });
+        return;
+      }
+      try {
+        res.json(
+          await addToLibrary(lib, resolveMediaPath(projectDir, m.path), {
+            label: label ?? m.label ?? basename(m.path),
+            tags,
+            origin: { type: 'project', note: store.doc.name },
+          }),
+        );
+      } catch (e) {
+        libErr(res, e);
+      }
+    })().catch(next);
+  });
+
+  // 素材夾「直接入庫」（掃描列表旁的按鈕；path 來自 GET /api/source 的結果組合）
+  app.post('/api/library/from-path', (req, res, next) => {
+    void (async () => {
+      if (!lib) {
+        res.status(503).json({ error: 'library unavailable' });
+        return;
+      }
+      const { path, label, tags } = (req.body ?? {}) as {
+        path?: string;
+        label?: string;
+        tags?: string[];
+      };
+      if (!path || !isAbsolute(path)) {
+        res.status(400).json({ error: 'path must be absolute' });
+        return;
+      }
+      try {
+        res.json(
+          await addToLibrary(lib, path, {
+            label,
+            tags,
+            origin: { type: 'source', note: path },
+          }),
+        );
+      } catch (e) {
+        libErr(res, e);
+      }
+    })().catch(next);
+  });
+
   app.patch('/api/library/:id', (req, res, next) => {
     void (async () => {
       if (!lib) {
@@ -258,6 +320,23 @@ export function createApp(
       }
       const { addToTimeline } = (req.body ?? {}) as { addToTimeline?: boolean };
       try {
+        const a = lib.get(req.params.id);
+        if (a?.kind === 'image') {
+          // 圖片＝overlay 素材：複製進 assets/（與 POST /assets 同款消毒+重名編號），
+          // overlay 的 imagePath 走專案相對路徑（/media 靜態與渲染都吃這個），
+          // 所以這裡是複製不是零複製引用。
+          const clean = basename(a.file); // files/<hash>.<ext> 的 basename 不含使用者輸入
+          const ext = extname(clean);
+          const stem = (a.label || 'image').replace(/[^\w.\-一-鿿]/g, '_');
+          await mkdir(join(projectDir, 'assets'), { recursive: true });
+          let rel = join('assets', `${stem}${ext}`);
+          for (let i = 1; existsSync(join(projectDir, rel)); i++) {
+            rel = join('assets', `${stem}-${i}${ext}`);
+          }
+          await copyFile(lib.fileAbs(a), join(projectDir, rel));
+          res.json({ kind: 'image', relPath: rel });
+          return;
+        }
         const prepared = await prepareFromLibrary(store, projectDir, lib, req.params.id);
         let mediaId: string;
         if ('existingId' in prepared) {
