@@ -25,6 +25,7 @@ import type { ProjectStore } from './store.js';
 import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import type { TextCardService } from './textCards.js';
+import type { LibraryStore } from './libraryStore.js';
 import { CHAT_MAX_LEN, type ChatStore } from './chatStore.js';
 import { aiWrite, isStale } from './aiWrite.js';
 import { prepareMedia, enqueueDerivedStages } from './ingest.js';
@@ -51,6 +52,8 @@ export interface McpDeps {
    * 它不進 doc、不進版本/歷史/undo，見 `chatStore.ts` 檔頭。
    */
   chat: ChatStore;
+  /** 跨專案素材庫（spec 2026-08-21）。索引損毀降級時為 undefined，素材庫工具回錯誤。 */
+  library?: LibraryStore;
 }
 
 /** 應用層失敗：標 isError 讓模型能明確辨識（訊息本身與成功路徑同格式）。 */

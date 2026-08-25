@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import { homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
@@ -15,6 +16,7 @@ import { setCaptionFontResolver } from './render.js';
 import { TextCardService } from './textCards.js';
 import { CaptionCardSync } from './cardSync.js';
 import { refreshTextOverlayCards } from './textOverlays.js';
+import { LibraryStore } from './libraryStore.js';
 
 /**
  * 預設 :3845。`VIDCUT_PORT` 可覆寫——為的是「同時再起第二個 server 吃另一個專案」
@@ -68,7 +70,18 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
   const textCards = new TextCardService(projectDir, rasterizer);
   const cardSync = new CaptionCardSync(store, textCards);
 
-  const app = createApp(store, projectDir, uiDist, { fonts, textCards });
+  // 跨專案素材庫（spec 2026-08-21）。索引損毀時降級成「無素材庫」——素材庫端點回 503、
+  // MCP 工具回錯誤，其餘功能（時間軸、播放、渲染）完全正常。不修不清：索引是使用者資料。
+  const libraryDir = process.env.VIDCUT_LIBRARY_DIR ?? join(homedir(), '.vidcut', 'library');
+  let library: LibraryStore | undefined;
+  try {
+    library = await LibraryStore.load(libraryDir);
+  } catch (e) {
+    console.warn(`⚠ Asset library unavailable (${libraryDir}): ${(e as Error).message}`);
+    console.warn('  Fix or move the corrupt library.json and restart to re-enable it.');
+  }
+
+  const app = createApp(store, projectDir, uiDist, { fonts, textCards, library });
   // MCP 需要能讀 req.body（JSON），StreamableHTTP 會自己處理 SSE。
   const server = createServer(app);
   const wss = attachWs(server, {
@@ -97,6 +110,7 @@ export async function startServer(projectDir: string, port = DEFAULT_PORT): Prom
     baseUrl: `http://127.0.0.1:${port}`,
     textCards,
     chat,
+    library,
   };
   mountMcp(app, deps);
 

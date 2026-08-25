@@ -1,15 +1,19 @@
 import express from 'express';
-import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createWriteStream, existsSync } from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import { basename, extname, join } from 'node:path';
+import { nanoid } from 'nanoid';
 import type { ProjectStore } from './store.js';
-import { listSource } from './sourceFolder.js';
+import { listSource, MEDIA_EXTENSIONS } from './sourceFolder.js';
 import { ingestMedia } from './ingest.js';
 import { applyCommand } from './commands.js';
 import type { FontEntry } from './fonts.js';
 import type { CardRequest } from './rasterizer.js';
 import type { TextCardService } from './textCards.js';
 import { cardRequestError } from './cardBudget.js';
+import type { LibraryStore } from './libraryStore.js';
+import { addToLibrary, prepareFromLibrary } from './libraryIngest.js';
 
 /**
  * POST /text-card/preview 的手寫 body 驗證（故意不用 zod）：回 null 代表通過，否則回錯誤訊息。
@@ -54,7 +58,7 @@ export function createApp(
   store: ProjectStore,
   projectDir: string,
   uiDistDir?: string,
-  extras?: { fonts?: FontEntry[]; textCards?: TextCardService },
+  extras?: { fonts?: FontEntry[]; textCards?: TextCardService; library?: LibraryStore },
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -142,6 +146,145 @@ export function createApp(
       })().catch(next);
     },
   );
+
+  // ── 跨專案素材庫（spec 2026-08-21）。lib 未載入（索引損毀降級）時一律 503。 ──
+  const lib = extras?.library;
+  const q = (req: express.Request, k: string): string | undefined =>
+    typeof req.query[k] === 'string' && req.query[k] !== '' ? (req.query[k] as string) : undefined;
+
+  app.get('/api/library', (req, res) => {
+    if (!lib) {
+      res.status(503).json({ error: 'library unavailable' });
+      return;
+    }
+    res.json({ assets: lib.list({ query: q(req, 'query'), tag: q(req, 'tag') }) });
+  });
+
+  // 上傳入庫。串流落地暫存檔再 move 入庫——不走 express.raw：300MB 檔 arrayBuffer
+  // 路徑會吃 300MB RSS（ROADMAP「上傳路徑串流化」實測），庫素材（片頭/BGM）就是這個量級。
+  app.post('/api/library', (req, res, next) => {
+    void (async () => {
+      if (!lib) {
+        res.status(503).json({ error: 'library unavailable' });
+        return;
+      }
+      const clean = basename(q(req, 'name') ?? '');
+      const ext = extname(clean).toLowerCase();
+      if (!clean || !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
+        res.status(400).json({ error: `need ?name= with a supported extension (${MEDIA_EXTENSIONS.join(' ')})` });
+        return;
+      }
+      const tmp = join(lib.dir, `.upload-${nanoid(8)}${ext}`);
+      try {
+        await pipeline(req, createWriteStream(tmp));
+        const r = await addToLibrary(lib, tmp, {
+          label: q(req, 'label') ?? clean, // move 路徑暫存檔名不是原檔名，label 一定要在這層給
+          tags: q(req, 'tags')?.split(',') ?? [],
+          origin: { type: 'upload', note: clean },
+          move: true,
+        });
+        res.json(r);
+      } catch (e) {
+        await rm(tmp, { force: true });
+        res.status(400).json({ error: (e as Error).message });
+      }
+    })().catch(next);
+  });
+
+  // 錯誤字樣 `no library asset` ⇒ 404（LibraryStore 的約定），其餘 400
+  const libErr = (res: express.Response, e: unknown) => {
+    const msg = (e as Error).message;
+    res.status(msg.startsWith('no library asset') ? 404 : 400).json({ error: msg });
+  };
+
+  app.patch('/api/library/:id', (req, res, next) => {
+    void (async () => {
+      if (!lib) {
+        res.status(503).json({ error: 'library unavailable' });
+        return;
+      }
+      const { label, tags } = (req.body ?? {}) as { label?: unknown; tags?: unknown };
+      if (label !== undefined && typeof label !== 'string') {
+        res.status(400).json({ error: 'label must be a string' });
+        return;
+      }
+      if (tags !== undefined && (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))) {
+        res.status(400).json({ error: 'tags must be an array of strings' });
+        return;
+      }
+      try {
+        // 驗證過了才收窄型別——上面兩個 if 就是 narrowing 的證據
+        res.json({
+          asset: await lib.updateAsset(req.params.id, {
+            label: label as string | undefined,
+            tags: tags as string[] | undefined,
+          }),
+        });
+      } catch (e) {
+        libErr(res, e);
+      }
+    })().catch(next);
+  });
+
+  app.delete('/api/library/:id', (req, res, next) => {
+    void (async () => {
+      if (!lib) {
+        res.status(503).json({ error: 'library unavailable' });
+        return;
+      }
+      try {
+        await lib.removeAsset(req.params.id);
+        res.json({ ok: true });
+      } catch (e) {
+        libErr(res, e);
+      }
+    })().catch(next);
+  });
+
+  app.post('/api/library/:id/import', (req, res, next) => {
+    void (async () => {
+      if (!lib) {
+        res.status(503).json({ error: 'library unavailable' });
+        return;
+      }
+      const { addToTimeline } = (req.body ?? {}) as { addToTimeline?: boolean };
+      try {
+        const prepared = await prepareFromLibrary(store, projectDir, lib, req.params.id);
+        let mediaId: string;
+        if ('existingId' in prepared) {
+          mediaId = prepared.existingId;
+        } else {
+          const r = applyCommand(store, 'human', { name: 'registerMedia', asset: prepared.asset });
+          if (!r.ok) throw new Error(r.error);
+          mediaId = prepared.asset.id;
+        }
+        if (addToTimeline) {
+          const media = store.doc.media.find((m) => m.id === mediaId)!;
+          const r = applyCommand(store, 'human', {
+            name: 'addClip',
+            mediaId,
+            in: 0,
+            duration: media.probe.duration,
+            label: media.label,
+          });
+          if (!r.ok) {
+            // 素材已登記、只有上軌失敗（audio-only 走到這）——mediaId 一起回，別讓呼叫端誤以為全失敗
+            res.status(400).json({ error: r.error, mediaId });
+            return;
+          }
+        }
+        res.json({ mediaId });
+      } catch (e) {
+        libErr(res, e);
+      }
+    })().catch(next);
+  });
+
+  if (lib) {
+    // files/ 內容定址：URL 變 = 內容變 ⇒ 強快取；derived/ 會被 lazy 重建（同 URL 換內容），不能 immutable
+    app.use('/library/files', express.static(join(lib.dir, 'files'), { fallthrough: false, immutable: true, maxAge: '365d' }));
+    app.use('/library/derived', express.static(join(lib.dir, 'derived'), { fallthrough: false }));
+  }
 
   app.get('/api/fonts', (_req, res) => {
     res.json((extras?.fonts ?? []).map((f) => ({ id: f.id, family: f.family })));
