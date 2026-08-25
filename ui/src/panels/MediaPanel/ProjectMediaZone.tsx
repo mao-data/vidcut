@@ -1,49 +1,10 @@
-import { useState, type CSSProperties } from 'react';
+import { type CSSProperties } from 'react';
 import { Music, Plus, Library } from 'lucide-react';
 import type { AudioItem, MediaAsset } from '@vidcut/shared';
-import { useProject } from '../stores/project.js';
-import { usePlayback } from '../stores/playback.js';
-import { useToast } from '../stores/toast.js';
-import { sendCommand } from '../ws.js';
-
-/**
- * Media 分頁：專案媒體／素材庫／素材夾 三區（spec 2026-08-21 §UI；CapCut Space 心智模型）。
- * ⚠️ 本面板內任何操作都不呼叫 useSelection.select()——App.tsx 的「選取跳 Properties」
- * 會把使用者踢出本分頁（那條 effect 是 2026-08-16 版面定案，不改它，改我們自己）。
- */
-export function MediaPanel() {
-  const [zone, setZone] = useState<'project' | 'library' | 'source'>('project');
-  return (
-    <div className="panel-col" style={{ minWidth: 0 }}>
-      <div className="panel-bar" style={{ gap: 4 }}>
-        <button
-          className={`seg${zone === 'project' ? ' on' : ''}`}
-          title="Project media"
-          onClick={() => setZone('project')}
-        >
-          Project
-        </button>
-        <button
-          className={`seg${zone === 'library' ? ' on' : ''}`}
-          title="Library"
-          onClick={() => setZone('library')}
-        >
-          Library
-        </button>
-        <button
-          className={`seg${zone === 'source' ? ' on' : ''}`}
-          title="Source folder"
-          onClick={() => setZone('source')}
-        >
-          Folder
-        </button>
-      </div>
-      {zone === 'project' && <ProjectMediaZone />}
-      {zone === 'library' && <LibraryZone />}
-      {zone === 'source' && <SourceFolderZone />}
-    </div>
-  );
-}
+import { useProject } from '../../stores/project.js';
+import { usePlayback } from '../../stores/playback.js';
+import { useToast } from '../../stores/toast.js';
+import { sendCommand } from '../../ws.js';
 
 /**
  * zustand v5 selector fallback 一律模組級常數——見 CaptionList.tsx 同一條註解、
@@ -72,9 +33,9 @@ function firstTileStyle(m: MediaAsset): CSSProperties {
 /**
  * 專案媒體區：列出 doc.media，兩個動作——加到時間軸（video→addClip／audio-only→setAudio）
  * 與反向沉澱入庫（POST /api/library/from-media）。兩者都不呼叫 useSelection.select()
- * （本檔頭部鐵則）；加到時間軸走 sendCommand，不做樂觀更新，等 server echo。
+ * （MediaPanel 頭部鐵則）；加到時間軸走 sendCommand，不做樂觀更新，等 server echo。
  */
-function ProjectMediaZone() {
+export function ProjectMediaZone() {
   const media = useProject((s) => s.doc?.media ?? NO_MEDIA);
   const audio = useProject((s) => s.doc?.tracks.audio ?? []);
 
@@ -168,29 +129,6 @@ function ProjectMediaZone() {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function LibraryZone() {
-  return (
-    <div className="panel-body">
-      <div className="panel-bar" style={{ gap: 4 }}>
-        <input placeholder="Search library" style={{ flex: 1, minWidth: 0 }} />
-      </div>
-      <div className="empty-note" style={{ padding: 12, color: 'var(--text-3)' }}>
-        Library zone (Task 6)
-      </div>
-    </div>
-  );
-}
-
-function SourceFolderZone() {
-  return (
-    <div className="panel-body">
-      <div className="empty-note" style={{ padding: 12, color: 'var(--text-3)' }}>
-        Source folder zone (Task 7)
-      </div>
     </div>
   );
 }

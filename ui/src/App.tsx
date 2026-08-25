@@ -12,7 +12,7 @@ import { Timeline } from './timeline/Timeline.js';
 import { Inspector } from './panels/Inspector.js';
 import { AgentPanel } from './panels/AgentPanel.js';
 import { CaptionList } from './panels/CaptionList.js';
-import { MediaPanel } from './panels/MediaPanel.js';
+import { MediaPanel } from './panels/MediaPanel/index.js';
 import { ReviewBar } from './panels/ReviewBar.js';
 import { ExportMenu } from './panels/ExportMenu.js';
 import { ThemeToggle } from './ThemeToggle.js';
