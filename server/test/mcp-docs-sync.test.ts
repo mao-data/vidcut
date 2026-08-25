@@ -68,6 +68,11 @@ const INSTRUCTIONS_EXEMPT: Record<string, string> = {
   redo:
     '通用重做操作，undo 的反向；理由同 undo——不屬於流程步驟，堆疊共用的警語已在' +
     '工具描述本身交代。',
+  update_library_asset:
+    '素材庫的改名/改標籤工具，不屬於 instructions 教的主編輯流程步驟（那句只交代' +
+    'list_library/import_from_library/add_to_library 三步「找→取→存」）；描述已' +
+    '自足（改 label/tags，至少給一項），且與 add_to_library 同段落相鄰，AI 讀到' +
+    'add_to_library 自然會發現它。',
 };
 
 let dir: string;

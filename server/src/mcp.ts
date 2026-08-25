@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, basename, join } from 'node:path';
 import type { Express, Request, Response } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -26,6 +26,7 @@ import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import type { TextCardService } from './textCards.js';
 import type { LibraryStore } from './libraryStore.js';
+import { addToLibrary, prepareFromLibrary } from './libraryIngest.js';
 import { CHAT_MAX_LEN, type ChatStore } from './chatStore.js';
 import { aiWrite, isStale } from './aiWrite.js';
 import { prepareMedia, enqueueDerivedStages } from './ingest.js';
@@ -500,7 +501,7 @@ function clipTrackReply(
 
 /** 建立註冊好全部工具的 McpServer（每個 HTTP 請求建一個，closure 共享 deps）。 */
 export function createMcpServer(deps: McpDeps): McpServer {
-  const { store, projectDir, editorContext, reviews, baseUrl, textCards, chat } = deps;
+  const { store, projectDir, editorContext, reviews, baseUrl, textCards, chat, library } = deps;
   const server = new McpServer(
     { name: 'vidcut', version: '0.1.0' },
     {
@@ -508,6 +509,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'vidcut is a timeline editor for vertical short video (1080×1920). Typical flow: ' +
         'list_source to see what is in a footage folder (dir must be absolute; imported flags what is already in) → ' +
         'import_media one file at a time (absolute paths outside the project are fine — nothing is copied) → ' +
+        "There is also a cross-project asset library holding the user's reusable media (logos, intros, BGM): " +
+        'list_library searches it, import_from_library brings an asset into this project (look first, then take), ' +
+        'add_to_library saves a local file (path) or an already-imported media (mediaId) there for future projects — ' +
+        'give a descriptive label and tags. Library writes bypass review locks and are not undoable; ' +
+        'import_from_library itself is a project write and obeys both. → ' +
         'set_timeline for the initial cut, or add_clip to append to the end of the main track (leaves existing clips alone) → ' +
         'timeline_op for rough cutting (split/deleteBefore/deleteAfter/freeze) → ' +
         'set_overlays / set_captions for text (for talking-head footage just use auto_caption: captions plus per-word highlight in one call) → ' +
@@ -952,6 +958,229 @@ export function createMcpServer(deps: McpDeps): McpServer {
         );
       } catch (e) {
         return err(`import failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  /** 素材庫工具共用的前置：庫沒載入（索引損毀降級）時給出可行動的錯誤。 */
+  const needLibrary = () =>
+    library ? null : err('error: the asset library is unavailable on this server (corrupt library.json?)');
+
+  server.registerTool(
+    'list_library',
+    {
+      description:
+        "Search the user's cross-project asset library (reusable logos, intros, BGM…). query matches label+tags " +
+        '(case-insensitive substring), tag matches exactly. Look before you take: check here first, then ' +
+        'import_from_library. broken=true means the file is missing on disk and cannot be imported.',
+      outputSchema: {
+        assets: z.array(
+          z.object({
+            id: z.string(),
+            kind: z.string(),
+            label: z.string(),
+            tags: z.array(z.string()),
+            origin: z.object({ type: z.string(), note: z.string().optional() }),
+            duration: z.number(),
+            hasVideo: z.boolean(),
+            hasAudio: z.boolean(),
+            broken: z.boolean(),
+          }),
+        ),
+        total: z.number().describe('total matches (may exceed the length of assets)'),
+        truncated: z.boolean().optional(),
+      },
+      inputSchema: {
+        query: z.string().optional(),
+        tag: z.string().optional(),
+        kind: z.enum(['media']).optional(),
+        limit: z.number().int().min(1).max(50).optional().describe('default 20'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ query, tag, kind, limit }) => {
+      const gate = needLibrary();
+      if (gate) return gate;
+      const all = library!.list({ query, tag, kind });
+      const n = limit ?? 20;
+      const assets = all.slice(0, n).map((a) => ({
+        id: a.id,
+        kind: a.kind,
+        label: a.label,
+        tags: a.tags,
+        origin: a.origin,
+        duration: a.probe.duration,
+        hasVideo: a.probe.hasVideo ?? true,
+        hasAudio: a.probe.hasAudio,
+        broken: a.broken,
+      }));
+      return result(
+        { assets, total: all.length, ...(all.length > n ? { truncated: true } : {}) },
+        `${all.length} asset(s)` + (all.length > n ? `, first ${n} embedded` : ''),
+      );
+    },
+  );
+
+  server.registerTool(
+    'add_to_library',
+    {
+      description:
+        "Save media into the user's cross-project library for reuse in future projects. Give exactly one of " +
+        'path (absolute path on this machine) or mediaId (media already in this project). The file is **copied** ' +
+        'into the library (content-addressed; adding the same content twice is a no-op returning the existing ' +
+        'asset). Give a descriptive label and tags so the library stays findable — that is how list_library and ' +
+        'the user will recognise it later. This is a library write, not a project edit: no undo, no review lock.',
+      outputSchema: {
+        assetId: z.string(),
+        existing: z.boolean().describe('true = same content was already in the library; that asset is returned'),
+        label: z.string(),
+      },
+      inputSchema: {
+        path: z.string().optional().describe('absolute path of a local media file'),
+        mediaId: z.string().optional().describe('id of a media already imported into this project'),
+        label: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      },
+    },
+    async ({ path, mediaId, label, tags }) => {
+      const gate = needLibrary();
+      if (gate) return gate;
+      if ((path === undefined) === (mediaId === undefined)) {
+        return err('error: give exactly one of path or mediaId');
+      }
+      try {
+        let abs: string;
+        let origin: { type: 'project' | 'source'; note?: string };
+        let fallbackLabel: string | undefined;
+        if (mediaId !== undefined) {
+          const m = store.doc.media.find((x) => x.id === mediaId);
+          if (!m) return err(`error: no media ${mediaId} in this project`);
+          abs = resolveMediaPath(projectDir, m.path);
+          origin = { type: 'project', note: store.doc.name };
+          fallbackLabel = m.label ?? basename(m.path);
+        } else {
+          if (!isAbsolute(path!)) return err('error: path must be absolute');
+          abs = path!;
+          origin = { type: 'source', note: path! };
+        }
+        const r = await addToLibrary(library!, abs, {
+          label: label ?? fallbackLabel,
+          tags,
+          origin,
+        });
+        return result(
+          { assetId: r.asset.id, existing: r.existing, label: r.asset.label },
+          r.existing
+            ? `already in the library as ${r.asset.id} ("${r.asset.label}")`
+            : `saved to the library as ${r.asset.id} ("${r.asset.label}")`,
+        );
+      } catch (e) {
+        return err(`add_to_library failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    'import_from_library',
+    {
+      description:
+        'Import a library asset into this project: its derivatives are copied in (no re-processing) and the file ' +
+        'is referenced in place from the library (content-addressed, so the reference never breaks). Check with ' +
+        'list_library first — look and take are two steps. Returns a mediaId. addToTimeline appends it to the end ' +
+        'of the main track (audio-only assets are refused there — use set_audio instead, the import itself still ' +
+        'succeeds). This writes the project: review locks and ifVersion apply.',
+      outputSchema: {
+        mediaId: z.string(),
+        alreadyImported: z.boolean().optional(),
+        addedToTimeline: z.boolean().optional(),
+        version: z.number().optional(),
+      },
+      inputSchema: {
+        assetId: z.string(),
+        addToTimeline: z.boolean().optional(),
+        ifVersion: z.number().optional(),
+      },
+    },
+    async ({ assetId, addToTimeline, ifVersion }) => {
+      const gate = needLibrary();
+      if (gate) return gate;
+      // 早期守衛同 import_media：derived 複製前就擋，不做白工
+      if (store.doc.review !== null) return err('error: a review is in progress');
+      if (ifVersion !== undefined && ifVersion !== store.version)
+        return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
+      try {
+        const prepared = await prepareFromLibrary(store, projectDir, library!, assetId);
+        let mediaId: string;
+        let version: number | undefined;
+        let already = false;
+        if ('existingId' in prepared) {
+          mediaId = prepared.existingId;
+          already = true;
+        } else {
+          const w = aiWrite(store, { name: 'registerMedia', asset: prepared.asset }, ifVersion);
+          if (!w.ok) return err(writeResultText(w));
+          mediaId = prepared.asset.id;
+          version = w.version;
+        }
+        let addedToTimeline = false;
+        let note = '';
+        if (addToTimeline) {
+          const m = store.doc.media.find((x) => x.id === mediaId)!;
+          const w = aiWrite(store, {
+            name: 'addClip',
+            mediaId,
+            in: 0,
+            duration: m.probe.duration,
+            label: m.label,
+          });
+          if (w.ok) {
+            addedToTimeline = true;
+            version = w.version;
+          } else {
+            note = ` (not added to the timeline: ${w.error})`;
+          }
+        }
+        return result(
+          {
+            mediaId,
+            ...(already ? { alreadyImported: true } : {}),
+            ...(addToTimeline ? { addedToTimeline } : {}),
+            ...(version !== undefined ? { version } : {}),
+          },
+          (already ? `${assetId} was already in this project as ${mediaId}` : `imported ${assetId} as ${mediaId}`) +
+            note,
+        );
+      } catch (e) {
+        return err(`import_from_library failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_library_asset',
+    {
+      description:
+        'Rename or retag a library asset (label/tags are what list_library searches). Library write: no undo, ' +
+        'no review lock. Give at least one of label, tags.',
+      outputSchema: { assetId: z.string(), label: z.string(), tags: z.array(z.string()) },
+      inputSchema: {
+        assetId: z.string(),
+        label: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      },
+    },
+    async ({ assetId, label, tags }) => {
+      const gate = needLibrary();
+      if (gate) return gate;
+      if (label === undefined && tags === undefined) return err('error: give label and/or tags');
+      try {
+        const a = await library!.updateAsset(assetId, { label, tags });
+        return result(
+          { assetId: a.id, label: a.label, tags: a.tags },
+          `updated ${a.id}: "${a.label}" [${a.tags.join(', ')}]`,
+        );
+      } catch (e) {
+        return err(`update_library_asset failed: ${(e as Error).message}`);
       }
     },
   );
