@@ -5,6 +5,7 @@ import { MediaPanel } from './MediaPanel/index.js';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { useToast } from '../stores/toast.js';
+import { useSelection } from '../stores/selection.js';
 import * as ws from '../ws.js';
 import { demoProject, seedProject, resetStores } from '../test/fixtures.js';
 
@@ -533,5 +534,172 @@ describe('LibraryZone', () => {
       ),
     ).toBe(false);
     expect(container.textContent).toContain('Intro clip');
+  });
+});
+
+/** GET /api/source 的假回應：兩檔，一已匯入一未匯入。 */
+function sourceListing(dir: string): unknown {
+  return {
+    dir,
+    files: [
+      { name: 'clip1.mp4', size: 12_582_912, mtime: 1_700_000_000_000, imported: false },
+      { name: 'clip2.mov', size: 2_097_152, mtime: 1_700_000_001_000, imported: true },
+    ],
+  };
+}
+
+async function openSourceFolder(): Promise<HTMLElement> {
+  const utils = render(<MediaPanel />);
+  fireEvent.click(screen.getByTitle('Source folder'));
+  await waitFor(() => expect(screen.getByPlaceholderText('/path/to/folder')).toBeTruthy());
+  return utils.container;
+}
+
+describe('SourceFolderZone', () => {
+  it('Scan fetches GET /api/source with the dir query param (encoded)', async () => {
+    const fetchMock = stubFetch((url) => {
+      if (url.startsWith('/api/source')) return jsonOk(sourceListing('/tmp/my footage'));
+      return jsonOk({ dir: '', files: [] });
+    });
+    seedProject();
+    const container = await openSourceFolder();
+
+    const input = screen.getByPlaceholderText('/path/to/folder') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '/tmp/my footage' } });
+    fireEvent.click(screen.getByTitle('Scan'));
+
+    await waitFor(() => expect(container.textContent).toContain('clip1.mp4'));
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/source?${new URLSearchParams({ dir: '/tmp/my footage' }).toString()}`,
+    );
+    // 已匯入的檔案掛 imported tag
+    const row2 = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+      r.textContent?.includes('clip2.mov'),
+    )!;
+    expect(row2.textContent).toContain('imported');
+  });
+
+  it('mounts, reads localStorage[vidcut.sourceDir], and auto-scans', async () => {
+    localStorage.setItem('vidcut.sourceDir', '/Users/x/footage');
+    const fetchMock = stubFetch((url) => {
+      if (url.startsWith('/api/source')) return jsonOk(sourceListing('/Users/x/footage'));
+      return jsonOk({ dir: '', files: [] });
+    });
+    seedProject();
+    const container = await openSourceFolder();
+
+    await waitFor(() => expect(container.textContent).toContain('clip1.mp4'));
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/source?${new URLSearchParams({ dir: '/Users/x/footage' }).toString()}`,
+    );
+    const input = screen.getByPlaceholderText('/path/to/folder') as HTMLInputElement;
+    expect(input.value).toBe('/Users/x/footage');
+  });
+
+  it('Scan writes the dir to localStorage[vidcut.sourceDir]', async () => {
+    stubFetch((url) => {
+      if (url.startsWith('/api/source')) return jsonOk(sourceListing('/tmp/a'));
+      return jsonOk({ dir: '', files: [] });
+    });
+    seedProject();
+    await openSourceFolder();
+
+    const input = screen.getByPlaceholderText('/path/to/folder') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '/tmp/a' } });
+    fireEvent.click(screen.getByTitle('Scan'));
+
+    await waitFor(() => expect(localStorage.getItem('vidcut.sourceDir')).toBe('/tmp/a'));
+  });
+
+  it('shows an empty-note with the server error string when the dir does not exist', async () => {
+    stubFetch((url) => {
+      if (url.startsWith('/api/source')) {
+        return { ok: false, json: () => Promise.resolve({ error: 'ENOENT: no such file' }) };
+      }
+      return jsonOk({ dir: '', files: [] });
+    });
+    seedProject();
+    const container = await openSourceFolder();
+
+    const input = screen.getByPlaceholderText('/path/to/folder') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '/nope' } });
+    fireEvent.click(screen.getByTitle('Scan'));
+
+    await waitFor(() => expect(container.textContent).toContain('ENOENT: no such file'));
+  });
+
+  it('checking rows and clicking Import selected posts dir+names, then toasts ok/failed counts', async () => {
+    const fetchMock = stubFetch((url, init) => {
+      if (url.startsWith('/api/source')) return jsonOk(sourceListing('/tmp/a'));
+      if (url === '/api/import' && init?.method === 'POST') {
+        return jsonOk({ ok: [{ name: 'clip1.mp4', mediaId: 'm-new' }], failed: [] });
+      }
+      return jsonOk({ dir: '', files: [] });
+    });
+    seedProject();
+    const container = await openSourceFolder();
+
+    const input = screen.getByPlaceholderText('/path/to/folder') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '/tmp/a' } });
+    fireEvent.click(screen.getByTitle('Scan'));
+    await waitFor(() => expect(container.textContent).toContain('clip1.mp4'));
+
+    const row1 = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+      r.textContent?.includes('clip1.mp4'),
+    )!;
+    const checkbox = row1.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    fireEvent.click(checkbox);
+
+    fetchMock.mockClear();
+    fireEvent.click(screen.getByTitle('Import selected'));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/import',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dir: '/tmp/a', names: ['clip1.mp4'] }),
+        }),
+      ),
+    );
+    await waitFor(() => expect(useToast.getState().message).toBe('Imported 1, failed 0'));
+    // 匯入後不 select
+    expect(useSelection.getState().selected).toBeNull();
+  });
+
+  it('Save to library posts path=dir/name to /api/library/from-path', async () => {
+    const fetchMock = stubFetch((url, init) => {
+      if (url.startsWith('/api/source')) return jsonOk(sourceListing('/tmp/a'));
+      if (url === '/api/library/from-path' && init?.method === 'POST') {
+        return jsonOk({ asset: { id: 'lib-xyz' }, existing: false });
+      }
+      return jsonOk({ dir: '', files: [] });
+    });
+    seedProject();
+    const container = await openSourceFolder();
+
+    const input = screen.getByPlaceholderText('/path/to/folder') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '/tmp/a' } });
+    fireEvent.click(screen.getByTitle('Scan'));
+    await waitFor(() => expect(container.textContent).toContain('clip1.mp4'));
+
+    const row1 = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+      r.textContent?.includes('clip1.mp4'),
+    )!;
+    const saveBtn = row1.querySelector<HTMLButtonElement>('button[title="Save to library"]')!;
+    fireEvent.click(saveBtn);
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/library/from-path',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ path: '/tmp/a/clip1.mp4' }),
+        }),
+      ),
+    );
+    await waitFor(() => expect(useToast.getState().message).toBe('Saved to library'));
   });
 });
