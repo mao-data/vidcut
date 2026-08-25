@@ -965,7 +965,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
 
   /** 素材庫工具共用的前置：庫沒載入（索引損毀降級）時給出可行動的錯誤。 */
   const needLibrary = () =>
-    library ? null : err('error: the asset library is unavailable on this server (corrupt library.json?)');
+    library
+      ? null
+      : err('error: the asset library is unavailable on this server (corrupt library.json?)');
 
   server.registerTool(
     'list_library',
@@ -1033,7 +1035,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'the user will recognise it later. This is a library write, not a project edit: no undo, no review lock.',
       outputSchema: {
         assetId: z.string(),
-        existing: z.boolean().describe('true = same content was already in the library; that asset is returned'),
+        existing: z
+          .boolean()
+          .describe('true = same content was already in the library; that asset is returned'),
         label: z.string(),
       },
       inputSchema: {
@@ -1148,8 +1152,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
             ...(addToTimeline ? { addedToTimeline } : {}),
             ...(version !== undefined ? { version } : {}),
           },
-          (already ? `${assetId} was already in this project as ${mediaId}` : `imported ${assetId} as ${mediaId}`) +
-            note,
+          (already
+            ? `${assetId} was already in this project as ${mediaId}`
+            : `imported ${assetId} as ${mediaId}`) + note,
         );
       } catch (e) {
         return err(`import_from_library failed: ${(e as Error).message}`);

@@ -171,7 +171,9 @@ export function createApp(
       const clean = basename(q(req, 'name') ?? '');
       const ext = extname(clean).toLowerCase();
       if (!clean || !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
-        res.status(400).json({ error: `need ?name= with a supported extension (${MEDIA_EXTENSIONS.join(' ')})` });
+        res.status(400).json({
+          error: `need ?name= with a supported extension (${MEDIA_EXTENSIONS.join(' ')})`,
+        });
         return;
       }
       const tmp = join(lib.dir, `.upload-${nanoid(8)}${ext}`);
@@ -208,7 +210,10 @@ export function createApp(
         res.status(400).json({ error: 'label must be a string' });
         return;
       }
-      if (tags !== undefined && (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))) {
+      if (
+        tags !== undefined &&
+        (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))
+      ) {
         res.status(400).json({ error: 'tags must be an array of strings' });
         return;
       }
@@ -282,7 +287,14 @@ export function createApp(
 
   if (lib) {
     // files/ 內容定址：URL 變 = 內容變 ⇒ 強快取；derived/ 會被 lazy 重建（同 URL 換內容），不能 immutable
-    app.use('/library/files', express.static(join(lib.dir, 'files'), { fallthrough: false, immutable: true, maxAge: '365d' }));
+    app.use(
+      '/library/files',
+      express.static(join(lib.dir, 'files'), {
+        fallthrough: false,
+        immutable: true,
+        maxAge: '365d',
+      }),
+    );
     app.use('/library/derived', express.static(join(lib.dir, 'derived'), { fallthrough: false }));
   }
 

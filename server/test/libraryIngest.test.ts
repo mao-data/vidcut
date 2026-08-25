@@ -52,7 +52,9 @@ describe('addToLibrary', () => {
   it('audio-only：只產 peaks，probe.hasVideo === false', async () => {
     const { lib, srcDir } = await setup();
     await makeAudio(srcDir, 'a.mp3', { duration: 1 });
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp3'), { origin: { type: 'source' } });
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp3'), {
+      origin: { type: 'source' },
+    });
     expect(asset.probe.hasVideo).toBe(false);
     expect(existsSync(join(lib.derivedAbs(asset), 'peaks.json'))).toBe(true);
     expect(existsSync(join(lib.derivedAbs(asset), 'proxy.mp4'))).toBe(false);
@@ -61,7 +63,9 @@ describe('addToLibrary', () => {
   it('label 預設原檔名；tags 預設空陣列', async () => {
     const { lib, srcDir } = await setup();
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), { origin: { type: 'source' } });
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), {
+      origin: { type: 'source' },
+    });
     expect(asset.label).toBe('a.mp4');
     expect(asset.tags).toEqual([]);
   }, 60_000);

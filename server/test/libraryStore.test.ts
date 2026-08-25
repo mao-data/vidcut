@@ -59,7 +59,12 @@ describe('LibraryStore', () => {
     const dir = await tmpDir('vidcut-lib-');
     const lib = await LibraryStore.load(dir);
     const hit = fakeAsset({ label: '常用 BGM-輕快', tags: ['bgm'] });
-    const miss = fakeAsset({ hash: 'd'.repeat(64), file: `files/${'d'.repeat(64)}.mp4`, label: 'logo', tags: ['brand'] });
+    const miss = fakeAsset({
+      hash: 'd'.repeat(64),
+      file: `files/${'d'.repeat(64)}.mp4`,
+      label: 'logo',
+      tags: ['brand'],
+    });
     await lib.mutate((assets) => assets.push(hit, miss));
     await mkdir(join(dir, 'files'), { recursive: true });
     await writeFile(lib.fileAbs(hit), 'x'); // hit 的檔案存在、miss 的不存在
@@ -100,7 +105,9 @@ describe('LibraryStore', () => {
     const evil = fakeAsset({ file: '../outside.mp4' });
     await lib.mutate((assets) => assets.push(evil));
     await expect(lib.removeAsset(evil.id)).rejects.toThrow('suspicious');
-    const raw = JSON.parse(await readFile(join(dir, 'library.json'), 'utf8')) as { assets: unknown[] };
+    const raw = JSON.parse(await readFile(join(dir, 'library.json'), 'utf8')) as {
+      assets: unknown[];
+    };
     expect(raw.assets).toHaveLength(1); // 索引也不動
   });
 });

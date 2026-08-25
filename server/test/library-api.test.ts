@@ -29,10 +29,18 @@ describe('library HTTP api', () => {
     const { lib, srcDir, server, base } = await startTestServer();
     expect(await (await fetch(`${base}/api/library`)).json()).toEqual({ assets: [] });
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });
-    await addToLibrary(lib, join(srcDir, 'a.mp4'), { label: '片頭', tags: ['intro'], origin: { type: 'source' } });
-    const j = (await (await fetch(`${base}/api/library?tag=intro`)).json()) as { assets: unknown[] };
+    await addToLibrary(lib, join(srcDir, 'a.mp4'), {
+      label: '片頭',
+      tags: ['intro'],
+      origin: { type: 'source' },
+    });
+    const j = (await (await fetch(`${base}/api/library?tag=intro`)).json()) as {
+      assets: unknown[];
+    };
     expect(j.assets).toHaveLength(1);
-    const none = (await (await fetch(`${base}/api/library?query=bgm`)).json()) as { assets: unknown[] };
+    const none = (await (await fetch(`${base}/api/library?query=bgm`)).json()) as {
+      assets: unknown[];
+    };
     expect(none.assets).toHaveLength(0);
     server.close();
   }, 60_000);
@@ -65,7 +73,9 @@ describe('library HTTP api', () => {
   it('PATCH 改 label/tags；未知 id 404；DELETE 清索引與檔案', async () => {
     const { lib, srcDir, server, base } = await startTestServer();
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), { origin: { type: 'source' } });
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), {
+      origin: { type: 'source' },
+    });
     const patched = await fetch(`${base}/api/library/${asset.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -73,7 +83,15 @@ describe('library HTTP api', () => {
     });
     expect(patched.status).toBe(200);
     expect(lib.get(asset.id)?.label).toBe('新名字');
-    expect((await fetch(`${base}/api/library/lib-nope`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(404);
+    expect(
+      (
+        await fetch(`${base}/api/library/lib-nope`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(404);
     const del = await fetch(`${base}/api/library/${asset.id}`, { method: 'DELETE' });
     expect(del.status).toBe(200);
     expect(existsSync(lib.fileAbs(asset))).toBe(false);
@@ -84,8 +102,10 @@ describe('library HTTP api', () => {
     const { lib, srcDir, store, server, base } = await startTestServer();
     await makeVideo(srcDir, 'v.mp4', { duration: 2 });
     await makeAudio(srcDir, 'a.mp3', { duration: 1 });
-    const v = (await addToLibrary(lib, join(srcDir, 'v.mp4'), { origin: { type: 'source' } })).asset;
-    const a = (await addToLibrary(lib, join(srcDir, 'a.mp3'), { origin: { type: 'source' } })).asset;
+    const v = (await addToLibrary(lib, join(srcDir, 'v.mp4'), { origin: { type: 'source' } }))
+      .asset;
+    const a = (await addToLibrary(lib, join(srcDir, 'a.mp3'), { origin: { type: 'source' } }))
+      .asset;
     const r1 = await fetch(`${base}/api/library/${v.id}/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -101,14 +121,24 @@ describe('library HTTP api', () => {
     });
     expect(r2.status).toBe(400); // addClip 擋 audio-only
     expect(store.doc.media).toHaveLength(2); // 但素材已登記
-    expect((await fetch(`${base}/api/library/lib-nope/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(404);
+    expect(
+      (
+        await fetch(`${base}/api/library/lib-nope/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(404);
     server.close();
   }, 120_000);
 
   it('/library/files 靜態服務庫檔；traversal 被擋', async () => {
     const { lib, srcDir, server, base } = await startTestServer();
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), { origin: { type: 'source' } });
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), {
+      origin: { type: 'source' },
+    });
     const ok = await fetch(`${base}/library/files/${asset.hash}.mp4`);
     expect(ok.status).toBe(200);
     const proxy = await fetch(`${base}/library/derived/${asset.hash}/proxy.mp4`);

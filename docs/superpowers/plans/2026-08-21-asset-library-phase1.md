@@ -30,10 +30,12 @@
 庫入庫與專案 ingest 要共用同一套 ffmpeg 衍生檔管線（proxy/filmstrip/peaks），先把它從 `prepareMedia` 抽成獨立函式。**行為保持不變，靠既有測試守。**
 
 **Files:**
+
 - Modify: `server/src/ingest.ts`
 - Test: 既有 `server/test/ingest.test.ts`（不新增測試——這是行為保持的重構）
 
 **Interfaces:**
+
 - Produces: `export async function buildDerivatives(abs: string, derivedAbs: string, info: ProbeInfo): Promise<{ audioOnly: boolean }>` —— 在 `derivedAbs` 產 `proxy.mp4`（audio-only 跳過）、`filmstrip.jpg`（audio-only 跳過）、`peaks.json`；無可用串流丟錯（在 mkdir 之前）；失敗時自己 `rm derivedAbs` 再 rethrow。Task 3、4 消費它。
 
 - [ ] **Step 1: 綠色基線**
@@ -129,11 +131,13 @@ git commit -m "refactor: extract buildDerivatives from prepareMedia for library 
 ### Task 2: `LibraryAsset` 型別 + `LibraryStore`
 
 **Files:**
+
 - Modify: `shared/src/types.ts`（`PeaksFile` 之後加 `LibraryAsset`）
 - Create: `server/src/libraryStore.ts`
 - Test: `server/test/libraryStore.test.ts`
 
 **Interfaces:**
+
 - Consumes: 無（純新增）
 - Produces（Task 3–6 消費）:
   - `shared`: `interface LibraryAsset { id: string; kind: 'media'; hash: string; file: string; probe: ProbeInfo; label: string; tags: string[]; origin: { type: 'upload' | 'project' | 'source'; note?: string }; addedAt: string; meta?: Record<string, unknown> }`
@@ -211,7 +215,12 @@ describe('LibraryStore', () => {
     const dir = await tmpDir('vidcut-lib-');
     const lib = await LibraryStore.load(dir);
     const hit = fakeAsset({ label: '常用 BGM-輕快', tags: ['bgm'] });
-    const miss = fakeAsset({ hash: 'd'.repeat(64), file: `files/${'d'.repeat(64)}.mp4`, label: 'logo', tags: ['brand'] });
+    const miss = fakeAsset({
+      hash: 'd'.repeat(64),
+      file: `files/${'d'.repeat(64)}.mp4`,
+      label: 'logo',
+      tags: ['brand'],
+    });
     await lib.mutate((assets) => assets.push(hit, miss));
     await mkdir(join(dir, 'files'), { recursive: true });
     await writeFile(lib.fileAbs(hit), 'x'); // hit 的檔案存在、miss 的不存在
@@ -252,7 +261,9 @@ describe('LibraryStore', () => {
     const evil = fakeAsset({ file: '../outside.mp4' });
     await lib.mutate((assets) => assets.push(evil));
     await expect(lib.removeAsset(evil.id)).rejects.toThrow('suspicious');
-    const raw = JSON.parse(await readFile(join(dir, 'library.json'), 'utf8')) as { assets: unknown[] };
+    const raw = JSON.parse(await readFile(join(dir, 'library.json'), 'utf8')) as {
+      assets: unknown[];
+    };
     expect(raw.assets).toHaveLength(1); // 索引也不動
   });
 });
@@ -453,10 +464,12 @@ git commit -m "feat: LibraryAsset type + LibraryStore (cross-project asset libra
 ### Task 3: `addToLibrary`（入庫：hash → 複製 → derived → 索引，全有全無）
 
 **Files:**
+
 - Create: `server/src/libraryIngest.ts`
 - Test: `server/test/libraryIngest.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 1 `buildDerivatives`、Task 2 `LibraryStore`、既有 `probe`（`./ffmpeg.js`）、`MEDIA_EXTENSIONS`（`./sourceFolder.js`）
 - Produces（Task 5、6 消費）:
   - `hashFile(abs: string): Promise<string>`（sha256 hex，串流計算）
@@ -522,7 +535,9 @@ describe('addToLibrary', () => {
   it('audio-only：只產 peaks，probe.hasVideo === false', async () => {
     const { lib, srcDir } = await setup();
     await makeAudio(srcDir, 'a.mp3', { duration: 1 });
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp3'), { origin: { type: 'source' } });
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp3'), {
+      origin: { type: 'source' },
+    });
     expect(asset.probe.hasVideo).toBe(false);
     expect(existsSync(join(lib.derivedAbs(asset), 'peaks.json'))).toBe(true);
     expect(existsSync(join(lib.derivedAbs(asset), 'proxy.mp4'))).toBe(false);
@@ -531,7 +546,9 @@ describe('addToLibrary', () => {
   it('label 預設原檔名；tags 預設空陣列', async () => {
     const { lib, srcDir } = await setup();
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), { origin: { type: 'source' } });
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), {
+      origin: { type: 'source' },
+    });
     expect(asset.label).toBe('a.mp4');
     expect(asset.tags).toEqual([]);
   }, 60_000);
@@ -679,10 +696,12 @@ git commit -m "feat: addToLibrary — content-addressed ingest into the asset li
 ### Task 4: `prepareFromLibrary`（庫 → 專案：derived 複用 + lazy 重建）
 
 **Files:**
+
 - Modify: `server/src/libraryIngest.ts`
 - Test: `server/test/import-from-library.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 3、既有 `PreparedMedia`／`resolveMediaPath`／`applyCommand`、`ProjectStore`
 - Produces（Task 5、6 消費）: `prepareFromLibrary(store: ProjectStore, projectDir: string, lib: LibraryStore, assetId: string): Promise<PreparedMedia>` —— 與 `prepareMedia` 同形狀：回 `{ existingId }` 或 `{ asset }`（**不寫文件**，登記交給呼叫端走 `applyCommand`／`aiWrite`）
 
@@ -752,7 +771,8 @@ describe('prepareFromLibrary', () => {
   it('同 asset 再匯入同專案：冪等回既有 id', async () => {
     const { lib, store, projDir, asset } = await setup();
     const first = await prepareFromLibrary(store, projDir, lib, asset.id);
-    if ('asset' in first) applyCommand(store, 'human', { name: 'registerMedia', asset: first.asset });
+    if ('asset' in first)
+      applyCommand(store, 'human', { name: 'registerMedia', asset: first.asset });
     const second = await prepareFromLibrary(store, projDir, lib, asset.id);
     expect('existingId' in second && second.existingId === store.doc.media[0]!.id).toBe(true);
   }, 60_000);
@@ -845,12 +865,14 @@ git commit -m "feat: prepareFromLibrary — import library assets into a project
 ### Task 5: HTTP 路由 + `index.ts` 佈線
 
 **Files:**
+
 - Modify: `server/src/app.ts`（新增素材庫路由；`extras` 加 `library`）
 - Modify: `server/src/index.ts`（載入 LibraryStore、傳給 createApp 與 mountMcp——mountMcp 的 deps 欄位本 task 先加型別，工具本體是 Task 6）
 - Modify: `server/src/mcp.ts`（只加 `McpDeps.library?: LibraryStore` 一行，讓 index.ts 能傳）
 - Test: `server/test/library-api.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 2–4 全部、既有 `applyCommand`
 - Produces:
   - `createApp(store, projectDir, uiDistDir?, extras?)` 的 `extras` 多收 `library?: LibraryStore`
@@ -893,10 +915,18 @@ describe('library HTTP api', () => {
     const { lib, srcDir, server, base } = await startTestServer();
     expect(await (await fetch(`${base}/api/library`)).json()).toEqual({ assets: [] });
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });
-    await addToLibrary(lib, join(srcDir, 'a.mp4'), { label: '片頭', tags: ['intro'], origin: { type: 'source' } });
-    const j = (await (await fetch(`${base}/api/library?tag=intro`)).json()) as { assets: unknown[] };
+    await addToLibrary(lib, join(srcDir, 'a.mp4'), {
+      label: '片頭',
+      tags: ['intro'],
+      origin: { type: 'source' },
+    });
+    const j = (await (await fetch(`${base}/api/library?tag=intro`)).json()) as {
+      assets: unknown[];
+    };
     expect(j.assets).toHaveLength(1);
-    const none = (await (await fetch(`${base}/api/library?query=bgm`)).json()) as { assets: unknown[] };
+    const none = (await (await fetch(`${base}/api/library?query=bgm`)).json()) as {
+      assets: unknown[];
+    };
     expect(none.assets).toHaveLength(0);
     server.close();
   }, 60_000);
@@ -929,7 +959,9 @@ describe('library HTTP api', () => {
   it('PATCH 改 label/tags；未知 id 404；DELETE 清索引與檔案', async () => {
     const { lib, srcDir, server, base } = await startTestServer();
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), { origin: { type: 'source' } });
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), {
+      origin: { type: 'source' },
+    });
     const patched = await fetch(`${base}/api/library/${asset.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -937,7 +969,15 @@ describe('library HTTP api', () => {
     });
     expect(patched.status).toBe(200);
     expect(lib.get(asset.id)?.label).toBe('新名字');
-    expect((await fetch(`${base}/api/library/lib-nope`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(404);
+    expect(
+      (
+        await fetch(`${base}/api/library/lib-nope`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(404);
     const del = await fetch(`${base}/api/library/${asset.id}`, { method: 'DELETE' });
     expect(del.status).toBe(200);
     expect(existsSync(lib.fileAbs(asset))).toBe(false);
@@ -948,8 +988,10 @@ describe('library HTTP api', () => {
     const { lib, srcDir, store, server, base } = await startTestServer();
     await makeVideo(srcDir, 'v.mp4', { duration: 2 });
     await makeAudio(srcDir, 'a.mp3', { duration: 1 });
-    const v = (await addToLibrary(lib, join(srcDir, 'v.mp4'), { origin: { type: 'source' } })).asset;
-    const a = (await addToLibrary(lib, join(srcDir, 'a.mp3'), { origin: { type: 'source' } })).asset;
+    const v = (await addToLibrary(lib, join(srcDir, 'v.mp4'), { origin: { type: 'source' } }))
+      .asset;
+    const a = (await addToLibrary(lib, join(srcDir, 'a.mp3'), { origin: { type: 'source' } }))
+      .asset;
     const r1 = await fetch(`${base}/api/library/${v.id}/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -965,14 +1007,24 @@ describe('library HTTP api', () => {
     });
     expect(r2.status).toBe(400); // addClip 擋 audio-only
     expect(store.doc.media).toHaveLength(2); // 但素材已登記
-    expect((await fetch(`${base}/api/library/lib-nope/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(404);
+    expect(
+      (
+        await fetch(`${base}/api/library/lib-nope/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(404);
     server.close();
   }, 120_000);
 
   it('/library/files 靜態服務庫檔；traversal 被擋', async () => {
     const { lib, srcDir, server, base } = await startTestServer();
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), { origin: { type: 'source' } });
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.mp4'), {
+      origin: { type: 'source' },
+    });
     const ok = await fetch(`${base}/library/files/${asset.hash}.mp4`);
     expect(ok.status).toBe(200);
     const proxy = await fetch(`${base}/library/derived/${asset.hash}/proxy.mp4`);
@@ -1019,144 +1071,149 @@ import { MEDIA_EXTENSIONS } from './sourceFolder.js';
 `extras` 型別加 `library?: LibraryStore`。在 `POST /assets` 之後、`/api/fonts` 之前插入（`lib` 解構一次）：
 
 ```ts
-  // ── 跨專案素材庫（spec 2026-08-21）。lib 未載入（索引損毀降級）時一律 503。 ──
-  const lib = extras?.library;
-  const q = (req: express.Request, k: string): string | undefined =>
-    typeof req.query[k] === 'string' && req.query[k] !== '' ? (req.query[k] as string) : undefined;
+// ── 跨專案素材庫（spec 2026-08-21）。lib 未載入（索引損毀降級）時一律 503。 ──
+const lib = extras?.library;
+const q = (req: express.Request, k: string): string | undefined =>
+  typeof req.query[k] === 'string' && req.query[k] !== '' ? (req.query[k] as string) : undefined;
 
-  app.get('/api/library', (req, res) => {
+app.get('/api/library', (req, res) => {
+  if (!lib) {
+    res.status(503).json({ error: 'library unavailable' });
+    return;
+  }
+  res.json({ assets: lib.list({ query: q(req, 'query'), tag: q(req, 'tag') }) });
+});
+
+// 上傳入庫。串流落地暫存檔再 move 入庫——不走 express.raw：300MB 檔 arrayBuffer
+// 路徑會吃 300MB RSS（ROADMAP「上傳路徑串流化」實測），庫素材（片頭/BGM）就是這個量級。
+app.post('/api/library', (req, res, next) => {
+  void (async () => {
     if (!lib) {
       res.status(503).json({ error: 'library unavailable' });
       return;
     }
-    res.json({ assets: lib.list({ query: q(req, 'query'), tag: q(req, 'tag') }) });
-  });
+    const clean = basename(q(req, 'name') ?? '');
+    const ext = extname(clean).toLowerCase();
+    if (!clean || !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
+      res
+        .status(400)
+        .json({ error: `need ?name= with a supported extension (${MEDIA_EXTENSIONS.join(' ')})` });
+      return;
+    }
+    const tmp = join(lib.dir, `.upload-${nanoid(8)}${ext}`);
+    try {
+      await pipeline(req, createWriteStream(tmp));
+      const r = await addToLibrary(lib, tmp, {
+        label: q(req, 'label') ?? clean, // move 路徑暫存檔名不是原檔名，label 一定要在這層給
+        tags: q(req, 'tags')?.split(',') ?? [],
+        origin: { type: 'upload', note: clean },
+        move: true,
+      });
+      res.json(r);
+    } catch (e) {
+      await rm(tmp, { force: true });
+      res.status(400).json({ error: (e as Error).message });
+    }
+  })().catch(next);
+});
 
-  // 上傳入庫。串流落地暫存檔再 move 入庫——不走 express.raw：300MB 檔 arrayBuffer
-  // 路徑會吃 300MB RSS（ROADMAP「上傳路徑串流化」實測），庫素材（片頭/BGM）就是這個量級。
-  app.post('/api/library', (req, res, next) => {
-    void (async () => {
-      if (!lib) {
-        res.status(503).json({ error: 'library unavailable' });
-        return;
+// 錯誤字樣 `no library asset` ⇒ 404（LibraryStore 的約定），其餘 400
+const libErr = (res: express.Response, e: unknown) => {
+  const msg = (e as Error).message;
+  res.status(msg.startsWith('no library asset') ? 404 : 400).json({ error: msg });
+};
+
+app.patch('/api/library/:id', (req, res, next) => {
+  void (async () => {
+    if (!lib) {
+      res.status(503).json({ error: 'library unavailable' });
+      return;
+    }
+    const { label, tags } = (req.body ?? {}) as { label?: unknown; tags?: unknown };
+    if (label !== undefined && typeof label !== 'string') {
+      res.status(400).json({ error: 'label must be a string' });
+      return;
+    }
+    if (tags !== undefined && (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))) {
+      res.status(400).json({ error: 'tags must be an array of strings' });
+      return;
+    }
+    try {
+      // 驗證過了才收窄型別——上面兩個 if 就是 narrowing 的證據
+      res.json({
+        asset: await lib.updateAsset(req.params.id, {
+          label: label as string | undefined,
+          tags: tags as string[] | undefined,
+        }),
+      });
+    } catch (e) {
+      libErr(res, e);
+    }
+  })().catch(next);
+});
+
+app.delete('/api/library/:id', (req, res, next) => {
+  void (async () => {
+    if (!lib) {
+      res.status(503).json({ error: 'library unavailable' });
+      return;
+    }
+    try {
+      await lib.removeAsset(req.params.id);
+      res.json({ ok: true });
+    } catch (e) {
+      libErr(res, e);
+    }
+  })().catch(next);
+});
+
+app.post('/api/library/:id/import', (req, res, next) => {
+  void (async () => {
+    if (!lib) {
+      res.status(503).json({ error: 'library unavailable' });
+      return;
+    }
+    const { addToTimeline } = (req.body ?? {}) as { addToTimeline?: boolean };
+    try {
+      const prepared = await prepareFromLibrary(store, projectDir, lib, req.params.id);
+      let mediaId: string;
+      if ('existingId' in prepared) {
+        mediaId = prepared.existingId;
+      } else {
+        const r = applyCommand(store, 'human', { name: 'registerMedia', asset: prepared.asset });
+        if (!r.ok) throw new Error(r.error);
+        mediaId = prepared.asset.id;
       }
-      const clean = basename(q(req, 'name') ?? '');
-      const ext = extname(clean).toLowerCase();
-      if (!clean || !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
-        res.status(400).json({ error: `need ?name= with a supported extension (${MEDIA_EXTENSIONS.join(' ')})` });
-        return;
-      }
-      const tmp = join(lib.dir, `.upload-${nanoid(8)}${ext}`);
-      try {
-        await pipeline(req, createWriteStream(tmp));
-        const r = await addToLibrary(lib, tmp, {
-          label: q(req, 'label') ?? clean, // move 路徑暫存檔名不是原檔名，label 一定要在這層給
-          tags: q(req, 'tags')?.split(',') ?? [],
-          origin: { type: 'upload', note: clean },
-          move: true,
+      if (addToTimeline) {
+        const media = store.doc.media.find((m) => m.id === mediaId)!;
+        const r = applyCommand(store, 'human', {
+          name: 'addClip',
+          mediaId,
+          in: 0,
+          duration: media.probe.duration,
+          label: media.label,
         });
-        res.json(r);
-      } catch (e) {
-        await rm(tmp, { force: true });
-        res.status(400).json({ error: (e as Error).message });
-      }
-    })().catch(next);
-  });
-
-  // 錯誤字樣 `no library asset` ⇒ 404（LibraryStore 的約定），其餘 400
-  const libErr = (res: express.Response, e: unknown) => {
-    const msg = (e as Error).message;
-    res.status(msg.startsWith('no library asset') ? 404 : 400).json({ error: msg });
-  };
-
-  app.patch('/api/library/:id', (req, res, next) => {
-    void (async () => {
-      if (!lib) {
-        res.status(503).json({ error: 'library unavailable' });
-        return;
-      }
-      const { label, tags } = (req.body ?? {}) as { label?: unknown; tags?: unknown };
-      if (label !== undefined && typeof label !== 'string') {
-        res.status(400).json({ error: 'label must be a string' });
-        return;
-      }
-      if (tags !== undefined && (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string'))) {
-        res.status(400).json({ error: 'tags must be an array of strings' });
-        return;
-      }
-      try {
-        // 驗證過了才收窄型別——上面兩個 if 就是 narrowing 的證據
-        res.json({
-          asset: await lib.updateAsset(req.params.id, {
-            label: label as string | undefined,
-            tags: tags as string[] | undefined,
-          }),
-        });
-      } catch (e) {
-        libErr(res, e);
-      }
-    })().catch(next);
-  });
-
-  app.delete('/api/library/:id', (req, res, next) => {
-    void (async () => {
-      if (!lib) {
-        res.status(503).json({ error: 'library unavailable' });
-        return;
-      }
-      try {
-        await lib.removeAsset(req.params.id);
-        res.json({ ok: true });
-      } catch (e) {
-        libErr(res, e);
-      }
-    })().catch(next);
-  });
-
-  app.post('/api/library/:id/import', (req, res, next) => {
-    void (async () => {
-      if (!lib) {
-        res.status(503).json({ error: 'library unavailable' });
-        return;
-      }
-      const { addToTimeline } = (req.body ?? {}) as { addToTimeline?: boolean };
-      try {
-        const prepared = await prepareFromLibrary(store, projectDir, lib, req.params.id);
-        let mediaId: string;
-        if ('existingId' in prepared) {
-          mediaId = prepared.existingId;
-        } else {
-          const r = applyCommand(store, 'human', { name: 'registerMedia', asset: prepared.asset });
-          if (!r.ok) throw new Error(r.error);
-          mediaId = prepared.asset.id;
+        if (!r.ok) {
+          // 素材已登記、只有上軌失敗（audio-only 走到這）——mediaId 一起回，別讓呼叫端誤以為全失敗
+          res.status(400).json({ error: r.error, mediaId });
+          return;
         }
-        if (addToTimeline) {
-          const media = store.doc.media.find((m) => m.id === mediaId)!;
-          const r = applyCommand(store, 'human', {
-            name: 'addClip',
-            mediaId,
-            in: 0,
-            duration: media.probe.duration,
-            label: media.label,
-          });
-          if (!r.ok) {
-            // 素材已登記、只有上軌失敗（audio-only 走到這）——mediaId 一起回，別讓呼叫端誤以為全失敗
-            res.status(400).json({ error: r.error, mediaId });
-            return;
-          }
-        }
-        res.json({ mediaId });
-      } catch (e) {
-        libErr(res, e);
       }
-    })().catch(next);
-  });
+      res.json({ mediaId });
+    } catch (e) {
+      libErr(res, e);
+    }
+  })().catch(next);
+});
 
-  if (lib) {
-    // files/ 內容定址：URL 變 = 內容變 ⇒ 強快取；derived/ 會被 lazy 重建（同 URL 換內容），不能 immutable
-    app.use('/library/files', express.static(join(lib.dir, 'files'), { fallthrough: false, immutable: true, maxAge: '365d' }));
-    app.use('/library/derived', express.static(join(lib.dir, 'derived'), { fallthrough: false }));
-  }
+if (lib) {
+  // files/ 內容定址：URL 變 = 內容變 ⇒ 強快取；derived/ 會被 lazy 重建（同 URL 換內容），不能 immutable
+  app.use(
+    '/library/files',
+    express.static(join(lib.dir, 'files'), { fallthrough: false, immutable: true, maxAge: '365d' }),
+  );
+  app.use('/library/derived', express.static(join(lib.dir, 'derived'), { fallthrough: false }));
+}
 ```
 
 - [ ] **Step 4: 佈線**
@@ -1173,16 +1230,16 @@ import { MEDIA_EXTENSIONS } from './sourceFolder.js';
 `server/src/index.ts`：import `homedir` from `node:os`、`LibraryStore`；在 `createApp` 之前載入，降級模式照字型表先例：
 
 ```ts
-  // 跨專案素材庫（spec 2026-08-21）。索引損毀時降級成「無素材庫」——素材庫端點回 503、
-  // MCP 工具回錯誤，其餘功能（時間軸、播放、渲染）完全正常。不修不清：索引是使用者資料。
-  const libraryDir = process.env.VIDCUT_LIBRARY_DIR ?? join(homedir(), '.vidcut', 'library');
-  let library: LibraryStore | undefined;
-  try {
-    library = await LibraryStore.load(libraryDir);
-  } catch (e) {
-    console.warn(`⚠ Asset library unavailable (${libraryDir}): ${(e as Error).message}`);
-    console.warn('  Fix or move the corrupt library.json and restart to re-enable it.');
-  }
+// 跨專案素材庫（spec 2026-08-21）。索引損毀時降級成「無素材庫」——素材庫端點回 503、
+// MCP 工具回錯誤，其餘功能（時間軸、播放、渲染）完全正常。不修不清：索引是使用者資料。
+const libraryDir = process.env.VIDCUT_LIBRARY_DIR ?? join(homedir(), '.vidcut', 'library');
+let library: LibraryStore | undefined;
+try {
+  library = await LibraryStore.load(libraryDir);
+} catch (e) {
+  console.warn(`⚠ Asset library unavailable (${libraryDir}): ${(e as Error).message}`);
+  console.warn('  Fix or move the corrupt library.json and restart to re-enable it.');
+}
 ```
 
 `createApp(store, projectDir, uiDist, { fonts, textCards, library })`；`mountMcp` 的 deps 物件加 `library`。
@@ -1204,10 +1261,12 @@ git commit -m "feat: asset library HTTP routes + server wiring (VIDCUT_LIBRARY_D
 ### Task 6: 四支 MCP 工具 + instructions + snapshot
 
 **Files:**
+
 - Modify: `server/src/mcp.ts`
 - Test: `server/test/library-mcp.test.ts`、更新 `server/test/mcp-surface-snapshot.test.ts` 的 snapshot
 
 **Interfaces:**
+
 - Consumes: Task 2–5 全部、mcp.ts 既有 `result`／`err`／`writeResultText`／`aiWrite`
 - Produces: MCP 工具 `list_library`、`add_to_library`、`import_from_library`、`update_library_asset`
 
@@ -1310,11 +1369,13 @@ describe('library MCP tools', () => {
 
   it('參數互斥與錯誤路徑：path+mediaId 同給、都不給、未知 assetId', async () => {
     expect((await call('add_to_library', {})).isError).toBe(true);
-    expect(
-      (await call('add_to_library', { path: '/tmp/x.mp4', mediaId: 'abc' })).isError,
-    ).toBe(true);
+    expect((await call('add_to_library', { path: '/tmp/x.mp4', mediaId: 'abc' })).isError).toBe(
+      true,
+    );
     expect((await call('import_from_library', { assetId: 'lib-nope' })).isError).toBe(true);
-    expect((await call('update_library_asset', { assetId: 'lib-nope', label: 'x' })).isError).toBe(true);
+    expect((await call('update_library_asset', { assetId: 'lib-nope', label: 'x' })).isError).toBe(
+      true,
+    );
   });
 });
 ```
@@ -1329,228 +1390,233 @@ Expected: FAIL（工具不存在）
 `server/src/mcp.ts`：`createMcpServer` 的解構加 `library`；新增 import `addToLibrary, prepareFromLibrary` from `./libraryIngest.js`、`resolveMediaPath` from `./paths.js`、`basename` from `node:path`。四支工具緊接在 `import_media` 之後註冊：
 
 ```ts
-  /** 素材庫工具共用的前置：庫沒載入（索引損毀降級）時給出可行動的錯誤。 */
-  const needLibrary = () =>
-    library ? null : err('error: the asset library is unavailable on this server (corrupt library.json?)');
+/** 素材庫工具共用的前置：庫沒載入（索引損毀降級）時給出可行動的錯誤。 */
+const needLibrary = () =>
+  library
+    ? null
+    : err('error: the asset library is unavailable on this server (corrupt library.json?)');
 
-  server.registerTool(
-    'list_library',
-    {
-      description:
-        "Search the user's cross-project asset library (reusable logos, intros, BGM…). query matches label+tags " +
-        '(case-insensitive substring), tag matches exactly. Look before you take: check here first, then ' +
-        'import_from_library. broken=true means the file is missing on disk and cannot be imported.',
-      outputSchema: {
-        assets: z.array(
-          z.object({
-            id: z.string(),
-            kind: z.string(),
-            label: z.string(),
-            tags: z.array(z.string()),
-            origin: z.object({ type: z.string(), note: z.string().optional() }),
-            duration: z.number(),
-            hasVideo: z.boolean(),
-            hasAudio: z.boolean(),
-            broken: z.boolean(),
-          }),
-        ),
-        total: z.number().describe('total matches (may exceed the length of assets)'),
-        truncated: z.boolean().optional(),
-      },
-      inputSchema: {
-        query: z.string().optional(),
-        tag: z.string().optional(),
-        kind: z.enum(['media']).optional(),
-        limit: z.number().int().min(1).max(50).optional().describe('default 20'),
-      },
-      annotations: { readOnlyHint: true },
+server.registerTool(
+  'list_library',
+  {
+    description:
+      "Search the user's cross-project asset library (reusable logos, intros, BGM…). query matches label+tags " +
+      '(case-insensitive substring), tag matches exactly. Look before you take: check here first, then ' +
+      'import_from_library. broken=true means the file is missing on disk and cannot be imported.',
+    outputSchema: {
+      assets: z.array(
+        z.object({
+          id: z.string(),
+          kind: z.string(),
+          label: z.string(),
+          tags: z.array(z.string()),
+          origin: z.object({ type: z.string(), note: z.string().optional() }),
+          duration: z.number(),
+          hasVideo: z.boolean(),
+          hasAudio: z.boolean(),
+          broken: z.boolean(),
+        }),
+      ),
+      total: z.number().describe('total matches (may exceed the length of assets)'),
+      truncated: z.boolean().optional(),
     },
-    async ({ query, tag, kind, limit }) => {
-      const gate = needLibrary();
-      if (gate) return gate;
-      const all = library!.list({ query, tag, kind });
-      const n = limit ?? 20;
-      const assets = all.slice(0, n).map((a) => ({
-        id: a.id,
-        kind: a.kind,
-        label: a.label,
-        tags: a.tags,
-        origin: a.origin,
-        duration: a.probe.duration,
-        hasVideo: a.probe.hasVideo ?? true,
-        hasAudio: a.probe.hasAudio,
-        broken: a.broken,
-      }));
+    inputSchema: {
+      query: z.string().optional(),
+      tag: z.string().optional(),
+      kind: z.enum(['media']).optional(),
+      limit: z.number().int().min(1).max(50).optional().describe('default 20'),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  async ({ query, tag, kind, limit }) => {
+    const gate = needLibrary();
+    if (gate) return gate;
+    const all = library!.list({ query, tag, kind });
+    const n = limit ?? 20;
+    const assets = all.slice(0, n).map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      label: a.label,
+      tags: a.tags,
+      origin: a.origin,
+      duration: a.probe.duration,
+      hasVideo: a.probe.hasVideo ?? true,
+      hasAudio: a.probe.hasAudio,
+      broken: a.broken,
+    }));
+    return result(
+      { assets, total: all.length, ...(all.length > n ? { truncated: true } : {}) },
+      `${all.length} asset(s)` + (all.length > n ? `, first ${n} embedded` : ''),
+    );
+  },
+);
+
+server.registerTool(
+  'add_to_library',
+  {
+    description:
+      "Save media into the user's cross-project library for reuse in future projects. Give exactly one of " +
+      'path (absolute path on this machine) or mediaId (media already in this project). The file is **copied** ' +
+      'into the library (content-addressed; adding the same content twice is a no-op returning the existing ' +
+      'asset). Give a descriptive label and tags so the library stays findable — that is how list_library and ' +
+      'the user will recognise it later. This is a library write, not a project edit: no undo, no review lock.',
+    outputSchema: {
+      assetId: z.string(),
+      existing: z
+        .boolean()
+        .describe('true = same content was already in the library; that asset is returned'),
+      label: z.string(),
+    },
+    inputSchema: {
+      path: z.string().optional().describe('absolute path of a local media file'),
+      mediaId: z.string().optional().describe('id of a media already imported into this project'),
+      label: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+  },
+  async ({ path, mediaId, label, tags }) => {
+    const gate = needLibrary();
+    if (gate) return gate;
+    if ((path === undefined) === (mediaId === undefined)) {
+      return err('error: give exactly one of path or mediaId');
+    }
+    try {
+      let abs: string;
+      let origin: { type: 'project' | 'source'; note?: string };
+      let fallbackLabel: string | undefined;
+      if (mediaId !== undefined) {
+        const m = store.doc.media.find((x) => x.id === mediaId);
+        if (!m) return err(`error: no media ${mediaId} in this project`);
+        abs = resolveMediaPath(projectDir, m.path);
+        origin = { type: 'project', note: store.doc.name };
+        fallbackLabel = m.label ?? basename(m.path);
+      } else {
+        if (!isAbsolute(path!)) return err('error: path must be absolute');
+        abs = path!;
+        origin = { type: 'source', note: path! };
+      }
+      const r = await addToLibrary(library!, abs, {
+        label: label ?? fallbackLabel,
+        tags,
+        origin,
+      });
       return result(
-        { assets, total: all.length, ...(all.length > n ? { truncated: true } : {}) },
-        `${all.length} asset(s)` + (all.length > n ? `, first ${n} embedded` : ''),
+        { assetId: r.asset.id, existing: r.existing, label: r.asset.label },
+        r.existing
+          ? `already in the library as ${r.asset.id} ("${r.asset.label}")`
+          : `saved to the library as ${r.asset.id} ("${r.asset.label}")`,
       );
-    },
-  );
+    } catch (e) {
+      return err(`add_to_library failed: ${(e as Error).message}`);
+    }
+  },
+);
 
-  server.registerTool(
-    'add_to_library',
-    {
-      description:
-        "Save media into the user's cross-project library for reuse in future projects. Give exactly one of " +
-        'path (absolute path on this machine) or mediaId (media already in this project). The file is **copied** ' +
-        'into the library (content-addressed; adding the same content twice is a no-op returning the existing ' +
-        'asset). Give a descriptive label and tags so the library stays findable — that is how list_library and ' +
-        'the user will recognise it later. This is a library write, not a project edit: no undo, no review lock.',
-      outputSchema: {
-        assetId: z.string(),
-        existing: z.boolean().describe('true = same content was already in the library; that asset is returned'),
-        label: z.string(),
-      },
-      inputSchema: {
-        path: z.string().optional().describe('absolute path of a local media file'),
-        mediaId: z.string().optional().describe('id of a media already imported into this project'),
-        label: z.string().optional(),
-        tags: z.array(z.string()).optional(),
-      },
+server.registerTool(
+  'import_from_library',
+  {
+    description:
+      'Import a library asset into this project: its derivatives are copied in (no re-processing) and the file ' +
+      'is referenced in place from the library (content-addressed, so the reference never breaks). Check with ' +
+      'list_library first — look and take are two steps. Returns a mediaId. addToTimeline appends it to the end ' +
+      'of the main track (audio-only assets are refused there — use set_audio instead, the import itself still ' +
+      'succeeds). This writes the project: review locks and ifVersion apply.',
+    outputSchema: {
+      mediaId: z.string(),
+      alreadyImported: z.boolean().optional(),
+      addedToTimeline: z.boolean().optional(),
+      version: z.number().optional(),
     },
-    async ({ path, mediaId, label, tags }) => {
-      const gate = needLibrary();
-      if (gate) return gate;
-      if ((path === undefined) === (mediaId === undefined)) {
-        return err('error: give exactly one of path or mediaId');
+    inputSchema: {
+      assetId: z.string(),
+      addToTimeline: z.boolean().optional(),
+      ifVersion: z.number().optional(),
+    },
+  },
+  async ({ assetId, addToTimeline, ifVersion }) => {
+    const gate = needLibrary();
+    if (gate) return gate;
+    // 早期守衛同 import_media：derived 複製前就擋，不做白工
+    if (store.doc.review !== null) return err('error: a review is in progress');
+    if (ifVersion !== undefined && ifVersion !== store.version)
+      return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
+    try {
+      const prepared = await prepareFromLibrary(store, projectDir, library!, assetId);
+      let mediaId: string;
+      let version: number | undefined;
+      let already = false;
+      if ('existingId' in prepared) {
+        mediaId = prepared.existingId;
+        already = true;
+      } else {
+        const w = aiWrite(store, { name: 'registerMedia', asset: prepared.asset }, ifVersion);
+        if (!w.ok) return err(writeResultText(w));
+        mediaId = prepared.asset.id;
+        version = w.version;
       }
-      try {
-        let abs: string;
-        let origin: { type: 'project' | 'source'; note?: string };
-        let fallbackLabel: string | undefined;
-        if (mediaId !== undefined) {
-          const m = store.doc.media.find((x) => x.id === mediaId);
-          if (!m) return err(`error: no media ${mediaId} in this project`);
-          abs = resolveMediaPath(projectDir, m.path);
-          origin = { type: 'project', note: store.doc.name };
-          fallbackLabel = m.label ?? basename(m.path);
-        } else {
-          if (!isAbsolute(path!)) return err('error: path must be absolute');
-          abs = path!;
-          origin = { type: 'source', note: path! };
-        }
-        const r = await addToLibrary(library!, abs, {
-          label: label ?? fallbackLabel,
-          tags,
-          origin,
+      let addedToTimeline = false;
+      let note = '';
+      if (addToTimeline) {
+        const m = store.doc.media.find((x) => x.id === mediaId)!;
+        const w = aiWrite(store, {
+          name: 'addClip',
+          mediaId,
+          in: 0,
+          duration: m.probe.duration,
+          label: m.label,
         });
-        return result(
-          { assetId: r.asset.id, existing: r.existing, label: r.asset.label },
-          r.existing
-            ? `already in the library as ${r.asset.id} ("${r.asset.label}")`
-            : `saved to the library as ${r.asset.id} ("${r.asset.label}")`,
-        );
-      } catch (e) {
-        return err(`add_to_library failed: ${(e as Error).message}`);
-      }
-    },
-  );
-
-  server.registerTool(
-    'import_from_library',
-    {
-      description:
-        'Import a library asset into this project: its derivatives are copied in (no re-processing) and the file ' +
-        'is referenced in place from the library (content-addressed, so the reference never breaks). Check with ' +
-        'list_library first — look and take are two steps. Returns a mediaId. addToTimeline appends it to the end ' +
-        'of the main track (audio-only assets are refused there — use set_audio instead, the import itself still ' +
-        'succeeds). This writes the project: review locks and ifVersion apply.',
-      outputSchema: {
-        mediaId: z.string(),
-        alreadyImported: z.boolean().optional(),
-        addedToTimeline: z.boolean().optional(),
-        version: z.number().optional(),
-      },
-      inputSchema: {
-        assetId: z.string(),
-        addToTimeline: z.boolean().optional(),
-        ifVersion: z.number().optional(),
-      },
-    },
-    async ({ assetId, addToTimeline, ifVersion }) => {
-      const gate = needLibrary();
-      if (gate) return gate;
-      // 早期守衛同 import_media：derived 複製前就擋，不做白工
-      if (store.doc.review !== null) return err('error: a review is in progress');
-      if (ifVersion !== undefined && ifVersion !== store.version)
-        return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
-      try {
-        const prepared = await prepareFromLibrary(store, projectDir, library!, assetId);
-        let mediaId: string;
-        let version: number | undefined;
-        let already = false;
-        if ('existingId' in prepared) {
-          mediaId = prepared.existingId;
-          already = true;
-        } else {
-          const w = aiWrite(store, { name: 'registerMedia', asset: prepared.asset }, ifVersion);
-          if (!w.ok) return err(writeResultText(w));
-          mediaId = prepared.asset.id;
+        if (w.ok) {
+          addedToTimeline = true;
           version = w.version;
+        } else {
+          note = ` (not added to the timeline: ${w.error})`;
         }
-        let addedToTimeline = false;
-        let note = '';
-        if (addToTimeline) {
-          const m = store.doc.media.find((x) => x.id === mediaId)!;
-          const w = aiWrite(store, {
-            name: 'addClip',
-            mediaId,
-            in: 0,
-            duration: m.probe.duration,
-            label: m.label,
-          });
-          if (w.ok) {
-            addedToTimeline = true;
-            version = w.version;
-          } else {
-            note = ` (not added to the timeline: ${w.error})`;
-          }
-        }
-        return result(
-          {
-            mediaId,
-            ...(already ? { alreadyImported: true } : {}),
-            ...(addToTimeline ? { addedToTimeline } : {}),
-            ...(version !== undefined ? { version } : {}),
-          },
-          (already ? `${assetId} was already in this project as ${mediaId}` : `imported ${assetId} as ${mediaId}`) +
-            note,
-        );
-      } catch (e) {
-        return err(`import_from_library failed: ${(e as Error).message}`);
       }
-    },
-  );
+      return result(
+        {
+          mediaId,
+          ...(already ? { alreadyImported: true } : {}),
+          ...(addToTimeline ? { addedToTimeline } : {}),
+          ...(version !== undefined ? { version } : {}),
+        },
+        (already
+          ? `${assetId} was already in this project as ${mediaId}`
+          : `imported ${assetId} as ${mediaId}`) + note,
+      );
+    } catch (e) {
+      return err(`import_from_library failed: ${(e as Error).message}`);
+    }
+  },
+);
 
-  server.registerTool(
-    'update_library_asset',
-    {
-      description:
-        'Rename or retag a library asset (label/tags are what list_library searches). Library write: no undo, ' +
-        'no review lock. Give at least one of label, tags.',
-      outputSchema: { assetId: z.string(), label: z.string(), tags: z.array(z.string()) },
-      inputSchema: {
-        assetId: z.string(),
-        label: z.string().optional(),
-        tags: z.array(z.string()).optional(),
-      },
+server.registerTool(
+  'update_library_asset',
+  {
+    description:
+      'Rename or retag a library asset (label/tags are what list_library searches). Library write: no undo, ' +
+      'no review lock. Give at least one of label, tags.',
+    outputSchema: { assetId: z.string(), label: z.string(), tags: z.array(z.string()) },
+    inputSchema: {
+      assetId: z.string(),
+      label: z.string().optional(),
+      tags: z.array(z.string()).optional(),
     },
-    async ({ assetId, label, tags }) => {
-      const gate = needLibrary();
-      if (gate) return gate;
-      if (label === undefined && tags === undefined) return err('error: give label and/or tags');
-      try {
-        const a = await library!.updateAsset(assetId, { label, tags });
-        return result(
-          { assetId: a.id, label: a.label, tags: a.tags },
-          `updated ${a.id}: "${a.label}" [${a.tags.join(', ')}]`,
-        );
-      } catch (e) {
-        return err(`update_library_asset failed: ${(e as Error).message}`);
-      }
-    },
-  );
+  },
+  async ({ assetId, label, tags }) => {
+    const gate = needLibrary();
+    if (gate) return gate;
+    if (label === undefined && tags === undefined) return err('error: give label and/or tags');
+    try {
+      const a = await library!.updateAsset(assetId, { label, tags });
+      return result(
+        { assetId: a.id, label: a.label, tags: a.tags },
+        `updated ${a.id}: "${a.label}" [${a.tags.join(', ')}]`,
+      );
+    } catch (e) {
+      return err(`update_library_asset failed: ${(e as Error).message}`);
+    }
+  },
+);
 ```
 
 （`isAbsolute` 記得從 `node:path` import。）
@@ -1593,6 +1659,7 @@ git commit -m "feat: MCP tools list_library / add_to_library / import_from_libra
 ### Task 7: 文件同步 + 全套驗證
 
 **Files:**
+
 - Modify: `HANDOFF.md`（素材庫段：檔案職責 `libraryStore.ts`／`libraryIngest.ts`、MCP 工具數更新、`VIDCUT_LIBRARY_DIR`）
 - Modify: `docs/ROADMAP.md`（「素材匯入：零複製引用 + 素材庫」項：素材庫後端已落地、連到 spec；階段 2 UI 改指向第二期計畫）
 - Modify: `CLAUDE.md`（若架構要點段需要提及 `~/.vidcut/library`——由 docs-sync-review 判斷）

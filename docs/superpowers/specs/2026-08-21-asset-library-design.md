@@ -67,17 +67,17 @@
 
 ```ts
 interface LibraryAsset {
-  id: string                 // 'lib-' 前綴 + 隨機字串（比照現有 media id 產生方式），永久穩定
-  kind: 'media'              // 第一階段只有 media；schema 預留 'font' | 'stylePreset' | 'mograph'
-  hash: string               // sha256，同時是 files/ 與 derived/ 的定址鍵
-  file: string               // 庫內相對路徑，如 'files/<hash>.mp4'
-  probe: ProbeInfo           // 沿用現有型別
-  label: string              // 人/AI 取的名字（「片頭 v2」「常用 BGM-輕快」）
-  tags: string[]             // 扁平標籤；不做資料夾樹、不做 smart collection
-  origin: { type: 'upload' | 'project' | 'source'; note?: string }
-                             // 預留 'stock' | 'generated'（Pro 用，含授權/prompt 溯源）
-  addedAt: string
-  meta?: Record<string, unknown>
+  id: string; // 'lib-' 前綴 + 隨機字串（比照現有 media id 產生方式），永久穩定
+  kind: 'media'; // 第一階段只有 media；schema 預留 'font' | 'stylePreset' | 'mograph'
+  hash: string; // sha256，同時是 files/ 與 derived/ 的定址鍵
+  file: string; // 庫內相對路徑，如 'files/<hash>.mp4'
+  probe: ProbeInfo; // 沿用現有型別
+  label: string; // 人/AI 取的名字（「片頭 v2」「常用 BGM-輕快」）
+  tags: string[]; // 扁平標籤；不做資料夾樹、不做 smart collection
+  origin: { type: 'upload' | 'project' | 'source'; note?: string };
+  // 預留 'stock' | 'generated'（Pro 用，含授權/prompt 溯源）
+  addedAt: string;
+  meta?: Record<string, unknown>;
 }
 ```
 
@@ -99,12 +99,12 @@ instructions**；`mcp-surface-snapshot` 會紅，先讀 diff 確認描述屬實�
 
 新增 MCP 工具四支：
 
-| 工具 | 行為 | 備註 |
-| --- | --- | --- |
-| `list_library` | 搜尋庫：`query`（對 label+tags 比對）、`tag`、`kind`、`limit`（預設 20、上限 50） | 唯讀，比照 `search_mograph_library` 不走 command；筆數上限防灌爆 context（同 `list_source` 的教訓） |
-| `add_to_library` | 入庫：`{ path }`（本機絕對路徑）或 `{ mediaId }`（專案內既有素材），可帶 `label`、`tags` | 複製→hash→去重→生 derived→寫索引；同 hash 冪等回傳既有 asset |
-| `import_from_library` | `{ assetId, addToTimeline? }` → 複製 derived 進專案 + `registerMedia` | `addToTimeline` 語意與 `import_media` 一致（audio-only 被 `addClip` 擋的既有限制不在本案處理，見 ROADMAP「音訊素材支援」） |
-| `update_library_asset` | 改 `label` / `tags` | 元資料是 AI 選材的依據，要讓 AI 自己維護得動 |
+| 工具                   | 行為                                                                                     | 備註                                                                                                                       |
+| ---------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `list_library`         | 搜尋庫：`query`（對 label+tags 比對）、`tag`、`kind`、`limit`（預設 20、上限 50）        | 唯讀，比照 `search_mograph_library` 不走 command；筆數上限防灌爆 context（同 `list_source` 的教訓）                        |
+| `add_to_library`       | 入庫：`{ path }`（本機絕對路徑）或 `{ mediaId }`（專案內既有素材），可帶 `label`、`tags` | 複製→hash→去重→生 derived→寫索引；同 hash 冪等回傳既有 asset                                                               |
+| `import_from_library`  | `{ assetId, addToTimeline? }` → 複製 derived 進專案 + `registerMedia`                    | `addToTimeline` 語意與 `import_media` 一致（audio-only 被 `addClip` 擋的既有限制不在本案處理，見 ROADMAP「音訊素材支援」） |
+| `update_library_asset` | 改 `label` / `tags`                                                                      | 元資料是 AI 選材的依據，要讓 AI 自己維護得動                                                                               |
 
 - **刻意不做 `remove_from_library`（MCP）**：庫檔可能被任何專案引用，AI 誤刪的代價是
   別的專案輸出斷鏈，且沒有跨專案用量追蹤。刪除只給人類 UI，確認框寫明後果。

@@ -91,10 +91,12 @@ describe('library MCP tools', () => {
 
   it('參數互斥與錯誤路徑：path+mediaId 同給、都不給、未知 assetId', async () => {
     expect((await call('add_to_library', {})).isError).toBe(true);
-    expect(
-      (await call('add_to_library', { path: '/tmp/x.mp4', mediaId: 'abc' })).isError,
-    ).toBe(true);
+    expect((await call('add_to_library', { path: '/tmp/x.mp4', mediaId: 'abc' })).isError).toBe(
+      true,
+    );
     expect((await call('import_from_library', { assetId: 'lib-nope' })).isError).toBe(true);
-    expect((await call('update_library_asset', { assetId: 'lib-nope', label: 'x' })).isError).toBe(true);
+    expect((await call('update_library_asset', { assetId: 'lib-nope', label: 'x' })).isError).toBe(
+      true,
+    );
   });
 });

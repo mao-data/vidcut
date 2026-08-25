@@ -62,7 +62,8 @@ describe('prepareFromLibrary', () => {
   it('同 asset 再匯入同專案：冪等回既有 id', async () => {
     const { lib, store, projDir, asset } = await setup();
     const first = await prepareFromLibrary(store, projDir, lib, asset.id);
-    if ('asset' in first) applyCommand(store, 'human', { name: 'registerMedia', asset: first.asset });
+    if ('asset' in first)
+      applyCommand(store, 'human', { name: 'registerMedia', asset: first.asset });
     const second = await prepareFromLibrary(store, projDir, lib, asset.id);
     expect('existingId' in second && second.existingId === store.doc.media[0]!.id).toBe(true);
   }, 60_000);
