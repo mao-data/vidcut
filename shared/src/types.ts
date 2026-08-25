@@ -51,6 +51,31 @@ export interface PeaksFile {
   rms?: number[];
 }
 
+/**
+ * 跨專案素材庫的一筆素材（`~/.vidcut/library/library.json` 的元素）。
+ * spec：docs/superpowers/specs/2026-08-21-asset-library-design.md。
+ * 型別放 shared 是為了第二期 UI 直接消費；LibraryStore 本體在 server。
+ */
+export interface LibraryAsset {
+  /** 'lib-' 前綴 + nanoid，永久穩定（專案 meta.libraryId 引用它） */
+  id: string;
+  /** 第一階段只有 media；'font' | 'stylePreset' | 'mograph' 預留給後續獨立成案 */
+  kind: 'media';
+  /** sha256，同時是 files/ 與 derived/ 的定址鍵；一個 hash 只會有一筆 asset */
+  hash: string;
+  /** 庫內相對路徑，如 'files/<hash>.mp4' */
+  file: string;
+  probe: ProbeInfo;
+  /** 人/AI 取的名字（「片頭 v2」「常用 BGM-輕快」）——搜尋與辨識靠它 */
+  label: string;
+  /** 扁平標籤；刻意不做資料夾樹（spec 的競品結論） */
+  tags: string[];
+  /** 來源溯源。'stock' | 'generated' 預留給 Pro（授權/prompt 溯源） */
+  origin: { type: 'upload' | 'project' | 'source'; note?: string };
+  addedAt: string;
+  meta?: Record<string, unknown>;
+}
+
 export interface VideoClip {
   id: string;
   mediaId: string;
