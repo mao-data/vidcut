@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
-import { copyFile, open, rename, rm, stat, cp } from 'node:fs/promises';
+import { copyFile, mkdir, open, rename, rm, stat, cp } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { LibraryAsset, ProbeInfo, MediaAsset } from '@vidcut/shared';
@@ -249,6 +249,32 @@ export async function prepareFromLibrary(
     meta: { libraryId: a.id, libraryHash: a.hash },
   };
   return { asset };
+}
+
+/**
+ * 圖片庫素材匯入專案（spec 2026-08-25）：圖片在專案裡是 overlay 素材，不是 clip
+ * ——與影音走的 prepareFromLibrary（零複製、引用庫內絕對路徑）不同路，這裡是
+ * **複製**進 `assets/`：overlay 的 imagePath 走專案相對路徑（/media 靜態與渲染都吃
+ * 這個），沒有「引用庫內絕對路徑」這個選項。
+ * 檔名取 `<label 消毒>.<ext>`，重名自動編號（不做內容去重——專案內 assets 本來就
+ * 允許多份同內容）。HTTP 路由（POST /api/library/:id/import）與 MCP
+ * （import_from_library）共用這支，行為單一來源。
+ */
+export async function importImageToProject(
+  projectDir: string,
+  lib: LibraryStore,
+  asset: LibraryAsset,
+): Promise<string /* relPath */> {
+  const clean = basename(asset.file); // files/<hash>.<ext> 的 basename 不含使用者輸入
+  const ext = extname(clean);
+  const stem = (asset.label || 'image').replace(/[^\w.\-一-鿿]/g, '_');
+  await mkdir(join(projectDir, 'assets'), { recursive: true });
+  let rel = join('assets', `${stem}${ext}`);
+  for (let i = 1; existsSync(join(projectDir, rel)); i++) {
+    rel = join('assets', `${stem}-${i}${ext}`);
+  }
+  await copyFile(lib.fileAbs(asset), join(projectDir, rel));
+  return rel;
 }
 
 /**

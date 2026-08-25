@@ -26,7 +26,12 @@ import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import type { TextCardService } from './textCards.js';
 import type { LibraryStore } from './libraryStore.js';
-import { addToLibrary, prepareFromLibrary, discardPrepared } from './libraryIngest.js';
+import {
+  addToLibrary,
+  prepareFromLibrary,
+  discardPrepared,
+  importImageToProject,
+} from './libraryIngest.js';
 import { CHAT_MAX_LEN, type ChatStore } from './chatStore.js';
 import { aiWrite, isStale } from './aiWrite.js';
 import { prepareMedia, enqueueDerivedStages } from './ingest.js';
@@ -513,6 +518,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'list_library searches it, import_from_library brings an asset into this project (look first, then take), ' +
         'add_to_library saves a local file (path) or an already-imported media (mediaId) there for future projects — ' +
         'give a descriptive label and tags. update_library_asset renames/retags one already there. ' +
+        'Image assets import as overlay material: import_from_library returns an assetPath — place it with ' +
+        'add_overlay, not on the clip track. ' +
         'Library writes bypass review locks and are not undoable; ' +
         'import_from_library itself is a project write and obeys both. → ' +
         'set_timeline for the initial cut, or add_clip to append to the end of the main track (leaves existing clips alone) → ' +
@@ -988,6 +995,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
             hasVideo: z.boolean(),
             hasAudio: z.boolean(),
             broken: z.boolean(),
+            width: z.number().optional(),
+            height: z.number().optional(),
           }),
         ),
         total: z.number().describe('total matches (may exceed the length of assets)'),
@@ -996,7 +1005,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       inputSchema: {
         query: z.string().optional(),
         tag: z.string().optional(),
-        kind: z.enum(['media']).optional(),
+        kind: z.enum(['media', 'image']).optional(),
         limit: z.number().int().min(1).max(50).optional().describe('default 20'),
       },
       annotations: { readOnlyHint: true },
@@ -1018,6 +1027,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         hasVideo: a.probe.hasVideo ?? true,
         hasAudio: a.probe.hasAudio,
         broken: a.broken,
+        // 圖片才附尺寸——影音走 duration/hasVideo/hasAudio 已經夠用，不重複塞 probe 全量
+        ...(a.kind === 'image' ? { width: a.probe.width, height: a.probe.height } : {}),
       }));
       return result(
         { assets, total: all.length, ...(all.length > n ? { truncated: true } : {}) },
@@ -1034,7 +1045,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'path (absolute path on this machine) or mediaId (media already in this project). The file is **copied** ' +
         'into the library (content-addressed; adding the same content twice is a no-op returning the existing ' +
         'asset). Give a descriptive label and tags so the library stays findable — that is how list_library and ' +
-        'the user will recognise it later. This is a library write, not a project edit: no undo, no review lock.',
+        'the user will recognise it later. This is a library write, not a project edit: no undo, no review lock. ' +
+        'Images (png/jpg/webp/svg) are accepted too — they become kind:"image" assets that import as overlay ' +
+        'material, not clips.',
       outputSchema: {
         assetId: z.string(),
         existing: z
@@ -1095,9 +1108,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'is referenced in place from the library (content-addressed, so the reference never breaks). Check with ' +
         'list_library first — look and take are two steps. Returns a mediaId. addToTimeline appends it to the end ' +
         'of the main track (audio-only assets are refused there — use set_audio instead, the import itself still ' +
-        'succeeds). This writes the project: review locks and ifVersion apply.',
+        'succeeds). Image assets are different: they are copied into assets/ instead, and the result is ' +
+        '{ kind: "image", assetPath } (no mediaId, addToTimeline is ignored) — place them with add_overlay. ' +
+        'This writes the project: review locks and ifVersion apply.',
       outputSchema: {
-        mediaId: z.string(),
+        mediaId: z.string().optional(),
+        kind: z.string().optional(),
+        assetPath: z.string().optional(),
         alreadyImported: z.boolean().optional(),
         addedToTimeline: z.boolean().optional(),
         version: z.number().optional(),
@@ -1116,6 +1133,17 @@ export function createMcpServer(deps: McpDeps): McpServer {
       if (ifVersion !== undefined && ifVersion !== store.version)
         return err(`error: stale (ifVersion=${ifVersion}, current=${store.version})`);
       try {
+        // 圖片走另一條路：複製進 assets/ 當 overlay 素材，不是 media/clip，
+        // 所以在 prepareFromLibrary（只認影音）之前分流——同邏輯見 libraryIngest.ts
+        // 的 importImageToProject，HTTP 路由（/api/library/:id/import）與這裡共用。
+        const a = library!.get(assetId);
+        if (a?.kind === 'image') {
+          const rel = await importImageToProject(projectDir, library!, a);
+          return result(
+            { kind: 'image', assetPath: rel },
+            `copied ${assetId} into the project as ${rel} — place it with add_overlay (imagePath: "${rel}")`,
+          );
+        }
         const prepared = await prepareFromLibrary(store, projectDir, library!, assetId);
         let mediaId: string;
         let version: number | undefined;

@@ -1,6 +1,6 @@
 import express from 'express';
 import { createWriteStream, existsSync } from 'node:fs';
-import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { basename, extname, isAbsolute, join } from 'node:path';
 import { nanoid } from 'nanoid';
@@ -13,7 +13,12 @@ import type { CardRequest } from './rasterizer.js';
 import type { TextCardService } from './textCards.js';
 import { cardRequestError } from './cardBudget.js';
 import type { LibraryStore } from './libraryStore.js';
-import { addToLibrary, prepareFromLibrary, discardPrepared } from './libraryIngest.js';
+import {
+  addToLibrary,
+  prepareFromLibrary,
+  discardPrepared,
+  importImageToProject,
+} from './libraryIngest.js';
 import { resolveMediaPath } from './paths.js';
 
 /**
@@ -322,18 +327,9 @@ export function createApp(
       try {
         const a = lib.get(req.params.id);
         if (a?.kind === 'image') {
-          // 圖片＝overlay 素材：複製進 assets/（與 POST /assets 同款消毒+重名編號），
-          // overlay 的 imagePath 走專案相對路徑（/media 靜態與渲染都吃這個），
-          // 所以這裡是複製不是零複製引用。
-          const clean = basename(a.file); // files/<hash>.<ext> 的 basename 不含使用者輸入
-          const ext = extname(clean);
-          const stem = (a.label || 'image').replace(/[^\w.\-一-鿿]/g, '_');
-          await mkdir(join(projectDir, 'assets'), { recursive: true });
-          let rel = join('assets', `${stem}${ext}`);
-          for (let i = 1; existsSync(join(projectDir, rel)); i++) {
-            rel = join('assets', `${stem}-${i}${ext}`);
-          }
-          await copyFile(lib.fileAbs(a), join(projectDir, rel));
+          // 圖片＝overlay 素材：複製進 assets/（與 MCP import_from_library 共用同一支
+          // helper，行為單一來源——見 libraryIngest.ts 的 importImageToProject 註解）。
+          const rel = await importImageToProject(projectDir, lib, a);
           res.json({ kind: 'image', relPath: rel });
           return;
         }
