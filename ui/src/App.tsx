@@ -12,6 +12,7 @@ import { Timeline } from './timeline/Timeline.js';
 import { Inspector } from './panels/Inspector.js';
 import { AgentPanel } from './panels/AgentPanel.js';
 import { CaptionList } from './panels/CaptionList.js';
+import { MediaPanel } from './panels/MediaPanel.js';
 import { ReviewBar } from './panels/ReviewBar.js';
 import { ExportMenu } from './panels/ExportMenu.js';
 import { ThemeToggle } from './ThemeToggle.js';
@@ -211,9 +212,10 @@ export function App() {
   const rightWidth = useView((s) => s.rightWidth);
   const gridRef = useRef<HTMLDivElement>(null);
   const [resizing, setResizing] = useState(false);
-  const [tab, setTab] = useState<'captions' | 'properties'>('captions');
+  const [tab, setTab] = useState<'media' | 'captions' | 'properties'>('captions');
   const selected = useSelection((s) => s.selected);
   const captionCount = doc?.tracks.captions.length ?? 0;
+  const mediaCount = doc?.media.length ?? 0;
   const tabBodyRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -566,6 +568,13 @@ export function App() {
                 }}
               >
                 <button
+                  className={`seg${tab === 'media' ? ' on' : ''}`}
+                  title="Media"
+                  onClick={() => setTab('media')}
+                >
+                  Media {mediaCount > 0 && <span className="badge">{mediaCount}</span>}
+                </button>
+                <button
                   className={`seg${tab === 'captions' ? ' on' : ''}`}
                   onClick={() => setTab('captions')}
                 >
@@ -586,10 +595,12 @@ export function App() {
                 </button>
               </div>
               {/* Properties 分頁自己捲：Inspector 是一長條表單，而分頁殼是 flex 直向。
-                  Captions 分頁的 CaptionList 內部已是 `.panel-col` + `.panel-body`，
+                  Media／Captions 分頁的元件內部已是 `.panel-col` + `.panel-body`，
                   自己處理捲動，所以只有 Inspector 這條路需要外面補一層 overflow。 */}
               <div ref={tabBodyRef} style={{ flex: 1, minHeight: 0 }}>
-                {tab === 'captions' ? (
+                {tab === 'media' ? (
+                  <MediaPanel />
+                ) : tab === 'captions' ? (
                   <CaptionList />
                 ) : (
                   <div style={{ height: '100%', overflowY: 'auto' }}>

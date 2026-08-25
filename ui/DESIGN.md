@@ -419,15 +419,19 @@ Both side columns are resizable and collapsible; collapse is instant while width
 animates over 0.25s, so the reopen handle fades in on a matching delay rather than
 co-existing with the closing panel.
 
-**Right column: two tabs, Captions ⇄ Properties.** Properties carries what used to
-be the left panel — canvas fill, the selected object's Inspector form, the Shortcuts
-popover, and the idle "Select a clip / caption / overlay / audio to edit" prompt.
-**Selecting anything switches the right column to Properties** (and expands it if
-collapsed): that is the direct translation of the old reflex where clicking a clip
-turned the left panel into its form. Deselecting does _not_ switch away — the user
-pressed Escape or clicked timeline blank space, and bouncing them off the tab they
-are reading would be a second, unasked-for move; Properties just falls back to the
-idle prompt.
+**Right column: three tabs, Media ⇄ Captions ⇄ Properties.** Media sits first in tab
+order — media comes before captions in the editing workflow — and holds the asset
+library's three zones (Project media / Library / Source folder, see MediaPanel below).
+Properties carries what used to be the left panel — canvas fill, the selected object's
+Inspector form, the Shortcuts popover, and the idle "Select a clip / caption / overlay
+/ audio to edit" prompt. **Selecting anything switches the right column to Properties**
+(and expands it if collapsed): that is the direct translation of the old reflex where
+clicking a clip turned the left panel into its form. Deselecting does _not_ switch
+away — the user pressed Escape or clicked timeline blank space, and bouncing them off
+the tab they are reading would be a second, unasked-for move; Properties just falls
+back to the idle prompt. **The Media tab is exempt from the select-jumps-to-Properties
+reflex**: no operation inside `MediaPanel` calls `useSelection.select()`, precisely so
+browsing or picking media doesn't bounce the user out of the tab they're working in.
 
 **Spacing rhythm: multiples of 4.** 4 (icon-to-text, adjacent controls), 8 (panel
 block padding, control-row gaps), 12 (panel/card padding, header horizontal), 16
