@@ -103,15 +103,21 @@ describe('library MCP tools', () => {
 
   it('image asset：list_library 可過濾、import_from_library 回 assetPath 而非 mediaId', async () => {
     await runFfmpeg([
-      '-f', 'lavfi', '-i', 'color=c=red:size=8x8:duration=0.1', '-frames:v', '1',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:size=8x8:duration=0.1',
+      '-frames:v',
+      '1',
       join(srcDir, 'logo.png'),
     ]);
     const added = await call('add_to_library', { path: join(srcDir, 'logo.png'), label: 'logo' });
     expect(added.isError).toBeFalsy();
     const assetId = (added.structuredContent as { assetId: string }).assetId;
     const listed = await call('list_library', { kind: 'image' });
-    expect((listed.structuredContent as { assets: Array<{ id: string }> }).assets.map((a) => a.id))
-      .toContain(assetId);
+    expect(
+      (listed.structuredContent as { assets: Array<{ id: string }> }).assets.map((a) => a.id),
+    ).toContain(assetId);
     const imp = await call('import_from_library', { assetId });
     expect(imp.isError).toBeFalsy();
     const sc = imp.structuredContent as { kind?: string; assetPath?: string; mediaId?: string };
