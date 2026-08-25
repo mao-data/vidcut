@@ -87,7 +87,14 @@ npm run demo                   # 建立 demo 專案並啟動 server
 
 打開 **http://127.0.0.1:3845**。**不需要準備任何素材就能試** —— `npm run demo` 會用 ffmpeg 合成五支直式影片（其中一支故意沒有音軌）、一個標題 overlay 和兩條字幕。
 
-> **自己的素材是走 AI 進來的，不是 UI。** 目前沒有匯入按鈕（Media 面板還在[藍圖](docs/ROADMAP.md)上）—— 你把素材夾告訴 agent，它呼叫 `import_media`，原檔留在原地不複製。也有一個跨專案的**素材庫**（`~/.vidcut/library/`，片頭/BGM 這類重複用的素材放這裡一次，之後每個專案都能直接引用）——AI 端 `list_library`／`add_to_library`／`import_from_library` 已經可用，UI 瀏覽面板同樣還在藍圖上。所以要放自己的片子之前，先把下面的 MCP 接起來。
+> **自己的素材兩條路都能進來。** 右欄的 **Media** 分頁有三區：Project media（列出當前
+> 專案已有的素材——加入時間軸、存入素材庫）、Library（搜尋、上傳、匯入、改標籤、
+> 刪除——跨專案的**素材庫**，存放於 `~/.vidcut/library/`，片頭/BGM 這類重複用的素材
+> 放這裡一次，之後每個專案都能直接引用）、Source folder（掃描一個路徑、勾選、批次
+> 匯入）。或是把素材夾告訴 agent，它呼叫 `import_media`，原檔留在原地不複製——AI 端
+> 走的是同一套素材庫（`list_library`／`add_to_library`／`import_from_library`）。
+> 注意：Source folder 區只列得出影音檔（白名單不含圖片）；圖片走 Library 區的上傳鈕
+> 或 AI 的 `add_to_library` 入庫，匯入專案時走 overlay 而不是時間軸片段。
 
 > ⚠️ `npm run demo` 每次都會*重新產生* `projects/demo`。要載入既有專案而不動它：
 >
@@ -196,6 +203,9 @@ ui/       @vidcut/ui       React + Vite：時間軸、A/B 播放器、Inspector�
 
 - **karaoke 預覽與成品有微小差異。** 匯出的 karaoke 字幕是正確的（一詞一卡、單層直畫）。*預覽*用兩張卡疊 clip-path 合成，描邊看起來略厚（約 1% 像素有差；實際上肉眼看不出來）。非 karaoke 字幕與所有 overlay 在預覽與成品之間逐位元組相同。
 - **很短的音訊（約 4 秒以下）** whisper.cpp 的逐詞時間戳本來就不可靠；vidcut 會做正規化，但精度較低。
+- **Media 面板的 Source folder 區列不出圖片。** 它的副檔名白名單只認影音（素材夾掃描與
+  `import_media` 走的是時間軸片段這條路）；圖片請改走 Library 區的上傳鈕或 AI 的
+  `add_to_library`——它們匯入專案時是 overlay，不是時間軸片段。
 - **單專案、單使用者、僅限 localhost** —— 目前是刻意的設計。
 
 ## Roadmap

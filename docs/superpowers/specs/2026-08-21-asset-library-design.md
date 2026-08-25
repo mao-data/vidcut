@@ -183,3 +183,8 @@ relink 與專案打包（ROADMAP 既有項）。
 - brand kit = 未來一個 `stylePreset` 集合 + 一支 `get_brand_kit` 唯讀工具
   （Descript「宣告式偏好包」路線），屬 Pro。
 - 自製 mograph 入庫（`kind: 'mograph'`）留在 Pro 線 —— mograph 能力本身是 Pro。
+
+---
+
+**2026-08-25 補記**：導言『影／音／圖』與白名單的矛盾以第二期決策收斂——圖片以
+`kind:'image'` 入庫、匯入專案走 image overlay；『靜圖上主軌』另案。

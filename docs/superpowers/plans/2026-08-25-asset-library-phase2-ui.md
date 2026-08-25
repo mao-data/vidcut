@@ -30,12 +30,14 @@
 ### Task 1: 圖片入庫（後端：`kind: 'image'`）
 
 **Files:**
+
 - Modify: `shared/src/types.ts`（`LibraryAsset.kind` union）
 - Modify: `server/src/sourceFolder.ts`（新增 `IMAGE_EXTENSIONS` 常數——放這裡與 `MEDIA_EXTENSIONS` 並列，**不併入** `MEDIA_EXTENSIONS`：素材夾掃描與 `import_media` 仍只認影音，圖片不能變成 clip）
 - Modify: `server/src/libraryIngest.ts`（`addToLibrary` 圖片分支、`probeImageSize`）
 - Test: `server/test/libraryIngest.test.ts`（新增 describe）
 
 **Interfaces:**
+
 - Consumes: 第一期 `addToLibrary`／`LibraryStore`、`runFfmpeg` 所在的 `./ffmpeg.js`（用 `ffprobe` 同層工具——見實作）
 - Produces: `IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.svg'] as const`（與 mograph assets 白名單同一組）；`addToLibrary` 收圖片副檔名 → `kind: 'image'`、**不產任何 derived**、`probe` 為資訊性尺寸（`{duration:0, width, height, fps:0, hasAudio:false, rotation:0}`，svg 量不到時 `width/height` 為 0）；`prepareFromLibrary` 對 `kind === 'image'` 丟 `image asset ${id} cannot be imported as media; use the image import path`
 
@@ -48,7 +50,12 @@ describe('addToLibrary: image kind', () => {
   it('png 入庫：kind=image、無 derived、probe 帶尺寸', async () => {
     const { lib, srcDir, libDir } = await setup();
     await runFfmpeg([
-      '-f', 'lavfi', '-i', 'color=c=red:size=320x240:duration=0.1', '-frames:v', '1',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:size=320x240:duration=0.1',
+      '-frames:v',
+      '1',
       join(srcDir, 'logo.png'),
     ]);
     const { asset } = await addToLibrary(lib, join(srcDir, 'logo.png'), {
@@ -69,7 +76,12 @@ describe('addToLibrary: image kind', () => {
   it('圖片同內容冪等去重；壞圖（副檔名對、內容爛）拒收零殘留', async () => {
     const { lib, srcDir, libDir } = await setup();
     await runFfmpeg([
-      '-f', 'lavfi', '-i', 'color=c=red:size=8x8:duration=0.1', '-frames:v', '1',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:size=8x8:duration=0.1',
+      '-frames:v',
+      '1',
       join(srcDir, 'a.png'),
     ]);
     const first = await addToLibrary(lib, join(srcDir, 'a.png'), { origin: { type: 'source' } });
@@ -88,13 +100,23 @@ describe('addToLibrary: image kind', () => {
   it('prepareFromLibrary 拒絕 image kind', async () => {
     const { lib, srcDir } = await setup();
     await runFfmpeg([
-      '-f', 'lavfi', '-i', 'color=c=red:size=8x8:duration=0.1', '-frames:v', '1',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:size=8x8:duration=0.1',
+      '-frames:v',
+      '1',
       join(srcDir, 'a.png'),
     ]);
-    const { asset } = await addToLibrary(lib, join(srcDir, 'a.png'), { origin: { type: 'source' } });
-    const store = await ProjectStore.load(join(await tmpDir('vidcut-libimg-proj-'), 'project.json'));
-    await expect(prepareFromLibrary(store, dirname(store['#filePath'] ?? ''), lib, asset.id))
-      .rejects.toThrow('cannot be imported as media');
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.png'), {
+      origin: { type: 'source' },
+    });
+    const store = await ProjectStore.load(
+      join(await tmpDir('vidcut-libimg-proj-'), 'project.json'),
+    );
+    await expect(
+      prepareFromLibrary(store, dirname(store['#filePath'] ?? ''), lib, asset.id),
+    ).rejects.toThrow('cannot be imported as media');
   }, 30_000);
 });
 ```
@@ -128,8 +150,15 @@ import { runFfprobe } from './ffmpeg.js'; // 若 ffmpeg.ts 沒有現成 ffprobe 
 async function probeImageSize(abs: string): Promise<{ width: number; height: number }> {
   try {
     const out = await runFfprobe([
-      '-v', 'error', '-select_streams', 'v:0',
-      '-show_entries', 'stream=width,height', '-of', 'json', abs,
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=width,height',
+      '-of',
+      'json',
+      abs,
     ]);
     const s = (JSON.parse(out) as { streams?: Array<{ width?: number; height?: number }> })
       .streams?.[0];
@@ -147,30 +176,30 @@ async function probeImageSize(abs: string): Promise<{ width: number; height: num
 `addToLibrary` 改動（副檔名判斷與分支）：
 
 ```ts
-  const ext = extname(absPath).toLowerCase();
-  const isImage = (IMAGE_EXTENSIONS as readonly string[]).includes(ext);
-  if (!isImage && !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
-    throw new Error(`unsupported extension: ${ext || '(none)'}`);
-  }
-  // …hash、byHash 去重照舊…
-  // probe 分流：影音走 ffprobe 全量（壞檔在落地前擋下），圖片走尺寸探測（同樣先於落地）
-  const info: ProbeInfo = isImage
-    ? { duration: 0, ...(await probeImageSize(absPath)), fps: 0, hasAudio: false, rotation: 0 }
-    : await probe(absPath);
-  // …copy/move 照舊…
-  if (!isImage) await buildLibraryDerivatives(fileAbs, derivedAbs, info); // 圖片零 derived：檔案本身即縮圖（/library/files/<hash><ext>）
-  // …組 asset 時 kind: isImage ? 'image' : 'media'，mutate 入索引與清理照舊
-  //（失敗清理的 rm derivedAbs 對圖片是 no-op，不用分流）
+const ext = extname(absPath).toLowerCase();
+const isImage = (IMAGE_EXTENSIONS as readonly string[]).includes(ext);
+if (!isImage && !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
+  throw new Error(`unsupported extension: ${ext || '(none)'}`);
+}
+// …hash、byHash 去重照舊…
+// probe 分流：影音走 ffprobe 全量（壞檔在落地前擋下），圖片走尺寸探測（同樣先於落地）
+const info: ProbeInfo = isImage
+  ? { duration: 0, ...(await probeImageSize(absPath)), fps: 0, hasAudio: false, rotation: 0 }
+  : await probe(absPath);
+// …copy/move 照舊…
+if (!isImage) await buildLibraryDerivatives(fileAbs, derivedAbs, info); // 圖片零 derived：檔案本身即縮圖（/library/files/<hash><ext>）
+// …組 asset 時 kind: isImage ? 'image' : 'media'，mutate 入索引與清理照舊
+//（失敗清理的 rm derivedAbs 對圖片是 no-op，不用分流）
 ```
 
 `prepareFromLibrary` 開頭（`lib.get` 之後）：
 
 ```ts
-  if (a.kind === 'image') {
-    throw new Error(
-      `image asset ${assetId} cannot be imported as media; use the image import path (it becomes an overlay)`,
-    );
-  }
+if (a.kind === 'image') {
+  throw new Error(
+    `image asset ${assetId} cannot be imported as media; use the image import path (it becomes an overlay)`,
+  );
+}
 ```
 
 - [ ] **Step 4: 跑綠** — `npm test -w @vidcut/server -- libraryIngest && npm test -w @vidcut/server -- import-from-library && npm run typecheck`
@@ -181,10 +210,12 @@ async function probeImageSize(abs: string): Promise<{ width: number; height: num
 ### Task 2: UI 專用路由三條（from-media／from-path／image import 分流）
 
 **Files:**
+
 - Modify: `server/src/app.ts`
 - Test: `server/test/library-api.test.ts`（新增 describe）
 
 **Interfaces:**
+
 - Consumes: Task 1、第一期 `addToLibrary`／`prepareFromLibrary`／`discardPrepared`、既有 `resolveMediaPath`（`./paths.js`）
 - Produces:
   - `POST /api/library/from-media` body `{mediaId, label?, tags?}` → 把專案素材沉澱入庫（反向沉澱鈕的後端）；回 `addToLibrary` 的 `{asset, existing}`
@@ -214,10 +245,15 @@ describe('phase 2 routes', () => {
     expect(existing).toBe(false);
     expect(asset.origin.type).toBe('project');
     expect(asset.label).toBe('常用片頭');
-    expect((await fetch(`${base}/api/library/from-media`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mediaId: 'nope' }),
-    })).status).toBe(404);
+    expect(
+      (
+        await fetch(`${base}/api/library/from-media`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mediaId: 'nope' }),
+        })
+      ).status,
+    ).toBe(404);
     server.close();
   }, 120_000);
 
@@ -231,25 +267,39 @@ describe('phase 2 routes', () => {
     });
     expect(res.status).toBe(200);
     expect(lib.list({ tag: 'broll' })).toHaveLength(1);
-    expect((await fetch(`${base}/api/library/from-path`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: 'relative/v.mp4' }),
-    })).status).toBe(400);
+    expect(
+      (
+        await fetch(`${base}/api/library/from-path`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: 'relative/v.mp4' }),
+        })
+      ).status,
+    ).toBe(400);
     server.close();
   }, 120_000);
 
   it('image asset 匯入：複製進 assets/ 回 relPath；重名自動編號', async () => {
     const { lib, srcDir, projDir, server, base } = await startTestServer();
     await runFfmpeg([
-      '-f', 'lavfi', '-i', 'color=c=red:size=8x8:duration=0.1', '-frames:v', '1',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:size=8x8:duration=0.1',
+      '-frames:v',
+      '1',
       join(srcDir, 'logo.png'),
     ]);
     const { asset } = await addToLibrary(lib, join(srcDir, 'logo.png'), {
-      label: 'logo', origin: { type: 'source' },
+      label: 'logo',
+      origin: { type: 'source' },
     });
-    const imp = () => fetch(`${base}/api/library/${asset.id}/import`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-    });
+    const imp = () =>
+      fetch(`${base}/api/library/${asset.id}/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
     const r1 = (await (await imp()).json()) as { kind: string; relPath: string };
     expect(r1.kind).toBe('image');
     expect(r1.relPath).toBe(join('assets', 'logo.png'));
@@ -267,62 +317,88 @@ describe('phase 2 routes', () => {
 - [ ] **Step 3: 實作**（插在既有 `/api/library/:id/import` 附近；`libErr` 複用）
 
 ```ts
-  // 反向沉澱：人監修時把 AI 匯入的好素材一鍵入庫（Veed 式，spec §UI 三區）
-  app.post('/api/library/from-media', (req, res, next) => {
-    void (async () => {
-      if (!lib) { res.status(503).json({ error: 'library unavailable' }); return; }
-      const { mediaId, label, tags } = (req.body ?? {}) as {
-        mediaId?: string; label?: string; tags?: string[];
-      };
-      const m = mediaId ? store.doc.media.find((x) => x.id === mediaId) : undefined;
-      if (!m) { res.status(404).json({ error: `no media ${mediaId ?? ''} in this project` }); return; }
-      try {
-        res.json(await addToLibrary(lib, resolveMediaPath(projectDir, m.path), {
+// 反向沉澱：人監修時把 AI 匯入的好素材一鍵入庫（Veed 式，spec §UI 三區）
+app.post('/api/library/from-media', (req, res, next) => {
+  void (async () => {
+    if (!lib) {
+      res.status(503).json({ error: 'library unavailable' });
+      return;
+    }
+    const { mediaId, label, tags } = (req.body ?? {}) as {
+      mediaId?: string;
+      label?: string;
+      tags?: string[];
+    };
+    const m = mediaId ? store.doc.media.find((x) => x.id === mediaId) : undefined;
+    if (!m) {
+      res.status(404).json({ error: `no media ${mediaId ?? ''} in this project` });
+      return;
+    }
+    try {
+      res.json(
+        await addToLibrary(lib, resolveMediaPath(projectDir, m.path), {
           label: label ?? m.label ?? basename(m.path),
           tags,
           origin: { type: 'project', note: store.doc.name },
-        }));
-      } catch (e) { libErr(res, e); }
-    })().catch(next);
-  });
+        }),
+      );
+    } catch (e) {
+      libErr(res, e);
+    }
+  })().catch(next);
+});
 
-  // 素材夾「直接入庫」（掃描列表旁的按鈕；path 來自 GET /api/source 的結果組合）
-  app.post('/api/library/from-path', (req, res, next) => {
-    void (async () => {
-      if (!lib) { res.status(503).json({ error: 'library unavailable' }); return; }
-      const { path, label, tags } = (req.body ?? {}) as {
-        path?: string; label?: string; tags?: string[];
-      };
-      if (!path || !isAbsolute(path)) { res.status(400).json({ error: 'path must be absolute' }); return; }
-      try {
-        res.json(await addToLibrary(lib, path, {
-          label, tags, origin: { type: 'source', note: path },
-        }));
-      } catch (e) { libErr(res, e); }
-    })().catch(next);
-  });
+// 素材夾「直接入庫」（掃描列表旁的按鈕；path 來自 GET /api/source 的結果組合）
+app.post('/api/library/from-path', (req, res, next) => {
+  void (async () => {
+    if (!lib) {
+      res.status(503).json({ error: 'library unavailable' });
+      return;
+    }
+    const { path, label, tags } = (req.body ?? {}) as {
+      path?: string;
+      label?: string;
+      tags?: string[];
+    };
+    if (!path || !isAbsolute(path)) {
+      res.status(400).json({ error: 'path must be absolute' });
+      return;
+    }
+    try {
+      res.json(
+        await addToLibrary(lib, path, {
+          label,
+          tags,
+          origin: { type: 'source', note: path },
+        }),
+      );
+    } catch (e) {
+      libErr(res, e);
+    }
+  })().catch(next);
+});
 ```
 
 既有 `POST /api/library/:id/import` handler 開頭（`prepareFromLibrary` 之前）加分流：
 
 ```ts
-        const a = lib.get(req.params.id);
-        if (a?.kind === 'image') {
-          // 圖片＝overlay 素材：複製進 assets/（與 POST /assets 同款消毒+重名編號），
-          // overlay 的 imagePath 走專案相對路徑（/media 靜態與渲染都吃這個），
-          // 所以這裡是複製不是零複製引用。
-          const clean = basename(a.file); // files/<hash>.<ext> 的 basename 不含使用者輸入
-          const ext = extname(clean);
-          const stem = (a.label || 'image').replace(/[^\w.\-一-鿿]/g, '_');
-          await mkdir(join(projectDir, 'assets'), { recursive: true });
-          let rel = join('assets', `${stem}${ext}`);
-          for (let i = 1; existsSync(join(projectDir, rel)); i++) {
-            rel = join('assets', `${stem}-${i}${ext}`);
-          }
-          await copyFile(lib.fileAbs(a), join(projectDir, rel));
-          res.json({ kind: 'image', relPath: rel });
-          return;
-        }
+const a = lib.get(req.params.id);
+if (a?.kind === 'image') {
+  // 圖片＝overlay 素材：複製進 assets/（與 POST /assets 同款消毒+重名編號），
+  // overlay 的 imagePath 走專案相對路徑（/media 靜態與渲染都吃這個），
+  // 所以這裡是複製不是零複製引用。
+  const clean = basename(a.file); // files/<hash>.<ext> 的 basename 不含使用者輸入
+  const ext = extname(clean);
+  const stem = (a.label || 'image').replace(/[^\w.\-一-鿿]/g, '_');
+  await mkdir(join(projectDir, 'assets'), { recursive: true });
+  let rel = join('assets', `${stem}${ext}`);
+  for (let i = 1; existsSync(join(projectDir, rel)); i++) {
+    rel = join('assets', `${stem}-${i}${ext}`);
+  }
+  await copyFile(lib.fileAbs(a), join(projectDir, rel));
+  res.json({ kind: 'image', relPath: rel });
+  return;
+}
 ```
 
 （`isAbsolute`、`copyFile` 補 import；`mkdir`/`existsSync`/`basename`/`extname` 已有。）
@@ -335,10 +411,12 @@ describe('phase 2 routes', () => {
 ### Task 3: MCP 面收圖片 + snapshot
 
 **Files:**
+
 - Modify: `server/src/mcp.ts`
 - Test: `server/test/library-mcp.test.ts`（新增一條）、snapshot 更新
 
 **Interfaces:**
+
 - Consumes: Task 1／2
 - Produces: `list_library` 的 `kind` enum 變 `['media','image']`、輸出多 `width`/`height`（optional）；`add_to_library` 描述補圖片；`import_from_library` 對 image asset 分流——複製進 assets/（與 Task 2 路由同邏輯，抽成 `server/src/libraryIngest.ts` 的 `export async function importImageToProject(projectDir: string, lib: LibraryStore, asset: LibraryAsset): Promise<string /* relPath */>`，Task 2 的路由**改為呼叫它**避免兩份實作）→ 回 `{ kind:'image', assetPath }` 並在文字回覆指引「use add_overlay with imagePath=<assetPath>」；instructions 句補一小段圖片語意
 
@@ -346,24 +424,30 @@ describe('phase 2 routes', () => {
 - [ ] **Step 2: 寫失敗測試**（`library-mcp.test.ts`）：
 
 ```ts
-  it('image asset：list_library 可過濾、import_from_library 回 assetPath 而非 mediaId', async () => {
-    await runFfmpeg([
-      '-f', 'lavfi', '-i', 'color=c=red:size=8x8:duration=0.1', '-frames:v', '1',
-      join(srcDir, 'logo.png'),
-    ]);
-    const added = await call('add_to_library', { path: join(srcDir, 'logo.png'), label: 'logo' });
-    expect(added.isError).toBeFalsy();
-    const assetId = (added.structuredContent as { assetId: string }).assetId;
-    const listed = await call('list_library', { kind: 'image' });
-    expect((listed.structuredContent as { assets: Array<{ id: string }> }).assets.map((a) => a.id))
-      .toContain(assetId);
-    const imp = await call('import_from_library', { assetId });
-    expect(imp.isError).toBeFalsy();
-    const sc = imp.structuredContent as { kind?: string; assetPath?: string; mediaId?: string };
-    expect(sc.kind).toBe('image');
-    expect(sc.assetPath).toMatch(/^assets\//);
-    expect(sc.mediaId).toBeUndefined();
-  }, 60_000);
+it('image asset：list_library 可過濾、import_from_library 回 assetPath 而非 mediaId', async () => {
+  await runFfmpeg([
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=red:size=8x8:duration=0.1',
+    '-frames:v',
+    '1',
+    join(srcDir, 'logo.png'),
+  ]);
+  const added = await call('add_to_library', { path: join(srcDir, 'logo.png'), label: 'logo' });
+  expect(added.isError).toBeFalsy();
+  const assetId = (added.structuredContent as { assetId: string }).assetId;
+  const listed = await call('list_library', { kind: 'image' });
+  expect(
+    (listed.structuredContent as { assets: Array<{ id: string }> }).assets.map((a) => a.id),
+  ).toContain(assetId);
+  const imp = await call('import_from_library', { assetId });
+  expect(imp.isError).toBeFalsy();
+  const sc = imp.structuredContent as { kind?: string; assetPath?: string; mediaId?: string };
+  expect(sc.kind).toBe('image');
+  expect(sc.assetPath).toMatch(/^assets\//);
+  expect(sc.mediaId).toBeUndefined();
+}, 60_000);
 ```
 
 - [ ] **Step 3: 跑紅**，**Step 4: 實作**：
@@ -375,14 +459,14 @@ describe('phase 2 routes', () => {
 `import_from_library`：outputSchema 加 `kind: z.string().optional(), assetPath: z.string().optional()`，`mediaId` 改 optional；handler 在 `prepareFromLibrary` 之前：
 
 ```ts
-        const a = library!.get(assetId);
-        if (a?.kind === 'image') {
-          const rel = await importImageToProject(projectDir, library!, a);
-          return result(
-            { kind: 'image', assetPath: rel },
-            `copied ${assetId} into the project as ${rel} — place it with add_overlay (imagePath: "${rel}")`,
-          );
-        }
+const a = library!.get(assetId);
+if (a?.kind === 'image') {
+  const rel = await importImageToProject(projectDir, library!, a);
+  return result(
+    { kind: 'image', assetPath: rel },
+    `copied ${assetId} into the project as ${rel} — place it with add_overlay (imagePath: "${rel}")`,
+  );
+}
 ```
 
 instructions 那句（第一期插入的）在 `update_library_asset renames/retags one already there. ` 之後補：`'Image assets import as overlay material: import_from_library returns an assetPath — place it with add_overlay, not on the clip track. '`
@@ -395,12 +479,14 @@ instructions 那句（第一期插入的）在 `update_library_asset renames/ret
 ### Task 4: Media 分頁骨架（App.tsx + MediaPanel 殼 + 三區子切換）
 
 **Files:**
+
 - Modify: `ui/src/App.tsx`
 - Create: `ui/src/panels/MediaPanel.tsx`
 - Modify: `ui/DESIGN.md`（右欄分頁敘述那段：兩分頁 → 三分頁）
 - Test: `ui/src/panels/MediaPanel.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `useProject`／`.seg`／`.panel-col`／`.panel-bar`／`.panel-body` class、GSAP 分頁動畫（吃 `tab` 值，零改動）
 - Produces: `App.tsx` 的 `tab` union 加 `'media'`＋分頁列第三顆 `.seg` 按鈕（放 Captions 之前——媒體在工作流順序上先於字幕；badge 顯示 `doc.media.length`，>0 才顯示，照 Captions 範本）；`MediaPanel` 內部子區切換 `useState<'project' | 'library' | 'source'>('project')`，子區列同樣用 `.seg`（小一號靠 `fontSize` 不動——`.seg` 本身即可，DESIGN.md 允許同 class 兩層）
 
@@ -446,12 +532,27 @@ export function MediaPanel() {
   return (
     <div className="panel-col" style={{ minWidth: 0 }}>
       <div className="panel-bar" style={{ gap: 4 }}>
-        <button className={`seg${zone === 'project' ? ' on' : ''}`} title="Project media"
-          onClick={() => setZone('project')}>Project</button>
-        <button className={`seg${zone === 'library' ? ' on' : ''}`} title="Library"
-          onClick={() => setZone('library')}>Library</button>
-        <button className={`seg${zone === 'source' ? ' on' : ''}`} title="Source folder"
-          onClick={() => setZone('source')}>Folder</button>
+        <button
+          className={`seg${zone === 'project' ? ' on' : ''}`}
+          title="Project media"
+          onClick={() => setZone('project')}
+        >
+          Project
+        </button>
+        <button
+          className={`seg${zone === 'library' ? ' on' : ''}`}
+          title="Library"
+          onClick={() => setZone('library')}
+        >
+          Library
+        </button>
+        <button
+          className={`seg${zone === 'source' ? ' on' : ''}`}
+          title="Source folder"
+          onClick={() => setZone('source')}
+        >
+          Folder
+        </button>
       </div>
       {zone === 'project' && <ProjectMediaZone />}
       {zone === 'library' && <LibraryZone />}
@@ -466,12 +567,9 @@ export function MediaPanel() {
 `App.tsx`：`useState<'captions' | 'properties'>` → 加 `'media'`；分頁列在 Captions 前插：
 
 ```tsx
-                <button
-                  className={`seg${tab === 'media' ? ' on' : ''}`}
-                  onClick={() => setTab('media')}
-                >
-                  Media {mediaCount > 0 && <span className="badge">{mediaCount}</span>}
-                </button>
+<button className={`seg${tab === 'media' ? ' on' : ''}`} onClick={() => setTab('media')}>
+  Media {mediaCount > 0 && <span className="badge">{mediaCount}</span>}
+</button>
 ```
 
 （`const mediaCount = doc?.media.length ?? 0;` 加在 `captionCount` 旁。）內容區三元改三分支（Media 分支 `<MediaPanel />`，走 CaptionList 同款「內部自帶 panel-col 自己捲」契約）。
@@ -486,10 +584,12 @@ export function MediaPanel() {
 ### Task 5: 專案媒體區（列表＋加到時間軸＋反向沉澱）
 
 **Files:**
+
 - Modify: `ui/src/panels/MediaPanel.tsx`（`ProjectMediaZone` 真身）
 - Test: `ui/src/panels/MediaPanel.test.tsx`（新增）
 
 **Interfaces:**
+
 - Consumes: `useProject`（`doc.media`——**fallback 用模組級常數 `NO_MEDIA`**）、`sendCommand`（`addClip`／`setAudio`）、`usePlayback`（playhead）、Task 2 `POST /api/library/from-media`
 - Produces: 每列——filmstrip 首格縮圖（`/media/${m.filmstripPath}`，`background-size` 用 `filmstripTiles` 換算取第一格；audio-only 顯示 `Music` icon 13px）＋label＋`mono` 時長＋來自素材庫的 `tag` 掛標（`m.meta?.libraryId` 存在時顯示 `lib`）＋兩顆 `icon-btn`：**Add**（video → `sendCommand({name:'addClip', mediaId, in:0, duration: m.probe.duration})`；audio-only → `sendCommand({name:'setAudio', audio:[...現有 audio, 新 AudioItem]})`，start=playhead、volume 1）與 **Save to library**（`POST /api/library/from-media`，成功/已存在都 `useToast` 提示 `Saved to library` / `Already in library`）。**兩顆都不 select**。空清單 `empty-note`：`No media yet. Import from the Folder tab or ask the AI.`
 
@@ -503,10 +603,12 @@ export function MediaPanel() {
 ### Task 6: 素材庫區（搜尋／上傳／匯入／標籤／刪除）
 
 **Files:**
+
 - Modify: `ui/src/panels/MediaPanel.tsx`（`LibraryZone` 真身；檔案若超過 ~400 行就把三區拆成 `MediaPanel/` 目錄三檔——以計畫的檔案結構原則為準，拆了要在 report 說明）
 - Test: `ui/src/panels/MediaPanel.test.tsx`（新增）
 
 **Interfaces:**
+
 - Consumes: `GET /api/library?query=&tag=`、`POST /api/library?name=&label=&tags=`（**`body: file` 直接傳 File 物件**——不 arrayBuffer，讓瀏覽器串流；這正是後端刻意串流化的原因）、`POST /api/library/:id/import`、`PATCH`／`DELETE /api/library/:id`、`sendCommand addOverlay`（image 匯入後放 playhead、3s、頂部置中——照 Toolbar `addOverlayFile` 參數）
 - Produces:
   - 頂列：`<input placeholder="Search library">`（300ms debounce 重查，模組級 timer 照 CaptionList `schedulePreview` 款式）＋上傳鈕（`<input type="file" multiple accept="video/*,audio/*,image/*,.mkv">` 隱藏、icon-btn 觸發；逐檔序列上傳，進度用 toast）
@@ -520,10 +622,12 @@ export function MediaPanel() {
 ### Task 7: 素材夾區（掃描＋勾選匯入＋直接入庫）
 
 **Files:**
+
 - Modify: `ui/src/panels/MediaPanel.tsx`（`SourceFolderZone` 真身）
 - Test: `ui/src/panels/MediaPanel.test.tsx`（新增）
 
 **Interfaces:**
+
 - Consumes: `GET /api/source?dir=`、`POST /api/import`（body `{dir, names[], addToTimeline?}`）、Task 2 `POST /api/library/from-path`
 - Produces: dir 輸入列（`mono` input＋Scan 鈕；**值存 `localStorage['vidcut.sourceDir']`**，掛載時回填自動掃）；結果列表（`rowline`：檔名＋`mono` 大小 MB＋`imported` 掛 `tag`）＋checkbox 多選＋底列 `Import selected` 鈕（POST /api/import，完成後 toast 成功/失敗數）＋每列 icon-btn `Save to library`（`POST /api/library/from-path`，path=`join` 語意在前端用 `${dir}/${name}` 組——後端 basename 消毒已存在）。錯誤（目錄不存在）顯示 `empty-note` 帶 server 錯字。**匯入後不 select。**
 
@@ -534,12 +638,14 @@ export function MediaPanel() {
 ### Task 8: verify:panels case + 文件同步 + 全套驗證
 
 **Files:**
+
 - Modify: `ui/e2e/panel-affordance.mjs`（新增 Media 分頁 cases）
 - Modify: `HANDOFF.md`／`docs/ROADMAP.md`／`README.md`／`README.zh-TW.md`（素材匯入階段 2 收掉、Media 面板落地、圖片入庫）；`docs/superpowers/specs/2026-08-21-asset-library-design.md` 檔尾加**帶日期補記**（不改正文——歷史文件紀律）：「2026-08-25 補記：導言『影／音／圖』與白名單的矛盾以第二期決策收斂——圖片以 `kind:'image'` 入庫、匯入專案走 image overlay；『靜圖上主軌』另案」
 
 **Steps:**
+
 - [ ] **Step 1: verify:panels 加 cases**（照 `clickable(title)` 模板；先驗前置再驗目標）：切到 Media 分頁（`click('Media')`？——分頁按鈕沒有 title，定位用文字：加一個 `await evalJs` 以 `.seg` 文字找按鈕點擊，或**給三顆 zone 按鈕的既有 title**（Project media/Library/Source folder）直接 `clickable(...)` ×3；再驗 Library zone 的上傳鈕與搜尋框存在且可命中。分頁主按鈕給 `title="Media"` 以便定位——Task 4 實作時就帶上）。
-  Run: `npx tsx server/src/index.ts projects/demo`（另終端）＋ `npm run build -w @vidcut/ui` ＋ `npm run verify:panels`，Expected: 全綠（含既有 cases）
+      Run: `npx tsx server/src/index.ts projects/demo`（另終端）＋ `npm run build -w @vidcut/ui` ＋ `npm run verify:panels`，Expected: 全綠（含既有 cases）
 - [ ] **Step 2: docs-sync-review skill** 走完整文件矩陣（上列檔案是起點不是上限）。
 - [ ] **Step 3: `npm run format` → commit 格式修正 → `bash scripts/gauntlet.sh`**（期間不 commit；等 `GAUNTLET: 全數通過`）。⚠️ 第一期教訓：format 要**先 commit** 再跑 gauntlet，突變層還原會洗掉未 commit 的格式修正。
 - [ ] **Step 4: Commit** — `docs: asset library phase 2 — Media panel + image kind sync`

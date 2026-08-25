@@ -87,7 +87,7 @@ npm run demo                   # scaffolds the demo project and starts the serve
 
 Open **http://127.0.0.1:3845**. **No footage needed to try it** — `npm run demo` synthesizes five vertical clips with ffmpeg (one deliberately silent), a title overlay, and two captions.
 
-> **Your own footage goes in through the AI, not the UI.** There is no import button yet (a Media panel is on the [roadmap](docs/ROADMAP.md)) — you point your agent at a folder and it calls `import_media`, which references files in place without copying them. There's also a cross-project **asset library** (`~/.vidcut/library/`) for stuff you reuse across projects — intros, BGM — add it once, reference it from any project. The AI side (`list_library` / `add_to_library` / `import_from_library`) already works; a browsing panel in the UI is still on the roadmap too. So set up the MCP connection below before you bring your own clips.
+> **Your own footage goes in either way.** The right panel's **Media** tab has three zones: Project media (what's already in this project — add to timeline, save to library), Library (search, upload, import, retag, delete — the cross-project **asset library** at `~/.vidcut/library/`, for stuff you reuse across projects like intros or BGM), and Source folder (scan a directory, check files, batch-import). Or point your agent at a folder and it calls `import_media`, which references files in place without copying them — same asset library on the AI side via `list_library` / `add_to_library` / `import_from_library`. Note: the Source folder zone only lists video/audio (its extension whitelist excludes images); images go in through the Library zone's upload button or the AI's `add_to_library`, and import into a project as an overlay rather than a timeline clip.
 
 > ⚠️ `npm run demo` _regenerates_ `projects/demo` every time. To serve an existing project without touching it:
 >
@@ -196,6 +196,7 @@ Honesty over marketing:
 
 - **Karaoke preview ≠ export, slightly.** Exported karaoke captions are correct (one card per word, single layer). The _preview_ composites two cards with a clip-path, which makes text strokes look marginally thicker (~1% of pixels differ; invisible in practice). Non-karaoke captions and all overlays are byte-identical between preview and export.
 - **Very short audio (≲4 s)** gets unreliable word timestamps from whisper.cpp; vidcut normalizes them, but expect less precision.
+- **The Media panel's Source folder zone doesn't list images.** Its extension whitelist covers video/audio only (folder scan and `import_media` are clip-track oriented); bring images in through the Library zone's upload button or the AI's `add_to_library` instead — they import as overlays, not timeline clips.
 - **Single project, single user, localhost** — by design, for now.
 
 ## Roadmap

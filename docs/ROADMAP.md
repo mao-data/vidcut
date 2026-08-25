@@ -17,10 +17,12 @@
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | 1    | `resolveMediaPath` 路徑語意、`scanSourceFolder`、`GET /api/source`、ingest 接受外部絕對路徑、`addClip` command、`POST /api/import`、MCP `import_media`                                                                                        | ✅ `main` + `list_source`、`add_clip` 補完 |
 | 2    | 跨專案素材庫**後端＋MCP**（`~/.vidcut/library/`，`VIDCUT_LIBRARY_DIR` 可覆寫）：內容定址入庫、零複製引用進專案、四支 MCP 工具 `list_library`／`add_to_library`／`import_from_library`／`update_library_asset`，五條 `/api/library*` HTTP 路由 | ✅（見 `HANDOFF.md`「跨專案素材庫」節）    |
-| 3    | 右側面板新增 `Media` 分頁：三區 UI（庫瀏覽/搜尋/加入時間軸、上傳入庫、專案素材反向沉澱入庫）——原案「素材夾掃描 → 勾選匯入」已併入這一期，見 spec「HTTP 路由與 UI」節                                                                          | 待實作（第二期）                           |
+| 3    | 右側面板新增 `Media` 分頁：三區 UI（庫瀏覽/搜尋/加入時間軸、上傳入庫、專案素材反向沉澱入庫）——原案「素材夾掃描 → 勾選匯入」已併入這一期，見 spec「HTTP 路由與 UI」節                                                                          | ✅（見 `HANDOFF.md`「跨專案素材庫」節）    |
 
-後端零複製能力 + MCP 工具已全部上線；跨專案素材庫的後端與 MCP 工具（階段 2）已落地，
-AI 端已可用完整素材庫、不必等 UI；剩下的是階段 3 的 `Media` 面板 UI。
+後端零複製能力 + MCP 工具已全部上線；跨專案素材庫的後端、MCP 工具與 `Media` 面板 UI
+（階段 1–3）皆已落地。已知限制：`IMAGE_EXTENSIONS` 不併入素材夾掃描白名單
+（`server/src/sourceFolder.ts`），Source folder zone 列不出圖片檔——圖片入庫走
+Library zone 上傳鈕或 AI 的 `add_to_library`。
 
 ### 字幕能力補完（源自 FreeCut 調研，2026-08-04）
 
