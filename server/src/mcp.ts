@@ -512,7 +512,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         "There is also a cross-project asset library holding the user's reusable media (logos, intros, BGM): " +
         'list_library searches it, import_from_library brings an asset into this project (look first, then take), ' +
         'add_to_library saves a local file (path) or an already-imported media (mediaId) there for future projects — ' +
-        'give a descriptive label and tags. Library writes bypass review locks and are not undoable; ' +
+        'give a descriptive label and tags. update_library_asset renames/retags one already there. ' +
+        'Library writes bypass review locks and are not undoable; ' +
         'import_from_library itself is a project write and obeys both. → ' +
         'set_timeline for the initial cut, or add_clip to append to the end of the main track (leaves existing clips alone) → ' +
         'timeline_op for rough cutting (split/deleteBefore/deleteAfter/freeze) → ' +

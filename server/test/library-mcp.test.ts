@@ -10,7 +10,6 @@ import { createMcpServer, type McpDeps } from '../src/mcp.js';
 import { TextCardService } from '../src/textCards.js';
 import { PillowRasterizer } from '../src/rasterizer.js';
 import { LibraryStore } from '../src/libraryStore.js';
-import { addToLibrary } from '../src/libraryIngest.js';
 import { makeVideo } from './fixtures.js';
 import { tmpDir } from './tmp.js';
 
