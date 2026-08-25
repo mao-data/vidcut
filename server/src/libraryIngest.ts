@@ -267,6 +267,17 @@ export async function importImageToProject(
 ): Promise<string /* relPath */> {
   const clean = basename(asset.file); // files/<hash>.<ext> 的 basename 不含使用者輸入
   const ext = extname(clean);
+  // svg 不得匯入為 overlay（上游裁決 R5）：render.ts 對 overlay 是直接 `-i` 餵給
+  // ffmpeg，多數 build 沒有內建 svg decoder；預覽（瀏覽器 <img>）看得到，匯出卻會
+  // 炸掉——正是「預覽即成品」保證要擋的那種延遲引爆。svg 仍可留在庫中（add_to_library
+  // 收，list_library 查得到），只是不能走這條「入專案當 overlay」的路。
+  if (ext.toLowerCase() === '.svg') {
+    throw new Error(
+      'svg cannot be imported as an overlay: ffmpeg cannot rasterize svg, so the export ' +
+        'would fail even though the browser preview renders it fine. The svg asset can stay ' +
+        'in the library, just not be placed on the timeline.',
+    );
+  }
   const stem = (asset.label || 'image').replace(/[^\w.\-一-鿿]/g, '_');
   await mkdir(join(projectDir, 'assets'), { recursive: true });
   let rel = join('assets', `${stem}${ext}`);

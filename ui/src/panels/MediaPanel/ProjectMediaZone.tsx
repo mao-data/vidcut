@@ -12,6 +12,7 @@ import { sendCommand } from '../../ws.js';
  * 在 doc 尚未載入時（每次冷載入）造成同步無限重渲染（React #185）。
  */
 const NO_MEDIA: MediaAsset[] = [];
+const NO_AUDIO: AudioItem[] = [];
 
 function fmtDuration(t: number): string {
   const m = Math.floor(t / 60);
@@ -37,7 +38,7 @@ function firstTileStyle(m: MediaAsset): CSSProperties {
  */
 export function ProjectMediaZone() {
   const media = useProject((s) => s.doc?.media ?? NO_MEDIA);
-  const audio = useProject((s) => s.doc?.tracks.audio ?? []);
+  const audio = useProject((s) => s.doc?.tracks.audio ?? NO_AUDIO);
 
   const addToTimeline = (m: MediaAsset) => {
     const audioOnly = m.probe.hasVideo === false;

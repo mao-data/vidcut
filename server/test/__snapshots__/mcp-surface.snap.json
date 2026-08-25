@@ -776,7 +776,7 @@
       }
     },
     {
-      "description": "Import a library asset into this project: its derivatives are copied in (no re-processing) and the file is referenced in place from the library (content-addressed, so the reference never breaks). Check with list_library first — look and take are two steps. Returns a mediaId. addToTimeline appends it to the end of the main track (audio-only assets are refused there — use set_audio instead, the import itself still succeeds). Image assets are different: they are copied into assets/ instead, and the result is { kind: \"image\", assetPath } (no mediaId, addToTimeline is ignored) — place them with add_overlay. This writes the project: review locks and ifVersion apply.",
+      "description": "Import a library asset into this project: its derivatives are copied in (no re-processing) and the file is referenced in place from the library (content-addressed, so the reference never breaks). Check with list_library first — look and take are two steps. Returns a mediaId. addToTimeline appends it to the end of the main track (audio-only assets are refused there — use set_audio instead, the import itself still succeeds). Image assets are different: they are copied into assets/ instead, and the result is { kind: \"image\", assetPath } (no mediaId, addToTimeline is ignored) — place them with add_overlay. This writes the project: review locks and ifVersion apply. Exception: svg image assets are refused here (ffmpeg cannot rasterize svg for export) — they can stay in the library but not be placed as an overlay.",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,

@@ -72,6 +72,30 @@ describe('library HTTP api', () => {
     server.close();
   }, 60_000);
 
+  it('POST /api/library：串流上傳一張 png 圖片入庫，回 kind:image 並落地 files/', async () => {
+    const { lib, srcDir, server, base } = await startTestServer();
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=blue:size=8x8:duration=0.1',
+      '-frames:v',
+      '1',
+      join(srcDir, 'logo.png'),
+    ]);
+    const body = await readFile(join(srcDir, 'logo.png'));
+    const res = await fetch(`${base}/api/library?name=logo.png`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body,
+    });
+    expect(res.status).toBe(200);
+    const { asset } = (await res.json()) as { asset: { kind: string; file: string } };
+    expect(asset.kind).toBe('image');
+    expect(existsSync(join(lib.dir, asset.file))).toBe(true);
+    server.close();
+  }, 60_000);
+
   it('PATCH 改 label/tags；未知 id 404；DELETE 清索引與檔案', async () => {
     const { lib, srcDir, server, base } = await startTestServer();
     await makeVideo(srcDir, 'a.mp4', { duration: 2 });

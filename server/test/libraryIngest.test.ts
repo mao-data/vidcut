@@ -4,7 +4,12 @@ import { readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { LibraryStore } from '../src/libraryStore.js';
-import { addToLibrary, hashFile, prepareFromLibrary } from '../src/libraryIngest.js';
+import {
+  addToLibrary,
+  hashFile,
+  prepareFromLibrary,
+  importImageToProject,
+} from '../src/libraryIngest.js';
 import { runFfmpeg } from '../src/ffmpeg.js';
 import { makeAudio, makeVideo } from './fixtures.js';
 import { tmpDir } from './tmp.js';
@@ -196,6 +201,13 @@ describe('addToLibrary: image kind', () => {
     });
     expect(asset.kind).toBe('image');
     expect(await readdir(join(libDir, 'files'))).toHaveLength(1);
+
+    // svg 仍可留在庫中（上面已入庫成功），但不得匯入為 overlay（上游裁決 R5）：
+    // ffmpeg 匯出時直接 -i 餵它多數 build 沒有 svg decoder，會炸——擋在匯入這一步。
+    const projDir = await tmpDir('vidcut-libing-proj-');
+    await expect(importImageToProject(projDir, lib, asset)).rejects.toThrow(
+      /svg cannot be imported as an overlay/,
+    );
   }, 30_000);
 
   it('prepareFromLibrary 拒絕 image kind', async () => {

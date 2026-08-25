@@ -36,6 +36,12 @@ function extOf(file: string): string {
   return i === -1 ? '' : file.slice(i);
 }
 
+/** svg 圖片不能匯入為 overlay（server importImageToProject 會丟錯，見該函式註解）——
+ *  UI 端提前擋，Import 鈕 disabled，避免使用者點了才被 400 打回來。 */
+function isSvg(a: LibraryRow): boolean {
+  return a.kind === 'image' && extOf(a.file).toLowerCase() === '.svg';
+}
+
 /** 縮圖：media→filmstrip 首格、audio→icon、image→本體圖檔。`<img draggable={false}>`（鐵則）。 */
 function LibraryThumb({ a }: { a: LibraryRow }) {
   const box: CSSProperties = {
@@ -297,9 +303,9 @@ export function LibraryZone() {
             </div>
             <button
               className="icon-btn"
-              title="Import"
+              title={isSvg(a) ? 'SVG cannot be placed as overlay' : 'Import'}
               aria-label="Import"
-              disabled={a.broken}
+              disabled={a.broken || isSvg(a)}
               onClick={() => void doImport(a)}
             >
               {a.kind === 'image' ? <ImageIcon size={13} /> : <Import size={13} />}

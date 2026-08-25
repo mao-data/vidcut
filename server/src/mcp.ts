@@ -1110,7 +1110,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'of the main track (audio-only assets are refused there — use set_audio instead, the import itself still ' +
         'succeeds). Image assets are different: they are copied into assets/ instead, and the result is ' +
         '{ kind: "image", assetPath } (no mediaId, addToTimeline is ignored) — place them with add_overlay. ' +
-        'This writes the project: review locks and ifVersion apply.',
+        'This writes the project: review locks and ifVersion apply. Exception: svg image assets are refused ' +
+        'here (ffmpeg cannot rasterize svg for export) — they can stay in the library but not be placed as an overlay.',
       outputSchema: {
         mediaId: z.string().optional(),
         kind: z.string().optional(),

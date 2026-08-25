@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { basename, extname, isAbsolute, join } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { ProjectStore } from './store.js';
-import { listSource, MEDIA_EXTENSIONS } from './sourceFolder.js';
+import { listSource, MEDIA_EXTENSIONS, IMAGE_EXTENSIONS } from './sourceFolder.js';
 import { ingestMedia } from './ingest.js';
 import { applyCommand } from './commands.js';
 import type { FontEntry } from './fonts.js';
@@ -180,9 +180,12 @@ export function createApp(
       }
       const clean = basename(q(req, 'name') ?? '');
       const ext = extname(clean).toLowerCase();
-      if (!clean || !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
+      // 上傳入庫收影音（MEDIA_EXTENSIONS）與圖片（IMAGE_EXTENSIONS）兩種——圖片走
+      // addToLibrary 的 kind:'image' 分流（見該函式），不是這裡的職責範圍。
+      const uploadExtensions: readonly string[] = [...MEDIA_EXTENSIONS, ...IMAGE_EXTENSIONS];
+      if (!clean || !uploadExtensions.includes(ext)) {
         res.status(400).json({
-          error: `need ?name= with a supported extension (${MEDIA_EXTENSIONS.join(' ')})`,
+          error: `need ?name= with a supported media or image extension (${uploadExtensions.join(' ')})`,
         });
         return;
       }

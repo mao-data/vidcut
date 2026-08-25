@@ -477,6 +477,39 @@ describe('LibraryZone', () => {
     expect(importBtn.disabled).toBe(true);
   });
 
+  it('svg asset disables Import (svg cannot be placed as overlay)', async () => {
+    stubFetch((url) => {
+      if (url === '/api/library') {
+        return jsonOk({
+          assets: [
+            {
+              id: 'lib-svg',
+              kind: 'image',
+              hash: 'hashsvg',
+              file: 'files/hashsvg.svg',
+              probe: { duration: 0, width: 0, height: 0, fps: 0, hasAudio: false, rotation: 0 },
+              label: 'Icon',
+              tags: [],
+              origin: { type: 'upload' },
+              addedAt: '2026-08-25T00:00:00.000Z',
+              broken: false,
+            },
+          ],
+        });
+      }
+      return jsonOk({ assets: [] });
+    });
+    seedProject();
+    const container = await openLibrary();
+    await waitFor(() => expect(container.textContent).toContain('Icon'));
+    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+      r.textContent?.includes('Icon'),
+    )!;
+    const importBtn = row.querySelector<HTMLButtonElement>('button[aria-label="Import"]')!;
+    expect(importBtn.disabled).toBe(true);
+    expect(importBtn.title).toBe('SVG cannot be placed as overlay');
+  });
+
   it('double-click label enters edit mode; Enter commits a PATCH and requeries', async () => {
     const fetchMock = stubFetch((url, init) => {
       if (url === '/api/library') return jsonOk({ assets: libraryListing() });
