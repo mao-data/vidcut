@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { ProjectStore } from '../src/store.js';
 import { LibraryStore } from '../src/libraryStore.js';
-import { addToLibrary, hashFile } from '../src/libraryIngest.js';
+import { addToLibrary, hashFile, prepareFromLibrary } from '../src/libraryIngest.js';
+import { runFfmpeg } from '../src/ffmpeg.js';
 import { makeAudio, makeVideo } from './fixtures.js';
 import { tmpDir } from './tmp.js';
 
@@ -121,4 +123,79 @@ describe('addToLibrary', () => {
     const fresh = await LibraryStore.load(libDir);
     expect(fresh.list()).toHaveLength(1); // 只有一筆，沒有重複 hash 條目
   }, 60_000);
+});
+
+describe('addToLibrary: image kind', () => {
+  it('png 入庫：kind=image、無 derived、probe 帶尺寸', async () => {
+    const { lib, srcDir, libDir } = await setup();
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:size=320x240:duration=0.1',
+      '-frames:v',
+      '1',
+      join(srcDir, 'logo.png'),
+    ]);
+    const { asset } = await addToLibrary(lib, join(srcDir, 'logo.png'), {
+      label: '品牌 logo',
+      tags: ['brand'],
+      origin: { type: 'source' },
+    });
+    expect(asset.kind).toBe('image');
+    expect(asset.file).toBe(join('files', `${asset.hash}.png`));
+    expect(asset.probe.width).toBe(320);
+    expect(asset.probe.height).toBe(240);
+    expect(asset.probe.duration).toBe(0);
+    expect(existsSync(join(libDir, 'derived', asset.hash))).toBe(false); // 圖片零 derived
+    expect(lib.list({ kind: 'image' })).toHaveLength(1);
+    expect(lib.list({ kind: 'media' })).toHaveLength(0);
+  }, 30_000);
+
+  it('圖片同內容冪等去重；壞圖（副檔名對、內容爛）拒收零殘留', async () => {
+    const { lib, srcDir, libDir } = await setup();
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:size=8x8:duration=0.1',
+      '-frames:v',
+      '1',
+      join(srcDir, 'a.png'),
+    ]);
+    const first = await addToLibrary(lib, join(srcDir, 'a.png'), { origin: { type: 'source' } });
+    const { copyFile } = await import('node:fs/promises');
+    await copyFile(join(srcDir, 'a.png'), join(srcDir, 'b.png'));
+    const second = await addToLibrary(lib, join(srcDir, 'b.png'), { origin: { type: 'source' } });
+    expect(second.existing).toBe(true);
+    expect(second.asset.id).toBe(first.asset.id);
+    await writeFile(join(srcDir, 'junk.png'), 'not an image');
+    await expect(
+      addToLibrary(lib, join(srcDir, 'junk.png'), { origin: { type: 'source' } }),
+    ).rejects.toThrow();
+    expect(await readdir(join(libDir, 'files'))).toHaveLength(1); // 只有 a.png 那筆
+  }, 30_000);
+
+  it('prepareFromLibrary 拒絕 image kind', async () => {
+    const { lib, srcDir } = await setup();
+    await runFfmpeg([
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:size=8x8:duration=0.1',
+      '-frames:v',
+      '1',
+      join(srcDir, 'a.png'),
+    ]);
+    const { asset } = await addToLibrary(lib, join(srcDir, 'a.png'), {
+      origin: { type: 'source' },
+    });
+    // 上游裁決：不碰 store 私有欄位——用 tmpDir 建 projDir，projDir 直接傳給 prepareFromLibrary
+    // （與 import-from-library.test.ts 的 setup() 同一套慣例）。
+    const projDir = await tmpDir('vidcut-libimg-proj-');
+    const store = await ProjectStore.load(join(projDir, 'project.json'));
+    await expect(prepareFromLibrary(store, projDir, lib, asset.id)).rejects.toThrow(
+      'cannot be imported as media',
+    );
+  }, 30_000);
 });

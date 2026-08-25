@@ -16,6 +16,13 @@ export const MEDIA_EXTENSIONS = [
   '.aac',
 ] as const;
 
+/**
+ * 素材庫可收的圖片副檔名（小寫比對）。與 mograph assets 白名單同一組。
+ * 刻意**不**併入 MEDIA_EXTENSIONS：素材夾掃描與 import_media 只認影音——
+ * 圖片在專案裡是 overlay 素材不是 clip（「靜圖上主軌」另案）。
+ */
+export const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.svg'] as const;
+
 export interface SourceFile {
   name: string;
   size: number;

@@ -5,10 +5,10 @@ import { basename, dirname, extname, join } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { LibraryAsset, ProbeInfo, MediaAsset } from '@vidcut/shared';
 import { filmstripPlan } from '@vidcut/shared';
-import { probe } from './ffmpeg.js';
+import { probe, runFfprobe } from './ffmpeg.js';
 import { writeFilmstrip, writePeaks, writeProxy, type PreparedMedia } from './ingest.js';
 import { resolveMediaPath } from './paths.js';
-import { MEDIA_EXTENSIONS } from './sourceFolder.js';
+import { IMAGE_EXTENSIONS, MEDIA_EXTENSIONS } from './sourceFolder.js';
 import type { LibraryStore } from './libraryStore.js';
 import type { ProjectStore } from './store.js';
 
@@ -17,6 +17,34 @@ export async function hashFile(abs: string): Promise<string> {
   const h = createHash('sha256');
   for await (const chunk of createReadStream(abs)) h.update(chunk as Buffer);
   return h.digest('hex');
+}
+
+/**
+ * 圖片尺寸（資訊性）。svg 等 ffprobe 量不到尺寸的回 0×0——匯入分流看 kind，
+ * 不靠這裡的數值；ffprobe 完全失敗（壞圖，非 svg）才視為壞檔丟錯，
+ * 在任何落地之前擋下（與 probe() 對影音壞檔的把關同一個位置）。
+ */
+async function probeImageSize(abs: string): Promise<{ width: number; height: number }> {
+  try {
+    const out = await runFfprobe([
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=width,height',
+      '-of',
+      'json',
+      abs,
+    ]);
+    const s = (JSON.parse(out) as { streams?: Array<{ width?: number; height?: number }> })
+      .streams?.[0];
+    if (!s?.width || !s?.height) throw new Error('no dimensions');
+    return { width: s.width, height: s.height };
+  } catch {
+    if (extname(abs).toLowerCase() === '.svg') return { width: 0, height: 0 };
+    throw new Error(`not a decodable image: ${abs}`);
+  }
 }
 
 export interface AddToLibraryOpts {
@@ -66,7 +94,8 @@ export async function addToLibrary(
   opts: AddToLibraryOpts,
 ): Promise<{ asset: LibraryAsset; existing: boolean }> {
   const ext = extname(absPath).toLowerCase();
-  if (!(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
+  const isImage = (IMAGE_EXTENSIONS as readonly string[]).includes(ext);
+  if (!isImage && !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
     throw new Error(`unsupported extension: ${ext || '(none)'}`);
   }
   const hash = await hashFile(absPath);
@@ -75,18 +104,23 @@ export async function addToLibrary(
     if (opts.move) await rm(absPath, { force: true }); // 上傳暫存檔：內容已在庫中，收掉
     return { asset: dup, existing: true };
   }
-  const info = await probe(absPath); // 壞檔在任何落地之前就擋下
+  // probe 分流：影音走 ffprobe 全量（既有 probe()），圖片走尺寸探測（probeImageSize）。
+  // 兩者都在任何落地之前跑，壞檔（含副檔名對但內容爛的圖）在這裡就被擋下。
+  const info: ProbeInfo = isImage
+    ? { duration: 0, ...(await probeImageSize(absPath)), fps: 0, hasAudio: false, rotation: 0 }
+    : await probe(absPath);
   const fileRel = join('files', `${hash}${ext}`);
   const fileAbs = join(lib.dir, fileRel);
   const derivedAbs = join(lib.dir, 'derived', hash);
   try {
     if (opts.move) await rename(absPath, fileAbs);
     else await copyFile(absPath, fileAbs);
-    // derived 一律以庫內那份為來源——它才是之後被引用的檔
-    await buildLibraryDerivatives(fileAbs, derivedAbs, info);
+    // derived 一律以庫內那份為來源——它才是之後被引用的檔。
+    // 圖片零 derived：檔案本身即縮圖（/library/files/<hash><ext> 直接可用）。
+    if (!isImage) await buildLibraryDerivatives(fileAbs, derivedAbs, info);
     const asset: LibraryAsset = {
       id: `lib-${nanoid(8)}`,
-      kind: 'media',
+      kind: isImage ? 'image' : 'media',
       hash,
       file: fileRel,
       probe: info,
@@ -139,6 +173,13 @@ export async function prepareFromLibrary(
   await lib.reload(); // 這個工作區常態多 session 同開：讀入口先 reload 才看得到別的 session 剛入庫的 asset
   const a = lib.get(assetId);
   if (!a) throw new Error(`no library asset ${assetId}`);
+  if (a.kind === 'image') {
+    // 圖片在專案裡是 overlay 素材，不是 clip：這個函式產出的是 MediaAsset
+    // （media track 用），圖片匯入走另一條路（image import path，第二期 UI 待接）。
+    throw new Error(
+      `image asset ${assetId} cannot be imported as media; use the image import path (it becomes an overlay)`,
+    );
+  }
   const srcAbs = lib.fileAbs(a);
   try {
     await stat(srcAbs); // broken（files/ 缺檔）：ENOENT 直接擋在任何落地之前

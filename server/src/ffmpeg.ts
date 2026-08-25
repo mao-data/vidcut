@@ -24,6 +24,17 @@ export async function runFfmpeg(args: string[]): Promise<void> {
   await run('ffmpeg', ['-hide_banner', '-y', ...args]);
 }
 
+/**
+ * 直接跑 ffprobe、回傳原始 stdout。`probe()` 內部量測影音走固定的輸出形狀，
+ * 圖片尺寸探測（probeImageSize，libraryIngest.ts）需要自訂 -show_entries，
+ * 所以另開這個瘦身版而不是硬塞進 probe() 的介面。非零 exit 由 run() 丟錯——
+ * 壞圖（副檔名對、內容爛）就是靠這裡的丟錯擋下。
+ */
+export async function runFfprobe(args: string[]): Promise<string> {
+  const { stdout } = await run('ffprobe', args);
+  return stdout;
+}
+
 interface FfprobeStream {
   codec_type: string;
   codec_name?: string;

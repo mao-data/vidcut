@@ -2,6 +2,10 @@
 // JSON-safe：不得出現 Infinity/undefined（overlay 的「到片尾」用 duration: null 表示）。
 
 export interface ProbeInfo {
+  /**
+   * image kind 的 probe 是資訊性尺寸（duration/fps 固定為 0）——匯入分流看的是
+   * LibraryAsset.kind，不是這裡的數值。
+   */
   duration: number;
   width: number;
   height: number;
@@ -59,8 +63,11 @@ export interface PeaksFile {
 export interface LibraryAsset {
   /** 'lib-' 前綴 + nanoid，永久穩定（專案 meta.libraryId 引用它） */
   id: string;
-  /** 第一階段只有 media；'font' | 'stylePreset' | 'mograph' 預留給後續獨立成案 */
-  kind: 'media';
+  /**
+   * 'image'＝2026-08-25 第二期新增：匯入專案走 image overlay，不是 clip；
+   * 'font' | 'stylePreset' | 'mograph' 仍預留給後續獨立成案。
+   */
+  kind: 'media' | 'image';
   /** sha256，同時是 files/ 與 derived/ 的定址鍵；一個 hash 只會有一筆 asset */
   hash: string;
   /** 庫內相對路徑，如 'files/<hash>.mp4' */
