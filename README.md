@@ -197,6 +197,7 @@ Honesty over marketing:
 - **Karaoke preview ≠ export, slightly.** Exported karaoke captions are correct (one card per word, single layer). The _preview_ composites two cards with a clip-path, which makes text strokes look marginally thicker (~1% of pixels differ; invisible in practice). Non-karaoke captions and all overlays are byte-identical between preview and export.
 - **Very short audio (≲4 s)** gets unreliable word timestamps from whisper.cpp; vidcut normalizes them, but expect less precision.
 - **The Media panel's Source folder zone doesn't list images.** Its extension whitelist covers video/audio only (folder scan and `import_media` are clip-track oriented); bring images in through the Library zone's upload button or the AI's `add_to_library` instead — they import as overlays, not timeline clips.
+- **SVG library assets can't be placed as overlays.** They can still be uploaded to and kept in the library, but importing one into a project is refused — ffmpeg can't rasterize svg, so while the browser preview would render it fine, export would fail.
 - **Single project, single user, localhost** — by design, for now.
 
 ## Roadmap

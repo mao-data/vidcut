@@ -206,6 +206,8 @@ ui/       @vidcut/ui       React + Vite：時間軸、A/B 播放器、Inspector�
 - **Media 面板的 Source folder 區列不出圖片。** 它的副檔名白名單只認影音（素材夾掃描與
   `import_media` 走的是時間軸片段這條路）；圖片請改走 Library 區的上傳鈕或 AI 的
   `add_to_library`——它們匯入專案時是 overlay，不是時間軸片段。
+- **svg 素材庫檔案不能匯入為 overlay。** 仍可上傳並留在庫中，但匯入專案會被拒絕——
+  ffmpeg 無法光柵化 svg，瀏覽器預覽看得到，匯出卻會失敗。
 - **單專案、單使用者、僅限 localhost** —— 目前是刻意的設計。
 
 ## Roadmap
