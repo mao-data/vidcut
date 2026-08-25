@@ -2268,3 +2268,15 @@ aria-label);HANDOFF 同步。
 **誠實註記**:本功能未新增 mutants（純新增模組，未列入 `scripts/mutants.json`）；gauntlet 的 prettier 層寫回數個檔案的純格式重排，以獨立 style commit 收（見前一筆 commit）；cover-exists 與空字幕兩條分支無測試（brief 原文如此，已記於 SDD ledger）。
 
 **綁定 commit**:本段寫入時分支 HEAD 為 `daec937`（gauntlet 跑於 `591c781`＋上述 prettier 寫回的工作樹）。
+
+## 補記:跨專案素材庫 phase 1（後端＋MCP）（2026-08-25）
+
+功能:`server/src/libraryStore.ts`（跨專案素材庫 store，`~/.vidcut/library/`，`VIDCUT_LIBRARY_DIR` 可覆寫）、`server/src/libraryIngest.ts`（`hashFile`／`addToLibrary`／`prepareFromLibrary`）、五條 `/api/library*` HTTP 路由（上傳走串流）＋ `/library/files`／`/library/derived` 靜態掛載、四支 MCP 工具 `list_library`／`add_to_library`／`import_from_library`／`update_library_asset`。spec：`docs/superpowers/specs/2026-08-21-asset-library-design.md`。**UI 三區面板是第二期獨立計畫，本輪未做。**
+
+**行為→測試對映**:`server/test/libraryStore.test.ts` 8（load/list/get/byHash/updateAsset/removeAsset 形狀守衛/mutate 原子寫/損毀降級）；`server/test/libraryIngest.test.ts` 7（hashFile/addToLibrary 冪等與全有全無/buildLibraryDerivatives）；`server/test/import-from-library.test.ts` 5（prepareFromLibrary 零複製引用/derived 複製/lazy 重建/filmstripTiles 重算/meta 溯源）；`server/test/library-api.test.ts` 6（五條路由/503 降級/串流上傳）；`server/test/library-mcp.test.ts` 4（InMemoryTransport 真工具呼叫）；`mcp-surface-snapshot`／`mcp-docs-sync` 兩道閘門綠（snapshot 讀 diff 後 `-u`，工具數 34→38）。
+
+**gauntlet（於本 worktree、`f00f787`＋本包 docs 的 prettier 寫回後單次乾淨全跑，前後共跑兩次數字一致）**:tsc/lint/測試/隨機順序×2/突變錨點/文件引用/使用者面字串/秘密掃描皆 PASS；shared+server+ui 合計 **772 passed**；UI 覆蓋率 Statements 94.5%／Branches 91.52–91.53%／Functions 81.67%／Lines 94.5%；突變錨點 136/136；**135/135 mutants killed（+1 equivalent control 如預期存活：`store-revert-includes-derived`）**；`npm audit` 僅印修復提示、非硬性失敗關卡。
+
+**唯一紅燈（如實記，未修產品碼）**:`npm run format:check`（prettier）在 gauntlet 兩次執行中皆回 FAIL。逐檔核對：本包新增/修改的四份文件檔（`HANDOFF.md`／`README.md`／`README.zh-TW.md`／`docs/ROADMAP.md`）已 `prettier --write` 修好並複驗乾淨；仍紅的 9 個檔案——`server/src/app.ts`、`server/src/mcp.ts`、`server/test/{import-from-library,library-api,library-mcp,libraryIngest,libraryStore}.test.ts`（Task 1–6 的產品/測試碼）與 `docs/superpowers/plans/2026-08-21-asset-library-phase1.md`、`docs/superpowers/specs/2026-08-21-asset-library-design.md`（歷史計畫/spec 文件）——經 `git stash` 對照確認**在本 task 開始前、`f00f787` 這個 commit 當下就已經是這個格式狀態**，不是本輪新引入的迴歸；產品/測試碼修改超出「只動文件」授權範圍，歷史 spec/plan 文件依專案規則不得動，兩者皆留給 controller 裁決是否另開 task 補上 `prettier --write`。
+
+**綁定 commit**:本段寫入時分支 HEAD 為 `f00f787`（gauntlet 跑於 HEAD＋本輪 Task 7 文件變更的工作樹，尚未 commit 本段所述的文件變更本身）。

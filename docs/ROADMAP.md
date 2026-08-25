@@ -10,14 +10,17 @@
 
 ### 素材匯入：零複製引用 + 素材庫
 
-設計定案：`docs/superpowers/specs/2026-08-03-media-import-design.md`
+設計定案：`docs/superpowers/specs/2026-08-03-media-import-design.md`（零複製匯入）、
+`docs/superpowers/specs/2026-08-21-asset-library-design.md`（跨專案素材庫）。
 
-| 階段 | 內容                                                                                                                                                   | 狀態                                       |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
-| 1    | `resolveMediaPath` 路徑語意、`scanSourceFolder`、`GET /api/source`、ingest 接受外部絕對路徑、`addClip` command、`POST /api/import`、MCP `import_media` | ✅ `main` + `list_source`、`add_clip` 補完 |
-| 2    | 右側面板新增 `Media` 分頁：素材夾掃描 → 勾選匯入 → 已匯入清單 → 加到時間軸                                                                             | 待實作                                     |
+| 階段 | 內容                                                                                                                                                                                                                                          | 狀態                                       |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| 1    | `resolveMediaPath` 路徑語意、`scanSourceFolder`、`GET /api/source`、ingest 接受外部絕對路徑、`addClip` command、`POST /api/import`、MCP `import_media`                                                                                        | ✅ `main` + `list_source`、`add_clip` 補完 |
+| 2    | 跨專案素材庫**後端＋MCP**（`~/.vidcut/library/`，`VIDCUT_LIBRARY_DIR` 可覆寫）：內容定址入庫、零複製引用進專案、四支 MCP 工具 `list_library`／`add_to_library`／`import_from_library`／`update_library_asset`，五條 `/api/library*` HTTP 路由 | ✅（見 `HANDOFF.md`「跨專案素材庫」節）    |
+| 3    | 右側面板新增 `Media` 分頁：三區 UI（庫瀏覽/搜尋/加入時間軸、上傳入庫、專案素材反向沉澱入庫）——原案「素材夾掃描 → 勾選匯入」已併入這一期，見 spec「HTTP 路由與 UI」節                                                                          | 待實作（第二期）                           |
 
-後端零複製能力 + MCP 工具已全部上線；MCP 面原先階段 1 完成時仍有空白（`import_media` 掛、`add_clip` 缺），現已補完。
+後端零複製能力 + MCP 工具已全部上線；跨專案素材庫的後端與 MCP 工具（階段 2）已落地，
+AI 端已可用完整素材庫、不必等 UI；剩下的是階段 3 的 `Media` 面板 UI。
 
 ### 字幕能力補完（源自 FreeCut 調研，2026-08-04）
 

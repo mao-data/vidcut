@@ -87,7 +87,7 @@ npm run demo                   # 建立 demo 專案並啟動 server
 
 打開 **http://127.0.0.1:3845**。**不需要準備任何素材就能試** —— `npm run demo` 會用 ffmpeg 合成五支直式影片（其中一支故意沒有音軌）、一個標題 overlay 和兩條字幕。
 
-> **自己的素材是走 AI 進來的，不是 UI。** 目前沒有匯入按鈕（Media 面板還在[藍圖](docs/ROADMAP.md)上）—— 你把素材夾告訴 agent，它呼叫 `import_media`，原檔留在原地不複製。所以要放自己的片子之前，先把下面的 MCP 接起來。
+> **自己的素材是走 AI 進來的，不是 UI。** 目前沒有匯入按鈕（Media 面板還在[藍圖](docs/ROADMAP.md)上）—— 你把素材夾告訴 agent，它呼叫 `import_media`，原檔留在原地不複製。也有一個跨專案的**素材庫**（`~/.vidcut/library/`，片頭/BGM 這類重複用的素材放這裡一次，之後每個專案都能直接引用）——AI 端 `list_library`／`add_to_library`／`import_from_library` 已經可用，UI 瀏覽面板同樣還在藍圖上。所以要放自己的片子之前，先把下面的 MCP 接起來。
 
 > ⚠️ `npm run demo` 每次都會*重新產生* `projects/demo`。要載入既有專案而不動它：
 >
@@ -150,20 +150,21 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 
 ## MCP 工具
 
-34 個工具，依用途分組：
+38 個工具，依用途分組：
 
-| 分組           | 工具                                                                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **讀取與脈絡** | `get_project` · `get_history` · `get_feedback` · `get_editor_context`（使用者當前選取與 playhead）· `get_frame`（看時刻 t 的畫面）· `list_source` |
-| **素材**       | `import_media`（可直接給絕對路徑，零複製）                                                                                                        |
-| **時間軸**     | `set_timeline` · `add_clip` · `update_clip` · `reorder_clips` · `remove_clip` · `timeline_op`（split / deleteBefore / deleteAfter / freeze）      |
-| **字幕**       | `transcribe`（逐詞時間戳）· `auto_caption`（一步到位 ASR → 字幕）· `set_captions` · `update_caption`                                              |
-| **Overlay**    | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                              |
-| **音訊**       | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                   |
-| **畫布與輸出** | `set_canvas_fit`（letterbox / blur）· `set_cover` · `render` · `export_publish_package`（手動上傳發佈包）                                         |
-| **歷史**       | `undo` · `redo`                                                                                                                                   |
-| **人在迴路**   | `request_review`                                                                                                                                  |
-| **聊天**       | `post_chat`（向審核你工作的人留言）· `get_chat`（讀取對方的回覆）                                                                                 |
+| 分組           | 工具                                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **讀取與脈絡** | `get_project` · `get_history` · `get_feedback` · `get_editor_context`（使用者當前選取與 playhead）· `get_frame`（看時刻 t 的畫面）· `list_source`                                      |
+| **素材**       | `import_media`（可直接給絕對路徑，零複製）                                                                                                                                             |
+| **素材庫**     | `list_library`（搜尋跨專案素材庫）· `add_to_library`（存本地檔或已匯入素材進庫，供未來專案重用）· `import_from_library`（把庫素材帶進當前專案）· `update_library_asset`（改名/改標籤） |
+| **時間軸**     | `set_timeline` · `add_clip` · `update_clip` · `reorder_clips` · `remove_clip` · `timeline_op`（split / deleteBefore / deleteAfter / freeze）                                           |
+| **字幕**       | `transcribe`（逐詞時間戳）· `auto_caption`（一步到位 ASR → 字幕）· `set_captions` · `update_caption`                                                                                   |
+| **Overlay**    | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                                                                   |
+| **音訊**       | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                                                        |
+| **畫布與輸出** | `set_canvas_fit`（letterbox / blur）· `set_cover` · `render` · `export_publish_package`（手動上傳發佈包）                                                                              |
+| **歷史**       | `undo` · `redo`                                                                                                                                                                        |
+| **人在迴路**   | `request_review`                                                                                                                                                                       |
+| **聊天**       | `post_chat`（向審核你工作的人留言）· `get_chat`（讀取對方的回覆）                                                                                                                      |
 
 server 內的工具描述是權威且永遠最新的參考文件——MCP client 會自動看到。
 

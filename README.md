@@ -87,7 +87,7 @@ npm run demo                   # scaffolds the demo project and starts the serve
 
 Open **http://127.0.0.1:3845**. **No footage needed to try it** — `npm run demo` synthesizes five vertical clips with ffmpeg (one deliberately silent), a title overlay, and two captions.
 
-> **Your own footage goes in through the AI, not the UI.** There is no import button yet (a Media panel is on the [roadmap](docs/ROADMAP.md)) — you point your agent at a folder and it calls `import_media`, which references files in place without copying them. So set up the MCP connection below before you bring your own clips.
+> **Your own footage goes in through the AI, not the UI.** There is no import button yet (a Media panel is on the [roadmap](docs/ROADMAP.md)) — you point your agent at a folder and it calls `import_media`, which references files in place without copying them. There's also a cross-project **asset library** (`~/.vidcut/library/`) for stuff you reuse across projects — intros, BGM — add it once, reference it from any project. The AI side (`list_library` / `add_to_library` / `import_from_library`) already works; a browsing panel in the UI is still on the roadmap too. So set up the MCP connection below before you bring your own clips.
 
 > ⚠️ `npm run demo` _regenerates_ `projects/demo` every time. To serve an existing project without touching it:
 >
@@ -150,20 +150,21 @@ Any other MCP client works the same way — point it at `http://127.0.0.1:3845/m
 
 ## MCP tools
 
-34 tools, grouped by what they touch:
+38 tools, grouped by what they touch:
 
-| Group                 | Tools                                                                                                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Read & context**    | `get_project` · `get_history` · `get_feedback` · `get_editor_context` (user's selection & playhead) · `get_frame` (see the canvas at time t) · `list_source` |
-| **Media**             | `import_media` (absolute paths welcome — zero-copy)                                                                                                          |
-| **Timeline**          | `set_timeline` · `add_clip` · `update_clip` · `reorder_clips` · `remove_clip` · `timeline_op` (split / deleteBefore / deleteAfter / freeze)                  |
-| **Captions**          | `transcribe` (word timestamps) · `auto_caption` (one-shot ASR → captions) · `set_captions` · `update_caption`                                                |
-| **Overlays**          | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                                         |
-| **Audio**             | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                              |
-| **Canvas & output**   | `set_canvas_fit` (letterbox / blur) · `set_cover` · `render` · `export_publish_package` (manual-upload package)                                              |
-| **History**           | `undo` · `redo`                                                                                                                                              |
-| **Human in the loop** | `request_review`                                                                                                                                             |
-| **Chat**              | `post_chat` (message the person reviewing your work) · `get_chat` (read their replies)                                                                       |
+| Group                 | Tools                                                                                                                                                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Read & context**    | `get_project` · `get_history` · `get_feedback` · `get_editor_context` (user's selection & playhead) · `get_frame` (see the canvas at time t) · `list_source`                                                                                     |
+| **Media**             | `import_media` (absolute paths welcome — zero-copy)                                                                                                                                                                                              |
+| **Asset library**     | `list_library` (search the cross-project library) · `add_to_library` (save a local file or already-imported media for future projects) · `import_from_library` (bring a library asset into this project) · `update_library_asset` (rename/retag) |
+| **Timeline**          | `set_timeline` · `add_clip` · `update_clip` · `reorder_clips` · `remove_clip` · `timeline_op` (split / deleteBefore / deleteAfter / freeze)                                                                                                      |
+| **Captions**          | `transcribe` (word timestamps) · `auto_caption` (one-shot ASR → captions) · `set_captions` · `update_caption`                                                                                                                                    |
+| **Overlays**          | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                                                                                                                             |
+| **Audio**             | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                                                                                                                  |
+| **Canvas & output**   | `set_canvas_fit` (letterbox / blur) · `set_cover` · `render` · `export_publish_package` (manual-upload package)                                                                                                                                  |
+| **History**           | `undo` · `redo`                                                                                                                                                                                                                                  |
+| **Human in the loop** | `request_review`                                                                                                                                                                                                                                 |
+| **Chat**              | `post_chat` (message the person reviewing your work) · `get_chat` (read their replies)                                                                                                                                                           |
 
 Tool descriptions in the server are the authoritative, always-current reference — MCP clients see them automatically.
 
