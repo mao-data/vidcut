@@ -100,4 +100,25 @@ describe('addToLibrary', () => {
     expect(existsSync(join(srcDir, 'a.mp4'))).toBe(false);
     expect(existsSync(lib.fileAbs(asset))).toBe(true);
   }, 60_000);
+
+  it('併發同內容入庫：B 的預檢快照是空的，仍被 mutate 內的權威檢查擋下（F2）', async () => {
+    const { libDir, srcDir } = await setup();
+    await makeVideo(srcDir, 'a.mp4', { duration: 2 });
+    // A、B 兩個獨立實例指同一庫目錄，模擬兩個 session
+    const a = await LibraryStore.load(libDir);
+    const b = await LibraryStore.load(libDir); // B 在 A 入庫「之前」就 load 完，快照為空
+    const { copyFile } = await import('node:fs/promises');
+    await copyFile(join(srcDir, 'a.mp4'), join(srcDir, 'b.mp4'));
+
+    const first = await addToLibrary(a, join(srcDir, 'a.mp4'), { origin: { type: 'source' } });
+    expect(first.existing).toBe(false);
+
+    // B 的 byHash 預檢用的是 load 時的舊快照（miss），必須靠 mutate 內部的權威檢查擋下
+    const second = await addToLibrary(b, join(srcDir, 'b.mp4'), { origin: { type: 'source' } });
+    expect(second.existing).toBe(true);
+    expect(second.asset.id).toBe(first.asset.id);
+
+    const fresh = await LibraryStore.load(libDir);
+    expect(fresh.list()).toHaveLength(1); // 只有一筆，沒有重複 hash 條目
+  }, 60_000);
 });

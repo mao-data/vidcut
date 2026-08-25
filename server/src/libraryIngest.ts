@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { copyFile, rename, rm, stat, cp } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { LibraryAsset, ProbeInfo, MediaAsset } from '@vidcut/shared';
 import { filmstripPlan } from '@vidcut/shared';
@@ -35,6 +35,8 @@ export interface AddToLibraryOpts {
  * 多燒一次轉檔，一次性、可接受（spec：derived 入庫時就生）。
  * 失敗清理由呼叫端（addToLibrary）負責——helper 本身不清目錄。
  * 同檔案內共用（prepareFromLibrary 的 lazy 重建呼叫）。
+ * 哨兵只防整批刪除：derived/<hash>/ 被部分刪除（peaks.json 還在、proxy 被個別
+ * 刪掉）不在保護範圍——prepareFromLibrary 只檢查 peaks.json 是否存在就判定完整。
  */
 async function buildLibraryDerivatives(
   abs: string,
@@ -93,9 +95,21 @@ export async function addToLibrary(
       origin: opts.origin,
       addedAt: new Date().toISOString(),
     };
+    // 權威去重：上面的 byHash 預檢只是省 ffmpeg 的快路徑，讀的是入函式時的快照，
+    // 併發時可能是空/過期的（兩個 session 同時對同內容 addToLibrary）。mutate 內部
+    // 先 #reload() 才套用 fn，所以這裡的 assets 是當下最新——命中就不 push，回既有
+    // asset。此時已落地的 fileAbs/derivedAbs 不必清：內容定址、同 hash 同路徑，
+    // 覆蓋寫入是冪等的，之後任何一個 session 再讀到的都是同一份內容。
+    let winner: LibraryAsset | undefined;
     await lib.mutate((assets) => {
+      const dupNow = assets.find((x) => x.hash === hash);
+      if (dupNow) {
+        winner = dupNow;
+        return;
+      }
       assets.push(asset);
     });
+    if (winner) return { asset: winner, existing: true };
     return { asset, existing: false };
   } catch (e) {
     await rm(fileAbs, { force: true });
@@ -111,6 +125,10 @@ export async function addToLibrary(
  * 與 prepareMedia 同一約定：**不寫文件**，登記交給呼叫端
  * （HTTP 走 applyCommand human、MCP 走 aiWrite 吃審核鎖）。
  * 冪等判斷同 prepareMedia：解析後絕對路徑相同 ⇒ 已匯入。
+ * 已知限制：回傳後、呼叫端登記（applyCommand/aiWrite）失敗時，這裡已經 cp 進
+ * 專案的 `derived/<id>/` 不會被自動清掉——呼叫端要收到失敗才知道要不要清，
+ * prepareFromLibrary 自己並不知道結果。呼叫端應在登記失敗分支呼叫
+ * `discardPrepared` 清掉；孤兒目錄本身無害（不會被任何 media 引用），只是佔空間。
  */
 export async function prepareFromLibrary(
   store: ProjectStore,
@@ -118,10 +136,18 @@ export async function prepareFromLibrary(
   lib: LibraryStore,
   assetId: string,
 ): Promise<PreparedMedia> {
+  await lib.reload(); // 這個工作區常態多 session 同開：讀入口先 reload 才看得到別的 session 剛入庫的 asset
   const a = lib.get(assetId);
   if (!a) throw new Error(`no library asset ${assetId}`);
   const srcAbs = lib.fileAbs(a);
-  await stat(srcAbs); // broken（files/ 缺檔）：ENOENT 直接擋在任何落地之前
+  try {
+    await stat(srcAbs); // broken（files/ 缺檔）：ENOENT 直接擋在任何落地之前
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`library asset ${assetId} is broken (file missing on disk): ${a.file}`);
+    }
+    throw e;
+  }
 
   const existing = store.doc.media.find((m) => resolveMediaPath(projectDir, m.path) === srcAbs);
   if (existing) return { existingId: existing.id };
@@ -157,4 +183,19 @@ export async function prepareFromLibrary(
     meta: { libraryId: a.id, libraryHash: a.hash },
   };
   return { asset };
+}
+
+/**
+ * prepareFromLibrary 成功但呼叫端登記（applyCommand/aiWrite）失敗時的清理：把已經
+ * cp 進專案的 `derived/<id>/` 刪掉，避免遺留孤兒目錄。只對真正新建的 asset 有意義
+ * ——`existingId` 分支沒有落地新目錄，呼叫端不需要也不應該呼叫這個。
+ * 用 `dirname(asset.peaksPath)` 取相對目錄：peaksPath 對 media（含 audio-only）必存在，
+ * 不必額外傳 id 進來。force:true——目錄本來就可能已經不存在，清理是盡力而為，不是斷言。
+ */
+export async function discardPrepared(projectDir: string, asset: MediaAsset): Promise<void> {
+  // peaksPath 型別上是 optional（MediaAsset 共用型別），但 prepareFromLibrary 產出的
+  // asset 一律會設——沒有就代表呼叫端拿到的不是這個函式的產物，沒有孤兒目錄可清。
+  if (!asset.peaksPath) return;
+  const derivedDir = join(projectDir, dirname(asset.peaksPath));
+  await rm(derivedDir, { recursive: true, force: true });
 }

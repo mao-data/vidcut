@@ -13,7 +13,7 @@ import type { CardRequest } from './rasterizer.js';
 import type { TextCardService } from './textCards.js';
 import { cardRequestError } from './cardBudget.js';
 import type { LibraryStore } from './libraryStore.js';
-import { addToLibrary, prepareFromLibrary } from './libraryIngest.js';
+import { addToLibrary, prepareFromLibrary, discardPrepared } from './libraryIngest.js';
 
 /**
  * POST /text-card/preview 的手寫 body 驗證（故意不用 zod）：回 null 代表通過，否則回錯誤訊息。
@@ -152,12 +152,16 @@ export function createApp(
   const q = (req: express.Request, k: string): string | undefined =>
     typeof req.query[k] === 'string' && req.query[k] !== '' ? (req.query[k] as string) : undefined;
 
-  app.get('/api/library', (req, res) => {
-    if (!lib) {
-      res.status(503).json({ error: 'library unavailable' });
-      return;
-    }
-    res.json({ assets: lib.list({ query: q(req, 'query'), tag: q(req, 'tag') }) });
+  app.get('/api/library', (req, res, next) => {
+    void (async () => {
+      if (!lib) {
+        res.status(503).json({ error: 'library unavailable' });
+        return;
+      }
+      // 這個工作區常態多 session 同開：讀入口先 reload 才看得到別的 session 剛入庫的 asset
+      await lib.reload();
+      res.json({ assets: lib.list({ query: q(req, 'query'), tag: q(req, 'tag') }) });
+    })().catch(next);
   });
 
   // 上傳入庫。串流落地暫存檔再 move 入庫——不走 express.raw：300MB 檔 arrayBuffer
@@ -260,7 +264,11 @@ export function createApp(
           mediaId = prepared.existingId;
         } else {
           const r = applyCommand(store, 'human', { name: 'registerMedia', asset: prepared.asset });
-          if (!r.ok) throw new Error(r.error);
+          if (!r.ok) {
+            // 登記失敗：prepareFromLibrary 已經把 derived/<id>/ cp 進專案了，不清會留孤兒目錄
+            await discardPrepared(projectDir, prepared.asset);
+            throw new Error(r.error);
+          }
           mediaId = prepared.asset.id;
         }
         if (addToTimeline) {

@@ -97,6 +97,7 @@ export class LibraryStore {
    * 防止手改壞的索引讓我們刪到庫外的路徑。
    */
   async removeAsset(id: string): Promise<void> {
+    await this.#reload(); // 這個工作區常態多 session 同開：別的 session 剛加的 asset 也要能刪
     const a = this.get(id);
     if (!a) throw new Error(`no library asset ${id}`);
     if (!/^files\/[0-9a-f]{64}\.[A-Za-z0-9]+$/.test(a.file.replaceAll('\\', '/'))) {
@@ -120,6 +121,16 @@ export class LibraryStore {
     await writeFile(tmp, JSON.stringify({ assets: next } satisfies LibraryFile, null, 2), 'utf8');
     await rename(tmp, join(this.#dir, 'library.json'));
     this.#assets = next;
+  }
+
+  /**
+   * 公開重讀：讀路徑（list/get/byHash）預設吃記憶體快照（load 時或上次 mutate 後），
+   * 這個工作區常態多 session 同開——A session 剛 addToLibrary，B session 的記憶體快照
+   * 還是舊的，list_library/import 就會看不到 A 剛加的 asset。讀入口（HTTP GET、MCP
+   * list_library、prepareFromLibrary）在讀之前呼叫這個方法，確保讀到的是最新落盤狀態。
+   */
+  async reload(): Promise<void> {
+    await this.#reload();
   }
 
   async #reload(): Promise<void> {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { ProjectStore } from '../src/store.js';
 import { applyCommand } from '../src/commands.js';
 import { LibraryStore } from '../src/libraryStore.js';
-import { addToLibrary, prepareFromLibrary } from '../src/libraryIngest.js';
+import { addToLibrary, prepareFromLibrary, discardPrepared } from '../src/libraryIngest.js';
 import { makeVideo } from './fixtures.js';
 import { tmpDir } from './tmp.js';
 
@@ -71,9 +71,20 @@ describe('prepareFromLibrary', () => {
   it('broken（files/ 缺檔）拒絕匯入；不存在的 assetId 丟 no library asset', async () => {
     const { lib, store, projDir, asset } = await setup();
     await rm(lib.fileAbs(asset), { force: true });
-    await expect(prepareFromLibrary(store, projDir, lib, asset.id)).rejects.toThrow();
+    await expect(prepareFromLibrary(store, projDir, lib, asset.id)).rejects.toThrow('is broken');
     await expect(prepareFromLibrary(store, projDir, lib, 'lib-nope')).rejects.toThrow(
       'no library asset',
     );
+  }, 60_000);
+
+  it('discardPrepared 清掉登記失敗時遺留的 derived/<id>/ 孤兒目錄（F3）', async () => {
+    const { lib, store, projDir, asset } = await setup();
+    const prepared = await prepareFromLibrary(store, projDir, lib, asset.id);
+    expect('asset' in prepared).toBe(true);
+    if (!('asset' in prepared)) return;
+    const derivedDir = join(projDir, 'derived', prepared.asset.id);
+    expect(existsSync(derivedDir)).toBe(true); // 模擬呼叫端登記失敗前的狀態：已 cp 進專案
+    await discardPrepared(projDir, prepared.asset);
+    expect(existsSync(derivedDir)).toBe(false);
   }, 60_000);
 });

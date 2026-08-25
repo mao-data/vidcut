@@ -110,4 +110,28 @@ describe('LibraryStore', () => {
     };
     expect(raw.assets).toHaveLength(1); // 索引也不動
   });
+
+  it('reload：A 加的 asset，B 的舊快照看不到，reload 後看得到（F1 跨 session 讀路徑）', async () => {
+    const dir = await tmpDir('vidcut-lib-');
+    const a = await LibraryStore.load(dir);
+    const b = await LibraryStore.load(dir);
+    const x = fakeAsset();
+    await a.mutate((assets) => assets.push(x));
+    expect(b.list()).toEqual([]); // B 還沒 reload，記憶體是啟動時的空快照
+    await b.reload();
+    expect(b.list().map((v) => v.id)).toEqual([x.id]);
+  });
+
+  it('removeAsset 對「別的實例剛加的 asset」能刪（先 reload 語意）', async () => {
+    const dir = await tmpDir('vidcut-lib-');
+    const a = await LibraryStore.load(dir);
+    const b = await LibraryStore.load(dir);
+    const x = fakeAsset();
+    await mkdir(join(dir, 'files'), { recursive: true });
+    await writeFile(a.fileAbs(x), 'x');
+    await a.mutate((assets) => assets.push(x)); // A 新增，B 的記憶體快照仍是空的
+    await b.removeAsset(x.id); // B 從沒手動 reload 過，removeAsset 自己要先 reload 才找得到
+    expect(existsSync(a.fileAbs(x))).toBe(false);
+    expect((await LibraryStore.load(dir)).list()).toEqual([]);
+  });
 });

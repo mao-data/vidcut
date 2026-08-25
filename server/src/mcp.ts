@@ -26,7 +26,7 @@ import type { EditorContext } from './editorContext.js';
 import type { ReviewManager } from './reviews.js';
 import type { TextCardService } from './textCards.js';
 import type { LibraryStore } from './libraryStore.js';
-import { addToLibrary, prepareFromLibrary } from './libraryIngest.js';
+import { addToLibrary, prepareFromLibrary, discardPrepared } from './libraryIngest.js';
 import { CHAT_MAX_LEN, type ChatStore } from './chatStore.js';
 import { aiWrite, isStale } from './aiWrite.js';
 import { prepareMedia, enqueueDerivedStages } from './ingest.js';
@@ -1004,6 +1004,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     async ({ query, tag, kind, limit }) => {
       const gate = needLibrary();
       if (gate) return gate;
+      // 這個工作區常態多 session 同開：讀入口先 reload 才看得到別的 session 剛入庫的 asset
+      await library!.reload();
       const all = library!.list({ query, tag, kind });
       const n = limit ?? 20;
       const assets = all.slice(0, n).map((a) => ({
@@ -1123,7 +1125,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
           already = true;
         } else {
           const w = aiWrite(store, { name: 'registerMedia', asset: prepared.asset }, ifVersion);
-          if (!w.ok) return err(writeResultText(w));
+          if (!w.ok) {
+            // 登記失敗：prepareFromLibrary 已經把 derived/<id>/ cp 進專案了，不清會留孤兒目錄
+            await discardPrepared(projectDir, prepared.asset);
+            return err(writeResultText(w));
+          }
           mediaId = prepared.asset.id;
           version = w.version;
         }
