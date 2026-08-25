@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { copyFile, rename, rm } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import { copyFile, rename, rm, stat, cp } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { nanoid } from 'nanoid';
-import type { LibraryAsset, ProbeInfo } from '@vidcut/shared';
+import type { LibraryAsset, ProbeInfo, MediaAsset } from '@vidcut/shared';
+import { filmstripPlan } from '@vidcut/shared';
 import { probe } from './ffmpeg.js';
-import { writeFilmstrip, writePeaks, writeProxy } from './ingest.js';
+import { writeFilmstrip, writePeaks, writeProxy, type PreparedMedia } from './ingest.js';
+import { resolveMediaPath } from './paths.js';
 import { MEDIA_EXTENSIONS } from './sourceFolder.js';
 import type { LibraryStore } from './libraryStore.js';
+import type { ProjectStore } from './store.js';
 
 /** sha256（hex）。串流計算——庫素材可以是幾百 MB 的片頭檔，不整檔進記憶體。 */
 export async function hashFile(abs: string): Promise<string> {
@@ -31,6 +34,7 @@ export interface AddToLibraryOpts {
  * 匯入專案後也不依賴「絕對路徑原檔可直接播放」這個未驗證前提；代價是庫入庫
  * 多燒一次轉檔，一次性、可接受（spec：derived 入庫時就生）。
  * 失敗清理由呼叫端（addToLibrary）負責——helper 本身不清目錄。
+ * 同檔案內共用（prepareFromLibrary 的 lazy 重建呼叫）。
  */
 async function buildLibraryDerivatives(
   abs: string,
@@ -98,4 +102,59 @@ export async function addToLibrary(
     await rm(derivedAbs, { recursive: true, force: true });
     throw e;
   }
+}
+
+/**
+ * 庫素材匯入專案（spec 2026-08-21）：專案引用**庫內檔案的絕對路徑**（零複製語意
+ * 原樣沿用；庫檔內容定址永不搬家，所以這個引用不會斷鏈），derived 從庫複製進
+ * 專案（不重跑 ffmpeg）；庫的 derived 被清過就先重建（衍生檔是可拋棄快取）。
+ * 與 prepareMedia 同一約定：**不寫文件**，登記交給呼叫端
+ * （HTTP 走 applyCommand human、MCP 走 aiWrite 吃審核鎖）。
+ * 冪等判斷同 prepareMedia：解析後絕對路徑相同 ⇒ 已匯入。
+ */
+export async function prepareFromLibrary(
+  store: ProjectStore,
+  projectDir: string,
+  lib: LibraryStore,
+  assetId: string,
+): Promise<PreparedMedia> {
+  const a = lib.get(assetId);
+  if (!a) throw new Error(`no library asset ${assetId}`);
+  const srcAbs = lib.fileAbs(a);
+  await stat(srcAbs); // broken（files/ 缺檔）：ENOENT 直接擋在任何落地之前
+
+  const existing = store.doc.media.find((m) => resolveMediaPath(projectDir, m.path) === srcAbs);
+  if (existing) return { existingId: existing.id };
+
+  const libDerived = lib.derivedAbs(a);
+  // peaks.json 是 buildLibraryDerivatives 的最後一步 ⇒ 它存在就代表整組完整（見該函式註解）
+  if (!existsSync(join(libDerived, 'peaks.json'))) {
+    await buildLibraryDerivatives(srcAbs, libDerived, a.probe);
+  }
+  const id = nanoid(8);
+  const derivedRel = join('derived', id);
+  await cp(libDerived, join(projectDir, derivedRel), { recursive: true });
+
+  const audioOnly = a.probe.hasVideo === false;
+  const asset: MediaAsset = {
+    id,
+    path: srcAbs,
+    ...(audioOnly
+      ? {}
+      : {
+          proxyPath: join(derivedRel, 'proxy.mp4'),
+          filmstripPath: join(derivedRel, 'filmstrip.jpg'),
+          // 與 writeFilmstrip 同參數重算（filmstripPlan 純函數）——不必把 tiles 存進庫
+          filmstripTiles: filmstripPlan({
+            durationSec: a.probe.duration,
+            width: a.probe.width,
+            height: a.probe.height,
+          }).tiles,
+        }),
+    peaksPath: join(derivedRel, 'peaks.json'),
+    probe: a.probe,
+    label: a.label,
+    meta: { libraryId: a.id, libraryHash: a.hash },
+  };
+  return { asset };
 }
