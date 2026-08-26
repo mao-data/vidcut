@@ -16,6 +16,11 @@
  * 「上一次的終點變成下一次的起點」的坑在這裡不存在）。
  * Chrome 路徑可用 CHROME_BIN 覆寫；視窗尺寸可用 VIDCUT_VIEWPORT（如 1400x1000）。
  *
+ * **畫布比例**吃 `VIDCUT_CANVAS`（preset id，預設 portrait）：
+ * `VIDCUT_CANVAS=landscape npm run verify:wysiwyg`。腳本會把臨時專案本身設成那個比例
+ * （`applyCanvas()` 送 `setCanvas` 命令），素材、所有座標換算與 `exportInk` 期望值
+ * 全部跟著走；視窗尺寸的預設值也跟著換（直式 1200×1400、橫式 1800×1100，見 VIEWPORT）。
+ *
  * ⚠️ 這支腳本**現在應該是全綠的**（六個 case）。任何一項轉紅都是真的回歸：
  * 字幕那項紅＝量測本身壞了（兩邊同一張 PNG、同一個位置），先修腳本不要動斷言；
  * overlay 四項紅＝幾何落差回來了，先看 `measure/` 裡的 PNG。
@@ -41,17 +46,40 @@ const CDP_PORT = Number(process.env.VIDCUT_CDP_PORT ?? 9336);
 const PROJECT_DIR = process.env.VIDCUT_WYSIWYG_DIR ?? join(tmpdir(), 'vidcut-wysiwyg-fixture');
 /** 兩邊量到的畫面都留一份 PNG——數字對不上時，能直接開圖看是「位置錯」還是「量錯東西」。 */
 const ART_DIR = join(PROJECT_DIR, 'measure');
-const [vw, vh] = (process.env.VIDCUT_VIEWPORT ?? '1200x1400').split('x').map(Number);
-const VIEWPORT = { w: vw, h: vh };
-
 /**
  * 畫布尺寸＋fps。尺寸吃 `VIDCUT_CANVAS`（preset id，預設 portrait＝1080×1920，
  * 逐項等於參數化之前的行為），從 `shared/src/canvasPresets.ts` 解析，見 canvasPreset.mjs。
  *
- * ⚠️ 下面 CASES 的 `exportInk` 期望值是**直式量出來的絕對畫布 px**，沒有跟著 preset 走。
- * 換 preset 跑等於拿直式的基線去對別的比例——非 portrait 的基線是後續任務的事。
+ * 這個值有兩個消費端，缺一不可：
+ * 1. fixture 素材與所有座標換算（本檔各處）
+ * 2. **臨時專案本身的畫布**——`populateProject()` 會送一次 `setCanvas` 命令（見那裡）。
+ *    專案的預設是 1080×1920（`shared/src/types.ts` 的 `emptyDoc`），不送就是「素材是
+ *    橫式、專案還是直式」，量出來的每一個數字都是假的。
+ *
+ * 下面 CASES 的 `exportInk` 期望值**全部從這個 CANVAS 推導**（不是硬編畫布 px），
+ * 所以換 preset 時期望值跟著走，不必為每個比例各抄一組數字。
  */
 const CANVAS = { ...resolveCanvas(), fps: 30 };
+
+/**
+ * 瀏覽器視埠。`VIDCUT_VIEWPORT` 可覆寫，但**預設值跟著畫布比例走**。
+ *
+ * 為什麼不能一個尺寸打天下：stage 是 `height:100% + maxWidth:100% + aspectRatio`
+ * （見 `Player.tsx`），所以 `stage 寬 = min(容器寬, 容器高 × 畫布比)`。直式的
+ * 1200×1400 卡在**容器高**那一項（實測 stage 607.5px＝容器高 1080 × 9/16）。
+ * 同一個視埠拿去跑 16:9 時，`容器高 × 16/9 = 1920` 遠大於容器寬，改由**容器寬**
+ * 封頂（1200 的視窗扣掉左右面板只剩約 850），而畫布寬變成 1920 → 每一影像 px
+ * 要換算 2.26 畫布 px，量測精度直接掉一半。`MIN_STAGE_W` 那條線（stage < 400px 時
+ * 本底雜訊 5.1px > 容差 4px）就是為這類情況存在的。
+ *
+ * 規則：直式（h ≥ w）維持 1200×1400 **逐位元組不變**；橫式與方形改用**寬視窗**
+ * 1800×1100——實測橫式 stage 量到 **1386.7px**（1 影像 px ≈ 1.38 畫布 px，比直式的
+ * 1.78 還密），遠高於 400 的下限。橫式主要靠**寬度**撐，高度只要別讓
+ * `容器高 × 16/9` 反過來變成瓶頸即可。
+ */
+const DEFAULT_VIEWPORT = CANVAS.h >= CANVAS.w ? '1200x1400' : '1800x1100';
+const [vw, vh] = (process.env.VIDCUT_VIEWPORT ?? DEFAULT_VIEWPORT).split('x').map(Number);
+const VIEWPORT = { w: vw, h: vh };
 
 /**
  * 墨跡判定門檻（0–255 luma）。素材是純深灰 #181818（luma 24）、文字是白色 #ffffff
@@ -118,6 +146,32 @@ function runProc(cmd, args, opts = {}) {
 /** 任意來源 → rgb24 raw。兩條量測路徑（成品的幀、預覽的截圖）共用同一個解碼器，才有可比性。 */
 async function rawRgb(args, input) {
   return runProc('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...args], { input });
+}
+
+/**
+ * 成品影片的實際畫面尺寸。
+ *
+ * ⚠️ **不能靠「解碼長度 = w×h×3」來確認尺寸**：1080×1920 與 1920×1080 的 rgb24 長度
+ * **完全相同**（都是 6220800 bytes），轉置的畫面會整個通過那道檢查。實際踩過：
+ * `VIDCUT_CANVAS=landscape` 但沒有把專案本身設成橫式時，render 照直式輸出，前三個
+ * case 的長度檢查全過，程式把直式幀當成橫式幀解讀，量出一堆物理上不可能的墨跡外框
+ * （ov_wrap 量到 w=1920、h=120），看起來像「換行沒實作」——那是假象。所以尺寸要用
+ * ffprobe 真的問一次，開場就對帳。
+ */
+async function probeSize(mp4) {
+  const out = await runProc('ffprobe', [
+    '-v',
+    'error',
+    '-select_streams',
+    'v:0',
+    '-show_entries',
+    'stream=width,height',
+    '-of',
+    'csv=p=0',
+    mp4,
+  ]);
+  const [w, h] = out.toString().trim().split(',').map(Number);
+  return { w, h };
 }
 
 /** 成品的第 n 幀（不是 -ss 秒數：select=eq(n,N) 是幀精確的，沒有 seek 誤差的疑慮）。 */
@@ -220,17 +274,134 @@ async function mcp(name, args) {
   return { text: asText, data: res.structuredContent };
 }
 
+/**
+ * 把臨時專案的畫布設成 `CANVAS`。走 `/ws` 的 `{type:'command'}` → `applyCommand`
+ * ——跟 UI 同一條路（專案狀態變更一律走命令層是這個 repo 的鐵則）。
+ *
+ * 為什麼不是 MCP：`setCanvas` 目前**沒有對應的 MCP 工具**（工具面是 Plan 的後續任務）。
+ * 為什麼不直接寫 `project.json`：繞過命令層等於跳過 preset 白名單、字卡預算安全網與
+ * 重烤接線，量到的就不是使用者真的會拿到的那個專案。
+ *
+ * portrait 時這是 no-op（命令層自己會早退，version 不前進），但仍然照送——
+ * 少一條分支，也順便讓「命令被拒」在任何比例下都會當場炸掉。
+ */
+async function applyCanvas() {
+  const wsUrl = `ws://127.0.0.1:${PORT}/ws`;
+  const sock = new WebSocket(wsUrl);
+  try {
+    await new Promise((res, rej) => {
+      sock.on('open', res);
+      sock.on('error', rej);
+    });
+    let rejected = null;
+    sock.on('message', (d) => {
+      try {
+        const m = JSON.parse(d.toString());
+        if (m.type === 'commandError' && m.reqId === 'wysiwyg-canvas') rejected = m.error;
+      } catch {
+        // 非 JSON 訊息忽略
+      }
+    });
+    sock.send(
+      JSON.stringify({
+        // ⚠️ 命令的判別欄位是 `name` 不是 `type`（`shared/src/types.ts` 的 `Command`）；
+        // 外層 WS 訊息才是 `type`。寫錯的話 server 回 `unknown command:`。
+        type: 'command',
+        cmd: { name: 'setCanvas', width: CANVAS.w, height: CANVAS.h },
+        reqId: 'wysiwyg-canvas',
+      }),
+    );
+    // 命令是非同步套用的，輪詢到 /api/project 真的變成新尺寸為止——沒有這段的話，
+    // 後面 import_media / set_timeline 會跟 setCanvas 賽跑。
+    for (let i = 0; i < 60; i++) {
+      if (rejected) throw new Error(`setCanvas 被拒：${rejected}`);
+      const doc = (await (await fetch(`${BASE}/api/project`)).json()).doc;
+      if (doc?.canvas?.width === CANVAS.w && doc?.canvas?.height === CANVAS.h) return;
+      await sleep(250);
+    }
+    throw new Error(`setCanvas ${CANVAS.w}×${CANVAS.h} 在 15 秒內沒有生效`);
+  } finally {
+    sock.close();
+  }
+}
+
 // ---------------------------------------------------------------- fixture
 
 /** 素材長度＝case 數（每個 case 各佔 1 秒、互不重疊）。加 case 記得一起加。 */
 const FIXTURE_SECONDS = 6;
 
+/** fixture 用的兩個字級（`populateProject()` 建 overlay 時用同樣的值）。 */
+const FONT_SIZE = 96; // ov_scale1 / ov_scale05 / ov_offtop / ov_offcentre 與字幕
+const WRAP_FONT_SIZE = 64; // ov_wrap（刻意小一級，才折得出多行）
+/** ov_wrap 的 maxWidth 比例（`populateProject()` 送的值）。 */
+const WRAP_MAX_WIDTH = 0.7;
+
 /**
- * 專門為了「量得準」而設計的素材：純深灰滿版直式影片（沒有 testsrc2 的花紋，
- * 亮度門檻才切得乾淨）、白字深描邊（墨跡＝白色字身，跟背景差 200+ luma）、
+ * 字卡的行高。**複刻的是產品端的式子**（`server/src/cardBudget.ts` 的 `estimateCard`：
+ * `line_h = size + max(6, size // 5)`），不是抄一個量出來的數字——這樣改字級或改行高
+ * 公式時期望值會自己跟上。64px → 76、96px → 115。
+ */
+const lineH = (size) => size + Math.max(6, Math.floor(size / 5));
+
+/**
+ * ov_scale1 這一批（字級 96、單行、未被裁）的墨跡外框，實測值。
+ *
+ * ⚠️ 這是**唯一**一組實測常數，其餘期望值全部從它與畫布尺寸推導。它為什麼可以是
+ * 絕對數字：墨跡尺寸只跟「字型 + 字級 + 那串文字」有關，**跟畫布多大完全無關**
+ * （字卡是先照字級畫好、再擺到畫布上的）。實測直式 444×74、橫式 444×74，逐項相同。
+ * 真的哪天不同了（換字型表、換光柵器），那是應該被看見的變化，不該被推導公式吸收掉。
+ */
+const INK_96 = { w: 444, h: 74 };
+/**
+ * 字級 64、**單行**的墨跡高度，實測值（理由同 `INK_96`：只跟字型/字級有關，與畫布無關）。
+ *
+ * 怎麼量出來的：`inkH(N 行) = line_h × (N-1) + 單行墨跡高`——墨跡高不是 `line_h × N`，
+ * 因為最後一行底下沒有行距、上下也沒有卡片留白。直式量到 3 行 h=212 → 212 - 76×2 = 60；
+ * 橫式量到 2 行 h=136 → 136 - 76×1 = 60。**兩個比例各自倒推出同一個 60**，
+ * 這個模型不是湊出來的。
+ */
+const INK_LINE_64 = 60;
+
+/** 字級 64 的文字折成 `n` 行時，墨跡外框應有的高度（見 `INK_LINE_64` 的推導）。 */
+const wrapInkHeight = (n) => lineH(WRAP_FONT_SIZE) * (n - 1) + INK_LINE_64;
+/**
+ * 字卡上緣到墨跡上緣的距離（字級 96）。從兩個實測值倒推：ov_scale1 的 y=0.2 在直式下
+ * 卡片上緣落在 1920×0.2=384，量到的墨跡 y0=399 → 15。（`text_card.py` 的 `yStart`
+ * 是 `stroke_w + 4`：strokeW = max(2, 96//16) = 6 → 10，再加上字型 ascender 到墨跡
+ * 頂端的空隙，合起來 15。這裡直接用倒推值，不重算字型內部的量。）
+ */
+const INK_TOP_PAD_96 = 15;
+
+/**
+ * ov_offtop 的擺法：卡片上緣要落在畫布上方 **57.6px**（＝直式的 y=-0.03，這個 case
+ * 從 2026-08-04 起就是這個值）。
+ *
+ * ⚠️ 存進專案的是 `position.y`（比例），但「被裁掉多少」是**絕對 px** 的事。
+ * 固定比例的話橫式（畫布高 1080）只會被裁掉 32px，74px 高的墨跡露出 56px——
+ * 「有沒有被裁」這件事就幾乎驗不到了。固定 px、換算成比例存，才能讓這個 case
+ * 在每個比例下**裁掉的量一樣多**，斷言強度也一樣。
+ *
+ * 取到小數第六位是為了讓直式**逐位元組落在 -0.03**（`-57.6/1920` 的浮點結果是
+ * `-0.030000000000000002`，直接存進去等於改了既有專案檔的值）。
+ */
+const OFFTOP_CARD_TOP_PX = -57.6;
+const offtopY = (canvas) => Number((OFFTOP_CARD_TOP_PX / canvas.h).toFixed(6));
+
+/** ov_offcentre 的 `position.x`——本檔唯一 x ≠ 0.5 的項目（見那個 case 的長註解）。 */
+const OFFCENTRE_X = 0.25;
+
+/**
+ * 專門為了「量得準」而設計的素材：純深灰滿版、與畫布同尺寸的影片（沒有 testsrc2 的
+ * 花紋，亮度門檻才切得乾淨）、白字深描邊（墨跡＝白色字身，跟背景差 200+ luma）、
  * 六個項目各佔一段互不重疊的時間窗（同一幀只有一個東西，墨跡外框＝那個項目的外框，
  * 不必做連通區域分割這種會自己引入誤差的事）。多行那一項的墨跡外框是**整塊文字**
  * 的外框（不是單行），折行位置一分岔外框就會變——正是我們要抓的東西。
+ *
+ * ⚠️ **`exportInk` 的期望值一律寫成「從畫布尺寸推導的語意」，不得硬編畫布 px。**
+ * 每個 case 的 `exportInk` 都是一個吃 `CANVAS` 的函式，回傳 `{ min, max, why }`。
+ * 理由：這些條件的語意（「至少兩行」「不超過可用寬」「被上緣裁掉」「明顯偏左」）
+ * 在每個比例下都一樣，只有換算出來的數字不同。為第二種比例抄第二組數字的話，
+ * 第三種 preset（square / portrait-4-5）就得抄第三組——那條路只會越走越糟。
  */
 const CASES = [
   {
@@ -258,17 +429,27 @@ const CASES = [
     /**
      * 這一項的「預覽 vs 成品」比對本身抓不到「換行沒實作」——文字 overlay 兩邊吃的是
      * 同一個 imagePath、同一張 PNG，不折行也會兩邊一樣地不折行。所以額外釘住成品側的
-     * 墨跡形狀：真的折了三行 → 高 > 2 個 line_h（76×2=152）、寬 ≤ 可用寬（1080×0.7=756）。
-     * 換行一旦被拿掉，這段文字會排成單行 2600px 寬、被畫布邊緣裁掉 → 高度掉到一行、
-     * 寬度貼滿 1080，兩個條件同時破。
+     * 墨跡形狀。**兩個條件都是語意，不是量出來的數字**：
+     *
+     * - `min.h = wrapInkHeight(2)`：「**至少折成兩行**」。字級 64 → 76×1 + 60 = 136，
+     *   跟畫布無關（行高與單行墨跡高都只看字級）。
+     *   ⚠️ 這裡刻意寫「兩行」而不是「三行」：折成幾行**取決於可用寬**（直式 756px
+     *   折 3 行、量到 212；橫式 1344px 折 2 行、量到 136），寫死行數就等於把直式的
+     *   數字偽裝成語意。這個 case 要驗的是「有沒有折」，兩行就已經證明有折了。
+     * - `max.w = 畫布寬 × maxWidth`：「不超過可用寬」。1080 → 756、1920 → 1344。
+     *
+     * 換行一旦被拿掉，這段文字會排成單行約 2600px 寬：直式下被 1080 的畫布邊緣裁掉
+     * → 高度掉到一行（60，遠低於 136）、寬度貼滿 1080（> 756），兩個條件同時破。
+     * 橫式（可用寬 1344）下單行 2600px 一樣塞不下、一樣會被 1920 的畫布邊緣裁掉，
+     * 兩個條件同樣同時破——這一項在兩個比例下都有效。
      */
-    exportInk: {
-      min: { h: 152 },
-      max: { w: 756 },
+    exportInk: (canvas) => ({
+      min: { h: wrapInkHeight(2) },
+      max: { w: Math.round(canvas.w * WRAP_MAX_WIDTH) },
       why:
         '這代表這段文字根本沒有折行（單行被畫布邊緣裁掉），' +
         '下面的「預覽 vs 成品」比對抓不到這件事——兩邊吃的是同一張 PNG。',
-    },
+    }),
     note:
       '自動換行（2026-08-04）：maxWidth 以前是死欄位，長文字不折行、被畫布邊緣裁掉。' +
       '這一項紅通常代表折行位置在預覽與成品之間分岔——先看兩張 measure/*.png 的行數',
@@ -294,16 +475,26 @@ const CASES = [
      * 所以這一項水平置中（x=0.5），墨跡離左右圓角很遠。
      *
      * exportInk：釘住成品側**真的被裁到**。同一段文字、同一個字級在 ov_scale1 那項量到的
-     * 是 444×74（未被裁）；這裡 y=-0.03 → 卡片上緣在 -57.6，墨跡只剩約 31px 高、上緣貼齊
-     * y0=0。渲染端要是哪天補了一手「保險用」的 `Math.max(0, H*y)`，墨跡會整個回到畫面內
-     * （y0>0、h 回到 74），這裡就會當場失敗——而「預覽 vs 成品」那段比對也會跟著紅，
-     * 因為預覽端沒有那道夾制。
+     * 是 444×74（未被裁）；卡片上緣在畫布上方 57.6px（見 `OFFTOP_CARD_TOP_PX`），墨跡
+     * 上緣還在卡片內 15px（`INK_TOP_PAD_96`）→ 露出的高度 = 74 - (57.6 - 15) ≈ 31.4，
+     * 上緣貼齊 y0=0。渲染端要是哪天補了一手「保險用」的 `Math.max(0, H*y)`，墨跡會整個
+     * 回到畫面內（y0>0、h 回到 74），這裡就會當場失敗——而「預覽 vs 成品」那段比對也會
+     * 跟著紅，因為預覽端沒有那道夾制。
+     *
+     * **兩個條件都是語意**：`y0 ≤ 0`＝上緣貼齊；`h ≤ 露出高度 + 4`＝真的少了一截
+     * （+4 是留給亮度門檻在斜坡上切位的量測餘裕，與 `TOL_PX` 同級）。因為
+     * `OFFTOP_CARD_TOP_PX` 是絕對 px，這組數字在每個比例下都一樣（31.4 → 上限 35），
+     * 斷言強度不隨畫布高度縮水。
      */
-    exportInk: {
-      max: { y0: 0, h: 50 },
-      why:
-        '成品應該被畫布上緣裁掉（墨跡上緣貼齊 y0=0、高度明顯小於未裁切的 74px）。' +
-        '沒被裁到通常代表渲染端把負的 y 夾成 0 了（預覽端不會夾，那就是新的「預覽≠成品」）。',
+    exportInk: () => {
+      const visible = INK_96.h - (-OFFTOP_CARD_TOP_PX - INK_TOP_PAD_96);
+      return {
+        max: { y0: 0, h: Math.ceil(visible + TOL_PX) },
+        why:
+          `成品應該被畫布上緣裁掉（墨跡上緣貼齊 y0=0、高度約 ${visible.toFixed(1)}px，` +
+          `明顯小於未裁切的 ${INK_96.h}px）。沒被裁到通常代表渲染端把負的 y 夾成 0 了` +
+          '（預覽端不會夾，那就是新的「預覽≠成品」）。',
+      };
     },
     note:
       '掛在上緣外的 overlay（2026-08-04，夾制改成「中心留在畫布內」之後 y 才可能為負）：' +
@@ -320,18 +511,27 @@ const CASES = [
      * 也就是說這支腳本當時證明的是「垂直幾何對得上」，水平方向一個字都沒有驗到，
      * 而 `x=(W*x)-(w/2)` 那條式子（含 scale 之後 `w` 讀的是縮放後的寬）正是最容易寫錯的地方。
      *
-     * x=0.25 是刻意挑的：鏡射會把它送到 0.75，兩者在畫布上差 540px，遠大於容差；
-     * 而墨跡（≈444px 寬）以 270 為中心 → 橫跨 48–492，離左邊那顆 borderRadius 10
-     * （換算回畫布座標約 17px）夠遠，不會踩到 ov_offtop 註解裡記過的圓角假警報。
+     * x=0.25 是刻意挑的：鏡射會把它送到 0.75，兩者在畫布上差半個畫布寬（直式 540px、
+     * 橫式 960px），遠大於容差；而墨跡（≈444px 寬）以畫布寬的四分之一為中心，
+     * 直式橫跨 48–492、橫式橫跨 258–702，離左邊那顆 borderRadius 10（換算回畫布座標
+     * 約 17px）夠遠，不會踩到 ov_offtop 註解裡記過的圓角假警報。
      *
-     * exportInk：釘住成品側真的偏左。未指定 min.x0 的話，「x 被忽略、永遠置中」這種
-     * 退化實作會讓兩邊一致地錯（預覽端也讀同一個值就更巧合了），比對抓不到。
+     * exportInk：釘住成品側真的偏左。**語意是「落在四分之一處那一側，不是畫布中央」**，
+     * 門檻取「四分之一處的左緣」與「置中的左緣」的中點——超過它就代表已經偏向中央了。
+     * 直式：期望 48、置中 318 → 門檻 183；橫式：期望 258、置中 738 → 門檻 498。
+     * 沒有這道的話，「x 被忽略、永遠置中」這種退化實作會讓兩邊一致地錯
+     * （預覽端也讀同一個值就更巧合了），比對抓不到。
      */
-    exportInk: {
-      max: { x0: 120 },
-      why:
-        '成品的墨跡應該明顯偏左（x=0.25 → 左緣約 48px）。落在畫布中央代表渲染端把 ' +
-        'position.x 忽略了，而「預覽 vs 成品」的比對對「兩邊一致地錯」是盲的。',
+    exportInk: (canvas) => {
+      const wantX0 = canvas.w * OFFCENTRE_X - INK_96.w / 2;
+      const centredX0 = canvas.w * 0.5 - INK_96.w / 2;
+      return {
+        max: { x0: Math.round((wantX0 + centredX0) / 2) },
+        why:
+          `成品的墨跡應該明顯偏左（x=${OFFCENTRE_X} → 左緣約 ${wantX0.toFixed(0)}px，` +
+          `置中會是 ${centredX0.toFixed(0)}px）。落在畫布中央代表渲染端把 position.x ` +
+          '忽略了，而「預覽 vs 成品」的比對對「兩邊一致地錯」是盲的。',
+      };
     },
     note:
       '水平定位（2026-08-05 補的唯一 x≠0.5 case）：render.ts 的 x=(W*x)-(w/2) 與預覽端的 ' +
@@ -342,7 +542,7 @@ const CASES = [
 async function buildFixture() {
   rmSync(PROJECT_DIR, { recursive: true, force: true });
   mkdirSync(ART_DIR, { recursive: true });
-  // 純色滿版直式：畫布 1080×1920 → scale/pad 是恆等，成品像素＝合成結果，中間沒有縮放。
+  // 純色滿版、與畫布同尺寸：scale/pad 是恆等，成品像素＝合成結果，中間沒有縮放。
   await runProc('ffmpeg', [
     '-hide_banner',
     '-loglevel',
@@ -372,6 +572,10 @@ async function populateProject() {
     );
   const family = fonts[0].family;
 
+  // 畫布要**先**設好：字卡是內容定址的（畫布寬進 cardKey），先加 overlay 再換畫布
+  // 等於多烤一輪、還要靠重烤接線收尾。這裡的順序讓每張卡從一開始就是新寬度的。
+  await applyCanvas();
+
   const imported = await mcp('import_media', { relPath: 'bg.mp4', label: 'bg' });
   const mediaId = imported.data.mediaId;
   await mcp('set_timeline', { clips: [{ mediaId, in: 0, duration: FIXTURE_SECONDS }] });
@@ -379,7 +583,7 @@ async function populateProject() {
   const text = {
     text: 'WYSIWYG',
     fontFamily: family,
-    fontSize: 96,
+    fontSize: FONT_SIZE,
     fill: '#ffffff',
     stroke: '#000000',
   };
@@ -401,7 +605,8 @@ async function populateProject() {
       position: { x: 0.5, y: 0.2, scale: 0.5 },
     },
   });
-  // 換行 case：一段中英混排、在 maxWidth 0.7（可用寬 756px）之下必然折成多行的長文字。
+  // 換行 case：一段中英混排、在 maxWidth 0.7 之下必然折成多行的長文字（可用寬
+  // ＝畫布寬 × 0.7，直式 756px、橫式 1344px；這段文字排成單行約 2600px，兩者都放不下）。
   // 這是本檔唯一的多行 / CJK case——2026-08-04 之前「沒有多行也沒有 CJK」是這支腳本
   // 自己寫在檔尾的已知限制，而 maxWidth 當時是死欄位（長文字直接被畫布邊緣裁掉）。
   await mcp('add_overlay', {
@@ -410,10 +615,10 @@ async function populateProject() {
       text: {
         text: '這是一段會自動換行的長標題 with mixed Latin words 一起測折行',
         fontFamily: family,
-        fontSize: 64,
+        fontSize: WRAP_FONT_SIZE,
         fill: '#ffffff',
         stroke: '#000000',
-        maxWidth: 0.7,
+        maxWidth: WRAP_MAX_WIDTH,
       },
       start: 3,
       duration: 1,
@@ -423,24 +628,27 @@ async function populateProject() {
   // 掛在畫布上緣外：position.y 為負（`5537a43` 把夾制改成「中心留在畫布內」之後才可能）。
   // 文字/字級與 ov_scale1 完全相同，所以「未被裁時是 444×74」是已知的對照值——
   // 這一項量到的高度明顯小於 74 才代表真的被上緣裁掉了。
+  // ⚠️ y 是**算出來的**（見 `offtopY`）：固定比例的話橫式只會被裁掉一半的量，
+  // 這個 case 的斷言強度會隨畫布變矮而縮水。直式仍然算出 -0.03（與參數化之前同值）。
   await mcp('add_overlay', {
     overlay: {
       id: 'ov_offtop',
       text,
       start: 4,
       duration: 1,
-      position: { x: 0.5, y: -0.03, scale: 1 },
+      position: { x: 0.5, y: offtopY(CANVAS), scale: 1 },
     },
   });
   // 水平不置中：本檔唯一 x ≠ 0.5 的項目。文字/字級與 ov_scale1 相同（未裁時 444×74），
-  // 所以左緣的期望值算得出來：270 - 444/2 ≈ 48。見 CASES 裡 overlay-offcentre 的長註解。
+  // 所以左緣的期望值算得出來：畫布寬×0.25 - 444/2（直式 48、橫式 258）。
+  // 見 CASES 裡 overlay-offcentre 的長註解。
   await mcp('add_overlay', {
     overlay: {
       id: 'ov_offcentre',
       text,
       start: 5,
       duration: 1,
-      position: { x: 0.25, y: 0.2, scale: 1 },
+      position: { x: OFFCENTRE_X, y: 0.2, scale: 1 },
     },
   });
   await mcp('set_captions', {
@@ -450,7 +658,13 @@ async function populateProject() {
         text: 'CAPTION',
         start: 2,
         duration: 1,
-        style: { fontFamily: family, fontSize: 96, fill: '#ffffff', stroke: '#000000', y: 0.6 },
+        style: {
+          fontFamily: family,
+          fontSize: FONT_SIZE,
+          fill: '#ffffff',
+          stroke: '#000000',
+          y: 0.6,
+        },
       },
     ],
   });
@@ -597,6 +811,14 @@ async function main() {
     const rendered = await mcp('render', { stamp: 'wysiwyg' });
     const mp4 = join(PROJECT_DIR, rendered.data.output);
     if (!existsSync(mp4)) throw new Error(`render 說成功了但找不到 ${mp4}`);
+    // 尺寸對帳（見 probeSize 的註解：轉置的畫面騙得過長度檢查）。
+    const size = await probeSize(mp4);
+    if (size.w !== CANVAS.w || size.h !== CANVAS.h) {
+      throw new Error(
+        `成品是 ${size.w}×${size.h}，預期 ${CANVAS.w}×${CANVAS.h}（畫布 preset ${CANVAS.id}）` +
+          '——專案的畫布跟腳本以為的不一樣，後面每一個座標換算都會是假的。',
+      );
+    }
 
     const exportInk = {};
     for (const c of CASES) {
@@ -608,19 +830,22 @@ async function main() {
       // **兩邊會一起壞**（文字 overlay 的預覽與成品吃同一張 PNG；渲染端夾了負座標而
       // 預覽端也夾了的話同理），那時「預覽 vs 成品」的比對照樣是綠的。這道檢查釘的是
       // 「成品本身應該長什麼樣」，跟兩邊比對互補。
+      // `c.exportInk` 是**吃 CANVAS 的函式**（不是常值物件）——期望值一律從畫布尺寸
+      // 推導，見 CASES 上方的說明。
       if (c.exportInk) {
+        const want = c.exportInk(CANVAS);
         const b = exportInk[c.key];
         const bad = [];
-        for (const [k, v] of Object.entries(c.exportInk.min ?? {})) {
+        for (const [k, v] of Object.entries(want.min ?? {})) {
           if (b[k] < v) bad.push(`${k}=${b[k]} 應 ≥ ${v}`);
         }
-        for (const [k, v] of Object.entries(c.exportInk.max ?? {})) {
+        for (const [k, v] of Object.entries(want.max ?? {})) {
           if (b[k] > v) bad.push(`${k}=${b[k]} 應 ≤ ${v}`);
         }
         if (bad.length) {
           throw new Error(
             `${c.title}：成品的墨跡外框 ${fmtBox(b)} 不符合預期形狀（${bad.join('、')}）。` +
-              c.exportInk.why,
+              want.why,
           );
         }
       }

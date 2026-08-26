@@ -50,7 +50,18 @@ paths: ["ui/**", "scripts/**"]
   - `VIDCUT_WYSIWYG_DIR`——臨時專案位置，預設 `os.tmpdir()/vidcut-wysiwyg-fixture`。
     **只有 `verify:wysiwyg` 吃。**
   - `VIDCUT_VIEWPORT`——三支都吃，但預設不同：panels／canvas 是 1440x820，
-    wysiwyg 是 1200x1400。
+    wysiwyg 是 **1200x1400（直式）／1800x1100（橫式與方形）**——`verify:wysiwyg` 的
+    預設值跟著 `VIDCUT_CANVAS` 走（2026-08-26）。理由：stage 是
+    `height:100% + maxWidth:100% + aspectRatio`，所以
+    `stage 寬 = min(容器寬, 容器高 × 畫布比)`。直式 1200x1400 卡在容器高（實測
+    stage 607.5px）；同一個視埠跑 16:9 會改由容器寬封頂，而畫布寬變成 1920，
+    每影像 px 要換算的畫布 px 直接翻倍。1800x1100 下橫式 stage 實測 **1386.7px**
+    （1 影像 px ≈ 1.38 畫布 px，比直式的 1.78 還密）。
+  - `VIDCUT_CANVAS`——`verify:canvas` 與 `verify:wysiwyg` 吃，值是
+    `shared/src/canvasPresets.ts` 的 preset id，預設 `portrait`。
+    ⚠️ 兩支的語意**不一樣**：`verify:wysiwyg` 會**自己把臨時專案設成那個比例**
+    （送 `setCanvas` 命令），`verify:canvas` **不會**（它吃共用的 `projects/demo`，
+    只是照著讀到的尺寸換算），跑非 portrait 之前要先讓那個專案真的是那個比例。
 - `verify:canvas` 檢查 1 的「誤差 0.000%」**不等於「預覽跟成品對齊」**。那段量測只讀
   transform 矩陣的 `a`（scaleX）：不看 `d`、`e`/`f`、transform-origin。對抗性驗證過——
   刻意把 transformOrigin 改成 center（整片位移 391×696px）、把 transform 改成
@@ -99,6 +110,12 @@ paths: ["ui/**", "scripts/**"]
   ＋等 `document.fonts.ready` ＋落定延遲，實測殘餘噪聲可壓到 7 像素，且集中在
   playhead 漸層豎線的邊緣（每次載入有次像素抖動，與被測改動無關）——比對時把這個
   已知殘差當噪聲底，不要追零。
+- **「解碼長度 = w×h×3」證明不了畫面尺寸**：1080×1920 與 1920×1080 的 rgb24 長度
+  **完全相同**（都是 6220800 bytes），轉置的畫面整個通過那道檢查。2026-08-26 實測：
+  `VIDCUT_CANVAS=landscape` 但沒把專案本身設成橫式時，render 照直式輸出，
+  `preview-vs-export.mjs` 把直式幀當橫式幀解讀，量出 `w=1920 h=120` 這種物理上不可能
+  的墨跡外框，看起來像「自動換行沒實作」——是假象。要驗尺寸就 ffprobe 真的問一次
+  （該腳本現在 render 完會立刻對帳）。
 - **`Page.captureScreenshot` 的 `clip` 會先對齊整數 CSS px 再乘 `scale`**——要求 1080 寬
   可能拿回 1078。一律用「實得影像尺寸 ÷ 實際送出的 clip 尺寸」回推換算，否則帶一個隨
   視窗尺寸浮動的系統性偏差。
