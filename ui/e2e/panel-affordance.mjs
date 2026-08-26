@@ -346,21 +346,38 @@ async function main() {
     );
 
     // 上一項「收合過渡期間」測試結束時把右欄留在收合狀態（它按下 Collapse 之後只驗
-    // 中途並存、沒有再展開）——Media 分頁鈕就長在右欄裡，收合時整欄 gridTemplateColumns
-    // 變 0px，內容仍在但被裁到視窗外。這裡先展開、等 0.25s 過渡跑完再進 Media 檢查。
+    // 中途並存、沒有再展開）——分頁鈕就長在右欄裡，收合時整欄 gridTemplateColumns
+    // 變 0px，內容仍在但被裁到視窗外。這裡先展開、等 0.25s 過渡跑完再檢查。
     await click('Expand captions/properties panel');
     await sleep(500);
 
-    // Media 分頁（asset library phase 2）：主分頁鈕切過去、三顆 zone 鈕各自可點、
-    // Library zone 的搜尋框與上傳鈕存在且可命中。分頁主按鈕 title="Media" 是 Task 4
-    // 特地帶上的，就是為了讓這裡能用既有 clickable(title) 模板定位，不用另外找文字。
-    console.log('Media 分頁：');
-    await check('Media 分頁鈕可點', clickable('Media'));
-    await click('Media');
+    // 右欄扁平四分頁（2026-08-26 扁平化）：Project/Library 升為主分頁，四顆鈕都帶
+    // title 讓這裡能用既有 clickable(title) 模板定位。Project 驗搜尋框＋兩顆上傳鈕，
+    // Library 驗搜尋框＋上傳鈕。
+    console.log('右欄分頁：');
+    await check('Project 分頁鈕可點', clickable('Project'));
+    await check('Library 分頁鈕可點', clickable('Library'));
+    await check('Captions 分頁鈕可點', clickable('Captions'));
+    await check('Properties 分頁鈕可點', clickable('Properties'));
+
+    await click('Project');
     await sleep(300);
-    await check('Project media zone 鈕可點', clickable('Project media'));
-    await check('Library zone 鈕可點', clickable('Library'));
-    await check('Source folder zone 鈕可點', clickable('Source folder'));
+    await check(
+      'Project 搜尋框存在且可命中',
+      `(() => {
+        const i = document.querySelector('input[placeholder="Search media"]');
+        if (!i) return { ok: false, why: '輸入框不存在' };
+        const r = i.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return { ok: false, why: '尺寸為 0' };
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        if (!top || !(i === top || i.contains(top))) {
+          return { ok: false, why: '被 ' + (top ? top.tagName : 'null') + ' 蓋住' };
+        }
+        return { ok: true };
+      })()`,
+    );
+    await check('Project 上傳檔案鈕可點', clickable('Upload files'));
+    await check('Project 上傳資料夾鈕可點', clickable('Upload folder'));
 
     await click('Library');
     await sleep(300);

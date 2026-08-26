@@ -419,9 +419,14 @@ Both side columns are resizable and collapsible; collapse is instant while width
 animates over 0.25s, so the reopen handle fades in on a matching delay rather than
 co-existing with the closing panel.
 
-**Right column: three tabs, Media ⇄ Captions ⇄ Properties.** Media sits first in tab
-order — media comes before captions in the editing workflow — and holds the asset
-library's three zones (Project media / Library / Source folder, see MediaPanel below).
+**Right column: four flat tabs, Project ⇄ Library ⇄ Captions ⇄ Properties** (user
+decision, 2026-08-26). The asset zones used to hide one level down, inside a `Media`
+tab that carried its own sub-tab row; that second row is gone and its two live zones
+were promoted into the main row. Project (this project's `doc.media`) and Library
+(the cross-project asset library) sit first — media comes before captions in the
+editing workflow. `SourceFolderZone` stays in the tree but is no longer mounted:
+its scan-a-folder job is covered by the Project tab's file/folder upload buttons
+(see the file header for how to bring it back).
 Properties carries what used to be the left panel — canvas fill, the selected object's
 Inspector form, the Shortcuts popover, and the idle "Select a clip / caption / overlay
 / audio to edit" prompt. **Selecting anything switches the right column to Properties**
@@ -429,9 +434,40 @@ Inspector form, the Shortcuts popover, and the idle "Select a clip / caption / o
 clicking a clip turned the left panel into its form. Deselecting does _not_ switch
 away — the user pressed Escape or clicked timeline blank space, and bouncing them off
 the tab they are reading would be a second, unasked-for move; Properties just falls
-back to the idle prompt. **The Media tab is exempt from the select-jumps-to-Properties
-reflex**: no operation inside `MediaPanel` calls `useSelection.select()`, precisely so
-browsing or picking media doesn't bounce the user out of the tab they're working in.
+back to the idle prompt. **The media tabs are exempt from the select-jumps-to-Properties
+reflex**: no operation inside the Project or Library zone calls `useSelection.select()`,
+precisely so browsing or picking media doesn't bounce the user out of the tab they're
+working in.
+
+**The tab row is frameless text** (`.panel-tabs`, user decision 2026-08-25/26): no
+border, no fill, no underline, no line between the row and the panel body. The
+selected tab is lit — `--text-1` plus weight-600 — and the unselected ones drop to
+`--text-3`; without an underline, selected-vs-unselected has only weight to work
+with, so the brightness has to open up three steps or the eye can't scan the row.
+12px, `gap: 12px`, `6px 12px` padding. The collapse button goes ghost too (it would
+otherwise be the only remaining box in the row), and the paper theme needs a
+same-specificity `button.<class>` rule to keep its card fill from coming back —
+the timeline toolbar hit that same `(0,3,1)` selector. Counts next to tab names are
+gone: a filled pill beside frameless text becomes the loudest thing in the row, and
+"how many assets" was never a question the row had to answer. `.seg` is untouched —
+single primary actions elsewhere keep the framed-button vocabulary.
+
+**Media zones are card grids, not lists** (user decision, 2026-08-26, following
+CapCut). `.media-grid` is `repeat(auto-fill, minmax(130px, 1fr))`: cards hold their
+size and a wider column buys _more columns_, not bigger cards — the right column's
+~310px default gives two, dragging past ~450px gives three. (130 is measured, not
+chosen: at a 150px floor the default width collapses to a single giant card.) Each
+`.media-card` is a 16:9 thumbnail with the filename on one line under it, a duration
+chip and a `lib`/`broken` mark scrimmed over the thumbnail, and its actions
+(add-to-timeline / save-to-library / import / delete) as ghost icons that appear on
+card hover or `:focus-within` — reveal is opacity-based, so hit-testing and keyboard
+reach are unaffected. **Portrait media letterboxes** rather than stretching:
+`.thumb.letterbox` paints pure black and the content is fitted by aspect ratio
+(`<img>` via `object-fit: contain`, filmstrip sprites via an inner div that carries
+the source's own ratio, with 90°/270° rotation swapping width and height). Video
+thumbnails are still the filmstrip's first tile, which is only 80px tall and looks
+soft blown up to card size — the poster generator is the next batch, and the card
+only needs its background source swapped.
 
 **Spacing rhythm: multiples of 4.** 4 (icon-to-text, adjacent controls), 8 (panel
 block padding, control-row gaps), 12 (panel/card padding, header horizontal), 16

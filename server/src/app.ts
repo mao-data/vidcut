@@ -1,6 +1,6 @@
 import express from 'express';
 import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { basename, extname, isAbsolute, join } from 'node:path';
 import { nanoid } from 'nanoid';
@@ -152,6 +152,52 @@ export function createApp(
       })().catch(next);
     },
   );
+
+  // 上傳「媒體」進本專案（Project 分頁的上傳鈕）。與 POST /assets 的分工：assets 是
+  // overlay 素材（只寫檔），這裡是 clip/音訊素材（落地 media/ 後走 ingestMedia 註冊＋
+  // 背景產衍生檔）。串流落地不走 express.raw——影片檔是幾百 MB 量級，arrayBuffer
+  // 會整包吃進 RSS（與 /api/library 同一個理由，見該路由註解）。
+  // 只收 MEDIA_EXTENSIONS：圖片不是 clip（要入庫走 /api/library，它收 image）。
+  // 去重語意跟著 prepareMedia＝比解析後路徑：同名重上傳會編號成新檔＝新一筆 media
+  // （與 /assets 的重名編號一致；內容 hash 去重是素材庫的語意，不是專案的）。
+  app.post('/api/media', (req, res, next) => {
+    void (async () => {
+      const raw = typeof req.query.name === 'string' ? req.query.name : '';
+      const clean = basename(raw).replace(/[^\w.\-一-鿿]/g, '_');
+      const ext = extname(clean).toLowerCase();
+      if (!clean || !(MEDIA_EXTENSIONS as readonly string[]).includes(ext)) {
+        res.status(400).json({
+          error: `need ?name= with a media extension (${MEDIA_EXTENSIONS.join(' ')})`,
+        });
+        return;
+      }
+      // 暫存檔放專案目錄內：與 media/ 同一檔案系統，rename 才是原子搬移不是複製
+      const tmp = join(projectDir, `.upload-${nanoid(8)}${ext}`);
+      try {
+        await pipeline(req, createWriteStream(tmp));
+        await mkdir(join(projectDir, 'media'), { recursive: true });
+        const stem = clean.slice(0, clean.length - ext.length);
+        let rel = join('media', clean);
+        for (let i = 1; existsSync(join(projectDir, rel)); i++) {
+          rel = join('media', `${stem}-${i}${ext}`);
+        }
+        await rename(tmp, join(projectDir, rel));
+        // ingestMedia＝A0 秒級（probe+registerMedia，applyCommand('human') 廣播 patch，
+        // UI 清單即時出現）；filmstrip/peaks/proxy 進背景佇列，好了再 patch 一次。
+        // 壞檔在 probe 就丟錯——但檔案已落地 media/，要清掉才不留孤兒。
+        const mediaId = await ingestMedia(store, projectDir, rel, { label: clean }).catch(
+          async (e: unknown) => {
+            await rm(join(projectDir, rel), { force: true });
+            throw e;
+          },
+        );
+        res.json({ mediaId });
+      } catch (e) {
+        await rm(tmp, { force: true });
+        res.status(400).json({ error: (e as Error).message });
+      }
+    })().catch(next);
+  });
 
   // ── 跨專案素材庫（spec 2026-08-21）。lib 未載入（索引損毀降級）時一律 503。 ──
   const lib = extras?.library;

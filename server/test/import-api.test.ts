@@ -270,3 +270,61 @@ describe('純音訊素材（合併 main 後）', () => {
     }
   }, 60_000);
 });
+
+describe('POST /api/media（瀏覽器上傳檔案進專案）', () => {
+  it('串流上傳落地 media/、秒級註冊；同名重傳編號成新檔不去重', async () => {
+    const { dir, store, src, server, base } = await startTestServer();
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const bytes = await readFile(join(src, 'a.mp4'));
+      const upload = () =>
+        fetch(`${base}/api/media?${new URLSearchParams({ name: 'a.mp4' })}`, {
+          method: 'POST',
+          body: bytes,
+        });
+
+      const r1 = await upload();
+      expect(r1.status).toBe(200);
+      const { mediaId } = (await r1.json()) as { mediaId: string };
+      const m = store.doc.media.find((x) => x.id === mediaId)!;
+      expect(m.path).toBe(join('media', 'a.mp4')); // 相對路徑＝專案內（不是零複製引用）
+      expect(m.label).toBe('a.mp4');
+      expect(existsSync(join(dir, m.path))).toBe(true);
+      expect(store.doc.tracks.video).toHaveLength(0); // 不自動上時間軸
+
+      // 同名重傳：路徑去重語意（prepareMedia 比解析後路徑）→ 編號新檔＝第二筆 media
+      const r2 = await upload();
+      const { mediaId: id2 } = (await r2.json()) as { mediaId: string };
+      expect(id2).not.toBe(mediaId);
+      expect(store.doc.media.find((x) => x.id === id2)!.path).toBe(join('media', 'a-1.mp4'));
+
+      await waitForIngestQueue(); // 收尾：等背景衍生跑完再關 server，免得 ffmpeg 寫進已刪目錄
+    } finally {
+      server.close();
+    }
+  }, 60_000);
+
+  it('非影音副檔名 400；壞檔（副檔名對、內容爛）400 且 media/ 零殘留', async () => {
+    const { dir, store, server, base } = await startTestServer();
+    try {
+      const bad = await fetch(`${base}/api/media?name=logo.png`, {
+        method: 'POST',
+        body: Buffer.from('x'),
+      });
+      expect(bad.status).toBe(400);
+
+      const junk = await fetch(`${base}/api/media?name=junk.mp4`, {
+        method: 'POST',
+        body: Buffer.from('not a video at all'),
+      });
+      expect(junk.status).toBe(400);
+      expect(store.doc.media).toHaveLength(0);
+      // probe 失敗的檔不能留在 media/ 當孤兒
+      const { readdir } = await import('node:fs/promises');
+      const left = existsSync(join(dir, 'media')) ? await readdir(join(dir, 'media')) : [];
+      expect(left).toEqual([]);
+    } finally {
+      server.close();
+    }
+  }, 60_000);
+});

@@ -1,3 +1,10 @@
+/**
+ * ⚠️ 2026-08-26 起**未掛載**：Media 分頁扁平化（Project/Library 升為主分頁）時，
+ * 「打路徑→掃描→勾選匯入」流程由 ProjectMediaZone 的上傳鈕（檔案/資料夾選擇器，
+ * 走 POST /api/media）取代。檔案與單元測試保留：後端 /api/source + /api/import
+ * 仍活著（MCP list_source/import_media 在用），若要復活這個 UI（或改成拖放）
+ * 把它接回 App.tsx 的分頁即可。
+ */
 import { useEffect, useState } from 'react';
 import { Library } from 'lucide-react';
 import { useToast } from '../../stores/toast.js';
@@ -108,7 +115,7 @@ export function SourceFolderZone() {
 
   return (
     <div className="panel-col" style={{ minWidth: 0 }}>
-      <div className="panel-bar" style={{ gap: 4 }}>
+      <div className="panel-bar" style={{ gap: 4, padding: '6px 12px' }}>
         <input
           className="mono"
           placeholder="/path/to/folder"
@@ -138,8 +145,8 @@ export function SourceFolderZone() {
         {files.map((f) => (
           <div
             key={f.name}
-            className="rowline"
-            style={{ display: 'flex', gap: 8, padding: '4px 8px', alignItems: 'center' }}
+            className="rowline media-row"
+            style={{ display: 'flex', gap: 8, padding: '4px 12px', alignItems: 'center' }}
           >
             <input
               type="checkbox"
@@ -174,7 +181,10 @@ export function SourceFolderZone() {
         ))}
       </div>
       {files.length > 0 && (
-        <div className="panel-bar" style={{ gap: 4, borderTop: '1px solid var(--line)' }}>
+        <div
+          className="panel-bar"
+          style={{ gap: 4, padding: '6px 12px', borderTop: '1px solid var(--line)' }}
+        >
           <button
             className="seg"
             title="Import selected"

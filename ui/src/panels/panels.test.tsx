@@ -607,7 +607,9 @@ describe('CaptionList', () => {
     act(() => {
       fireEvent.doubleClick(row);
     });
-    const input = container.querySelector('input')!;
+    // 搜尋框也是 input 且排在最前（.panel-bar 內）——編輯框在列內（.panel-body），
+    // 必須限定 .panel-body 才抓得到，否則抓到搜尋框、編輯永遠不會送出。
+    const input = container.querySelector('.panel-body input')!;
     act(() => {
       fireEvent.change(input, { target: { value: 'rewritten' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -626,7 +628,7 @@ describe('CaptionList', () => {
     act(() => {
       fireEvent.doubleClick(row);
     });
-    const input = container.querySelector('input')!;
+    const input = container.querySelector('.panel-body input')!;
     act(() => {
       fireEvent.change(input, { target: { value: 'nope' } });
       fireEvent.keyDown(input, { key: 'Escape' });

@@ -76,6 +76,7 @@ export function CaptionList() {
   const captions = useProject((s) => s.doc?.tracks.captions ?? NO_CAPTIONS);
   const selected = useSelection((s) => s.selected);
   const [draft, setDraft] = useState<{ id: string; text: string } | null>(null);
+  const [query, setQuery] = useState('');
 
   // 播放中 time 每幀更新——selector 只回傳 primitive（換句/換詞才變），
   // 列表就只在高亮真的要動時重渲染，而不是每幀一次。
@@ -149,10 +150,21 @@ export function CaptionList() {
 
   const hasTokens = captions.some((c) => c.tokens && c.tokens.length > 0);
 
+  // 搜尋只過濾**渲染清單**——setCaptions 的兩處整組替換 payload（套樣式、清 tokens）
+  // 一律用完整 captions，過濾了就會把沒顯示的字幕整批洗掉。
+  const q = query.trim().toLowerCase();
+  const visible = q ? captions.filter((c) => c.text.toLowerCase().includes(q)) : captions;
+
   return (
     <div className="panel-col" style={{ minWidth: 0 }}>
       {captions.length > 0 && (
         <div className="panel-bar" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <input
+            placeholder="Search captions"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{ flex: 1, minWidth: 80 }}
+          />
           <button
             onClick={() => applyStyleToAll(captions[0]!.style)}
             title="Apply the first caption's style to all"
@@ -174,7 +186,12 @@ export function CaptionList() {
             word highlight).
           </div>
         )}
-        {captions.map((cap) => {
+        {captions.length > 0 && visible.length === 0 && (
+          <div className="empty-note" style={{ padding: 12, color: 'var(--text-3)' }}>
+            {`No matches for "${query.trim()}".`}
+          </div>
+        )}
+        {visible.map((cap) => {
           const isCurrent = cap.id === currentId;
           const isSelected = selected?.kind === 'caption' && selected.id === cap.id;
           const active = isCurrent ? activeTok : -1;
