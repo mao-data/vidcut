@@ -87,6 +87,23 @@ export function Player() {
    */
   const canvasW = doc?.canvas.width ?? CANVAS_PRESETS[0]!.width;
   const canvasH = doc?.canvas.height ?? CANVAS_PRESETS[0]!.height;
+  /**
+   * 切離 blur 模式時清掉背景層的身分記憶。
+   *
+   * 背景層是**條件渲染**（`{blurFill && <video ref={vBg}/>}`）：切成 contain 的那一刻
+   * 整個 `<video>` 從 DOM 卸載，切回 blur 時 React 建的是一顆**全新的、src 空的**元素。
+   * 但 `mountedBgClip` 是 ref，不隨元素卸載重置——它還記著「這個 clip 已經掛好了」，
+   * 於是下面那道「只在換 clip 時才寫 src」的閘門永遠不成立，新元素的 src 從沒被寫入，
+   * blur 背景就此靜默失效（實測：切回來後 `src` 為空、`readyState` 0）。
+   *
+   * 修法是讓記憶跟著元素的生命週期走，而不是放寬那道閘門——閘門本身是刻意加的
+   * （比對 clipId 而非 src 字串，防背景 ingest 補上 proxyPath 時重載閃爍，見下方註解），
+   * 兩件事不該混在同一個條件裡。
+   */
+  useEffect(() => {
+    if (!blurFill) mountedBgClip.current = null;
+  }, [blurFill]);
+
   /** AI 新增的項目在預覽畫面淡入進場（fx-enter）；播放中自然進出窗不動畫 */
   const fxAdded = useEditFx((s) => s.added);
   const captionCards = useProject((s) => s.captionCards);

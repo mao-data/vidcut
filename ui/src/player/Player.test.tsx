@@ -413,6 +413,43 @@ describe('Player blur 背景 video 閘門', () => {
     expect(bg.getAttribute('src')).not.toBe(before);
     expect(bg.getAttribute('src')).toContain('m2');
   });
+
+  /**
+   * blur → contain → blur 來回之後，背景層必須重新拿到 src（2026-08-26 使用者實測回報）。
+   *
+   * 背景層是條件渲染，切成 contain 的那一刻 `<video>` 整個從 DOM 卸載，切回來時是一顆
+   * **全新的、src 空的**元素；而上面那道「只在換 clip 時才寫 src」的閘門記在 ref 裡，
+   * 不隨元素卸載重置。少了重置，閘門會誤判「這顆 clip 已經掛好了」而不寫 src，
+   * blur 背景就此靜默失效（真瀏覽器實測：切回來後 src 為空、readyState 0）。
+   *
+   * ⚠️ 這條與上面兩條是同一道閘門的三個面：不該重載時不重載、該重載時要重載、
+   * **元素重生時記憶要跟著歸零**。
+   */
+  it('blur → contain → blur 來回：背景層重新掛載後 src 要被重新寫入', () => {
+    const doc = withBlurFit(demoProject());
+    seedProject(doc, 1);
+    const { container } = render(<Player />);
+    seek(2);
+
+    expect(container.querySelectorAll('video')[0]!.getAttribute('src')).toContain('m1');
+
+    // 切 contain：背景層卸載（三顆 video 剩兩顆）
+    const contained = demoProject();
+    contained.canvas = { ...contained.canvas, fit: 'contain' };
+    act(() => {
+      seedProject(contained, 2);
+    });
+    expect(container.querySelectorAll('video')).toHaveLength(2);
+
+    // 切回 blur：新元素掛上來，src 必須被重新寫入
+    act(() => {
+      seedProject(withBlurFit(demoProject()), 3);
+    });
+    seek(2.1); // 推進一次觸發 effect（與上面那條「下一輪 effect 才跑」同理）
+
+    const bgAgain = container.querySelectorAll('video')[0]!;
+    expect(bgAgain.getAttribute('src')).toContain('m1');
+  });
 });
 
 /**
