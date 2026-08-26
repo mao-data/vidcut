@@ -33,6 +33,8 @@ const CAP_LATIN: CaptionItem = {
     { text: 'line', start: 1, end: 2 },
   ],
 };
+/** 直式畫布高度：`style.y`（0–1）乘上它才是畫布 px（Task 5 起由 prop 傳入，不再硬編）。 */
+const CANVAS_H = 1920;
 const META = {
   width: 1080,
   height: 92,
@@ -63,7 +65,7 @@ describe('CaptionLayer', () => {
 
   it('有卡:render base img,播放到第二詞時 hl img 的 clip 剛好蓋住前兩個詞', async () => {
     const { container } = render(
-      <CaptionLayer captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
     );
     await waitFor(() => {
       const imgs = container.querySelectorAll('img');
@@ -81,7 +83,7 @@ describe('CaptionLayer', () => {
 
   it('播放到第一詞時只揭第一個詞（off-by-one 會在這裡露餡）', async () => {
     const { container } = render(
-      <CaptionLayer captions={[CAP]} cards={{ c1: 'abc123' }} time={0.5} />,
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'abc123' }} time={0.5} />,
     );
     await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
     expect(container.querySelectorAll('img')[1]!.style.clipPath).toBe(`path('${RECT0}')`);
@@ -96,7 +98,7 @@ describe('CaptionLayer', () => {
       ],
     };
     const { container } = render(
-      <CaptionLayer captions={[capLater]} cards={{ c1: 'abc123' }} time={0.5} />,
+      <CaptionLayer canvasH={CANVAS_H} captions={[capLater]} cards={{ c1: 'abc123' }} time={0.5} />,
     );
     await waitFor(() =>
       expect(container.querySelector('img[src="/text-card/abc123.base.png"]')).not.toBeNull(),
@@ -117,7 +119,7 @@ describe('CaptionLayer', () => {
     it('外層縮到 ink 的 left/width，圖用等量負 left 推回卡片原位（畫面零位移）', async () => {
       withInk();
       const { container } = render(
-        <CaptionLayer captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
+        <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
       );
       await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
       const box = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
@@ -133,7 +135,7 @@ describe('CaptionLayer', () => {
 
     it('舊快取沒有 ink：退回整張卡的框（不壞掉，只是不夠準）', async () => {
       const { container } = render(
-        <CaptionLayer captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
+        <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
       );
       await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
       const box = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
@@ -143,17 +145,44 @@ describe('CaptionLayer', () => {
     });
 
     it('DOM 近似路徑：定位層不吃事件，命中框是收縮到文字的那一層', () => {
-      const { container } = render(<CaptionLayer captions={[CAP]} cards={{}} time={0.5} />);
+      const { container } = render(
+        <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{}} time={0.5} />,
+      );
       const box = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
       expect(box.style.display).toBe('inline-block'); // 盒子收縮到文字本身
       expect(box.style.pointerEvents).toBe('auto');
       expect(box.parentElement!.style.pointerEvents).toBe('none'); // 全寬的那層不吃事件
-      expect(box.parentElement!.style.top).toBe(`${1920 * CAP.style.y}px`);
+      expect(box.parentElement!.style.top).toBe(`${CANVAS_H * CAP.style.y}px`);
+    });
+  });
+
+  // Task 5：`top` 以前硬編 `1920 * y`。橫式畫布（高 1080）下硬編就是「字幕永遠照直式
+  // 高度定位」——0.72 會落在 1382px，遠在 1080 高的畫面之外（整句看不見），而且成品
+  // 那端（render.ts 用 doc.canvas.height）算的是 778px，是教科書級的預覽≠成品。
+  // 兩條路徑各釘一次：字卡路徑與 DOM fallback 路徑是兩段獨立的 `top`，漏改一邊測不出來。
+  describe('canvasH 真的驅動垂直定位（兩條路徑都要）', () => {
+    const LAND_H = 1080;
+    it('字卡路徑', async () => {
+      const { container } = render(
+        <CaptionLayer canvasH={LAND_H} captions={[CAP]} cards={{ c1: 'abc123' }} time={1.5} />,
+      );
+      await waitFor(() => expect(container.querySelector('img')).not.toBeNull());
+      const box = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
+      expect(box.style.top).toBe(`${LAND_H * CAP.style.y}px`); // 777.6px，不是 1382.4px
+    });
+    it('DOM fallback 路徑', () => {
+      const { container } = render(
+        <CaptionLayer canvasH={LAND_H} captions={[CAP]} cards={{}} time={0.5} />,
+      );
+      const box = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
+      expect(box.parentElement!.style.top).toBe(`${LAND_H * CAP.style.y}px`);
     });
   });
 
   it('無卡:DOM 文字 fallback,字級為全尺寸 64px(1080 空間)', () => {
-    const { container } = render(<CaptionLayer captions={[CAP]} cards={{}} time={0.5} />);
+    const { container } = render(
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{}} time={0.5} />,
+    );
     expect(container.querySelector('img')).toBeNull();
     const div = [...container.querySelectorAll<HTMLElement>('[data-drag-kind="caption"]')].find(
       (d) => d.textContent?.includes('你好'),
@@ -167,7 +196,9 @@ describe('CaptionLayer', () => {
     // selectstart),而從**已選取的文字**上開始的下一次拖曳會被瀏覽器接管成 text drag:
     // dragstart → pointercancel,自訂的 pointer 拖曳手勢被攔腰砍斷(CLAUDE.md「UI 驗證的
     // 陷阱」記過的同一種靜默失敗)。加了 user-select:none 之後實測 selectstart 不再出現。
-    const { container } = render(<CaptionLayer captions={[CAP]} cards={{}} time={0.5} />);
+    const { container } = render(
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{}} time={0.5} />,
+    );
     const div = [...container.querySelectorAll<HTMLElement>('[data-drag-kind="caption"]')].find(
       (d) => d.textContent?.includes('你好'),
     )!;
@@ -181,7 +212,7 @@ describe('CaptionLayer', () => {
       vi.fn(async () => ({ ok: false, json: async () => ({}) })),
     );
     const { container } = render(
-      <CaptionLayer captions={[CAP]} cards={{ c1: 'deadhash' }} time={0.5} />,
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'deadhash' }} time={0.5} />,
     );
     await waitFor(() => {
       expect(container.querySelector('img')).toBeNull();
@@ -199,17 +230,21 @@ describe('CaptionLayer', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => META });
     vi.stubGlobal('fetch', fetchMock);
 
-    const first = render(<CaptionLayer captions={[CAP]} cards={{ c1: 'retryhash' }} time={1.5} />);
+    const first = render(
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'retryhash' }} time={1.5} />,
+    );
     await waitFor(() => expect(first.container.querySelector('img')).toBeNull());
     first.unmount();
 
-    const second = render(<CaptionLayer captions={[CAP]} cards={{ c1: 'retryhash' }} time={1.5} />);
+    const second = render(
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'retryhash' }} time={1.5} />,
+    );
     await waitFor(() => expect(second.container.querySelectorAll('img')).toHaveLength(2));
   });
 
   it('base.png 載入失敗(onError):退回 DOM fallback,不留一張看不到的卡', async () => {
     const { container } = render(
-      <CaptionLayer captions={[CAP]} cards={{ c1: 'badimg' }} time={1.5} />,
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'badimg' }} time={1.5} />,
     );
     const base = await waitFor(() => {
       const el = container.querySelector('img[src="/text-card/badimg.base.png"]');
@@ -228,7 +263,9 @@ describe('CaptionLayer', () => {
 
   // ---- Finding 2: DOM fallback 要用 CJK-aware separator,不是黏在一起 ----
   it('無卡 fallback 的拉丁詞之間要有空格(second line,不是 secondline)', () => {
-    const { container } = render(<CaptionLayer captions={[CAP_LATIN]} cards={{}} time={0.5} />);
+    const { container } = render(
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP_LATIN]} cards={{}} time={0.5} />,
+    );
     const second = [...container.querySelectorAll('span')].find((s) => s.textContent === 'second')!;
     const line = [...container.querySelectorAll('span')].find((s) => s.textContent === 'line')!;
     expect(second.parentElement).toBe(line.parentElement);
@@ -250,13 +287,15 @@ describe('CaptionLayer', () => {
     );
 
     const { container, rerender } = render(
-      <CaptionLayer captions={[CAP]} cards={{ c1: 'hash1' }} time={1.5} />,
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'hash1' }} time={1.5} />,
     );
     await waitFor(() =>
       expect(container.querySelector('img[src="/text-card/hash1.base.png"]')).not.toBeNull(),
     );
 
-    rerender(<CaptionLayer captions={[CAP]} cards={{ c1: 'hash2' }} time={1.5} />);
+    rerender(
+      <CaptionLayer canvasH={CANVAS_H} captions={[CAP]} cards={{ c1: 'hash2' }} time={1.5} />,
+    );
     // hash2 的 geometry 還沒回來:不得用 hash1 的舊 geo 畫 hash2 的圖(尺寸/clip 會對不上)
     expect(container.querySelector('img[src="/text-card/hash1.base.png"]')).toBeNull();
     expect(container.querySelector('img[src="/text-card/hash2.base.png"]')).toBeNull();
@@ -273,6 +312,7 @@ describe('CaptionLayer', () => {
   it('draft 命中該句且無 previewHash:顯示 draft.text 的 DOM 近似,忽略舊 tokens(不高亮)', () => {
     const { container } = render(
       <CaptionLayer
+        canvasH={CANVAS_H}
         captions={[CAP]}
         cards={{ c1: 'abc123' }} // 就算已有成品卡,draft 命中時也要蓋過
         time={1.5} // 落在第二詞(舊 tokens)的時間點
@@ -291,6 +331,7 @@ describe('CaptionLayer', () => {
   it('draft 命中該句且 previewHash 有值:用 draft.previewHash 當單卡(不是 cards[id] 那顆舊卡)', async () => {
     const { container } = render(
       <CaptionLayer
+        canvasH={CANVAS_H}
         captions={[CAP]}
         cards={{ c1: 'abc123' }}
         time={1.5}
@@ -313,6 +354,7 @@ describe('CaptionLayer', () => {
   it('draft 不命中任何一句時,其他句照常走 cards/ApproxCaption 原本邏輯', () => {
     const { container } = render(
       <CaptionLayer
+        canvasH={CANVAS_H}
         captions={[CAP]}
         cards={{}}
         time={0.5}

@@ -1,4 +1,14 @@
-// 1080×1920 座標系內的字幕層:有卡用卡(和成品同一張圖),沒卡退回 DOM 近似(舊行為)。
+// 畫布座標系（doc.canvas.width×height）內的字幕層:有卡用卡(和成品同一張圖),
+// 沒卡退回 DOM 近似(舊行為)。
+//
+// 畫布高度由 **prop（`canvasH`）** 傳進來,不自己讀 store。理由:
+//  1. 這個元件只有 Player 一個呼叫端,而 Player 已經是整條座標鏈的唯一來源
+//     (`canvasW`/`canvasH`/`scale` 都在那裡算)——自己讀 store 等於開第二條路徑,
+//     正是 Player 那些「不得重算/硬編」註解在防的事;
+//  2. 它是純呈現元件(不含任何 store 訂閱),測試可以直接 render 而不用架 zustand store
+//     ——現有的 CaptionLayer.test.tsx 就是這樣跑的。
+// 只傳高不傳寬:這個元件的水平幾何完全來自字卡自己的 geometry(`geo.width`/`ink`)
+// 與 DOM fallback 的 left/right 撐滿,沒有任何一處需要畫布寬。
 import { Fragment, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { activeTokenIndex, karaokeClip, tokenSeparator, type CaptionItem } from '@vidcut/shared';
 import type { EditDraftState } from '../stores/editDraft.js';
@@ -24,7 +34,7 @@ interface Geo {
 /**
  * 字幕卡的**命中框**：只蓋住真的有墨跡的地方，不是整張卡。
  *
- * 字卡一律是畫布全寬（1080）、文字水平置中，所以短字幕的 PNG 兩側各有一大片透明。
+ * 字卡一律是畫布全寬（`doc.canvas.width`）、文字水平置中，所以短字幕的 PNG 兩側各有一大片透明。
  * 瀏覽器對 `<img>`/`<div>` 的命中測試只看盒子、不看 alpha，所以外層若用整張卡的框，
  * 那一整條橫貫畫布的帶狀區域就會吃掉所有 pointer 事件——字幕層畫在 overlay 之上
  * （DOM 順序在後），playhead 停在一句字幕上時，落在那個帶子裡的 overlay 就再也選不到、
@@ -89,12 +99,14 @@ function CardCaptionForHash({
   cap,
   hash,
   time,
+  canvasH,
   className,
   drag,
 }: {
   cap: CaptionItem;
   hash: string;
   time: number;
+  canvasH: number;
   className?: string;
   drag?: DragHooks;
 }) {
@@ -113,7 +125,9 @@ function CardCaptionForHash({
 
   if (geo === 'pending') return null; // 首次抓取中:寧可空一幀,不畫錯的
   if (geo === 'failed')
-    return <ApproxCaption cap={cap} time={time} className={className} drag={drag} />;
+    return (
+      <ApproxCaption cap={cap} time={time} canvasH={canvasH} className={className} drag={drag} />
+    );
 
   const active = activeTokenIndex(cap, time);
   const pad = cap.style.stroke ? strokeWidth(cap.style.fontSize) : 0;
@@ -127,7 +141,7 @@ function CardCaptionForHash({
       style={{
         position: 'absolute',
         left: box.left,
-        top: 1920 * cap.style.y,
+        top: canvasH * cap.style.y,
         width: box.width,
         height: geo.height,
         pointerEvents: 'auto',
@@ -172,6 +186,7 @@ function CardCaption(props: {
   cap: CaptionItem;
   hash: string;
   time: number;
+  canvasH: number;
   className?: string;
   drag?: DragHooks;
 }) {
@@ -181,11 +196,13 @@ function CardCaption(props: {
 function ApproxCaption({
   cap,
   time,
+  canvasH,
   className,
   drag,
 }: {
   cap: CaptionItem;
   time: number;
+  canvasH: number;
   className?: string;
   drag?: DragHooks;
 }) {
@@ -199,7 +216,7 @@ function ApproxCaption({
         position: 'absolute',
         left: 0,
         right: 0,
-        top: 1920 * cap.style.y,
+        top: canvasH * cap.style.y,
         textAlign: 'center',
         pointerEvents: 'none',
       }}
@@ -220,7 +237,9 @@ function ApproxCaption({
           userSelect: 'none',
           WebkitUserSelect: 'none',
           fontFamily: cap.style.fontFamily,
-          fontSize: cap.style.fontSize, // 1080 空間內就是真字級——/3 粗估正式退役
+          // 畫布座標空間內就是真字級——/3 粗估正式退役。字級與畫布寬無關（它本來就
+          // 是畫布 px），所以這裡不需要任何換算，也不該跟著 canvasW 縮放。
+          fontSize: cap.style.fontSize,
           color: cap.style.fill,
           WebkitTextStroke: cap.style.stroke
             ? `${strokeWidth(cap.style.fontSize)}px ${cap.style.stroke}`
@@ -258,11 +277,19 @@ export function CaptionLayer({
   time,
   added,
   draft,
+  canvasH,
   onCaptionPointerDown,
 }: {
   captions: CaptionItem[];
   cards: Record<string, string>;
   time: number;
+  /**
+   * 畫布高度（`doc.canvas.height`）：`style.y` 是 0–1 正規化值，乘上它才是畫布 px。
+   * **必填、無預設值**——給它一個 `?? 1920` 的預設就等於在 Player 之外偷偷開第二個
+   * 畫布尺寸來源，而那種漏傳的症狀是「字幕整體偏一點點」，看起來很像對的。
+   * 漏傳寧可讓 tsc 當場紅。
+   */
+  canvasH: number;
   /** AI 新增項目的進場動畫標記（capId → 出現順序）；沿用 Player 的 useEditFx 選取結果 */
   added?: ReadonlyMap<string, number>;
   /**
@@ -290,6 +317,7 @@ export function CaptionLayer({
               cap={draftCap}
               hash={draft.previewHash}
               time={time}
+              canvasH={canvasH}
               className={className}
               drag={drag}
             />
@@ -298,6 +326,7 @@ export function CaptionLayer({
               key={c.id}
               cap={draftCap}
               time={time}
+              canvasH={canvasH}
               className={className}
               drag={drag}
             />
@@ -309,11 +338,19 @@ export function CaptionLayer({
             cap={c}
             hash={cards[c.id]!}
             time={time}
+            canvasH={canvasH}
             className={className}
             drag={drag}
           />
         ) : (
-          <ApproxCaption key={c.id} cap={c} time={time} className={className} drag={drag} />
+          <ApproxCaption
+            key={c.id}
+            cap={c}
+            time={time}
+            canvasH={canvasH}
+            className={className}
+            drag={drag}
+          />
         );
       })}
     </>

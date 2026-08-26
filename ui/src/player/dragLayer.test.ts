@@ -76,21 +76,39 @@ describe('dragOverlay', () => {
 
 describe('dragCaption', () => {
   it('y 位移換算 + 夾限', () => {
-    expect(dragCaption(0.72, 192, 92, 1920).y).toBeCloseTo(0.82);
+    expect(dragCaption(0.72, 192, 92, CANVAS).y).toBeCloseTo(0.82);
     // 2026-08-04 起：中心留在畫布內，上下各可露出半張卡（舊規則是必須完整可見）
-    expect(dragCaption(0.9, 500, 92, 1920).y).toBeLessThanOrEqual(1 - 92 / (2 * 1920));
-    expect(dragCaption(0.1, -500, 92, 1920).y).toBeGreaterThanOrEqual(-92 / (2 * 1920));
+    expect(dragCaption(0.9, 500, 92, CANVAS).y).toBeLessThanOrEqual(1 - 92 / (2 * 1920));
+    expect(dragCaption(0.1, -500, 92, CANVAS).y).toBeGreaterThanOrEqual(-92 / (2 * 1920));
   });
 
   it('高字卡且起點在界外：1px 的手勢不得把字幕彈上去（clamp 規則與 dragOverlay 一致）', () => {
     // cardH=400（字級大或多行的字卡）→ 正常上限只有 1-400/1920 = 0.79167，
     // 而 y=0.9 是 set_captions 正常設得出來的值。硬 clamp 的話，使用者只碰了 1px，
     // 字幕就往上跳 208px（0.9 → 0.79167），並且跟著這次拖曳被送出、永久存進 doc。
-    expect(dragCaption(0.9, 1, 400, 1920).y).toBeCloseTo(0.9, 6);
+    expect(dragCaption(0.9, 1, 400, CANVAS).y).toBeCloseTo(0.9, 6);
     // 往界內拖不受限：一路拖得回合法區間，不會被鎖在 0.9
-    expect(dragCaption(0.9, -400, 400, 1920).y).toBeCloseTo(0.9 - 400 / 1920, 6);
+    expect(dragCaption(0.9, -400, 400, CANVAS).y).toBeCloseTo(0.9 - 400 / 1920, 6);
     // 起點本來就合法時：硬拖出下緣夾在「中心貼齊下緣」＝ 1 - cardH/2H
-    expect(dragCaption(0.5, 5000, 400, 1920).y).toBeCloseTo(1 - 400 / (2 * 1920), 6);
+    expect(dragCaption(0.5, 5000, 400, CANVAS).y).toBeCloseTo(1 - 400 / (2 * 1920), 6);
+  });
+
+  // Task 5：`dragCaption` 以前高是參數、寬硬編 1080（半吊子參數化）。橫式畫布
+  // （1920×1080）下寬硬編的話，snapBBox 收到的是「1080 寬的卡放在 1920 寬的畫布」
+  // ——那張卡在 snap 眼裡不是全寬置中，水平候選（畫布中心 960 vs 卡中心 540）全錯位。
+  // 這裡釘死「卡寬 ≡ 畫布寬」這條不變量：字卡是伺服器照 doc.canvas.width 光柵化的，
+  // 兩邊分岔就是預覽與成品分岔。
+  it('橫式畫布：卡寬跟著畫布寬走，clamp 上下界用的是畫布高不是 1920', () => {
+    const LAND = { w: 1920, h: 1080 };
+    const cardH = 92;
+    // 硬拖出下緣 → 夾在「中心貼齊下緣」= 1 - cardH/2H，H 必須是 1080。
+    expect(dragCaption(0.5, 99999, cardH, LAND).y).toBeCloseTo(1 - cardH / (2 * 1080), 6);
+    // 位移換算也用畫布高：+108px / 1080 = +0.1
+    const moved = dragCaption(0.3, 108, cardH, LAND);
+    if (!moved.guides.length) expect(moved.y).toBeCloseTo(0.4, 6);
+    // 導線一律只有 y 軸（x 被濾掉），且落在畫布高之內——寬硬編時 snapBBox 的 y 候選
+    // 不受影響，所以這條靠的是上面兩條數值斷言，不是導線。
+    expect(moved.guides.every((g) => g.axis === 'y')).toBe(true);
   });
 });
 
@@ -190,7 +208,7 @@ describe('四邊都可以超出畫布（中心留在畫布內）', () => {
   it('字幕同一條規則：可以拖到掛在畫布下緣外', () => {
     const cardH = 300;
     const oldLimit = 1 - cardH / 1920;
-    const r = dragCaption(0.8, 400, cardH, 1920);
+    const r = dragCaption(0.8, 400, cardH, CANVAS);
     expect(r.y).toBeGreaterThan(oldLimit);
     expect(r.y).toBeLessThanOrEqual(1 - cardH / (2 * 1920) + 1e-9);
   });

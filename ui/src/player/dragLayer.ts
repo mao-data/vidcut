@@ -100,7 +100,7 @@ function clampAxis(v: number, lo: number, hi: number, start: number): number {
  * 上下各可露出半張卡；clampAxis 的區間永遠含起點）。
  *
  * 曾經以為「字幕只有一條軸，不會有沒碰到的軸被 clamp 挪走的問題」而留了硬 clamp——錯了。
- * 一樣會炸，只是換個樣子：字卡很高時（字級大或多行）上限 1-cardH/1920 會壓得很低，
+ * 一樣會炸，只是換個樣子：字卡很高時（字級大或多行）上限 1-cardH/canvas.h 會壓得很低，
  * 例如 cardH=400 時上限只有 0.7917；而 y=0.9 這種值透過 set_captions 正常設得出來。
  * 這時使用者只是輕輕碰一下（dy=1px），硬 clamp 會把字幕往上彈到 0.7917——1px 的手勢
  * 造成 208px 的跳動，而且跟著這次拖曳被送出、永久存進 doc。
@@ -110,18 +110,12 @@ export function dragCaption(
   startY: number,
   dyCanvas: number,
   cardH: number,
-  canvasH: number,
+  canvas: { w: number; h: number },
 ): { y: number; guides: SnapGuide[] } {
-  // 字幕卡全寬置中，x 固定；只吸 y 軸（x 導線濾掉）
-  const s = snapBBox(
-    { x: 0, y: startY * canvasH + dyCanvas, w: 1080, h: cardH },
-    { w: 1080, h: canvasH },
-  );
-  const { y } = clampCentre(
-    s,
-    { w: 1080, h: cardH },
-    { w: 1080, h: canvasH },
-    { x: 0.5, y: startY },
-  );
+  // 字幕卡全寬置中，x 固定；只吸 y 軸（x 導線濾掉）。
+  // ⚠️ 卡寬吃 `canvas.w`，不再硬編 1080——字卡是伺服器照 `doc.canvas.width` 光柵化的，
+  //   兩邊分岔的話 clamp/吸附會照著一個不存在的卡寬算（曾經高是參數、寬是硬編）。
+  const s = snapBBox({ x: 0, y: startY * canvas.h + dyCanvas, w: canvas.w, h: cardH }, canvas);
+  const { y } = clampCentre(s, { w: canvas.w, h: cardH }, canvas, { x: 0.5, y: startY });
   return { y, guides: s.guides.filter((g) => g.axis === 'y') };
 }

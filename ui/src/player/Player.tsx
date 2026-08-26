@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { outputDuration, type CaptionItem, type SnapGuide } from '@vidcut/shared';
+import { CANVAS_PRESETS, outputDuration, type CaptionItem, type SnapGuide } from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
@@ -27,7 +27,7 @@ const DUCK_LEVEL = 0.25;
 /**
  * NaN／Infinity 保險絲：送出前擋掉非有限數。
  *
- * 怎麼會有 NaN：stageW 還沒量到時 `scale = 0/1080 = 0`，pointerdown 存下的 `d.scale` 就是 0，
+ * 怎麼會有 NaN：stageW 還沒量到時 `scale = 0/canvasW = 0`，pointerdown 存下的 `d.scale` 就是 0，
  * `dx / 0` → Infinity，一路算下來 `Number(NaN.toFixed(4))` → NaN。NaN 進 `JSON.stringify`
  * 會變成 **null**，而當時 server 的 `updateOverlay` 不驗數值，`{"x":null}` 會直接寫進專案檔
  * ——之後每次載入都是壞的 position。真瀏覽器要踩到很難（stage 有 aspect-ratio + 版面已定），
@@ -76,6 +76,17 @@ export function Player() {
   /** 音訊軌：每個 AudioItem 一個隱藏 <audio>（元素常駐、進出活躍窗才 play/pause） */
   const audioEls = useRef(new Map<string, HTMLAudioElement>());
   const blurFill = doc?.canvas.fit === 'blur';
+  /**
+   * 預覽座標空間的畫布尺寸——**這個元件裡每一處畫布座標的唯一來源**。
+   *
+   * `doc` 可能還是 null（專案尚未載入），此時退回 `CANVAS_PRESETS[0]`（portrait 1080×1920，
+   * 也是 `emptyProject()` 的預設畫布）。刻意用 preset 表而不是各處寫 `?? 1080`／`?? 1920`：
+   * 散落的預設值遲早會有一處漏改，而那種漏改的症狀是「偏一點點、看起來很像對的」。
+   * 實務上 render body 上方就有 `if (!doc || !plan) return null`，所以掛在 DOM 上的那一版
+   * 一定是真的 doc 值；fallback 只服務 early-return 之前那幾行的型別完整性。
+   */
+  const canvasW = doc?.canvas.width ?? CANVAS_PRESETS[0]!.width;
+  const canvasH = doc?.canvas.height ?? CANVAS_PRESETS[0]!.height;
   /** AI 新增的項目在預覽畫面淡入進場（fx-enter）；播放中自然進出窗不動畫 */
   const fxAdded = useEditFx((s) => s.added);
   const captionCards = useProject((s) => s.captionCards);
@@ -92,9 +103,14 @@ export function Player() {
   );
 
   /**
-   * 疊圖/字幕層的 1080×1920 座標空間縮放係數，量測「影片實際填滿的那個元素」
-   * （stage div，objectFit:contain + aspectRatio 9/16 讓 video 精確填滿它）的寬度。
-   * 唯一的縮放來源——不得再引入第二條路徑或魔術常數（見任務需求）。
+   * 疊圖/字幕層的畫布座標空間縮放係數，量測「影片實際填滿的那個元素」
+   * （stage div，objectFit:contain + `aspectRatio: canvasW/canvasH` 讓 video 精確填滿它）
+   * 的寬度。唯一的縮放來源——不得再引入第二條路徑或魔術常數（見任務需求）。
+   *
+   * ⚠️ stage 的 `aspectRatio` **不是裝飾，是 `scale = stageW / canvasW` 這條式子的物理前提**：
+   * 只有 stage 的實體形狀正好等於畫布比例時，`objectFit: contain` 的 video 才會精確填滿它，
+   * 量到的 stage 寬才等於畫面寬。形狀寫死 9/16 而畫布換成橫式的話，video 會 contain 進
+   * 窄長條裡上下留白，stageW 量到的是留白容器的寬——每一項座標都偏移，而且偏得很像「對的」。
    *
    * ref 用 state（非 useRef）：doc 到位前 `!doc → return null` 不會 render stage div，
    * 若用 useRef+空 deps 的 effect，第一次（也是唯一一次）跑的時候元素還不存在，
@@ -377,8 +393,8 @@ export function Player() {
   // video 元素，沒有隱藏，使用者會看到畫面凍結在主軌結尾而不是變黑）。
   const showVideo = plan.active !== null;
 
-  /** 1080 座標空間縮放係數——與下方 1080×1920 layer 的 transform 同一個來源，不得重算/硬編。 */
-  const scale = stageW / 1080;
+  /** 畫布座標空間縮放係數——與下方座標層的 transform 同一個來源，不得重算/硬編。 */
+  const scale = stageW / canvasW;
 
   /**
    * 拖曳中的項目**豁免時間窗過濾**：手勢沒結束前，它一定留在畫面上。
@@ -388,7 +404,7 @@ export function Player() {
    * 這兩個清單的 .map() 裡套的，清單裡沒有它就沒有東西可套，畫面**停住不動**，但 window 上的
    * pointermove 照樣在更新 d.last。實測：y=0.8 往下拖 40px（畫面顯示 0.8208）→ 出窗消失 →
    * 使用者沒有任何回饋卻繼續拖到 +900px → 放手送出 0.9521。他最後看到的是 0.82，文件卻拿到
-   * 0.95，1080 空間裡差 250px。附帶症狀：吸附導線還照畫，畫布上飄著幾條沒有主人的黃線。
+   * 0.95，1920 高的畫布上差 250px。附帶症狀：吸附導線還照畫，畫布上飄著幾條沒有主人的黃線。
    *
    * 兩個修法都能讓「送出的＝使用者最後看到的」成立，這裡選**留住元素**而不是**凍結 d.last**：
    *  - 凍結 d.last：元素依舊在眼前消失，之後的拖曳全部無效（手指還按著、畫面卻毫無反應
@@ -457,12 +473,12 @@ export function Player() {
     if (!d) return;
     const delta = { dx: (e.clientX - d.startX) / d.scale, dy: (e.clientY - d.startY) / d.scale };
     if (d.kind === 'overlay') {
-      const r = dragOverlay(d.startPos, delta, d.bbox, { w: 1080, h: 1920 });
+      const r = dragOverlay(d.startPos, delta, d.bbox, { w: canvasW, h: canvasH });
       d.last = { position: r.position };
       setDragOverride({ kind: 'overlay', id: d.id, position: r.position });
       setGuides(r.guides);
     } else {
-      const r = dragCaption(d.startPos.y, delta.dy, d.bbox.h, 1920);
+      const r = dragCaption(d.startPos.y, delta.dy, d.bbox.h, { w: canvasW, h: canvasH });
       d.last = { y: r.y };
       setDragOverride({ kind: 'caption', id: d.id, y: r.y });
       setGuides(r.guides);
@@ -505,7 +521,7 @@ export function Player() {
       // 項目在拖曳途中被刪掉了就不送（送出去也只會被 server 拒絕）
       const ov = cur.tracks.overlays.find((x) => x.id === d.id);
       if (ov) {
-        // 四位小數（1080 空間下約 0.1px 解析度）：pending 對帳與 sendCommand 送出的必須是
+        // 四位小數（1080 寬的畫布上約 0.1px 解析度）：pending 對帳與 sendCommand 送出的必須是
         // 同一個數字，不然 doc echo 抵達時浮點尾數對不上，pending 永遠對帳不到，只能靠
         // 1.2s 保險絲清掉（同 Timeline.tsx 對 start/duration 送出前 toFixed(3) 的理由）。
         const position = {
@@ -635,7 +651,7 @@ export function Player() {
       kind: 'caption',
       id: cap.id,
       startPos: { x: 0, y: cap.style.y },
-      bbox: { w: 1080, h: rect.height / scale },
+      bbox: { w: canvasW, h: rect.height / scale },
     });
   };
 
@@ -653,7 +669,9 @@ export function Player() {
         ref={setStageEl}
         style={{
           position: 'relative',
-          aspectRatio: '9/16',
+          // ⚠️ 不是裝飾：這條讓 stage 的實體形狀等於畫布比例，`objectFit: contain` 的 video
+          // 才會精確填滿它，上面 `scale = stageW / canvasW` 才成立（見 stageW 的長註解）。
+          aspectRatio: `${canvasW}/${canvasH}`,
           // 依「容器」高度縮放，不是視窗高度（用 vh 的話時間軸一高就會撐出捲軸）
           height: '100%',
           maxWidth: '100%',
@@ -699,7 +717,7 @@ export function Player() {
           ) : null;
         })}
         {/*
-          1080×1920 座標空間：與匯出畫布同尺寸，用量測到的 stage 寬縮放——
+          畫布座標空間：與匯出畫布同尺寸（doc.canvas.width/height），用量測到的 stage 寬縮放——
           縮放係數只有這一處來源，不得再有第二條路徑或魔術常數（fontSize/3 已廢除）。
         */}
         <div
@@ -711,8 +729,8 @@ export function Player() {
             position: 'absolute',
             left: 0,
             top: 0,
-            width: 1080,
-            height: 1920,
+            width: canvasW,
+            height: canvasH,
             transformOrigin: 'top left',
             transform: `scale(${scale})`,
             pointerEvents: 'none',
@@ -739,15 +757,15 @@ export function Player() {
                 onPointerDown={onOverlayPointerDown}
                 style={{
                   position: 'absolute',
-                  left: 1080 * o.position.x,
-                  top: 1920 * o.position.y,
+                  left: canvasW * o.position.x,
+                  top: canvasH * o.position.y,
                   // translate(-50%,0) + transformOrigin 'top center'：x 錨＝水平中心、
                   // y 錨＝上緣，縮放繞著「上緣中點」做——與 render.ts 的
                   // `overlay=x=(W*x)-(w/2):y=(H*y)`（w 是縮放後的寬）同一組語意。
                   transform: `translate(-50%, 0) scale(${o.position.scale})`,
                   transformOrigin: 'top center',
                   // ⚠️ 這裡曾經有一行 `maxWidth: 1080 * 0.9`，讓預覽的圖被夾到 972px，
-                  // 而 render.ts 是以原生尺寸合成——文字卡一律是畫布全寬（1080），
+                  // 而 render.ts 是以原生尺寸合成——文字卡一律是畫布全寬，
                   // 所以「成品比預覽大 1/0.9 ≈ 11%」每次都中。夾制沒有任何渲染端的對應物，
                   // 也沒有記載過的用途，原生尺寸才是正確的預覽（2026-08-04 移除）。
                   pointerEvents: 'auto',
@@ -763,9 +781,10 @@ export function Player() {
             time={time}
             added={fxAdded}
             draft={editDraft}
+            canvasH={canvasH}
             onCaptionPointerDown={onCaptionPointerDown}
           />
-          {/* 吸附導線：命中時才畫，畫在同一 1080 座標空間內（已被外層 scale 換算成畫面 px） */}
+          {/* 吸附導線：命中時才畫，畫在同一畫布座標空間內（已被外層 scale 換算成畫面 px） */}
           {guides.map((g, i) =>
             g.axis === 'x' ? (
               <div
@@ -779,7 +798,7 @@ export function Player() {
                   left: g.pos,
                   top: 0,
                   width: 2,
-                  height: 1920,
+                  height: canvasH,
                   background: 'var(--warn)',
                   pointerEvents: 'none',
                 }}
@@ -794,7 +813,7 @@ export function Player() {
                   top: g.pos,
                   left: 0,
                   height: 2,
-                  width: 1080,
+                  width: canvasW,
                   background: 'var(--warn)',
                   pointerEvents: 'none',
                 }}

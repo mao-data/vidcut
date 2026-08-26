@@ -30,7 +30,13 @@ function schedulePreview(cap: CaptionItem, text: string): void {
       headers: { 'content-type': 'application/json' },
       // 故意不帶 tokens:草稿文字的詞邊界屬於舊文字,帶著送只會讓卡片照舊時間戳切詞——
       // 沒有 tokens,server 就不產生 karaoke 分割,近似預覽自然不會顯示錯的高亮(見任務要求)。
-      body: JSON.stringify({ text, style: cap.style, width: 1080 }),
+      //
+      // ⚠️ **故意不帶 `width`**:省略時 server(`app.ts` 的 `/text-card/preview`)會補上
+      // `store.doc.canvas.width`,也就是這句字幕真正落盤時會用的那個寬。曾經硬編 1080
+      // 蓋過去,直式畫布下剛好同值所以看不出來,但畫布一換成別的寬,打字預覽卡與
+      // commit 之後的正式卡就是**不同 hash**——使用者打字時看到的排版跟按下 Enter 後
+      // 的排版不一樣,而且兩張卡都「正確」,沒有任何一端會報錯。
+      body: JSON.stringify({ text, style: cap.style }),
     })
       .then((r) => (r.ok ? (r.json() as Promise<{ hash: string }>) : null))
       .then((res) => {

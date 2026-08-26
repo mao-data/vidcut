@@ -94,8 +94,12 @@ describe('CaptionList — typing pipeline', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/text-card/preview');
-    const body = JSON.parse(init!.body as string) as { text: string };
+    const body = JSON.parse(init!.body as string) as { text: string; width?: number };
     expect(body.text).toBe('fir'); // 最終文字,不是中間那兩次('f'/'fi')
+    // Task 5：**不得帶 `width`**。以前硬編 1080 蓋掉 server 的 `doc.canvas.width` 預設,
+    // 直式畫布下剛好同值所以看不出來;畫布換寬之後,打字預覽卡與 commit 後的正式卡會是
+    // 不同 hash——使用者打字時看到的排版跟按 Enter 之後的排版不一樣,兩端都不會報錯。
+    expect('width' in body).toBe(false);
   });
 
   it('race guard: a stale in-flight response for superseded text must not overwrite a fresher one', async () => {

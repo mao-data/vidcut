@@ -642,14 +642,14 @@ describe('Player canvas drag (pending baseline, Finding 3)', () => {
     down(cap, 0, 0);
     move(cap, 0, 40);
     const seen = shownCaptionY(container, 'first');
-    expect(seen).toBeCloseTo(dragCaption(0.8, 40, 92, 1920).y, 4); // ≈0.8208
+    expect(seen).toBeCloseTo(dragCaption(0.8, 40, 92, { w: 1080, h: 1920 }).y, 4); // ≈0.8208
 
     seek(5); // 播放推進：cap1 出窗（cap2 進窗）——豁免後它必須還在畫面上
     expect(shownCaptionY(container, 'first')).toBeCloseTo(seen!, 6);
 
     move(window, 0, 900); // 使用者繼續拖（真瀏覽器裡 pointermove 落在 window 上）
     const last = shownCaptionY(container, 'first');
-    expect(last).toBeCloseTo(dragCaption(0.8, 900, 92, 1920).y, 4); // ≈0.9521，畫面真的跟著跑
+    expect(last).toBeCloseTo(dragCaption(0.8, 900, 92, { w: 1080, h: 1920 }).y, 4); // ≈0.9521，畫面真的跟著跑
 
     up(window, 0, 900);
     const cmd = sent[0] as Extract<Command, { name: 'updateCaption' }>;
@@ -706,7 +706,7 @@ describe('Player canvas drag (pending baseline, Finding 3)', () => {
     const cmd = sent[0] as Extract<Command, { name: 'updateCaption' }>;
     expect(cmd.name).toBe('updateCaption');
     expect(cmd.id).toBe('cap1');
-    expect(cmd.patch.style!.y).toBeCloseTo(dragCaption(0.8, 60, 92, 1920).y, 3);
+    expect(cmd.patch.style!.y).toBeCloseTo(dragCaption(0.8, 60, 92, { w: 1080, h: 1920 }).y, 3);
     await act(async () => {}); // 讓字卡 geometry 的 fetch（404 → fallback）在測試結束前收斂
   });
 
@@ -993,8 +993,71 @@ describe('Player canvas drag (pending baseline, Finding 3)', () => {
     const second = sent[1] as Extract<Command, { name: 'updateCaption' }>;
     const secondY = second.patch.style!.y;
 
-    const expected = dragCaption(firstY, 60, 92, 1920).y;
+    const expected = dragCaption(firstY, 60, 92, { w: 1080, h: 1920 }).y;
     expect(secondY).toBeCloseTo(expected, 3);
     expect(secondY).not.toEqual(firstY);
+  });
+});
+
+/**
+ * Task 5：座標鏈的除數改由 `doc.canvas` 驅動。
+ *
+ * ⚠️ 這一批最容易的漏改法是「只改除數不改形狀」：`scale = stageW / canvasW` 這條式子
+ * 成立的**物理前提**是 stage 的實體形狀正好是畫布比例（`aspectRatio` + video 的
+ * `objectFit: contain` 讓畫面精確填滿 stage）。形狀留在 9/16 而除數換成 1920，
+ * stage 仍是窄長條、video contain 進去上下留白，`stageW` 量到的是留白容器的寬——
+ * 每一項座標都偏移，而且偏得很像「對的」，單元測試如果只斷言除數就照樣全綠。
+ * 所以下面**同時**釘住形狀（aspectRatio）與尺寸（座標層 width/height）。
+ */
+describe('Player 座標鏈跟著 doc.canvas 走（Task 5）', () => {
+  beforeEach(() => {
+    resetStores();
+  });
+
+  /** stage 容器＝座標層的父節點（座標層有 testid，stage 本身沒有，別用泛用 selector 猜）。 */
+  const stage = (c: HTMLElement) =>
+    c.querySelector<HTMLElement>('[data-testid="canvas-layer"]')!.parentElement!;
+
+  function seedCanvas(width: number, height: number) {
+    const doc = demoProject();
+    doc.canvas = { ...doc.canvas, width, height };
+    seedProject(doc);
+  }
+
+  it('直式（現狀）：aspectRatio 1080/1920、座標層 1080×1920', () => {
+    seedProject();
+    const { container } = render(<Player />);
+    const layer = container.querySelector<HTMLElement>('[data-testid="canvas-layer"]')!;
+    expect(layer.style.width).toBe('1080px');
+    expect(layer.style.height).toBe('1920px');
+    expect(stage(container).style.aspectRatio).toBe('1080/1920');
+  });
+
+  it('橫式：形狀與座標層一起換（漏改形狀＝靜默的預覽≠成品）', () => {
+    seedCanvas(1920, 1080);
+    const { container } = render(<Player />);
+    const layer = container.querySelector<HTMLElement>('[data-testid="canvas-layer"]')!;
+    expect(layer.style.width).toBe('1920px');
+    expect(layer.style.height).toBe('1080px');
+    // 這一條是本任務最關鍵的斷言：形狀沒跟著換的話上面兩條照樣綠。
+    expect(stage(container).style.aspectRatio).toBe('1920/1080');
+  });
+
+  it('橫式：overlay 的 left/top 用畫布尺寸換算，不是 1080/1920', () => {
+    seedCanvas(1920, 1080);
+    const { container } = render(<Player />);
+    seek(2); // ovAbs 窗內，position { x: 0.5, y: 0.1 }
+    const img = container.querySelector<HTMLElement>('img[src="/media/assets/title.png"]')!;
+    expect(img.style.left).toBe('960px'); // 1920 * 0.5（硬編時是 540px）
+    expect(img.style.top).toBe('108px'); // 1080 * 0.1（硬編時是 192px）
+  });
+
+  it('橫式：字幕的 top 用畫布高換算（CaptionLayer 的 canvasH prop 真的接上了）', () => {
+    seedCanvas(1920, 1080);
+    const { container } = render(<Player />);
+    seek(2); // cap1 視窗內，style.y = 0.8
+    const cap = container.querySelector<HTMLElement>('[data-drag-kind="caption"]')!;
+    // 無字卡 → DOM fallback，定位在外層那個全寬置中的 div 上。
+    expect(cap.parentElement!.style.top).toBe(`${1080 * 0.8}px`); // 864px，不是 1536px
   });
 });
