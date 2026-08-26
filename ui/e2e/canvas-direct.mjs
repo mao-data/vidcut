@@ -15,9 +15,11 @@
  * 設定專案的畫布**，只是照著讀到的尺寸換算；跑非 portrait 之前要先讓專案真的是那個比例。
  *
  * ⚠️ 檢查 2/4（拖曳 overlay）會真的透過 WS 送 updateOverlay 命令，把 demo 專案裡
- * 第一個在畫面上看得到的 overlay 位置往旁邊挪一點並寫回 projects/demo/project.json
+ * 一個在畫面上看得到的 overlay 位置挪到別處並寫回 projects/demo/project.json
  * （專案檔就叫 project.json，不是 doc.json——`doc` 是它裡面的鍵）。
- * 這是預期的（demo 專案本來就是拿來被操作的），不是要清乾淨的副作用。
+ * **但腳本結束前會把位置還原回起始值**（見 main() 的 initialPositions／finally 的
+ * restoreOverlayPosition）——這支腳本的驗收標準是「連跑兩次都全綠」，不還原的話
+ * 下一次跑的起點就是這一次的終點，實測會讓檢查 4 假紅（成因見那裡的註解）。
  *
  * 沿用 ui/e2e/panel-affordance.mjs 的 findChrome/connect/send/evalJs 與
  * 失敗蒐集、exit code 慣例；scale 量測手法沿用 Task 13 一次性腳本
@@ -92,6 +94,57 @@ async function fetchProject() {
   return r.json();
 }
 
+/**
+ * 把一個 overlay 的位置寫回去——**跑完還原**用，見 main() 結尾的 restore。
+ *
+ * 走的是 UI 走的同一條路（`/ws` 的 `{type:'command'}` → `applyCommand`），不直接寫檔：
+ * 專案狀態變更一律走命令層是這個 repo 的鐵則，繞過去就等於用一條沒人驗證過的路徑改狀態。
+ */
+async function restoreOverlayPosition(id, position) {
+  const wsUrl = APP_URL.replace(/^http/, 'ws').replace(/\/$/, '') + '/ws';
+  const sock = new WebSocket(wsUrl);
+  try {
+    await new Promise((res, rej) => {
+      sock.on('open', res);
+      sock.on('error', rej);
+    });
+    // 命令被拒的話 server 回 commandError，沒有這行的話還原失敗只會表現成「輪詢逾時」，
+    // 看不出是被驗證擋下來還是根本沒送到。
+    sock.on('message', (d) => {
+      try {
+        const m = JSON.parse(d.toString());
+        if (m.type === 'commandError' && m.reqId === 'e2e-restore') {
+          console.log(`  ⚠ 還原命令被拒：${m.error}`);
+        }
+      } catch {
+        // 非 JSON 訊息忽略
+      }
+    });
+    sock.send(
+      JSON.stringify({
+        type: 'command',
+        // ⚠️ 命令的判別欄位是 `name` 不是 `type`（`shared/src/types.ts` 的 `Command`）；
+        // 外層 WS 訊息才是 `type`。寫錯的話 server 回 `unknown command:`。
+        cmd: { name: 'updateOverlay', id, patch: { position } },
+        reqId: 'e2e-restore',
+      }),
+    );
+    // 命令是非同步排隊處理的（wsHub 的 commandQueue），送完就關 socket 會讓它來不及跑完。
+    // 輪詢 /api/project 直到真的寫回去為止，比睡一個猜出來的秒數可靠。
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const p = await fetchProject();
+      const cur = p.doc.tracks.overlays.find((o) => o.id === id)?.position;
+      if (cur && Math.abs(cur.x - position.x) < 1e-6 && Math.abs(cur.y - position.y) < 1e-6) {
+        return true;
+      }
+    }
+    return false;
+  } finally {
+    sock.close();
+  }
+}
+
 async function main() {
   try {
     const r = await fetch(APP_URL);
@@ -102,6 +155,27 @@ async function main() {
     );
     process.exit(2);
   }
+
+  /**
+   * 跑完還原：先記下每個 overlay 的起始位置，結束時（不管綠紅或例外）寫回去。
+   *
+   * 為什麼一定要做這件事——這支腳本的驗收標準是「連跑兩次都全綠」，而在還原之前它
+   * **本質上做不到**：檢查 2/3 會把 overlay 拖到畫布上的絕對目標（依目前值交替瞄準
+   * 兩側），下一次跑的起點就是這一次的終點。實測 `projects/demo` 只有一個 overlay，
+   * 而它的兩個交替目標 y=0.226 / y=0.726 跟專案裡兩排字幕的 y（0.22 / 0.72）幾乎重合
+   * ——也就是每跑一次就把那個 overlay 停在一張字幕卡底下，下一次跑的檢查 4 有一半機率
+   * 因為「按不到它」而假紅（見 hittablePoint 的註解）。交替目標本身沒錯（它解決的是
+   * clamp 撞值那個問題，見下面 targetXFrac 的註解），但它管不到「終點剛好被別的圖層蓋住」。
+   *
+   * 還原之後每次跑都從同一個起點出發，兩次跑的輸出才有可比性，紅了也才分得出
+   * 是「這次改壞的」還是「本來就紅」。
+   */
+  const initialProject = await fetchProject();
+  const initialPositions = new Map(
+    initialProject.doc.tracks.overlays
+      .filter((o) => o.position)
+      .map((o) => [o.id, { ...o.position }]),
+  );
 
   const chrome = spawn(
     findChrome(),
@@ -160,6 +234,18 @@ async function main() {
 
     await send('Page.enable');
     await send('Runtime.enable');
+    // ⚠️ `--window-size` 啟動旗標**不足以**決定 headless 下的版面視埠——實測 1440×820
+    // 的旗標只讓 stage 量到 200.81px 寬（scale 0.186，1 螢幕 px ≈ 5.4 畫布 px），
+    // 吸附門檻 16 畫布 px 只剩約 3 螢幕 px，拖曳精度整個失真、置中導線幾乎按不出來。
+    // `.claude/rules/ui-verification.md` 白紙黑字記著這一條：測版面必須下 CDP 的
+    // `Emulation.setDeviceMetricsOverride`。同 repo 的 preview-vs-export.mjs 一直有下，
+    // 所以那支 6/6 全綠，只有這支漏了。用法逐字對齊那支（見其 :702）。
+    await send('Emulation.setDeviceMetricsOverride', {
+      width: VIEWPORT.w,
+      height: VIEWPORT.h,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
     await send('Page.navigate', { url: APP_URL });
 
     // 等專案真的載完（不是載入中的骨架版面）。
@@ -194,26 +280,10 @@ async function main() {
         });
       }
     };
-    let ready = false;
-    let steps = 0;
-    for (; steps < 60; steps++) {
-      ready = await evalJs(`!!document.querySelector('[data-ov-id]')`);
-      if (ready) break;
-      await shiftRight();
-      await sleep(80);
-    }
-    if (!ready) {
-      failures.push('找不到可拖曳的 overlay');
-      console.log(
-        `✗ 從 t=0 掃到第 ${60 * 10} 幀（20 秒）都沒有任何 [data-ov-id] overlay 出現。` +
-          '這支腳本要拖一個 overlay 才能驗證——請確認 projects/demo 裡還有 overlay。',
-      );
-      throw new Error('no-overlay');
-    }
-    if (steps > 0) console.log(`  （playhead 前進到第 ${steps * 10} 幀才有 overlay 可見）`);
-
     // 關掉所有過渡/動畫再量/再拖——headless 節流下 CSS transition 可能整整幾秒不推進，
     // 拖曳中的導線淡入淡出也是 transition，會讓「導線出現了沒」量到過渡中的狀態。
+    // ⚠️ 這件事要在下面掃 playhead **之前**做：掃描靠 `elementFromPoint` 判斷「按不按得到」，
+    // 版面還在過渡中的話命中結果是浮動的。
     await evalJs(`(() => {
       const s = document.createElement('style');
       s.textContent = '*, *::before, *::after { transition: none !important; animation: none !important; }';
@@ -221,6 +291,92 @@ async function main() {
       return 1;
     })()`);
     await sleep(300);
+
+    /**
+     * 找一個**真的按得到這個 overlay** 的螢幕座標，不要直接用 bbox 中心。
+     *
+     * ⚠️ bbox 中心不保證命中，甚至整個 bbox 都可能按不到：字幕層畫在 overlay 之上
+     * （DOM 順序在後），字幕卡的命中框是那句話的墨跡範圍（`CaptionLayer.tsx` 的
+     * `inkStyle()`）。playhead 停在一句字幕上時，那塊墨跡完全可能整片蓋住 overlay
+     * ——實測 `projects/demo`：overlay `ovtext_76b1t8` 的 rect 是
+     * (511.6, 170, 281.3×24)，同一刻的字幕卡墨跡是 (581.9, 167, 281.3×27.1)，
+     * 沿 bbox 掃 7×25 個點，**沒有一點**命中得到 overlay 本人。
+     *
+     * 後果非常隱蔽：`mousePressed` 打在字幕卡上 → `beginDrag` 從未執行 →
+     * `dragRef.current` 是 null →「拖曳中豁免時間窗過濾」那條保護不會生效
+     * （它本來就只保護**正在拖**的項目）→ playhead 一推出時間窗元素就照正常規則卸載，
+     * 檢查 4 讀到 null，看起來像「盲拖」回歸。但那是**量測根本沒按到東西**，
+     * 產品程式碼是對的；那一刻的畫面上真人也一樣拖不動這個 overlay。
+     *
+     * ⚠️ 這個坑在補 `setDeviceMetricsOverride` 之前是被蓋住的：stage 只有 200.81px 寬時
+     * 幾何關係不同、中心點沒被蓋到。不是新回歸，是舊量測環境剛好繞過去。
+     *
+     * 作法：沿 bbox 掃一排候選點（水平中線上由中央往兩側、再退到上下四分線），
+     * 用 `elementFromPoint` 確認命中的就是目標 overlay 本人才採用；一點都命不中就回
+     * `blocked`，由呼叫端決定是換一個 playhead 還是報前置條件不成立。
+     */
+    const hittablePoint = (id) =>
+      evalJs(`(() => {
+        const el = document.querySelector('[data-ov-id="${id}"]');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) return { blocked: true, w: r.width, h: r.height };
+        // 候選點的取法：先沿水平中線由中央往外（0.5 → 0.06/0.94），再試上下四分線。
+        // 邊緣留一點不取，避免踩到反鋸齒/邊界的次像素爭議。
+        const fx = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82, 0.1, 0.9, 0.06, 0.94];
+        const fy = [0.5, 0.3, 0.7, 0.15, 0.85];
+        for (const yf of fy) {
+          for (const xf of fx) {
+            const x = r.left + r.width * xf;
+            const y = r.top + r.height * yf;
+            const hit = document.elementFromPoint(x, y);
+            if (hit && hit.dataset && hit.dataset.ovId === ${JSON.stringify(id)}) {
+              return { cx: x, cy: y, w: r.width, h: r.height, xf, yf };
+            }
+          }
+        }
+        return { blocked: true, w: r.width, h: r.height };
+      })()`);
+
+    /**
+     * 這支腳本要**拖**一個 overlay，所以前置條件不是「畫面上有 overlay」而是
+     * 「畫面上有一個**按得到**的 overlay」——差別見 hittablePoint 的註解，
+     * 曾經因為只檢查前者而讓檢查 4 假紅。
+     *
+     * ⚠️ 不要假設 t=0 就有（原本是這樣寫的，理由是「demo 在 t=0 有 rank1」）：
+     * `projects/demo` 是共用的可變狀態，別的 session 一改內容這個前提就沒了——實測
+     * 2026-08-05 那份 demo 只剩 4 個 overlay、rank 卡全部改成 anchored、最早的一個
+     * start=0.317，於是這支腳本每次都在「專案載入」這一步逾時，看起來像 UI 壞了。
+     * 改成往前掃：用 Shift+→（一次 10 幀）找第一個「有 overlay 且按得到」的時刻。
+     */
+    const findDraggableOverlay = () =>
+      evalJs(`(() => {
+        return [...document.querySelectorAll('[data-ov-id]')].map((e) => e.dataset.ovId);
+      })()`);
+    let ovId = null;
+    let steps = 0;
+    for (; steps < 60; steps++) {
+      for (const cand of await findDraggableOverlay()) {
+        const p = await hittablePoint(cand);
+        if (p && !p.blocked) {
+          ovId = cand;
+          break;
+        }
+      }
+      if (ovId) break;
+      await shiftRight();
+      await sleep(80);
+    }
+    if (!ovId) {
+      failures.push('找不到可拖曳的 overlay');
+      console.log(
+        `✗ 從 t=0 掃到第 ${60 * 10} 幀（20 秒）都沒有任何**按得到**的 [data-ov-id] overlay。` +
+          '這支腳本要拖一個 overlay 才能驗證——請確認 projects/demo 裡還有沒被字幕卡整片蓋住的 overlay。',
+      );
+      throw new Error('no-overlay');
+    }
+    if (steps > 0)
+      console.log(`  （playhead 前進到第 ${steps * 10} 幀才有按得到的 overlay：${ovId}）`);
 
     // ---- 檢查 1：縮放正確 ----
     // 錨定座標空間 wrapper（不是 document.querySelector('video')——Player
@@ -281,18 +437,16 @@ async function main() {
     // 貼近真實使用者的拖曳手感,也避免各自獨立拖曳時「第一次拖完的殘留位置」影響第二次
     // 判斷「是否還在置中附近」的前提。
     console.log('檢查 2/3：拖曳 overlay（導線 + 落點正確且持久化）');
-    const ov = await evalJs(`(() => {
-      const el = document.querySelector('[data-ov-id]');
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return {
-        id: el.dataset.ovId,
-        cx: r.left + r.width / 2,
-        cy: r.top + r.height / 2,
-        w: r.width,
-        h: r.height,
-      };
-    })()`);
+    // 上面掃 playhead 時已經確認過 ovId 這一刻按得到；這裡重新取一次座標（同一個
+    // playhead、同一份版面，只是要拿 bbox 尺寸 w/h 給後面的 y 合法區間換算用）。
+    const hit = await hittablePoint(ovId);
+    if (hit?.blocked) {
+      console.log(
+        `  ✗ overlay ${ovId} 的 bbox 內找不到任何按得到它的點（整片被字幕卡之類的東西蓋住），` +
+          '前置條件不成立',
+      );
+    }
+    const ov = hit && !hit.blocked ? { id: ovId, ...hit } : null;
     if (!ov) {
       console.log('  ✗ DOM 裡沒有任何 [data-ov-id] overlay 可拖（前置條件不成立）');
       failures.push('導線出現', '拖曳落點正確');
@@ -458,12 +612,27 @@ async function main() {
         failures.push('不盲拖');
       } else {
         await stepPlayhead(-steps); // 回到原本的 playhead
-        const box = await evalJs(`(() => {
-          const el = document.querySelector('${sel}');
-          if (!el) return null;
-          const r = el.getBoundingClientRect();
-          return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
-        })()`);
+        // 同樣要找**按得到**的點，不能用 bbox 中心（理由見上面 hittablePoint 的長註解）。
+        //
+        // ⚠️ 這裡不能沿用檢查 2/3 那次算出來的座標，也不能假設「回到原 playhead 就一定
+        // 按得到」：檢查 2/3 剛把這個 overlay 拖到畫布的另一側（絕對目標，每跑一次換一邊），
+        // 它跟字幕卡的重疊關係已經整個變了。實測就是這樣紅的——原 playhead 上 overlay
+        // 明明在畫面上，卻整片被字幕卡蓋住，`hittablePoint` 回 blocked。
+        // 所以在時間窗內往回退著找：每退一步（10 幀）試一次，退到窗外就放棄。
+        // 往回退而不是往前推，是為了讓後面「往前踩出窗」還有足夠的步數可走。
+        let box = null;
+        let backed = 0;
+        for (; backed < steps; backed++) {
+          const p = await hittablePoint(ov.id);
+          if (p && !p.blocked) {
+            box = p;
+            break;
+          }
+          await stepPlayhead(-1);
+        }
+        // 退回去找的那幾步要補回「還剩幾步會出窗」的計算裡，否則下面 stepPlayhead(steps+2)
+        // 會踩不夠遠、overlay 根本沒出窗，這項檢查就驗不到它要驗的東西。
+        steps += backed;
         // 讀「畫面上顯示的位置」＝ inline style 的 left/top（畫布座標空間內的 px）
         const shown = () =>
           evalJs(`(() => {
@@ -471,7 +640,10 @@ async function main() {
             return el ? { x: parseFloat(el.style.left) / ${CANVAS.w}, y: parseFloat(el.style.top) / ${CANVAS.h} } : null;
           })()`);
         if (!box) {
-          console.log(`  ✗ 回到原 playhead 後 ${ov.id} 不見了，前置條件不成立`);
+          console.log(
+            `  ✗ 在 ${ov.id} 的整個時間窗內都找不到按得到它的 playhead（被字幕卡蓋住），` +
+              '前置條件不成立',
+          );
           failures.push('不盲拖');
         } else {
           await send('Input.dispatchMouseEvent', {
@@ -553,6 +725,20 @@ async function main() {
   } finally {
     ws?.close();
     chrome.kill();
+    // 瀏覽器先收掉再還原：頁面還開著的話它那條 WS 會收到 echo、再把畫面上的
+    // 本地狀態同步一輪，沒必要也多一層時序變數。
+    const after = await fetchProject();
+    for (const o of after.doc.tracks.overlays) {
+      const orig = initialPositions.get(o.id);
+      if (!orig || !o.position) continue;
+      if (Math.abs(o.position.x - orig.x) < 1e-6 && Math.abs(o.position.y - orig.y) < 1e-6)
+        continue;
+      const ok = await restoreOverlayPosition(o.id, orig);
+      console.log(
+        `  ${ok ? '↩' : '⚠'} 還原 overlay ${o.id} 的位置回 ${JSON.stringify(orig)}` +
+          (ok ? '' : '（**失敗**——下一次跑的起點會不一樣，請人工檢查 projects/demo）'),
+      );
+    }
   }
 
   if (failures.length) {

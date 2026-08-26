@@ -18,8 +18,17 @@ paths: ["ui/**", "scripts/**"]
   直接 `npx tsx server/src/index.ts projects/demo` 起 server 即可。
 - `verify:canvas` **不假設 t=0 就有 overlay**（`projects/demo` 是共用可變狀態，別的
   session 一改內容那個前提就沒了——曾因此每次都在「專案載入」逾時，看起來像 UI 壞了）。
-  它用 Shift+→ 往前掃，找第一個看得到 overlay 的時刻。它的拖曳檢查會真的透過 WS 把
-  demo 裡一個 overlay 的位置寫回 `project.json`（小幅、非破壞性）。
+  它用 Shift+→ 往前掃，找第一個**按得到**的 overlay 的時刻——不是「看得到」就算數，
+  理由見下面「字幕卡整片蓋住 overlay」那條。它的拖曳檢查會真的透過 WS 把 demo 裡一個
+  overlay 的位置寫回 `project.json`，但**跑完會還原回起始位置**（見下）。
+- **`verify:canvas` 跑完會還原它動過的 overlay 位置**（2026-08-26 補）。它的驗收標準是
+  「連跑兩次都全綠」，不還原就本質上做不到：檢查 2/3 把 overlay 拖到絕對目標（依目前值
+  交替瞄準兩側），下一次跑的起點就是這一次的終點。實測 `projects/demo` 只有一個 overlay，
+  而兩個交替目標 y=0.226/0.726 跟專案兩排字幕的 y（0.22/0.72）幾乎重合——等於每跑一次就
+  把它停在一張字幕卡底下，下一次的檢查 4 有一半機率假紅。
+  還原走的是 UI 同一條路（`/ws` 的 `{type:'command'}` → `applyCommand`），不直接寫檔。
+  ⚠️ 命令的判別欄位是 **`name`** 不是 `type`（`shared/src/types.ts` 的 `Command`），
+  外層 WS 訊息才是 `type`；寫錯的話 server 回 `unknown command:`。
 - `npm run verify:wysiwyg` **不需要先起 server**：自己在 :3999 起一台吃
   `os.tmpdir()/vidcut-wysiwyg-fixture` 的臨時專案（每次先刪掉重建），不碰
   `projects/demo` 也不碰 :3845。換 port 用 `VIDCUT_WYSIWYG_PORT`；需要 python3/Pillow。
@@ -120,3 +129,21 @@ paths: ["ui/**", "scripts/**"]
 - **會寫回專案狀態的 e2e 腳本，位移量不能是「相對起點的固定偏移」**——每次跑的起點是
   上次的終點，固定偏移跑幾次就把元素逼到畫布邊緣，clamp 讓前後值撞在同一個數字，
   斷言穩定假性失敗。要算絕對目標座標（依目前值交替瞄準畫布另一側）。
+  ⚠️ **絕對目標只解決 clamp 撞值，不保證「連跑兩次同樣結果」**：終點還是會被寫回去，
+  而終點剛好落在別的圖層底下就會害下一次跑假紅（實例見上面 `verify:canvas` 那條）。
+  真正的解是**跑完還原**。
+- **`--window-size` 啟動旗標決定不了 headless 的版面視埠，一定要下 CDP 的
+  `Emulation.setDeviceMetricsOverride`**。實測 `verify:canvas` 只給 `--window-size=1440x820`
+  時，stage 只量到 **200.81px** 寬（scale 0.186，1 螢幕 px ≈ 5.4 畫布 px）——吸附門檻
+  16 畫布 px 只剩約 3 螢幕 px，拖曳精度整個失真。補上 override 之後同樣的旗標量到
+  **281.25px**。同 repo 的 `preview-vs-export.mjs` 一直有下，所以它不受影響。
+  ⚠️ 這個坑的症狀不是「明顯壞掉」而是**紅點會漂**：不同 commit 紅在不同檢查，
+  看起來像回歸，其實是量測環境本身失真。
+- **字幕卡可能整片蓋住 overlay，`mousePressed` 打在 bbox 中心會落在字幕卡上**。
+  字幕層畫在 overlay 之上（DOM 順序在後），命中框是那句話的墨跡範圍
+  （`CaptionLayer.tsx` 的 `inkStyle()`）。實測 `projects/demo` 沿 overlay 的 bbox 掃
+  7×25 個點**一點都命不中**它本人。後果極隱蔽：`beginDrag` 從未執行 → `dragRef.current`
+  是 null →「拖曳中豁免時間窗過濾」那條保護不生效（它只保護**正在拖**的項目）→
+  playhead 一出窗元素就正常卸載，看起來像「盲拖」回歸，**但產品程式碼是對的**，
+  那一刻真人也拖不動。驗拖曳前一律用 `elementFromPoint` 確認命中的是目標本人，
+  找不到就換一個 playhead。
