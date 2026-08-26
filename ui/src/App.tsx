@@ -12,7 +12,8 @@ import { Timeline } from './timeline/Timeline.js';
 import { Inspector } from './panels/Inspector.js';
 import { AgentPanel } from './panels/AgentPanel.js';
 import { CaptionList } from './panels/CaptionList.js';
-import { MediaPanel } from './panels/MediaPanel/index.js';
+import { ProjectMediaZone } from './panels/MediaPanel/ProjectMediaZone.js';
+import { LibraryZone } from './panels/MediaPanel/LibraryZone.js';
 import { ReviewBar } from './panels/ReviewBar.js';
 import { ExportMenu } from './panels/ExportMenu.js';
 import { ThemeToggle } from './ThemeToggle.js';
@@ -205,17 +206,14 @@ function Toast() {
 }
 
 export function App() {
-  const doc = useProject((s) => s.doc);
   const leftOpen = useView((s) => s.leftOpen);
   const rightOpen = useView((s) => s.rightOpen);
   const leftWidth = useView((s) => s.leftWidth);
   const rightWidth = useView((s) => s.rightWidth);
   const gridRef = useRef<HTMLDivElement>(null);
   const [resizing, setResizing] = useState(false);
-  const [tab, setTab] = useState<'media' | 'captions' | 'properties'>('captions');
+  const [tab, setTab] = useState<'project' | 'library' | 'captions' | 'properties'>('captions');
   const selected = useSelection((s) => s.selected);
-  const captionCount = doc?.tracks.captions.length ?? 0;
-  const mediaCount = doc?.media.length ?? 0;
   const tabBodyRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -535,7 +533,10 @@ export function App() {
                 className="icon-btn panel-handle"
                 onClick={() => useView.getState().toggleRight()}
                 title="Expand captions/properties panel"
-                style={{ right: 6 }}
+                // top 蓋掉 .panel-handle 的 8px：右欄分頁列去框縮身（2026-08-26）後比
+                // 左欄 AI 面板頭矮，收合鈕中心上移了 ~6px——把手要跟著收合鈕，不是跟左欄。
+                // verify:panels 的「右側展開鈕與收合鈕同高」（±4px）釘著這個對齊。
+                style={{ right: 6, top: 2 }}
               >
                 <PanelRightOpen size={13} />
               </button>
@@ -560,28 +561,33 @@ export function App() {
                 flexDirection: 'column',
               }}
             >
-              <div
-                className="panel-bar"
-                style={{
-                  gap: 4,
-                  padding: '8px 12px',
-                }}
-              >
+              {/* 分頁列不吃 .panel-bar：使用者定案（2026-08-26）分頁與內容之間不畫線，
+                  分隔交給各分頁自己的工具列（搜尋那排）。 */}
+              <div className="panel-tabs" style={{ padding: '4px 12px' }}>
                 <button
-                  className={`seg${tab === 'media' ? ' on' : ''}`}
-                  title="Media"
-                  onClick={() => setTab('media')}
+                  className={tab === 'project' ? 'on' : ''}
+                  title="Project"
+                  onClick={() => setTab('project')}
                 >
-                  Media {mediaCount > 0 && <span className="badge">{mediaCount}</span>}
+                  Project
                 </button>
                 <button
-                  className={`seg${tab === 'captions' ? ' on' : ''}`}
+                  className={tab === 'library' ? 'on' : ''}
+                  title="Library"
+                  onClick={() => setTab('library')}
+                >
+                  Library
+                </button>
+                <button
+                  className={tab === 'captions' ? 'on' : ''}
+                  title="Captions"
                   onClick={() => setTab('captions')}
                 >
-                  Captions {captionCount > 0 && <span className="badge">{captionCount}</span>}
+                  Captions
                 </button>
                 <button
-                  className={`seg${tab === 'properties' ? ' on' : ''}`}
+                  className={tab === 'properties' ? 'on' : ''}
+                  title="Properties"
                   onClick={() => setTab('properties')}
                 >
                   Properties
@@ -598,8 +604,10 @@ export function App() {
                   Media／Captions 分頁的元件內部已是 `.panel-col` + `.panel-body`，
                   自己處理捲動，所以只有 Inspector 這條路需要外面補一層 overflow。 */}
               <div ref={tabBodyRef} style={{ flex: 1, minHeight: 0 }}>
-                {tab === 'media' ? (
-                  <MediaPanel />
+                {tab === 'project' ? (
+                  <ProjectMediaZone />
+                ) : tab === 'library' ? (
+                  <LibraryZone />
                 ) : tab === 'captions' ? (
                   <CaptionList />
                 ) : (

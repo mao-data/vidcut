@@ -3,7 +3,7 @@
 // schedulePreview/cancelPreview 的 debounce、過期回應的競態防護、以及四條清空路徑
 // (commit / Escape / unmount / 換選取)。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, act, fireEvent } from '@testing-library/react';
+import { render, act, fireEvent, screen } from '@testing-library/react';
 import type { Command } from '@vidcut/shared';
 import { CaptionList } from './CaptionList.js';
 import { useEditDraft } from '../stores/editDraft.js';
@@ -24,7 +24,8 @@ function startEdit(container: HTMLElement, rowText: string): HTMLInputElement {
   act(() => {
     fireEvent.doubleClick(row);
   });
-  const input = container.querySelector('input');
+  // 編輯框在列內（.panel-body）；頂列的搜尋框（.panel-bar）不能被抓到
+  const input = container.querySelector<HTMLInputElement>('.panel-body input');
   if (!input) throw new Error('edit input did not appear');
   return input;
 }
@@ -222,11 +223,31 @@ describe('CaptionList — typing pipeline', () => {
     });
 
     expect(useEditDraft.getState().caption).toBeNull();
-    // 本地 draft 也要清:輸入框要消失,列表退回純文字顯示
-    expect(container.querySelector('input')).toBeNull();
+    // 本地 draft 也要清:編輯框要消失,列表退回純文字顯示（頂列搜尋框恆在,不算）
+    expect(container.querySelector('.panel-body input')).toBeNull();
 
     await advancePastDebounce(200); // 被取消的 debounce 不該補發
     expect(fetchMock).not.toHaveBeenCalled();
     expect(sent).toEqual([]); // 換選取是丟棄,不是 commit
+  });
+  it('search filters the rendered rows only; command payloads still use the full set', () => {
+    seedProject();
+    const { container } = render(<CaptionList />);
+    const search = container.querySelector<HTMLInputElement>(
+      'input[placeholder="Search captions"]',
+    )!;
+    fireEvent.change(search, { target: { value: 'second' } });
+    expect(container.textContent).toContain('second line');
+    expect(container.textContent).not.toContain('first line');
+    fireEvent.change(search, { target: { value: 'zzz' } });
+    expect(container.textContent).toContain('No matches for "zzz"');
+    // 過濾中按 Style to all:payload 必須是完整兩句,不是過濾後的零句
+    fireEvent.change(search, { target: { value: 'second' } });
+    fireEvent.click(screen.getByTitle("Apply the first caption's style to all"));
+    const cmd = sent.find((c) => c.name === 'setCaptions') as Extract<
+      Command,
+      { name: 'setCaptions' }
+    >;
+    expect(cmd.captions).toHaveLength(2);
   });
 });

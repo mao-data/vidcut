@@ -2262,6 +2262,159 @@ a {
   background: var(--surface);
 }
 
+/* ---- 右欄分頁去框（2026-08-25 使用者定案；08-26 扁平化為單排四分頁）----
+ * Project/Library/Captions/Properties 四顆同級文字 tab：無框無底、無底線、
+ * 分頁列與內容之間也不畫線（.panel-tabs 不掛 .panel-bar）。選中＝點亮
+ * （--text-1）＋加粗；未選壓到 --text-3——沒有底線之後，選中與未選只剩
+ * 字重可分，明暗不拉開三階就掃不出來。`.seg` 本體不動：SourceFolderZone
+ * （未掛載，保留）的框鈕語彙留給單一主行動。 */
+.panel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.panel-tabs > button:not(.panel-collapse) {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 2px 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.panel-tabs > button:not(.panel-collapse):hover {
+  background: transparent;
+  color: var(--text-2);
+}
+.panel-tabs > button.on {
+  color: var(--text-1);
+  font-weight: 600;
+}
+/* 收合鈕是去框後這排唯一還有框的東西：一併 ghost 化。 */
+.panel-tabs .panel-collapse {
+  background: transparent;
+  border: 0;
+}
+.panel-tabs .panel-collapse:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+/* 紙主題的 `button:not(.btn-primary):not(.ap-strip)`（0,3,1）會把紙卡底補回來
+ * ——時間軸工具列踩過同一個坑。用 button.<class> 湊到同級 (0,3,1)＋後出線勝。 */
+[data-theme='paper'] .panel-tabs > button:not(.panel-collapse),
+[data-theme='paper'] .panel-tabs button.panel-collapse {
+  background: transparent;
+}
+[data-theme='paper'] .panel-tabs button.panel-collapse:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+[data-theme='paper'] .panel-tabs > button:not(.panel-collapse):hover {
+  background: transparent;
+}
+/* ---- Media 卡片網格（2026-08-26 使用者定案：list → CapCut 式卡片）----
+ * Project／Library 共用：2 欄網格、16:9 縮圖卡＋檔名一行、時長 chip 疊右下。
+ * 操作鈕沿用「hover 該卡才浮現」定案，浮在縮圖右上角（scrim 底才壓得住畫面）。
+ * 縮圖暫用 filmstrip 首格（80px 高拉伸，略糊）——poster 產生器是下一批，
+ * 卡片端只要換 background 來源即無縫升級。 */
+/* 欄數自動：卡片下限 130px、同欄數內微伸展填滿（auto-fill）——右欄拖寬時
+ * 是「多一欄」不是「卡片變大」（2026-08-26 使用者定案）。130 的由來：右欄
+ * 預設 ~310px，扣 padding 24 剩 ~286——150 下限會塌成單欄大卡（實測踩過），
+ * 130 恰好兩欄；拖寬過 ~450px 自動三欄。 */
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  padding: 12px;
+}
+.media-card {
+  min-width: 0;
+}
+.media-card .thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-card);
+  background: var(--card);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 影像內容（影片/圖片）一律**等比 contain 補黑邊**，不拉伸不裁切（2026-08-26
+ * 使用者定案「直式影片補黑邊，不要硬撐大」）——直式素材在 16:9 卡裡左右補黑，
+ * 標準播放器 letterbox 語彙，兩主題都用純黑（影像在黑底上最正確）。 */
+.media-card .thumb.letterbox {
+  background: #000;
+}
+.media-card .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+/* 時長 chip：深色半透明底＋白字，兩主題共用——它疊在**影片畫面**上，
+ * 底下是任意像素不是主題面板，所以不跟 token 走（同字幕 scrim 的道理）。 */
+.media-card .dur {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10px;
+}
+/* 左上掛標（lib／broken）：同 chip 的 scrim 理由。 */
+.media-card .mark {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10px;
+}
+.media-card .name {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 卡上操作鈕：hover/focus 才浮現（opacity 不拿掉命中區，鍵盤可達性不退）。 */
+.media-card .card-actions {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.media-card:hover .card-actions,
+.media-card:focus-within .card-actions {
+  opacity: 1;
+}
+.media-card .card-actions .icon-btn {
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 4px;
+  border-radius: 5px;
+}
+.media-card .card-actions .icon-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.8);
+}
+.media-card .card-actions .icon-btn:disabled {
+  opacity: 0.4;
+}
+/* 紙主題會把 button 補上紙卡底（0,3,1）——同 .panel-tabs 的坑，湊同級壓回 scrim。 */
+[data-theme='paper'] .media-card .card-actions button.icon-btn {
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+[data-theme='paper'] .media-card .card-actions button.icon-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.8);
+}
+
 /* ---- 捲軸 ---- */
 ::-webkit-scrollbar {
   width: 10px;

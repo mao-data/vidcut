@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, act, fireEvent, waitFor, screen } from '@testing-library/react';
 import type { Command } from '@vidcut/shared';
-import { MediaPanel } from './MediaPanel/index.js';
+import { ProjectMediaZone } from './MediaPanel/ProjectMediaZone.js';
+import { LibraryZone } from './MediaPanel/LibraryZone.js';
+import { SourceFolderZone } from './MediaPanel/SourceFolderZone.js';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { useToast } from '../stores/toast.js';
@@ -20,22 +22,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe('MediaPanel', () => {
-  it('三個子區可切換；預設專案媒體', () => {
-    useProject.setState({ doc: demoProject() });
-    render(<MediaPanel />);
-    expect(screen.getByTitle('Project media')).toBeTruthy();
-    expect(screen.getByTitle('Library')).toBeTruthy();
-    expect(screen.getByTitle('Source folder')).toBeTruthy();
-    fireEvent.click(screen.getByTitle('Library'));
-    expect(screen.getByPlaceholderText('Search library')).toBeTruthy();
-  });
-});
-
 describe('ProjectMediaZone', () => {
   it('lists every project media item with label and duration', () => {
     seedProject();
-    const { container } = render(<MediaPanel />);
+    const { container } = render(<ProjectMediaZone />);
     expect(container.textContent).toContain('A');
     expect(container.textContent).toContain('B');
   });
@@ -45,16 +35,14 @@ describe('ProjectMediaZone', () => {
     empty.media = [];
     empty.tracks.video = [];
     seedProject(empty);
-    const { container } = render(<MediaPanel />);
-    expect(container.textContent).toContain(
-      'No media yet. Import from the Folder tab or ask the AI.',
-    );
+    const { container } = render(<ProjectMediaZone />);
+    expect(container.textContent).toContain('No media yet. Upload files to get started.');
   });
 
   it('video row Add sends addClip with in:0 and the probed duration', () => {
     seedProject();
-    const { container } = render(<MediaPanel />);
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const { container } = render(<ProjectMediaZone />);
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('A'),
     )!;
     const addBtn = row.querySelector<HTMLButtonElement>('button[title="Add"]')!;
@@ -82,8 +70,8 @@ describe('ProjectMediaZone', () => {
     });
     seedProject(doc);
     usePlayback.getState().seek(4);
-    const { container } = render(<MediaPanel />);
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const { container } = render(<ProjectMediaZone />);
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('Voice'),
     )!;
     // audio-only 列不該有 addClip 語意的按鈕文字，但仍是同一顆 title="Add" 按鈕（走 setAudio 分支）
@@ -111,8 +99,8 @@ describe('ProjectMediaZone', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     seedProject();
-    const { container } = render(<MediaPanel />);
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const { container } = render(<ProjectMediaZone />);
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('A'),
     )!;
     const saveBtn = row.querySelector<HTMLButtonElement>('button[title="Save to library"]')!;
@@ -136,8 +124,8 @@ describe('ProjectMediaZone', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     seedProject();
-    const { container } = render(<MediaPanel />);
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const { container } = render(<ProjectMediaZone />);
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('A'),
     )!;
     const saveBtn = row.querySelector<HTMLButtonElement>('button[title="Save to library"]')!;
@@ -151,8 +139,8 @@ describe('ProjectMediaZone', () => {
     const doc = demoProject();
     doc.media[0]!.meta = { libraryId: 'lib-abc' };
     seedProject(doc);
-    const { container } = render(<MediaPanel />);
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const { container } = render(<ProjectMediaZone />);
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('A'),
     )!;
     expect(row.textContent).toContain('lib');
@@ -160,8 +148,8 @@ describe('ProjectMediaZone', () => {
 
   it('never calls useSelection.select() from this zone', () => {
     seedProject();
-    const { container } = render(<MediaPanel />);
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const { container } = render(<ProjectMediaZone />);
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('A'),
     )!;
     const addBtn = row.querySelector<HTMLButtonElement>('button[title="Add"]')!;
@@ -171,6 +159,37 @@ describe('ProjectMediaZone', () => {
     // Add 送出命令即可,不斷言 selection——真正的鐵則檢查交給程式碼審查/lint 慣例;
     // 這裡至少確保點擊不會拋錯、沒有非預期的第二筆命令。
     expect(sent).toHaveLength(1);
+  });
+
+  it('search filters the rendered list without touching doc.media', () => {
+    seedProject();
+    const { container } = render(<ProjectMediaZone />);
+    const input = screen.getByPlaceholderText('Search media');
+    fireEvent.change(input, { target: { value: 'A' } });
+    expect(container.textContent).toContain('A');
+    fireEvent.change(input, { target: { value: 'no-such-media' } });
+    expect(container.textContent).toContain('No matches for "no-such-media"');
+    // 過濾是渲染層的事,doc 本身不動
+    expect(useProject.getState().doc!.media.length).toBeGreaterThan(0);
+  });
+
+  it('Upload files posts each media file to /api/media with the raw File body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    seedProject();
+    const { container } = render(<ProjectMediaZone />);
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"][multiple]')!;
+    const good = new File(['x'], 'clip.mp4', { type: 'video/mp4' });
+    const junk = new File(['y'], 'notes.txt', { type: 'text/plain' });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [good, junk] } });
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1)); // .txt 被前端過濾
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/media?name=clip.mp4');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeInstanceOf(File); // 串流上傳:絕不 arrayBuffer
+    await waitFor(() => expect(useToast.getState().message).toContain('skipped 1 non-media'));
   });
 });
 
@@ -241,8 +260,7 @@ function jsonOk(body: unknown): { ok: true; json: () => Promise<unknown> } {
 }
 
 async function openLibrary(): Promise<HTMLElement> {
-  const utils = render(<MediaPanel />);
-  fireEvent.click(screen.getByTitle('Library'));
+  const utils = render(<LibraryZone />);
   await waitFor(() => expect(screen.getByPlaceholderText('Search library')).toBeTruthy());
   return utils.container;
 }
@@ -357,7 +375,7 @@ describe('LibraryZone', () => {
     const container = await openLibrary();
     await waitFor(() => expect(container.textContent).toContain('Intro clip'));
 
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('Intro clip'),
     )!;
     const importBtn = row.querySelector<HTMLButtonElement>('button[title="Import"]')!;
@@ -378,7 +396,7 @@ describe('LibraryZone', () => {
     const container = await openLibrary();
     await waitFor(() => expect(container.textContent).toContain('Badge'));
 
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('Badge'),
     )!;
     const importBtn = row.querySelector<HTMLButtonElement>('button[title="Import"]')!;
@@ -408,7 +426,7 @@ describe('LibraryZone', () => {
     const container = await openLibrary();
     await waitFor(() => expect(container.textContent).toContain('Intro clip'));
 
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('Intro clip'),
     )!;
     const delBtn = row.querySelector<HTMLButtonElement>('button[title="Delete"]')!;
@@ -470,7 +488,7 @@ describe('LibraryZone', () => {
     const container = await openLibrary();
     await waitFor(() => expect(container.textContent).toContain('Missing file'));
     expect(container.textContent).toContain('broken');
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('Missing file'),
     )!;
     const importBtn = row.querySelector<HTMLButtonElement>('button[title="Import"]')!;
@@ -502,7 +520,7 @@ describe('LibraryZone', () => {
     seedProject();
     const container = await openLibrary();
     await waitFor(() => expect(container.textContent).toContain('Icon'));
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('Icon'),
     )!;
     const importBtn = row.querySelector<HTMLButtonElement>('button[aria-label="Import"]')!;
@@ -522,7 +540,7 @@ describe('LibraryZone', () => {
     const container = await openLibrary();
     await waitFor(() => expect(container.textContent).toContain('Intro clip'));
 
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('Intro clip'),
     )!;
     const labelEl = row.querySelector<HTMLElement>('[title="Double-click to edit"]')!;
@@ -552,7 +570,7 @@ describe('LibraryZone', () => {
     await waitFor(() => expect(container.textContent).toContain('Intro clip'));
     fetchMock.mockClear();
 
-    const row = Array.from(container.querySelectorAll('.rowline')).find((r) =>
+    const row = Array.from(container.querySelectorAll('.media-card')).find((r) =>
       r.textContent?.includes('Intro clip'),
     )!;
     const labelEl = row.querySelector<HTMLElement>('[title="Double-click to edit"]')!;
@@ -582,8 +600,7 @@ function sourceListing(dir: string): unknown {
 }
 
 async function openSourceFolder(): Promise<HTMLElement> {
-  const utils = render(<MediaPanel />);
-  fireEvent.click(screen.getByTitle('Source folder'));
+  const utils = render(<SourceFolderZone />);
   await waitFor(() => expect(screen.getByPlaceholderText('/path/to/folder')).toBeTruthy());
   return utils.container;
 }

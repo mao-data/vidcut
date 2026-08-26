@@ -16,7 +16,13 @@ interface LibraryRow {
   kind: 'media' | 'image';
   hash: string;
   file: string;
-  probe: { duration: number; hasVideo?: boolean };
+  probe: {
+    duration: number;
+    hasVideo?: boolean;
+    width?: number;
+    height?: number;
+    rotation?: number;
+  };
   label: string;
   tags: string[];
   broken: boolean;
@@ -42,49 +48,41 @@ function isSvg(a: LibraryRow): boolean {
   return a.kind === 'image' && extOf(a.file).toLowerCase() === '.svg';
 }
 
-/** 縮圖：media→filmstrip 首格、audio→icon、image→本體圖檔。`<img draggable={false}>`（鐵則）。 */
+function fmtDuration(t: number): string {
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t - m * 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+/**
+ * 縮圖內容：media→filmstrip 首格、audio→icon、image→本體圖檔。
+ * 尺寸/底色由外層 `.media-card .thumb` 提供（16:9 卡；影像類加 .letterbox 黑底），
+ * 這裡只填內容——影像**等比 contain**（直式補黑邊，不拉伸不裁切），
+ * `<img>` 走 CSS object-fit: contain，filmstrip sprite 走內層 div 撐素材長寬比
+ * （同 ProjectMediaZone.containedTileStyle 的道理）。`<img draggable={false}>`（鐵則）。
+ * 庫端沒有 tiles 數，以 duration 上取整當格數（庫 derived 短片逐秒一格的世代）。
+ */
 function LibraryThumb({ a }: { a: LibraryRow }) {
-  const box: CSSProperties = {
-    width: 48,
-    height: 27,
-    flexShrink: 0,
-    background: 'var(--card)',
-    border: '1px solid var(--line)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  };
   if (a.kind === 'image') {
-    return (
-      <div style={box}>
-        <img
-          src={`/library/files/${a.hash}${extOf(a.file)}`}
-          alt=""
-          draggable={false}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-      </div>
-    );
+    return <img src={`/library/files/${a.hash}${extOf(a.file)}`} alt="" draggable={false} />;
   }
-  const audioOnly = a.probe.hasVideo === false;
-  if (audioOnly) {
-    return (
-      <div style={box}>
-        <Music size={13} />
-      </div>
-    );
+  if (a.probe.hasVideo === false) {
+    return <Music size={20} />;
   }
-  return (
-    <div style={box}>
-      <img
-        src={`/library/derived/${a.hash}/filmstrip.jpg`}
-        alt=""
-        draggable={false}
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-      />
-    </div>
-  );
+  const tiles = Math.max(1, Math.ceil(a.probe.duration));
+  const swap = (((a.probe.rotation ?? 0) % 180) + 180) % 180 !== 0;
+  const w = (swap ? a.probe.height : a.probe.width) ?? 0;
+  const h = (swap ? a.probe.width : a.probe.height) ?? 0;
+  const aspect = w > 0 && h > 0 ? w / h : 16 / 9;
+  const style: CSSProperties = {
+    ...(aspect >= 16 / 9 ? { width: '100%' } : { height: '100%' }),
+    aspectRatio: String(aspect),
+    backgroundImage: `url(/library/derived/${a.hash}/filmstrip.jpg)`,
+    backgroundSize: `${tiles * 100}% 100%`,
+    backgroundPosition: '0% 0%',
+    backgroundRepeat: 'no-repeat',
+  };
+  return <div style={style} />;
 }
 
 /**
@@ -216,7 +214,7 @@ export function LibraryZone() {
 
   return (
     <div className="panel-col" style={{ minWidth: 0 }}>
-      <div className="panel-bar" style={{ gap: 4 }}>
+      <div className="panel-bar" style={{ gap: 4, padding: '6px 12px' }}>
         <input
           placeholder="Search library"
           value={query}
@@ -254,72 +252,77 @@ export function LibraryZone() {
             No library assets yet. Upload a file or save one from Project media.
           </div>
         )}
-        {rows.map((a) => (
-          <div
-            key={a.id}
-            className="rowline"
-            style={{ display: 'flex', gap: 8, padding: '4px 8px' }}
-          >
-            <LibraryThumb a={a} />
-            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {draft?.id === a.id ? (
-                <input
-                  autoFocus
-                  value={draft.label}
-                  onChange={(e) => setDraft({ id: a.id, label: e.target.value })}
-                  onBlur={() => commitLabel(a)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitLabel(a);
-                    if (e.key === 'Escape') setDraft(null);
-                  }}
-                  style={{ minWidth: 0 }}
-                />
-              ) : (
+        {rows.length > 0 && (
+          <div className="media-grid">
+            {rows.map((a) => (
+              <div key={a.id} className="media-card">
                 <div
-                  onDoubleClick={() => setDraft({ id: a.id, label: a.label })}
-                  title="Double-click to edit"
-                  style={{
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
+                  className={`thumb${a.kind === 'image' || a.probe.hasVideo !== false ? ' letterbox' : ''}`}
                 >
-                  {a.label}
+                  <LibraryThumb a={a} />
+                  {a.broken && <span className="mark">broken</span>}
+                  {a.kind === 'media' && (
+                    <span className="dur mono">{fmtDuration(a.probe.duration)}</span>
+                  )}
+                  <div className="card-actions">
+                    <button
+                      className="icon-btn"
+                      title={isSvg(a) ? 'SVG cannot be placed as overlay' : 'Import'}
+                      aria-label="Import"
+                      disabled={a.broken || isSvg(a)}
+                      onClick={() => void doImport(a)}
+                    >
+                      {a.kind === 'image' ? <ImageIcon size={13} /> : <Import size={13} />}
+                    </button>
+                    <button
+                      className="icon-btn"
+                      title="Delete"
+                      aria-label="Delete"
+                      onClick={() => doDelete(a)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
-              )}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                {a.tags.map((t) => (
-                  <span
-                    key={t}
-                    className="tag"
-                    onClick={() => clickTag(t)}
-                    style={{ cursor: 'pointer' }}
+                {draft?.id === a.id ? (
+                  <input
+                    autoFocus
+                    value={draft.label}
+                    onChange={(e) => setDraft({ id: a.id, label: e.target.value })}
+                    onBlur={() => commitLabel(a)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitLabel(a);
+                      if (e.key === 'Escape') setDraft(null);
+                    }}
+                    style={{ minWidth: 0, width: '100%', marginTop: 4 }}
+                  />
+                ) : (
+                  <div
+                    className="name"
+                    onDoubleClick={() => setDraft({ id: a.id, label: a.label })}
+                    title="Double-click to edit"
                   >
-                    {t}
-                  </span>
-                ))}
-                {a.broken && <span style={{ color: 'var(--text-3)' }}>broken</span>}
+                    {a.label}
+                  </div>
+                )}
+                {a.tags.length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                    {a.tags.map((t) => (
+                      <span
+                        key={t}
+                        className="tag"
+                        onClick={() => clickTag(t)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-            <button
-              className="icon-btn"
-              title={isSvg(a) ? 'SVG cannot be placed as overlay' : 'Import'}
-              aria-label="Import"
-              disabled={a.broken || isSvg(a)}
-              onClick={() => void doImport(a)}
-            >
-              {a.kind === 'image' ? <ImageIcon size={13} /> : <Import size={13} />}
-            </button>
-            <button
-              className="icon-btn"
-              title="Delete"
-              aria-label="Delete"
-              onClick={() => doDelete(a)}
-            >
-              <Trash2 size={13} />
-            </button>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
