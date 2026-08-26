@@ -9,6 +9,7 @@ import type { CaptionCardSync } from './cardSync.js';
 import type { TextCardService } from './textCards.js';
 import { applyCommand } from './commands.js';
 import { resolveTextCommand } from './textOverlays.js';
+import { refreshCardsForCanvas } from './canvasCards.js';
 import { extractCover, render, renderProgressBus } from './render.js';
 import { agentActivityBus, type AgentActivityEvent } from './agentActivity.js';
 
@@ -99,6 +100,33 @@ export function attachWs(httpServer: Server, deps: WsDeps): WebSocketServer {
     for (const client of wss.clients) send(client, msg);
     if (cardSync && e.patches.some((p) => p.path[0] === 'tracks' && p.path[1] === 'captions')) {
       cardSync.schedule();
+    }
+    // 畫布**尺寸**變更也要重烤：畫布寬進字卡的內容定址 key，換一個寬度等於整套字卡
+    // 全部失效。條件刻意精確到第二段——
+    // ⚠️ `canvas.fit`（contain/blur）**不算**：它決定素材怎麼填滿畫布（黑邊或模糊背景），
+    // 完全不影響字卡的排版與像素，寫成 `p.path[0] === 'canvas'` 會讓每次切換填充方式
+    // 都白跑一次全量重烤 ＋ 一次孤兒掃描。`canvas.fps` 同理。
+    // 高度目前不進 cardKey，但仍納入條件：兩者一定同時變（`setCanvas` 一次寫兩格），
+    // 只認寬會讓「同寬不同高」的 preset 切換靜靜跳過善後（文字 overlay 的垂直位置
+    // 是比例值，重解析仍是該做的事）。
+    if (
+      cardSync &&
+      textCards &&
+      projectDir &&
+      e.patches.some(
+        (p) => p.path[0] === 'canvas' && (p.path[1] === 'width' || p.path[1] === 'height'),
+      )
+    ) {
+      // async 而 patch 監聽是同步的：射後不理，照 `cardSync.schedule()` 的紀律吞掉錯誤。
+      // 不會自我觸發——`refreshCardsForCanvas` 內部只會寫 `tracks/overlays/*/imagePath`
+      // （`refreshTextOverlayCards` 的 updateOverlay），碰不到 `canvas/*`。
+      void refreshCardsForCanvas(projectDir, store, cardSync, textCards)
+        .then(({ removed }) => {
+          if (removed > 0) console.log(`Canvas resize: removed ${removed} orphaned card file(s)`);
+        })
+        .catch((err: unknown) => {
+          console.warn('canvas card refresh failed:', (err as Error).message);
+        });
     }
   });
 
