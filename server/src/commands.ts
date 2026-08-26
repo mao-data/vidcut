@@ -11,7 +11,13 @@ import type {
   CaptionItem,
   VideoClip,
 } from '@vidcut/shared';
-import { totalDuration, clipSourceTime, clipContentDuration } from '@vidcut/shared';
+import {
+  totalDuration,
+  clipSourceTime,
+  clipContentDuration,
+  CANVAS_PRESETS,
+  findCanvasPreset,
+} from '@vidcut/shared';
 import type { ProjectStore } from './store.js';
 import { cardRequestError } from './cardBudget.js';
 import { capToCardRequest } from './cardSync.js';
@@ -19,6 +25,16 @@ import { overlayTextToCardRequest } from './textOverlays.js';
 
 const MIN_CLIP_DURATION = 0.1;
 const DEFAULT_FREEZE_DURATION = 3;
+
+/**
+ * 錯誤訊息裡用來點名「是哪一句」的文字節錄。取前 20 字就夠認人，全文貼進錯誤訊息
+ * 只會把真正的原因(超了多少)推到看不見的地方——字幕本來就可以到 4000 字。
+ * 換行一律壓成空白,免得一則錯誤訊息裂成十行。
+ */
+function excerpt(text: string, max = 20): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
 
 /**
  * overlay 縮放倍率的理智上限。**不是**「畫面上看起來合理」的上限（那是使用者的事），
@@ -458,6 +474,63 @@ export function applyCommand(
           d.canvas.fit = cmd.fit;
         }),
       );
+    case 'setCanvas': {
+      // 1. preset 白名單。任意寬高不收——畫布寬進字卡的內容定址 hash，每一種寬度
+      //    就是一整套要烤的字卡；開放自訂尺寸等於開放無上限的重烤成本。
+      if (!findCanvasPreset(cmd.width, cmd.height)) {
+        const available = CANVAS_PRESETS.map((p) => `${p.width}×${p.height}`).join(', ');
+        return {
+          ok: false,
+          error: `unsupported canvas size ${cmd.width}×${cmd.height}; available presets: ${available}`,
+        };
+      }
+      // 2. no-op 早退。走 store.mutate 的空 recipe：immer 產不出 patch → version 不前進、
+      //    `ok()` 的 changed 為 false，形狀與其他命令「送了跟現值相同的值」完全一致
+      //    （見 ok() 的註解）。自己回一個手捏的 {ok:true, version} 反而會讓呼叫端
+      //    誤以為版本前進了。理由是成本：換畫布寬會讓每一張字卡的 key 全變，
+      //    重設成現值不該觸發一次全量重烤。
+      const canvas = store.doc.canvas;
+      if (canvas.width === cmd.width && canvas.height === cmd.height) {
+        return ok({ version: store.version, patches: [] });
+      }
+      // 3. 字卡預算安全網。
+      //    ⚠️ **這是安全網,不是主流程,更不是熱路徑。** 四檔 preset 的寬只有 1080 與
+      //    1920 兩種,實測離 MAX_CARD_PIXELS(12M) 差將近一個數量級,正常內容永遠打不到
+      //    這條線;真的觸發代表使用者手上有一張本來就貼著上限的巨無霸字卡。所以這裡
+      //    就是一則清楚的錯誤訊息,**不要為它設計引導流程或 UI 提示**,也不要為了
+      //    「效能」去快取或抽樣——它一輪只跑純算術,而且幾乎不會有人走到。
+      //    全有或全無:任何一張卡在新寬度下超標就整個命令拒絕、doc 一格都不動,
+      //    免得留下「畫布換了但有幾句字幕永遠烤不出卡」的半殘狀態。
+      for (const cap of store.doc.tracks.captions) {
+        const err = cardRequestError(capToCardRequest(cap, cmd.width));
+        if (err) {
+          return {
+            ok: false,
+            error:
+              `canvas ${cmd.width}×${cmd.height} rejected: caption ${cap.id} ` +
+              `("${excerpt(cap.text)}") would not fit: ${err}`,
+          };
+        }
+      }
+      for (const o of store.doc.tracks.overlays) {
+        if (!o.text) continue; // 預烤 PNG overlay 不吃字卡預算(不會重烤)
+        const err = cardRequestError(overlayTextToCardRequest(o.text, cmd.width));
+        if (err) {
+          return {
+            ok: false,
+            error:
+              `canvas ${cmd.width}×${cmd.height} rejected: overlay ${o.id} ` +
+              `("${excerpt(o.text.text)}") would not fit: ${err}`,
+          };
+        }
+      }
+      return ok(
+        store.mutate(source, `canvas: ${cmd.width}×${cmd.height}`, (d) => {
+          d.canvas.width = cmd.width;
+          d.canvas.height = cmd.height;
+        }),
+      );
+    }
     case 'registerMedia': {
       const a = cmd.asset;
       if (!a || typeof a !== 'object') return { ok: false, error: 'asset is required' };

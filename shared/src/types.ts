@@ -404,6 +404,12 @@ export type Command =
   | { name: 'setAudio'; audio: AudioItem[] }
   | { name: 'setCanvasFit'; fit: CanvasFit }
   /**
+   * 換畫布比例。**只收 `CANVAS_PRESETS` 裡的尺寸**（見 canvasPresets.ts），
+   * 不接受任意寬高：畫布寬直接進字卡的內容定址 hash 與像素預算，任意寬度
+   * ＝任意重烤成本。驗證在 commands.ts 的 `case 'setCanvas'`。
+   */
+  | { name: 'setCanvas'; width: number; height: number }
+  /**
    * 登記一支已經處理完（proxy/filmstrip/peaks 都產好）的素材。跑 ffmpeg 的 async 前置
    * 留在 `server/src/ingest.ts` 的 `prepareMedia`，命令層只做同步的登記——與文字 overlay
    * 的 `resolveTextCommand` 同一個模式（見 textOverlays.ts）。

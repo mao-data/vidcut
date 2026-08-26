@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
-import { totalDuration } from '@vidcut/shared';
+import { totalDuration, DEFAULT_CAPTION_STYLE } from '@vidcut/shared';
 import { ProjectStore } from '../src/store.js';
 import { applyCommand } from '../src/commands.js';
 import { tmpDir } from './tmp.js';
@@ -178,6 +178,135 @@ describe('setCanvasFit', () => {
     expect(store.doc.canvas.fit).toBe('blur');
     applyCommand(store, 'human', { name: 'setCanvasFit', fit: 'contain' });
     expect(store.doc.canvas.fit).toBe('contain');
+  });
+});
+
+// ---- 多比例畫布：setCanvas ------------------------------------------------------
+describe('setCanvas', () => {
+  it('switches to a preset size', async () => {
+    const store = await seeded();
+    expect(store.doc.canvas).toMatchObject({ width: 1080, height: 1920 }); // 預設是 portrait
+    const r = applyCommand(store, 'human', { name: 'setCanvas', width: 1920, height: 1080 });
+    expect(r.ok).toBe(true);
+    expect(r).toMatchObject({ changed: true });
+    expect(store.doc.canvas).toMatchObject({ width: 1920, height: 1080 });
+    expect(store.doc.canvas.fps).toBe(30); // 只動寬高,fps 不受影響
+  });
+
+  it('rejects a size that is not in the preset table, leaving the doc untouched', async () => {
+    const store = await seeded();
+    const before = store.version;
+    const r = applyCommand(store, 'human', { name: 'setCanvas', width: 1000, height: 1000 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('1080×1920'); // 錯誤訊息要列出可用的 preset
+    expect(store.doc.canvas).toMatchObject({ width: 1080, height: 1920 });
+    expect(store.version).toBe(before);
+  });
+
+  it('is a no-op (no new version) when the size already matches', async () => {
+    const store = await seeded();
+    const before = store.version;
+    const r = applyCommand(store, 'human', { name: 'setCanvas', width: 1080, height: 1920 });
+    expect(r.ok).toBe(true);
+    // 重點在「版本沒前進」：換畫布寬會讓每張字卡的 key 全變,重設成現值不該觸發全量重烤。
+    expect(r).toMatchObject({ changed: false, version: before });
+    expect(store.version).toBe(before);
+  });
+
+  it('undo restores the previous canvas size', async () => {
+    const store = await seeded();
+    expect(applyCommand(store, 'human', { name: 'setCanvas', width: 1080, height: 1080 }).ok).toBe(
+      true,
+    );
+    expect(store.doc.canvas).toMatchObject({ width: 1080, height: 1080 });
+    // 這條同時釘住 store.ts 的 isUndoable() 確實涵蓋 `canvas` 路徑
+    //（setCanvas 沒有為了 undo 動過 store.ts,靠的就是那條既有規則）。
+    expect(applyCommand(store, 'human', { name: 'undo' }).ok).toBe(true);
+    expect(store.doc.canvas).toMatchObject({ width: 1080, height: 1920 });
+  });
+
+  // 字卡預算安全網。
+  //
+  // **這條線在四檔 preset 之間真的打得到**(不是只能測 cardRequestError 那層):
+  // 50 個全形字 + fontSize 176,在 1080 寬估 50 行 × lineH 211 ≈ 11.4 Mpx(過),
+  // 換到 1920 寬時貪婪換行的行數上界只降到 31 行,但寬度多了 78% → ≈ 12.6 Mpx(超過
+  // 12 Mpx 上限)。成因是估算式的兩個上界在這一段換了主導者:1080 寬時「每字一行」的
+  // 字元數上界比較緊、行數鎖死在 50,寬度變大時它不會再降,於是總像素被寬度拉上去。
+  //
+  // ⚠️ 這是**刻意構造的極端內容**(字級 176、一句 50 字),不是正常字幕會長的樣子——
+  // 預設 fontSize 64 的字幕離上限差將近一個數量級。安全網存在是為了「拒絕得乾淨」,
+  // 不是常見路徑,見 commands.ts 該 case 的註解。
+  const HUGE_CAPTION_FONT_SIZE = 176;
+  it('rejects the switch when an existing caption would blow the card budget at the new width', async () => {
+    const store = await seeded();
+    store.mutate('ai', 'seed captions', (d) => {
+      d.tracks.captions = [
+        {
+          id: 'cap-huge',
+          text: '字'.repeat(50),
+          start: 0,
+          duration: 2,
+          style: { ...DEFAULT_CAPTION_STYLE, fontSize: HUGE_CAPTION_FONT_SIZE },
+        },
+        { id: 'cap-ok', text: '短句', start: 2, duration: 2, style: DEFAULT_CAPTION_STYLE },
+      ];
+    });
+    const before = store.version;
+    const r = applyCommand(store, 'human', { name: 'setCanvas', width: 1920, height: 1080 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain('cap-huge'); // 要點名是哪一句
+      expect(r.error).toContain('字字字'); // 帶上文字節錄
+    }
+    // 全有或全無:連 canvas 都不能動,否則會留下「畫布換了但這句永遠烤不出卡」的半殘狀態
+    expect(store.doc.canvas).toMatchObject({ width: 1080, height: 1920 });
+    expect(store.version).toBe(before);
+  });
+
+  it('rejects the switch when an existing text overlay would blow the card budget', async () => {
+    const store = await seeded();
+    store.mutate('ai', 'seed overlays', (d) => {
+      d.tracks.overlays = [
+        {
+          id: 'ov-huge',
+          imagePath: 'cards/whatever.png',
+          start: 0,
+          duration: 2,
+          position: { x: 0.5, y: 0.3, scale: 1 },
+          text: {
+            text: '字'.repeat(50),
+            fontFamily: 'PingFang TC',
+            fontSize: HUGE_CAPTION_FONT_SIZE,
+            fill: '#ffffff',
+            stroke: '#000000',
+          },
+        },
+      ];
+    });
+    const before = store.version;
+    const r = applyCommand(store, 'human', { name: 'setCanvas', width: 1920, height: 1080 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('ov-huge');
+    expect(store.doc.canvas).toMatchObject({ width: 1080, height: 1920 });
+    expect(store.version).toBe(before);
+  });
+
+  it('ignores pre-baked PNG overlays (no text = nothing to re-bake)', async () => {
+    const store = await seeded();
+    store.mutate('ai', 'seed overlays', (d) => {
+      d.tracks.overlays = [
+        {
+          id: 'ov-png',
+          imagePath: 'assets/logo.png',
+          start: 0,
+          duration: 2,
+          position: { x: 0.5, y: 0.3, scale: 1 },
+        },
+      ];
+    });
+    expect(applyCommand(store, 'human', { name: 'setCanvas', width: 1920, height: 1080 }).ok).toBe(
+      true,
+    );
   });
 });
 

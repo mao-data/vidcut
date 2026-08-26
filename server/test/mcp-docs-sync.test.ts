@@ -39,6 +39,7 @@ const COMMAND_VARIANT_MAP: Record<Command['name'], true> = {
   removeAudio: true,
   setAudio: true,
   setCanvasFit: true,
+  setCanvas: true,
   registerMedia: true,
   updateMediaDerived: true,
   setCover: true,
@@ -159,6 +160,12 @@ const MCP_EXEMPT_COMMANDS: Record<string, string> = {
   freezeFrame: '由 timeline_op 的 op:"freeze" 觸達',
   registerMedia: '由 import_media 內部呼叫觸達',
   setPublish: '由 export_publish_package 內部呼叫觸達（Task 4）',
+  // ⚠️ **暫時性豁免,不是設計決策。** 多比例畫布這一批刻意把命令層(本任務)與 MCP 工具
+  // (後續任務)拆成兩步走,這一格就是那個中間態:命令與驗證已經在,`set_canvas` 工具
+  // 還沒註冊。工具一補上就**必須把這條刪掉**——留著等於讓鐵則第三步的守衛對這個
+  // variant 永久失效。上面那些豁免講的是「有聚合工具間接觸達」或「刻意不上 MCP」,
+  // 跟這條的性質完全不同,不要照抄。
+  setCanvas: '多比例畫布分批實作的中間態:命令層先落地,set_canvas 工具由後續任務補上',
   updateMediaDerived:
     '刻意連間接路徑都沒有——背景 ingest pipeline（Plan 8 A1/A2 階段）內部呼叫' +
     'applyCommand 寫回 derived 檔欄位，不經過任何 MCP 工具（不像 registerMedia' +
