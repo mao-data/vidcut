@@ -18,7 +18,7 @@
 
 vidcut is a **local-first timeline editor for short-form video** — four canvas presets (portrait 1080×1920 by default, plus landscape 16:9, square 1:1 and portrait 4:5) — built around one idea: the AI and the human edit **the same timeline, at the same time**.
 
-It is _not_ a prompt-to-video generator. An AI agent (Claude Code, or any MCP client) edits the project through [34 MCP tools](#mcp-tools) — importing footage, cutting, captioning, mixing audio, rendering. Every change appears **live in your browser** over WebSocket. You drag a caption, trim a clip, leave a review note — and the AI reads your adjustments back and keeps working. A human-in-the-loop editing loop, not a black box.
+It is _not_ a prompt-to-video generator. An AI agent (Claude Code, or any MCP client) edits the project through [39 MCP tools](#mcp-tools) — importing footage, cutting, captioning, mixing audio, rendering. Every change appears **live in your browser** over WebSocket. You drag a caption, trim a clip, leave a review note — and the AI reads your adjustments back and keeps working. A human-in-the-loop editing loop, not a black box.
 
 - 🖥️ **Local & private** — a single Node process on `127.0.0.1:3845`. Your footage never leaves your machine.
 - 🤝 **Built for supervision** — the AI can call `request_review`; you annotate in the browser; it reads your feedback and continues.
@@ -150,7 +150,7 @@ Any other MCP client works the same way — point it at `http://127.0.0.1:3845/m
 
 ## MCP tools
 
-38 tools, grouped by what they touch:
+39 tools, grouped by what they touch:
 
 | Group                 | Tools                                                                                                                                                                                                                                            |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

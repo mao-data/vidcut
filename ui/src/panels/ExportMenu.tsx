@@ -290,12 +290,19 @@ export function ExportMenu() {
             pointerEvents: 'none',
           }}
         >
+          {/* 填充用 transform 驅動而非 width：動 width 每幀都要重算版面(layout thrash)，
+              scaleX 只走合成層。`transformOrigin: 'left'` 讓它從左緣長出來而不是從中心
+              往兩側撐開。⚠️ 漸層畫在**滿版**的元素上再整體縮放，所以進度 50% 時看到的是
+              漸層的左半段——與舊版「把漸層壓進 50% 寬」在視覺上略有差異，但那正是漸層
+              進度條該有的樣子(顏色隨進度推進，而不是整條色階跟著壓縮)。 */}
           <div
             style={{
-              width: `${progress}%`,
+              width: '100%',
               height: '100%',
               background: 'linear-gradient(90deg, var(--accent), var(--accent-2))',
-              transition: 'width 0.25s ease',
+              transformOrigin: 'left',
+              transform: `scaleX(${progress / 100})`,
+              transition: 'transform 0.25s ease',
             }}
           />
         </div>
