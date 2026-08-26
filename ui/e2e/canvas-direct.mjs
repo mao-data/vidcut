@@ -10,6 +10,9 @@
  * （會重新產生 projects/demo，蓋掉既有內容）。
  * 執行：`npm run verify:canvas`
  * Chrome 路徑可用 CHROME_BIN 覆寫；視窗尺寸可用 VIDCUT_VIEWPORT（如 1280x620）。
+ * 畫布比例可用 VIDCUT_CANVAS（preset id，預設 portrait＝1080×1920）——尺寸從
+ * `shared/src/canvasPresets.ts` 解析，見 ui/e2e/canvasPreset.mjs。**這支腳本本身不
+ * 設定專案的畫布**，只是照著讀到的尺寸換算；跑非 portrait 之前要先讓專案真的是那個比例。
  *
  * ⚠️ 檢查 2/4（拖曳 overlay）會真的透過 WS 送 updateOverlay 命令，把 demo 專案裡
  * 第一個在畫面上看得到的 overlay 位置往旁邊挪一點並寫回 projects/demo/project.json
@@ -18,7 +21,7 @@
  *
  * 沿用 ui/e2e/panel-affordance.mjs 的 findChrome/connect/send/evalJs 與
  * 失敗蒐集、exit code 慣例；scale 量測手法沿用 Task 13 一次性腳本
- * （caption-scale-check.mjs）已驗證過的做法：錨定 1080×1920 的座標空間 wrapper，
+ * （caption-scale-check.mjs）已驗證過的做法：錨定座標空間 wrapper，
  * 讀它的 parentElement 當 stage 寬，解析 matrix() 而不是字串比對 scale()。
  */
 import { spawn } from 'node:child_process';
@@ -26,6 +29,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
+import { resolveCanvas } from './canvasPreset.mjs';
 
 const APP_URL = process.env.VIDCUT_URL ?? 'http://127.0.0.1:3845/';
 const CDP_PORT = Number(process.env.VIDCUT_CDP_PORT ?? 9334);
@@ -33,6 +37,11 @@ const [vw, vh] = (process.env.VIDCUT_VIEWPORT ?? '1440x820').split('x').map(Numb
 const VIEWPORT = { w: vw, h: vh };
 /** 單發 CDP 的逾時（見 send 的註解：沒有它，卡住的瀏覽器會讓整支腳本永遠 pending）。 */
 const CDP_TIMEOUT_MS = Number(process.env.VIDCUT_CDP_TIMEOUT_MS ?? 30_000);
+/**
+ * 畫布尺寸——本檔所有座標換算的唯一來源，不得再有第二個 1080/1920 字面值。
+ * 預設 portrait（1080×1920）＝現狀行為，跟參數化之前逐項等值。
+ */
+const CANVAS = resolveCanvas();
 
 function findChrome() {
   if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
@@ -214,7 +223,7 @@ async function main() {
     await sleep(300);
 
     // ---- 檢查 1：縮放正確 ----
-    // 錨定 1080×1920 的座標空間 wrapper（不是 document.querySelector('video')——Player
+    // 錨定座標空間 wrapper（不是 document.querySelector('video')——Player
     // 同時掛 A/B 兩顆播放用 video，開 blur 填充時還有第三顆帶 transform: scale(1.15) 的
     // 背景模糊 video，量到它會得到一個看似合理但 ~15% 錯的數字，見 CLAUDE.md「UI 驗證的
     // 陷阱」）。wrapper 的 parentElement 就是 Player.tsx 的 ResizeObserver 實際觀測的
@@ -226,15 +235,15 @@ async function main() {
     // scale(a, a*1.5)（垂直比例錯掉），這段量測**照樣回報 0.000%**。
     // 它是一個貨真價實的獨立量測（新鮮的 getBoundingClientRect vs 解析出來的矩陣，
     // 不是把同一個值比對自己），但它成立的命題是「ResizeObserver 拿到的寬不是舊值、
-    // 除數確實是 1080」，**不是**「預覽跟匯出成品對齊」。後者只能真的 render 一次比像素,
+    // 除數確實是畫布寬」，**不是**「預覽跟匯出成品對齊」。後者只能真的 render 一次比像素,
     // 目前沒有任何自動化在做這件事。
-    console.log('檢查 1：縮放正確');
+    //
+    // ⚠️ 用 data-testid 找 wrapper，**不要**回頭改成比對 `width === '1080px'`：
+    // 尺寸字串比對在畫布尺寸一變時不是變紅、是找不到元素直接掛掉，守門人會靜默失效。
+    console.log(`檢查 1：縮放正確（畫布 ${CANVAS.id} ${CANVAS.w}×${CANVAS.h}）`);
     const scaleResult = await evalJs(`(() => {
-      const wrapper = [...document.querySelectorAll('div')].find((d) => {
-        const s = getComputedStyle(d);
-        return s.width === '1080px' && s.height === '1920px' && s.position === 'absolute';
-      });
-      if (!wrapper) return { error: 'wrapper div (1080x1920) not found' };
+      const wrapper = document.querySelector('[data-testid="canvas-layer"]');
+      if (!wrapper) return { error: '[data-testid=canvas-layer] not found' };
       const stage = wrapper.parentElement;
       if (!stage) return { error: 'wrapper has no parentElement' };
       const stageW = stage.getBoundingClientRect().width;
@@ -245,7 +254,7 @@ async function main() {
       const m = t.match(/matrix\\(([^)]+)\\)/);
       if (!m) return { error: 'transform 不是 matrix()', raw: t };
       const parts = m[1].split(',').map((x) => parseFloat(x.trim()));
-      return { stageW, scaleX: parts[0], expected: stageW / 1080 };
+      return { stageW, scaleX: parts[0], expected: stageW / ${CANVAS.w} };
     })()`);
     let scale = null;
     if (scaleResult.error) {
@@ -256,15 +265,16 @@ async function main() {
       const err = Math.abs(scaleResult.scaleX - scaleResult.expected) / scaleResult.expected;
       const pass = err <= 0.01;
       console.log(
-        `  ${pass ? '✓' : '✗'} stageW=${scaleResult.stageW.toFixed(2)} expected(stageW/1080)=${scaleResult.expected.toFixed(6)} actual scaleX=${scaleResult.scaleX.toFixed(6)} error=${(err * 100).toFixed(3)}%`,
+        `  ${pass ? '✓' : '✗'} stageW=${scaleResult.stageW.toFixed(2)} expected(stageW/${CANVAS.w})=${scaleResult.expected.toFixed(6)} actual scaleX=${scaleResult.scaleX.toFixed(6)} error=${(err * 100).toFixed(3)}%`,
       );
       if (!pass) failures.push('縮放正確');
     }
     // 就算縮放檢查失敗也要有個 scale 可用來換算拖曳像素（用量到的 scaleX，量不到就退回
-    // stageW/1080 的期望值，兩者在正常情況下应該非常接近；純粹是讓後面兩項檢查還能跑,
+    // stageW/畫布寬 的期望值，兩者在正常情況下应該非常接近；純粹是讓後面兩項檢查還能跑,
     // 不是要掩蓋檢查 1 的失敗——失敗已經記進 failures 了）。
     if (scale === null && !scaleResult.error) scale = scaleResult.scaleX;
-    if (scale === null) scale = (scaleResult.stageW ?? VIEWPORT.h * (1080 / 1920)) / 1080;
+    if (scale === null)
+      scale = (scaleResult.stageW ?? VIEWPORT.h * (CANVAS.w / CANVAS.h)) / CANVAS.w;
 
     // ---- 檢查 2 + 3：拖曳 overlay（合成 pointer 事件），途中驗導線、放手後驗位置真的變了 ----
     // 兩項共用同一次連續拖曳（先小幅移動、確認水平置中導線出現，再繼續拖遠、放手），
@@ -305,13 +315,13 @@ async function main() {
           buttons: 1,
           clickCount: 1,
         });
-        // 第一步移動：把 bbox 中心精確移回畫布水平中心（540，1080 座標系），而不是
+        // 第一步移動：把 bbox 中心精確移回畫布水平中心（CANVAS.w/2），而不是
         // 假設 overlay 現在已經在中心附近——這支腳本本身會把 demo 專案的 overlay 位置
         // 往旁邊挪（見檔頭註解），重跑時起點通常已經不在中心，固定的「小幅移動」量
         // 遇到夠遠的起點就再也吸不到，會誤判成導線沒出現。o.position.x 的錨點定義就是
-        // bbox 水平中心（見 dragLayer.ts 開頭註解），所以 540 - beforePos.x*1080 就是
-        // 「移到正中心」所需的畫布位移，換算成螢幕像素要乘上量到的 scale。
-        const centerDeltaCanvas = 540 - beforePos.x * 1080;
+        // bbox 水平中心（見 dragLayer.ts 開頭註解），所以 CANVAS.w/2 - beforePos.x*CANVAS.w
+        // 就是「移到正中心」所需的畫布位移，換算成螢幕像素要乘上量到的 scale。
+        const centerDeltaCanvas = CANVAS.w / 2 - beforePos.x * CANVAS.w;
         const smallDx = centerDeltaCanvas * scale;
         await send('Input.dispatchMouseEvent', {
           type: 'mouseMoved',
@@ -324,9 +334,11 @@ async function main() {
         // JS 呼叫），保守起見還是等一輪再讀 DOM，跟 panel-affordance.mjs 的作法一致。
         await sleep(300);
         const guideCount = await evalJs(`(() => {
-          // 導線是 style.width === '2px'（水平置中,縱線,見 Player.tsx 的 guides.map）
-          // 或 style.height === '2px'（垂直安全邊,橫線）;這裡只驗水平置中那條。
-          return [...document.querySelectorAll('div')].filter((d) => d.style.width === '2px' && d.style.height === '1920px').length;
+          // 導線分兩種：data-guide-axis='x'（水平座標的吸附,畫面上是縱線,見 Player.tsx
+          // 的 guides.map）與 'y'（垂直安全邊,橫線）;這裡只驗水平置中那條。
+          // ⚠️ 用 axis 屬性而不是 style.height === '1920px'——尺寸字串一旦隨畫布改變,
+          // 這個 filter 會靜默回 0（看起來像「導線沒出現」的假紅）。
+          return document.querySelectorAll('[data-testid="snap-guide"][data-guide-axis="x"]').length;
         })()`);
         const guidePass = guideCount > 0;
         console.log(
@@ -347,7 +359,7 @@ async function main() {
         // 目標若落在合法區間外,clampAxis 會把它拉回來,而我們就會斷言在一個不可能達到
         // 的落點上（等於斷言一個 bug）。所以從實際量到的 bbox 高度算出合法區間再取點。
         //
-        // ⚠️ 2026-08-05 修：這裡原本用 `yHi = max(0, 1 - bboxH/1920)`，那是**舊的**夾制
+        // ⚠️ 2026-08-05 修：這裡原本用 `yHi = max(0, 1 - bboxH/H)`，那是**舊的**夾制
         // 語意（整個元素留在畫布內）。2026-08-04 起規則是「元素中心留在畫布內」，四邊
         // 各可露出一半。舊式子除了測不到新開的那段範圍，還會在 bbox ≥ 畫布高時整個退化成
         // yHi=0 → 兩個「交替」目標都是 0 → 起點本來就是 0 → 斷言「拖到指定落點」變成
@@ -355,23 +367,23 @@ async function main() {
         // 跑的就是那個退化分支。
         //
         // 新語意下合法區間是 [-h/2H, 1-h/2H]，寬度**恆為 1**（跟 bbox 多高無關），
-        // 所以取 25% / 75% 兩點交替瞄準：距離起點至少 0.25（480 畫布 px），
+        // 所以取 25% / 75% 兩點交替瞄準：距離起點至少 0.25（直式下 480 畫布 px），
         // 離三個垂直吸附候選（中心 / 上安全邊 / 下安全邊，threshold 16 畫布 px）也都
         // 遠在 300px 以上；每跑一次換一邊，重跑不會收斂到同一點。
         const bboxHCanvas = ov.h / scale;
-        const half = bboxHCanvas / (2 * 1920);
+        const half = bboxHCanvas / (2 * CANVAS.h);
         const [yLo, yHi] = [-half, 1 - half];
         const targetYFrac = beforePos.y < (yLo + yHi) / 2 ? yLo + 0.75 : yLo + 0.25;
         // 保險絲：目標一旦離起點太近，下面「落在指定目標上」的斷言就沒有鑑別力了。
         // 上面的算式保證 ≥480px，這行是防止有人改了取點規則卻沒發現它退化。
-        if (Math.abs(targetYFrac - beforePos.y) * 1920 < 100) {
+        if (Math.abs(targetYFrac - beforePos.y) * CANVAS.h < 100) {
           failures.push(
             `y 目標 ${targetYFrac.toFixed(4)} 離起點 ${beforePos.y.toFixed(4)} 太近，` +
               '拖曳斷言會退化成恆真',
           );
         }
-        const bigDx = (targetXFrac * 1080 - beforePos.x * 1080) * scale;
-        const bigDy = (targetYFrac * 1920 - beforePos.y * 1920) * scale;
+        const bigDx = (targetXFrac * CANVAS.w - beforePos.x * CANVAS.w) * scale;
+        const bigDy = (targetYFrac * CANVAS.h - beforePos.y * CANVAS.h) * scale;
         await send('Input.dispatchMouseEvent', {
           type: 'mouseMoved',
           x: ov.cx + bigDx,
@@ -400,8 +412,8 @@ async function main() {
         // 容差 6 畫布 px：合成滑鼠座標會被四捨五入,送出前又 toFixed(4);任何錨點/正負號/
         // 縮放層級的錯誤都是幾十到幾百 px 級,不會躲在這個容差裡。
         const TOL_CANVAS_PX = 6;
-        const errX = afterPos ? Math.abs(afterPos.x - targetXFrac) * 1080 : Infinity;
-        const errY = afterPos ? Math.abs(afterPos.y - targetYFrac) * 1920 : Infinity;
+        const errX = afterPos ? Math.abs(afterPos.x - targetXFrac) * CANVAS.w : Infinity;
+        const errY = afterPos ? Math.abs(afterPos.y - targetYFrac) * CANVAS.h : Infinity;
         const landed = errX <= TOL_CANVAS_PX && errY <= TOL_CANVAS_PX;
         console.log(
           `  ${landed ? '✓' : '✗'} /api/project 裡 overlay ${ov.id} 落在指定目標上：` +
@@ -452,11 +464,11 @@ async function main() {
           const r = el.getBoundingClientRect();
           return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
         })()`);
-        // 讀「畫面上顯示的位置」＝ inline style 的 left/top（1080×1920 座標空間內的 px）
+        // 讀「畫面上顯示的位置」＝ inline style 的 left/top（畫布座標空間內的 px）
         const shown = () =>
           evalJs(`(() => {
             const el = document.querySelector('${sel}');
-            return el ? { x: parseFloat(el.style.left) / 1080, y: parseFloat(el.style.top) / 1920 } : null;
+            return el ? { x: parseFloat(el.style.left) / ${CANVAS.w}, y: parseFloat(el.style.top) / ${CANVAS.h} } : null;
           })()`);
         if (!box) {
           console.log(`  ✗ 回到原 playhead 後 ${ov.id} 不見了，前置條件不成立`);

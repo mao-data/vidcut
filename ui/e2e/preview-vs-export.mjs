@@ -32,6 +32,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
+import { resolveCanvas } from './canvasPreset.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = Number(process.env.VIDCUT_WYSIWYG_PORT ?? 3999);
@@ -43,7 +44,14 @@ const ART_DIR = join(PROJECT_DIR, 'measure');
 const [vw, vh] = (process.env.VIDCUT_VIEWPORT ?? '1200x1400').split('x').map(Number);
 const VIEWPORT = { w: vw, h: vh };
 
-const CANVAS = { w: 1080, h: 1920, fps: 30 };
+/**
+ * 畫布尺寸＋fps。尺寸吃 `VIDCUT_CANVAS`（preset id，預設 portrait＝1080×1920，
+ * 逐項等於參數化之前的行為），從 `shared/src/canvasPresets.ts` 解析，見 canvasPreset.mjs。
+ *
+ * ⚠️ 下面 CASES 的 `exportInk` 期望值是**直式量出來的絕對畫布 px**，沒有跟著 preset 走。
+ * 換 preset 跑等於拿直式的基線去對別的比例——非 portrait 的基線是後續任務的事。
+ */
+const CANVAS = { ...resolveCanvas(), fps: 30 };
 
 /**
  * 墨跡判定門檻（0–255 luma）。素材是純深灰 #181818（luma 24）、文字是白色 #ffffff
@@ -768,12 +776,11 @@ async function main() {
 
     const stageRect = async () =>
       evalJs(`(() => {
-        // 錨定 1080×1920 的座標空間 wrapper，不是 document.querySelector('video')
+        // 錨定座標空間 wrapper，不是 document.querySelector('video')
         // ——Player 同時掛 A/B 兩顆 video，blur 填充時還有第三顆帶 scale(1.15) 的背景層。
-        const wrapper = [...document.querySelectorAll('div')].find((d) => {
-          const s = getComputedStyle(d);
-          return s.width === '1080px' && s.height === '1920px' && s.position === 'absolute';
-        });
+        // ⚠️ 用 data-testid，**不要**回頭比對 '1080px'/'1920px'：畫布尺寸一變,
+        // 字串比對不是變紅、是找不到元素直接掛掉。
+        const wrapper = document.querySelector('[data-testid="canvas-layer"]');
         if (!wrapper || !wrapper.parentElement) return null;
         const r = wrapper.parentElement.getBoundingClientRect();
         // DOMRect 逐欄取值：JSON.stringify(DOMRect) 回 {}（見 CLAUDE.md）
@@ -792,7 +799,7 @@ async function main() {
      */
     const previewInk = async (label) => {
       const st = await stageRect();
-      if (!st) throw new Error('找不到 1080×1920 座標空間 wrapper');
+      if (!st) throw new Error('找不到 [data-testid=canvas-layer] 座標空間 wrapper');
       const clip = {
         x: Math.floor(st.x),
         y: Math.floor(st.y),
@@ -852,7 +859,7 @@ async function main() {
     // 容差是常數，量測精度卻隨 stage 大小變——太小就先擋下來（見 MIN_STAGE_W）。
     {
       const st0 = await stageRect();
-      if (!st0) throw new Error('找不到 1080×1920 座標空間 wrapper');
+      if (!st0) throw new Error('找不到 [data-testid=canvas-layer] 座標空間 wrapper');
       if (st0.w < MIN_STAGE_W) {
         throw new Error(
           `stage 只有 ${st0.w.toFixed(1)}px 寬（下限 ${MIN_STAGE_W}）——視窗 ` +
@@ -908,8 +915,8 @@ async function main() {
     }
 
     // ---- 比對 ----
-    console.log(`\n量測換算（截圖 → 1080×1920 畫布座標）：\n${notes.join('\n')}`);
-    console.log(`\n墨跡外框比對（單位：1080×1920 畫布 px，容差 ±${TOL_PX}）`);
+    console.log(`\n量測換算（截圖 → ${CANVAS.w}×${CANVAS.h} 畫布座標）：\n${notes.join('\n')}`);
+    console.log(`\n墨跡外框比對（單位：${CANVAS.w}×${CANVAS.h} 畫布 px，容差 ±${TOL_PX}）`);
     for (const c of CASES) {
       const e = exportInk[c.key];
       const p = previewInkByCase[c.key];

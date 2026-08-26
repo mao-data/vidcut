@@ -703,6 +703,10 @@ export function Player() {
           縮放係數只有這一處來源，不得再有第二條路徑或魔術常數（fontSize/3 已廢除）。
         */}
         <div
+          // e2e 腳本（ui/e2e/canvas-direct.mjs、preview-vs-export.mjs）靠這個 testid 錨定
+          // 座標層，不再用 `width === '1080px'` 這種尺寸字串比對——畫布尺寸可變之後，
+          // 字串比對不是變紅而是**找不到元素直接掛掉**，等於守門人靜默失效。
+          data-testid="canvas-layer"
           style={{
             position: 'absolute',
             left: 0,
@@ -766,6 +770,10 @@ export function Player() {
             g.axis === 'x' ? (
               <div
                 key={i}
+                // e2e 腳本靠 testid + data-guide-axis 找導線（不再比對 '1920px' 這種
+                // 尺寸字串）。axis='x' ＝水平座標的吸附＝畫面上的**縱線**。
+                data-testid="snap-guide"
+                data-guide-axis="x"
                 style={{
                   position: 'absolute',
                   left: g.pos,
@@ -779,6 +787,8 @@ export function Player() {
             ) : (
               <div
                 key={i}
+                data-testid="snap-guide"
+                data-guide-axis="y"
                 style={{
                   position: 'absolute',
                   top: g.pos,
