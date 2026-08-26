@@ -1,6 +1,7 @@
 import { Fragment, useState, type ChangeEvent } from 'react';
 import { AudioWaveform, CircleHelp, Paperclip, Scissors, Snowflake, Trash2 } from 'lucide-react';
 import type { AudioItem, Command } from '@vidcut/shared';
+import { CANVAS_PRESETS, findCanvasPreset } from '@vidcut/shared';
 
 type AudioPatch = Partial<
   Pick<AudioItem, 'start' | 'in' | 'duration' | 'volume' | 'fadeIn' | 'fadeOut' | 'ducking'>
@@ -15,7 +16,51 @@ function num(e: ChangeEvent<HTMLInputElement>): number {
   return Number(e.target.value);
 }
 
-/** 畫布填充模式切換（9:16 放橫素材時 blur 比黑邊好看）。 */
+/**
+ * 畫布比例切換（四檔 preset）。
+ *
+ * ⚠️ 亮起哪一檔靠 `findCanvasPreset(width, height)` **比尺寸**,不是比 preset 名字——
+ * 專案檔存的是展開後的具體 width/height,沒有存 preset id(見 canvasPresets.ts 的紀律)。
+ * 尺寸不屬於任何已知 preset 時(自訂尺寸、或 preset 表日後變動)一檔都不亮,不要退回
+ * 「預設亮第一檔」——那會讓使用者以為專案是直式的。
+ *
+ * 換畫布會重烤全專案字卡,所以**點到現值的那一檔不送命令**:命令層雖然有 no-op 早退
+ * (送了也不會前進版本),但少送一趟是白拿的。
+ */
+function CanvasSizeRow() {
+  const canvas = useProject((s) => s.doc?.canvas);
+  if (!canvas) return null;
+  const active = findCanvasPreset(canvas.width, canvas.height);
+  return (
+    <div className="panel-section">
+      <label className="field" style={{ marginTop: 0 }}>
+        Canvas size
+      </label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+        {CANVAS_PRESETS.map((p) => (
+          <button
+            key={p.id}
+            className={`seg${active?.id === p.id ? ' on' : ''}`}
+            onClick={() => {
+              if (active?.id === p.id) return;
+              sendCommand({ name: 'setCanvas', width: p.width, height: p.height });
+            }}
+            title={`${p.width}×${p.height} — re-bakes every text card`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {!active && (
+        <p className="hint" style={{ marginTop: 4 }}>
+          Custom size {canvas.width}×{canvas.height}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** 畫布填充模式切換（素材比例與畫布不同時 blur 比黑邊好看）。 */
 function CanvasFitRow() {
   const fit = useProject((s) => s.doc?.canvas.fit ?? 'contain');
   return (
@@ -89,6 +134,7 @@ export function Inspector() {
   if (!selected) {
     return (
       <div className="form">
+        <CanvasSizeRow />
         <CanvasFitRow />
         {/* `empty-note`＝「桌上的一張便條」掛勾（微轉 −0.7deg，兩主題共用）。
             ⚠️ `fontSize` 在 CSS 的 `.empty-note`（12px）而不是這裡的 inline style：

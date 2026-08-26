@@ -19,6 +19,7 @@ import {
   overlayWindow,
   buildCaptionPages,
   DEFAULT_CAPTION_STYLE,
+  CANVAS_PRESETS,
 } from '@vidcut/shared';
 import { transcribe } from './asr.js';
 import type { ProjectStore } from './store.js';
@@ -285,7 +286,7 @@ const overlaySchema = z
       .object({ x: z.number(), y: z.number(), scale: z.number() })
       .describe(
         "Relative to the canvas. Note the asymmetry: x is the image's **horizontal centre**, y is its **top edge**. " +
-          'A full-bleed vertical image wants {x:0.5, y:0, scale:1} (y:0.5 would push it off the bottom half). ' +
+          'A full-bleed image wants {x:0.5, y:0, scale:1} (y:0.5 would push it off the bottom half). ' +
           'x/y are not limited to 0–1: an overlay may hang partly off the canvas (negative y = off the top edge), ' +
           'and the part that hangs off is clipped identically in export and preview. Only finiteness is validated, ' +
           'not range, so extreme values simply make the element invisible. ' +
@@ -507,11 +508,20 @@ function clipTrackReply(
 /** 建立註冊好全部工具的 McpServer（每個 HTTP 請求建一個，closure 共享 deps）。 */
 export function createMcpServer(deps: McpDeps): McpServer {
   const { store, projectDir, editorContext, reviews, baseUrl, textCards, chat, library } = deps;
+  // 畫布方向是動態的(多比例畫布上線後,專案可能是直式/橫式/方形)。以前 instructions 與
+  // 幾個工具描述把「直式 1080×1920」寫死,橫式專案下 AI 會照著做出**反向**的排版判斷
+  // (例如以為畫面是窄高的)。⚠️ 每個 HTTP 請求都 createMcpServer 一次(見下方註解),
+  // 所以在這裡讀 store.doc.canvas 拿到的一定是當下的值,不是啟動時的快照。
+  const cv = store.doc.canvas;
+  const canvasShape =
+    cv.width === cv.height ? 'square' : cv.width > cv.height ? 'landscape' : 'vertical';
+  const canvasDesc = `${canvasShape} ${cv.width}×${cv.height}`;
   const server = new McpServer(
     { name: 'vidcut', version: '0.1.0' },
     {
       instructions:
-        'vidcut is a timeline editor for vertical short video (1080×1920). Typical flow: ' +
+        `vidcut is a short-video timeline editor. This project's canvas is currently ${canvasDesc} — ` +
+        'compose for that shape, and use set_canvas to switch to another preset ratio. Typical flow: ' +
         'list_source to see what is in a footage folder (dir must be absolute; imported flags what is already in) → ' +
         'import_media one file at a time (absolute paths outside the project are fine — nothing is copied) → ' +
         "There is also a cross-project asset library holding the user's reusable media (logos, intros, BGM): " +
@@ -544,7 +554,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'Platforms: tiktok / youtube / instagram / facebook; per-platform kind (short|video) picks the warning ' +
         'thresholds — pass video for long-form YouTube/Facebook uploads. ' +
         'No social platform API is involved, the user uploads by hand.' +
-        'For landscape footage on a vertical canvas, set_canvas_fit blur looks better than black bars.' +
+        'When the footage does not match the canvas shape, set_canvas_fit blur looks better than black bars.' +
         'There are two kinds of overlay, and text and imagePath are mutually exclusive — give exactly one: ' +
         'for text overlays use add_overlay/update_overlay/set_overlays with text (the server rasterizes the card and ' +
         'maintains imagePath for you — do not set it yourself; to change the wording just send new text); ' +
@@ -1832,12 +1842,52 @@ export function createMcpServer(deps: McpDeps): McpServer {
   );
 
   // ---- 畫布與封面 ----
+  // preset 清單直接由 CANVAS_PRESETS 組字串,不要手抄——手抄的那份會在 preset 表增修時
+  // 靜默過期,而工具描述是 AI 唯一的文件(鐵則:過期描述直接害它踩坑)。
+  const canvasPresetList = CANVAS_PRESETS.map((p) => `${p.width}×${p.height} (${p.label})`).join(
+    ', ',
+  );
+  server.registerTool(
+    'set_canvas',
+    {
+      description:
+        'Change the canvas size (the frame everything is composed into, and the shape of the exported video). ' +
+        `Only these preset sizes are accepted — any other width/height pair is rejected: ${canvasPresetList}. ` +
+        'Pass the width and height of one preset together; mixing sides (e.g. 1920×1920) is not a preset and fails. ' +
+        '⚠️ Changing the canvas re-rasterizes **every** text card in the project (captions and text overlays), ' +
+        'because the card layout is keyed on the canvas width — expect a pause on a caption-heavy project, and note ' +
+        'that a caption whose text cannot fit the new width rejects the whole call, leaving the canvas untouched. ' +
+        'Setting the size it already has is a no-op: it succeeds without advancing the version or re-baking anything. ' +
+        'This is a normal undoable project write — undo restores the previous size (and the cards with it).',
+      outputSchema: writeOutput,
+      inputSchema: {
+        // ⚠️ 刻意**不用** z.enum 限制單邊取值。合法的是「成對的組合」而不是各自獨立的值:
+        // 1080 與 1920 各自既是合法的寬也是合法的高,但 16 種組合裡只有 4 種是 preset。
+        // 逐欄 enum 會把 1920×1920 宣告成 schema 合法、然後在命令層被拒——等於用 schema
+        // 對 AI 撒謊。改用裸 number + 描述裡列出完整的成對清單,由 commands.ts 的
+        // preset 白名單做唯一的真實驗證(驗證一律寫在命令層,鐵則第二步)。
+        width: z
+          .number()
+          .int()
+          .describe('canvas width in pixels; must pair with height as a preset'),
+        height: z
+          .number()
+          .int()
+          .describe('canvas height in pixels; must pair with width as a preset'),
+        ifVersion: z.number().optional(),
+      },
+      annotations: { title: 'Set canvas size' },
+    },
+    async ({ width, height, ifVersion }) =>
+      writeReply(aiWrite(store, { name: 'setCanvas', width, height }, ifVersion)),
+  );
+
   server.registerTool(
     'set_canvas_fit',
     {
       description:
         'What to do when the media does not fill the canvas: contain = black bars, blur = a blurred, scaled-up fill ' +
-        '(blur is the better look for landscape footage on a 9:16 canvas).',
+        '(blur is the better look whenever the footage aspect ratio differs from the canvas).',
       outputSchema: writeOutput,
       inputSchema: { fit: z.enum(['contain', 'blur']), ifVersion: z.number().optional() },
     },
@@ -1939,7 +1989,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'render',
     {
       description:
-        'Render the project to a final mp4 (1080×1920, re-encoded). Returns the output path and URL. ' +
+        `Render the project to a final mp4 (the project canvas, currently ${cv.width}×${cv.height}, re-encoded). ` +
+        'Returns the output path and URL. ' +
         'The exported length is the output duration (get_project total), not just the main track: whichever track ' +
         '(captions/audio/overlays included) reaches furthest sets the length, and the picture past the main track ' +
         'is black while captions/audio/overlays there still play. ' +
@@ -1992,7 +2043,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
           .max(7680)
           .optional()
           .describe(
-            'output width (defaults to the project canvas, 1080). An odd value is rounded up to even, because h264 does not accept odd dimensions',
+            `output width (defaults to the project canvas, currently ${cv.width}). An odd value is rounded to even, because h264 does not accept odd dimensions. ` +
+              'Prefer giving only one side: the other is then derived from the canvas ratio, so the picture is never squeezed',
           ),
         height: z
           .number()
@@ -2001,7 +2053,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
           .max(7680)
           .optional()
           .describe(
-            'output height (default 1920). When only one side is given, the other is derived from the canvas aspect ratio and is likewise made even',
+            `output height (defaults to the project canvas, currently ${cv.height}). When only one side is given, the other is derived from the canvas aspect ratio and is likewise made even. ` +
+              'Giving both sides with a ratio that differs from the canvas stretches the picture — nothing protects you there',
           ),
         fps: z.number().positive().max(240).optional(),
         crf: z.number().min(0).max(51).optional().describe('quality; lower is better, default 20'),
