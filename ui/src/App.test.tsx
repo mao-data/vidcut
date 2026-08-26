@@ -561,4 +561,21 @@ describe('App', () => {
     });
     expect(document.getElementById('server-fonts')).toBeNull();
   });
+
+  /**
+   * 橫式畫布會把整個 grid 撐破（2026-08-26 使用者回報：右側與底部各冒出一條白邊）。
+   *
+   * 成因是 CSS grid 項目的預設 `min-width: auto`＝「不得小於內容」，它**否決 `1fr`
+   * 的收縮**：stage 的寬是 `容器高 × 畫布比`，16:9 下輕易超過中欄分到的寬度，於是
+   * grid 被內容推寬、頁面層級長出捲軸（實測 1440×820 視窗溢出 128px）。
+   * 直式（9:16）時 stage 只有容器高的 0.56 倍，永遠撐不破，所以在多比例畫布之前
+   * 這個缺口看不出來——jsdom 量不到版面，只能釘住那道 CSS 開關本身。
+   */
+  it('中欄有 minWidth:0——沒有它，橫式畫布會把 grid 撐破長出捲軸', () => {
+    seedProject();
+    const { container } = render(<App />);
+    const surface = container.querySelector('.stage-surface') as HTMLElement | null;
+    expect(surface).not.toBeNull();
+    expect(surface!.style.minWidth).toBe('0px');
+  });
 });

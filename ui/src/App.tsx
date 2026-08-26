@@ -511,7 +511,17 @@ export function App() {
               展開鈕與面板 header 裡的收合鈕齊高，收合前後位置幾乎不動。
               它的 z 要壓過頂欄的 Export 下拉（z 50）：兩者都貼右緣、水平必然重疊，
               靠位置錯開會隨視窗高度失效。點它會同時關掉下拉（ExportMenu 監聽外部 pointerdown）。 */}
-          <div className="stage-surface" style={{ position: 'relative', minHeight: 0 }}>
+          {/* ⚠️ `minWidth: 0` 不是可有可無：grid 項目的預設 `min-width: auto` 是
+              「不得小於內容」，會**否決 `1fr` 的收縮**。stage 的寬 =
+              `容器高 × 畫布比`，橫式（16:9）下輕易超過中欄分到的寬度，於是整個
+              grid 被撐開、頁面右側與底部冒出捲軸白條（實測 1440×820 視窗溢出 128px）。
+              直式（9:16）時 stage 只有容器高的 0.56 倍，永遠撐不破，所以這個缺口
+              在多比例畫布之前看不出來。同檔時間軸那列（`gridColumn: '2 / 4'`）
+              早就寫了同一條，這裡是漏的。 */}
+          <div
+            className="stage-surface"
+            style={{ position: 'relative', minHeight: 0, minWidth: 0 }}
+          >
             {leftOpen && (
               <PanelResizer side="left" gridRef={gridRef} onResizingChange={setResizing} />
             )}
