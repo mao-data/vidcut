@@ -1,6 +1,9 @@
 # vidcut
 
-AI 原生的直式短影音時間軸編輯器（1080×1920）：AI 走 MCP 剪片、人在瀏覽器 UI 監修。
+AI 原生的短影音時間軸編輯器：AI 走 MCP 剪片、人在瀏覽器 UI 監修。
+畫布支援四檔比例 preset（直式 1080×1920 ／ 橫式 1920×1080 ／ 方形 1080×1080 ／
+直式 4:5 1080×1350，見 `shared/src/canvasPresets.ts`），**直式仍是預設值**；
+換比例走 `setCanvas` 命令（MCP `set_canvas`／Inspector 入口），自訂尺寸不收。
 本檔與 `HANDOFF.md` 是這個 repo 的權威來源，**優先於訓練知識**；有疑問先搜這個 repo。
 
 ## 架構要點
@@ -43,7 +46,10 @@ bash scripts/gauntlet.sh                    # 全層驗證一條龍；當下數�
 ## 「預覽即成品」的實際範圍（別當全域保證用）
 
 **非 karaoke 字幕與 overlay（含文字 overlay）成立**：字幕輸出 PNG 逐位元組相同，
-overlay 由 `npm run verify:wysiwyg` 守著（六個 case 全綠；最大差 1.1px 是某次實測，未重驗）。
+overlay 由 `npm run verify:wysiwyg` 守著。**現在是直式與橫式雙基線**（2026-08-26 實測，
+容差 4px）：直式（預設）6/6 全綠、最大差 1.0px；橫式（`VIDCUT_CANVAS=landscape`）
+6/6 全綠、最大差 1.2px。⚠️ 方形與 4:5 兩檔 preset **沒有跑過基線**——「預覽即成品」
+在那兩檔是從管線同一性推得的，不是量出來的。
 **karaoke 字幕預覽略有偏差（描邊看起來略厚），但匯出成品是正確的**——寫文件或對外
 描述一律帶限定詞，也不要跑去修那個不存在的匯出 bug。
 完整範圍、成因、實測數字與字卡管線（自動換行、像素預算、幾何 schema 演進）見

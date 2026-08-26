@@ -16,14 +16,14 @@
 
 ## What is vidcut?
 
-vidcut is a **local-first timeline editor for vertical short video (1080×1920)** built around one idea: the AI and the human edit **the same timeline, at the same time**.
+vidcut is a **local-first timeline editor for short-form video** — four canvas presets (portrait 1080×1920 by default, plus landscape 16:9, square 1:1 and portrait 4:5) — built around one idea: the AI and the human edit **the same timeline, at the same time**.
 
 It is _not_ a prompt-to-video generator. An AI agent (Claude Code, or any MCP client) edits the project through [34 MCP tools](#mcp-tools) — importing footage, cutting, captioning, mixing audio, rendering. Every change appears **live in your browser** over WebSocket. You drag a caption, trim a clip, leave a review note — and the AI reads your adjustments back and keeps working. A human-in-the-loop editing loop, not a black box.
 
 - 🖥️ **Local & private** — a single Node process on `127.0.0.1:3845`. Your footage never leaves your machine.
 - 🤝 **Built for supervision** — the AI can call `request_review`; you annotate in the browser; it reads your feedback and continues.
 - 🔍 **WYSIWYG captions & overlays** — preview and export render from the _same_ rasterized text card (byte-identical PNGs), guarded by a pixel-level regression suite.
-- 🎬 **Real render pipeline** — ffmpeg composes the final 1080×1920 video from `project.json`, with progress reporting.
+- 🎬 **Real render pipeline** — ffmpeg composes the final video from `project.json` at the project's canvas size, with progress reporting.
 
 ## How it works
 
@@ -161,7 +161,7 @@ Any other MCP client works the same way — point it at `http://127.0.0.1:3845/m
 | **Captions**          | `transcribe` (word timestamps) · `auto_caption` (one-shot ASR → captions) · `set_captions` · `update_caption`                                                                                                                                    |
 | **Overlays**          | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                                                                                                                             |
 | **Audio**             | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                                                                                                                  |
-| **Canvas & output**   | `set_canvas_fit` (letterbox / blur) · `set_cover` · `render` · `export_publish_package` (manual-upload package)                                                                                                                                  |
+| **Canvas & output**   | `set_canvas` (aspect-ratio preset) · `set_canvas_fit` (letterbox / blur) · `set_cover` · `render` · `export_publish_package` (manual-upload package)                                                                                             |
 | **History**           | `undo` · `redo`                                                                                                                                                                                                                                  |
 | **Human in the loop** | `request_review`                                                                                                                                                                                                                                 |
 | **Chat**              | `post_chat` (message the person reviewing your work) · `get_chat` (read their replies)                                                                                                                                                           |

@@ -10,6 +10,8 @@ paths:
     "server/scripts/text_card.py",
     "ui/src/player/**",
     "shared/src/subtitles.ts",
+    "shared/src/canvasPresets.ts",
+    "server/src/canvasCards.ts",
   ]
 ---
 
@@ -20,15 +22,42 @@ paths:
 ——但**偏差在預覽端，匯出成品是正確的**。
 
 **自動化守門：`npm run verify:wysiwyg`**（`ui/e2e/preview-vs-export.mjs`）真的 render
-一支影片、抽幀量墨跡外框，再用 headless Chromium 截同一時刻的預覽、換算回 1080×1920
-座標比對。**現在六項全綠**（容差 `TOL_PX` = 4；「最大差 1.1px」是某次實測，未重驗）
+一支影片、抽幀量墨跡外框，再用 headless Chromium 截同一時刻的預覽、換算回**畫布**
+座標比對（畫布尺寸吃 `VIDCUT_CANVAS`，預設 `portrait`＝1080×1920）。
 ——任何一項轉紅都是真的回歸，先看
 `measure/` 裡的 PNG，不要動斷言。
+
 ⚠️ **它證明的是「兩邊一致」，不是「兩邊都對」**：有些回歸兩邊會一起壞（文字 overlay 的
 預覽與成品吃同一張 PNG；渲染端夾了負座標而預覽端也夾了），那時比對照樣全綠。所以有幾個
 case 另外釘住**成品側**的墨跡形狀（`exportInk`）——換行那項釘「高 ≥ 2 行、寬 ≤ 可用寬」、
 掛畫布外那項釘「上緣貼齊 y0=0 且被裁短」、水平不置中那項釘「左緣 ≤ 120」。加新 case 時
 想一下你的缺陷會不會兩邊一起壞，會的話就要補 `exportInk`。
+
+### 畫布維度：這個保證跑過哪幾檔比例（2026-08-26）
+
+「預覽即成品」**不是與畫布比例無關的全域性質**——換畫布會同時改動預覽端的
+`transform: scale(stage寬/畫布寬)` 與渲染端的濾鏡幾何，兩條路各自換算，沒有理由假設
+一檔比例綠了其他檔就跟著綠。所以基線是**逐比例跑出來的**：
+
+| `VIDCUT_CANVAS` | 畫布      | 結果    | 最大墨跡外框差 | 容差 |
+| --------------- | --------- | ------- | -------------- | ---- |
+| `portrait`（預設） | 1080×1920 | 6/6 全綠 | **1.0px**      | 4px  |
+| `landscape`     | 1920×1080 | 6/6 全綠 | **1.2px**      | 4px  |
+
+⚠️ **`square`（1080×1080）與 `portrait-4-5`（1080×1350）沒有跑過基線。** 它們在那張
+preset 表裡，但「預覽即成品」在那兩檔只是從管線同一性推得的，不是量出來的——寫文件
+或對外描述時不要把它們算進這個保證。要補就是 `VIDCUT_CANVAS=square npm run verify:wysiwyg`
+再把數字加進上表。
+
+⚠️ **跑橫式要連視埠一起換**（`VIDCUT_VIEWPORT` 的預設值已經跟著 `VIDCUT_CANVAS` 走，
+手動覆寫時才要注意）：stage 是 `height:100% + maxWidth:100% + aspectRatio`，直式的
+1200x1400 視埠拿去跑 16:9 會改由容器寬封頂、每影像 px 要換算的畫布 px 直接翻倍。
+細節與實測 stage 寬見 `.claude/rules/ui-verification.md`。
+
+⚠️ **「解碼長度 = w×h×3」證明不了畫面尺寸**：1080×1920 與 1920×1080 的 rgb24 長度完全
+相同（都是 6220800 bytes）。實測踩過——`VIDCUT_CANVAS=landscape` 但專案本身還是直式時，
+render 照直式輸出而腳本把它當橫式解讀，量出 `w=1920 h=120` 這種不可能的墨跡外框，
+看起來像「自動換行沒實作」。腳本現在 render 完會立刻 ffprobe 對帳，別把那道拿掉。
 
 ## 各類元素的狀態
 

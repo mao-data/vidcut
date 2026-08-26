@@ -1087,5 +1087,29 @@
     "replace": "    const entries = this.#history.filter((h) => h.version > version);",
     "tests": "server/test/store-undo.test.ts",
     "note": "revertSince 不再跳過 excludeFromRevert 的 entry → background ingest（A1/A2）補寫的 updateMediaDerived 被連坐反轉，衍生欄位在退回後消失；「background ingest 補寫的衍生欄位在退回後仍存活」的斷言必須抓到（Plan 8 final review F8）"
+  },
+  {
+    "id": "setcanvas-preset-whitelist-off",
+    "file": "server/src/commands.ts",
+    "find": "      if (!findCanvasPreset(cmd.width, cmd.height)) {",
+    "replace": "      if (false) {",
+    "tests": "server/test/commands-t1.test.ts",
+    "note": "setCanvas 的 preset 白名單被拿掉（判斷恆假）→ 任意寬高照收，畫布寬進字卡的內容定址 hash，開放自訂尺寸等於開放無上限的重烤成本，而且奇數尺寸會拖到 render 才被 h264 打回；「1000×1000 被拒且 doc/version 一格都不動」的斷言必須抓到（多比例畫布 Task 2）"
+  },
+  {
+    "id": "setcanvas-caption-budget-passthrough",
+    "file": "server/src/commands.ts",
+    "find": "        const err = cardRequestError(capToCardRequest(cap, cmd.width));\n        if (err) {\n          return {\n            ok: false,\n            error:\n              `canvas ${cmd.width}×${cmd.height} rejected: caption ${cap.id} ` +\n              `(\"${excerpt(cap.text)}\") would not fit: ${err}`,\n          };\n        }",
+    "replace": "        cardRequestError(capToCardRequest(cap, cmd.width));",
+    "tests": "server/test/commands-t1.test.ts",
+    "note": "字卡預算安全網算了卻不 return（驗證失敗照樣放行）→ 換到新寬度會排爆的字幕被放過，留下「畫布換了但那句永遠烤不出卡」的半殘狀態（全有全無失守）；「超標字幕讓 setCanvas 失敗、canvas 與 version 都不動」的斷言必須抓到（多比例畫布 Task 2）"
+  },
+  {
+    "id": "canvascards-trigger-too-broad",
+    "file": "server/src/wsHub.ts",
+    "find": "        (p) => p.path[0] === 'canvas' && (p.path[1] === 'width' || p.path[1] === 'height'),",
+    "replace": "        (p) => p.path[0] === 'canvas',",
+    "tests": "server/test/canvasCards.test.ts",
+    "note": "改畫布重烤的觸發條件從 canvas/width|height 放寬成整個 canvas → setCanvasFit（contain⇄blur）與 fps 也會白跑一次全量字卡重烤＋孤兒掃描，兩者都不影響字卡像素；「setCanvas 觸發、setCanvasFit 不觸發」的判別性斷言必須抓到（多比例畫布 Task 3）"
   }
 ]
