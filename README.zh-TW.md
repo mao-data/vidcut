@@ -10,7 +10,7 @@
 
 [English](README.md)
 
-<img src="docs/assets/hero.png" alt="vidcut UI — 時間軸、即時預覽、字幕面板" width="900" />
+<img src="docs/assets/hero.gif" alt="vidcut —— AI 走 MCP 剪片、上字幕、加字卡，你在瀏覽器監修" width="900" />
 
 </div>
 
@@ -49,8 +49,8 @@ vidcut 是一個 **本機優先的短影音時間軸編輯器**，畫布有四�
 - 📝 **所見即所得字卡** —— 字幕與文字 overlay 由同一條 Pillow 光柵管線服務預覽與匯出；CJK 感知自動換行（中文逐字折、英數照單字折、行首禁則標點）
 - 🖼️ **Overlay** —— 文字或圖片，直接在畫布上拖曳，含置中／安全邊距吸附導線
 - 🔊 **音訊** —— 片段抽音、旁白／BGM 軌、音量與淡入淡出、講話時自動 ducking
-- 🌫️ **Blur 填充** —— 橫式素材進 9:16 畫布用模糊背景取代黑邊
-- 📤 **匯出選項** —— 720p/1080p/4K、畫質（CRF）、24/30/60 fps、H.264/HEVC；字幕可選 **burn**／**embed**／**sidecar（.srt）**／**off**
+- 🌫️ **Blur 填充** —— 來源比例與畫布不合時，空出來的部分用該格畫面的模糊複本填滿，取代黑邊
+- 📤 **匯出選項** —— 輸出倍率（畫布的 0.67×／1×／2×）、畫質（CRF）、24/30/60 fps、H.264/HEVC；字幕可選 **burn**／**embed**／**sidecar（.srt）**／**off**
 - 🖼️ **封面** —— 任意時間點設封面；已有成品時直接從成片抽（所見即所得）
 - 🔁 **審核閉環** —— `request_review` 暫停寫入，你在 UI 裡核可或批註，AI 讀 `get_feedback` 繼續
 
@@ -168,7 +168,7 @@ claude mcp add --transport http vidcut http://127.0.0.1:3845/mcp
 | **字幕**       | `transcribe`（逐詞時間戳）· `auto_caption`（一步到位 ASR → 字幕）· `set_captions` · `update_caption`                                                                                   |
 | **Overlay**    | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                                                                   |
 | **音訊**       | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                                                        |
-| **畫布與輸出** | `set_canvas`（畫布比例 preset）· `set_canvas_fit`（letterbox / blur）· `set_cover` · `render` · `export_publish_package`（手動上傳發佈包）                                             |
+| **畫布與輸出** | `set_canvas`（畫布比例 preset）· `set_canvas_fit`（contain / blur）· `set_cover` · `render` · `export_publish_package`（手動上傳發佈包）                                               |
 | **歷史**       | `undo` · `redo`                                                                                                                                                                        |
 | **人在迴路**   | `request_review`                                                                                                                                                                       |
 | **聊天**       | `post_chat`（向審核你工作的人留言）· `get_chat`（讀取對方的回覆）                                                                                                                      |

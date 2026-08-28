@@ -2280,3 +2280,19 @@ aria-label);HANDOFF 同步。
 **唯一紅燈（如實記，未修產品碼）**:`npm run format:check`（prettier）在 gauntlet 兩次執行中皆回 FAIL。逐檔核對：本包新增/修改的四份文件檔（`HANDOFF.md`／`README.md`／`README.zh-TW.md`／`docs/ROADMAP.md`）已 `prettier --write` 修好並複驗乾淨；仍紅的 9 個檔案——`server/src/app.ts`、`server/src/mcp.ts`、`server/test/{import-from-library,library-api,library-mcp,libraryIngest,libraryStore}.test.ts`（Task 1–6 的產品/測試碼）與 `docs/superpowers/plans/2026-08-21-asset-library-phase1.md`、`docs/superpowers/specs/2026-08-21-asset-library-design.md`（歷史計畫/spec 文件）——經 `git stash` 對照確認**在本 task 開始前、`f00f787` 這個 commit 當下就已經是這個格式狀態**，不是本輪新引入的迴歸；產品/測試碼修改超出「只動文件」授權範圍，歷史 spec/plan 文件依專案規則不得動，兩者皆留給 controller 裁決是否另開 task 補上 `prettier --write`。
 
 **綁定 commit**:本段寫入時分支 HEAD 為 `f00f787`（gauntlet 跑於 HEAD＋本輪 Task 7 文件變更的工作樹，尚未 commit 本段所述的文件變更本身）。
+
+## 補記:字幕清單作用中列的詞距修正（2026-08-28）
+
+功能:`ui/src/panels/CaptionList.tsx` —— 逐詞高亮（karaoke）時每個 token 各渲染一個 `<span>`，但 whisper 給的 token **不含空白**，相鄰 span 直接相連，導致「playhead 正在這一句」的那一列顯示成 `demandsometreats.You`。改用 `@vidcut/shared` 匯出的 CJK-aware `tokenSeparator`（`shared/src/captions.ts:111`——兩側任一為 CJK 則不加空白，拉丁之間加），並照 `ui/src/player/CaptionLayer.tsx:253-266` 的既有慣用法把分隔白放在 `<span>` **外**的 `Fragment` 裡（放進 span 會讓外層與內層的 textContent 相同，靠 textContent 找元素的測試會誤選到沒有 color 的外殼——該處註解已記錄此坑）。
+
+**只有拉丁字幕看得出來**:壞掉的實作等同「永遠不加分隔」，對 CJK 剛好符合中文排版慣例，所以中文素材上完全不可見；是英文素材（hero 錄影用的 Corgi demo）把它照出來的。非作用中的列走 `cap.text`（含空白），故僅作用中那一列受影響。
+
+**行為→測試對映**:`ui/src/panels/CaptionList.test.tsx` 新增 describe「karaoke 逐詞高亮的詞距」3 隻——拉丁詞間補空白（迴歸；修前實測輸出 `demandsometreats.You`，修後 `demand some treats. You`）、CJK 之間不補空白、非作用中列不受影響仍走 `cap.text`。該檔原有 8 隻全數維持綠燈。
+
+**實機驗證（非自動化，單次實測）**:於隔離 worktree 建置 `ui/dist` 後對真 server（`VIDCUT_PORT=3901`，2 個 clip ＋ 真 whisper 產出的 10 句 45 詞 karaoke 字幕）以 headless Chromium 播放至 5.2s，讀 `.cap-current [title="Double-click to edit"]` 的 textContent 得 `demand some treats. You`；截圖確認逐詞高亮仍正確（已唱詞為 `#FCDE5A`、未唱詞為預設色），分隔白未破壞著色。
+
+**gauntlet（隔離 worktree，source `0243e43` ＋本輪未提交變更，單次全跑）**:**GAUNTLET: 全數通過**，零 FAIL。tsc／lint／prettier PASS;shared 89 ＋ server 699 ＋ ui 812 = **1,600 passed**;UI 覆蓋率 Statements 94.78%（5832/6153）／Branches 89.93%（1832/2037）／Functions 82.11%（303/369）／Lines 94.78%;隨機順序 ×2 PASS;突變錨點 139/139 命中;文件引用、使用者面字串（87 個產品原始碼檔）、秘密掃描皆 PASS;**突變測試 138/138 killed（+1 equivalent control 如預期存活）**;`npm audit` 僅印修復提示，非硬性失敗關卡。
+
+**同批文件變更（非功能性，不影響上述數字）**:`docs/assets/hero.png` → `hero.gif`（真實錄影:AI 建時間軸 → auto_caption → 逐詞高亮播放 → add_overlay → 人拖動 → request_review;12.5s／1000×625／4.57 MB／NETSCAPE2.0 無限循環）。README 兩份修正三處過期宣稱:匯出選項由「720p/1080p/4K」改為倍率制（依 `ui/src/panels/ExportMenu.tsx` 檔頭註解，舊寫法描述的正是已修掉的「橫式專案選 4K 會被擠成直式」缺陷）;Blur fill 去掉「9:16 canvas」限定（與同檔第 19 行的四檔 preset 自相矛盾;依 `server/src/render.ts:361`）;`set_canvas_fit` 的值由 `letterbox` 更正為 `contain`（依 `shared/src/types.ts:304` 的 `CanvasFit` 與 `server/src/mcp.ts:1889` 的工具描述）。⚠️ zh-TW 版第三處第一次改漏——中文用全形括號，半形樣式的取代沒命中，由本次雙語逐處對照抓到。
+
+**綁定 commit**:本節所述的詞距修正為 `4a02f0c`（其父為 `0243e43`）;gauntlet 跑於 `0243e43` ＋本輪全部變更的隔離工作樹，即與 `4a02f0c` ＋本段所在的文件 commit 內容等價。

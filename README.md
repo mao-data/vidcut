@@ -10,7 +10,7 @@
 
 [繁體中文](README.zh-TW.md)
 
-<img src="docs/assets/hero.png" alt="vidcut UI — timeline, live preview, captions panel" width="900" />
+<img src="docs/assets/hero.gif" alt="vidcut — the AI cuts, captions and titles over MCP while you supervise in the browser" width="900" />
 
 </div>
 
@@ -49,8 +49,8 @@ One process, one port, four kinds of traffic: static UI, `/media` (native Range 
 - 📝 **WYSIWYG text cards** — captions and text overlays are rasterized by one Pillow pipeline shared by preview and export; CJK-aware auto-wrapping (per-character CJK, word-boundary Latin, forbidden-punctuation rules)
 - 🖼️ **Overlays** — text or image, drag directly on the canvas with center/safe-margin snap guides
 - 🔊 **Audio** — extract audio from clips, voiceover/BGM tracks, volume & fades, auto-ducking under speech
-- 🌫️ **Blur fill** — landscape footage in a 9:16 canvas gets a blurred background instead of black bars
-- 📤 **Export options** — 720p/1080p/4K, quality (CRF), 24/30/60 fps, H.264/HEVC; subtitles as **burn** / **embed** / **sidecar (.srt)** / **off**
+- 🌫️ **Blur fill** — when the source aspect ratio does not match the canvas, the gaps get a blurred copy of the frame instead of black bars
+- 📤 **Export options** — output scale (0.67× / 1× / 2× of the project canvas), quality (CRF), 24/30/60 fps, H.264/HEVC; subtitles as **burn** / **embed** / **sidecar (.srt)** / **off**
 - 🖼️ **Cover frame** — pick any moment as the cover, extracted from the rendered output when available
 - 🔁 **Review loop** — `request_review` pauses writes, you approve or annotate in the UI, the AI reads `get_feedback` and continues
 
@@ -161,7 +161,7 @@ Any other MCP client works the same way — point it at `http://127.0.0.1:3845/m
 | **Captions**          | `transcribe` (word timestamps) · `auto_caption` (one-shot ASR → captions) · `set_captions` · `update_caption`                                                                                                                                    |
 | **Overlays**          | `add_overlay` · `update_overlay` · `remove_overlay` · `set_overlays`                                                                                                                                                                             |
 | **Audio**             | `extract_audio` · `set_audio` · `update_audio` · `remove_audio`                                                                                                                                                                                  |
-| **Canvas & output**   | `set_canvas` (aspect-ratio preset) · `set_canvas_fit` (letterbox / blur) · `set_cover` · `render` · `export_publish_package` (manual-upload package)                                                                                             |
+| **Canvas & output**   | `set_canvas` (aspect-ratio preset) · `set_canvas_fit` (contain / blur) · `set_cover` · `render` · `export_publish_package` (manual-upload package)                                                                                               |
 | **History**           | `undo` · `redo`                                                                                                                                                                                                                                  |
 | **Human in the loop** | `request_review`                                                                                                                                                                                                                                 |
 | **Chat**              | `post_chat` (message the person reviewing your work) · `get_chat` (read their replies)                                                                                                                                                           |
