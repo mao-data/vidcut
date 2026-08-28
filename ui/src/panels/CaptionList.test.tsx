@@ -9,7 +9,8 @@ import { CaptionList } from './CaptionList.js';
 import { useEditDraft } from '../stores/editDraft.js';
 import { useSelection } from '../stores/selection.js';
 import * as ws from '../ws.js';
-import { seedProject, resetStores } from '../test/fixtures.js';
+import { seedProject, resetStores, demoProject } from '../test/fixtures.js';
+import { usePlayback } from '../stores/playback.js';
 
 let sent: Command[];
 
@@ -253,5 +254,73 @@ describe('CaptionList — typing pipeline', () => {
       { name: 'setCaptions' }
     >;
     expect(cmd.captions).toHaveLength(2);
+  });
+});
+
+describe('karaoke 逐詞高亮的詞距', () => {
+  /** 造一句帶逐詞時間戳的字幕，並把播放頭停在句中（→ 這列成為 cap-current）。 */
+  function seedKaraoke(text: string, words: string[]) {
+    const doc = demoProject();
+    const step = 2 / words.length;
+    doc.tracks.captions = [
+      {
+        id: 'k1',
+        text,
+        start: 0,
+        duration: 2,
+        style: {
+          fontFamily: 'sans-serif',
+          fontSize: 48,
+          fill: '#ffffff',
+          y: 0.8,
+          highlight: '#FCDE5A',
+        },
+        tokens: words.map((w, i) => ({ text: w, start: i * step, end: (i + 1) * step })),
+      },
+    ];
+    seedProject(doc);
+    act(() => {
+      usePlayback.getState().seek(1.2);
+    });
+    const { container } = render(<CaptionList />);
+    const cell = container.querySelector('.cap-current [title="Double-click to edit"]');
+    if (!cell) throw new Error('current row not rendered');
+    return cell.textContent ?? '';
+  }
+
+  it('拉丁詞之間要有空白——tokens 本身不帶空白，逐 span 渲染時必須自己補', () => {
+    // 迴歸：曾經直接 tokens.map(<span>{t.text}</span>) 無分隔，作用中那列因此顯示
+    // "demandsome treats.You"；非作用中的列走 cap.text 所以是對的，只有這一列會壞。
+    expect(seedKaraoke('demand some treats. You', ['demand', 'some', 'treats.', 'You'])).toBe(
+      'demand some treats. You',
+    );
+  });
+
+  it('CJK 之間不加空白（中文排版慣例，與 CaptionLayer／text_card.py 同一條規則）', () => {
+    expect(seedKaraoke('今天天氣很好', ['今天', '天氣', '很好'])).toBe('今天天氣很好');
+  });
+
+  it('非作用中的列不受影響，仍直接顯示整句 text', () => {
+    const doc = demoProject();
+    doc.tracks.captions = [
+      {
+        id: 'k1',
+        text: 'demand some treats. You',
+        start: 5,
+        duration: 2,
+        style: { fontFamily: 'sans-serif', fontSize: 48, fill: '#ffffff', y: 0.8 },
+        tokens: [
+          { text: 'demand', start: 5, end: 6 },
+          { text: 'some', start: 6, end: 7 },
+        ],
+      },
+    ];
+    seedProject(doc);
+    act(() => {
+      usePlayback.getState().seek(0);
+    });
+    const { container } = render(<CaptionList />);
+    expect(container.querySelector('.cap-current')).toBeNull();
+    expect(container.textContent).toContain('demand some treats. You');
   });
 });

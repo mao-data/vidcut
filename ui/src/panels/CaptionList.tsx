@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { motionOK } from '../motion.js';
-import { activeTokenIndex, type CaptionItem, type CaptionStyle } from '@vidcut/shared';
+import {
+  activeTokenIndex,
+  tokenSeparator,
+  type CaptionItem,
+  type CaptionStyle,
+} from '@vidcut/shared';
 import { useProject } from '../stores/project.js';
 import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
@@ -260,15 +265,24 @@ export function CaptionList() {
                 >
                   {cap.tokens && cap.tokens.length > 0 && isCurrent
                     ? cap.tokens.map((tok, i) => (
-                        <span
-                          key={i}
-                          style={{
-                            color:
-                              i <= active ? (cap.style.highlight ?? cap.style.fill) : undefined,
-                          }}
-                        >
-                          {tok.text}
-                        </span>
+                        // 逐詞高亮要一詞一個 <span>，但 token 本身**不含空白**（whisper 給的是
+                        // 純詞），直接相鄰就會黏成 "demandsome treats.You"。分隔白走
+                        // CJK-aware 的 tokenSeparator（CJK 之間不加、拉丁之間加），與
+                        // CaptionLayer 及 server/scripts/text_card.py 是同一條規則。
+                        // 放在 <span> **外面**的 Fragment 裡：包進 span 會讓外層與內層的
+                        // textContent 撞在一起，靠 textContent 找元素的測試會誤選到沒有
+                        // color 的外殼（CaptionLayer 踩過，見該處註解）。
+                        <Fragment key={i}>
+                          {i > 0 ? tokenSeparator(cap.tokens![i - 1]!.text, tok.text) : ''}
+                          <span
+                            style={{
+                              color:
+                                i <= active ? (cap.style.highlight ?? cap.style.fill) : undefined,
+                            }}
+                          >
+                            {tok.text}
+                          </span>
+                        </Fragment>
                       ))
                     : cap.text}
                 </div>
