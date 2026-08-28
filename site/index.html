@@ -26,7 +26,7 @@ ends with the finish review, the verdict, and DESIGN.md
     <title>vidcut — the AI drafts every shot. You mark it up.</title>
     <meta
       name="description"
-      content="vidcut is a local-first timeline editor for vertical short video. Your AI agent edits over MCP — you supervise every change live in the browser, and nothing renders until you approve."
+      content="vidcut is a local-first timeline editor for short-form video — portrait, landscape, square or 4:5. Your AI agent edits over MCP — you supervise every change live in the browser, and nothing renders until you approve."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1123,9 +1123,9 @@ ends with the finish review, the verdict, and DESIGN.md
         ></span>
       </h1>
       <p class="lede">
-        vidcut is a <b>local-first timeline editor</b> for vertical short video. Your agent edits
-        over MCP — import, cut, caption, mix — and every change lands <b>live in your browser</b>,
-        where your red pen has the last word.
+        vidcut is a <b>local-first timeline editor</b> for short-form video — portrait by default,
+        plus landscape, square and 4:5. Your agent edits over MCP — import, cut, caption, mix — and
+        every change lands <b>live in your browser</b>, where your red pen has the last word.
       </p>
 
       <div class="board">
@@ -1441,7 +1441,7 @@ ends with the finish review, the verdict, and DESIGN.md
           <li>
             <span class="k">THE AGENT</span>
             <p>
-              Edits through <b>31 MCP tools</b> — every operation runs the same validated command
+              Edits through <b>39 MCP tools</b> — every operation runs the same validated command
               path a human edit does. No side doors into the project file.
             </p>
           </li>
@@ -1534,13 +1534,13 @@ ends with the finish review, the verdict, and DESIGN.md
     </section>
 
     <section id="tools">
-      <h2>The shot list: <span class="red">31 tools</span>, one honest contract.</h2>
+      <h2>The shot list: <span class="red">39 tools</span>, one honest contract.</h2>
       <p class="sect-lede">
         Everything the agent can do is a named MCP tool with validation in one command layer. If it
         isn't on this list, the AI can't do it — and everything on this list, you can undo.
       </p>
       <div class="shotlist">
-        <h3><span>PRODUCTION · TOOL MANIFEST</span><span class="mono">31 / 31</span></h3>
+        <h3><span>PRODUCTION · TOOL MANIFEST</span><span class="mono">39 / 39</span></h3>
         <div class="toolcols">
           <div class="tgroup">
             <div class="g">READ &amp; CONTEXT</div>
@@ -1557,6 +1557,15 @@ ends with the finish review, the verdict, and DESIGN.md
             <div class="g">MEDIA</div>
             <ul>
               <li>import_media <em>0-copy</em></li>
+            </ul>
+          </div>
+          <div class="tgroup">
+            <div class="g">ASSET LIBRARY</div>
+            <ul>
+              <li>list_library <em>search</em></li>
+              <li>import_from_library</li>
+              <li>add_to_library</li>
+              <li>update_library_asset</li>
             </ul>
           </div>
           <div class="tgroup">
@@ -1600,9 +1609,11 @@ ends with the finish review, the verdict, and DESIGN.md
           <div class="tgroup">
             <div class="g">CANVAS &amp; OUTPUT</div>
             <ul>
+              <li>set_canvas <em>ratio</em></li>
               <li>set_canvas_fit <em>blur</em></li>
               <li>set_cover</li>
               <li>render</li>
+              <li>export_publish_package</li>
             </ul>
           </div>
           <div class="tgroup">
@@ -1616,6 +1627,8 @@ ends with the finish review, the verdict, and DESIGN.md
             <div class="g">HUMAN-IN-THE-LOOP</div>
             <ul>
               <li>request_review <em>blocks</em></li>
+              <li>post_chat <em>tell</em></li>
+              <li>get_chat <em>listen</em></li>
             </ul>
           </div>
         </div>
