@@ -8,7 +8,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.base.json)
 [![MCP](https://img.shields.io/badge/MCP-native-8b5cf6.svg)](#connect-your-ai)
 
-[繁體中文](README.zh-TW.md)
+[繁體中文](README.zh-TW.md) · [usevidcut.com](https://www.usevidcut.com)
 
 <img src="docs/assets/hero.gif" alt="vidcut — the AI cuts, captions and titles over MCP while you supervise in the browser" width="900" />
 
@@ -118,6 +118,16 @@ That file is ~547 MB. Smaller models (`medium`, `small`, `base`, `tiny`) work to
 | `whisper.cpp is not installed, or no model was found` | See step 3, or point `VIDCUT_WHISPER_MODEL` at a `.bin`.                                                                                                            |
 | Captions render as boxes/blanks, or CJK missing       | No usable font. The server prints the candidate list at startup; on Linux install `fonts-noto-cjk`.                                                                 |
 | `text card generation failed`                         | Pillow missing or `python3` not on `PATH`. See the Pillow note above.                                                                                               |
+
+## Hosted version
+
+Everything above runs on your own machine, for free, under the AGPL — that is the whole
+product, not a time-limited trial.
+
+If you would rather not run it yourself, **[usevidcut.com](https://www.usevidcut.com)**
+hosts the same editor, with cloud rendering and storage and a larger tool surface. The
+current tool table for the hosted build is at
+**[usevidcut.com/mcp](https://www.usevidcut.com/mcp)**.
 
 ## Connect your AI
 

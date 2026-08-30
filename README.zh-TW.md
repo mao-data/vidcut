@@ -8,7 +8,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.base.json)
 [![MCP](https://img.shields.io/badge/MCP-native-8b5cf6.svg)](#接上你的-ai)
 
-[English](README.md)
+[English](README.md) · [usevidcut.com](https://www.usevidcut.com)
 
 <img src="docs/assets/hero.gif" alt="vidcut —— AI 走 MCP 剪片、上字幕、加字卡，你在瀏覽器監修" width="900" />
 
@@ -125,6 +125,14 @@ curl -L -o ~/.cache/whisper.cpp/ggml-large-v3-turbo-q5_0.bin \
 | `whisper.cpp is not installed, or no model was found` | 搜尋路徑裡沒有模型 —— 見步驟 3，或設 `VIDCUT_WHISPER_MODEL`。（訊息一律英文）                                                           |
 | 字卡變成方框／空白，或中日韓字不見                    | 沒有可用字型。server 啟動時會印出候選清單；Linux 上裝 `fonts-noto-cjk`。                                                                |
 | `text card generation failed`                         | Pillow 沒裝，或 `python3` 不在 `PATH` 上。見上面那段 Pillow 說明。                                                                      |
+
+## 雲端版
+
+上面這些完全跑在你自己的機器上,免費、AGPL 授權——那是完整的產品,不是限時試用。
+
+不想自己架的話,**[usevidcut.com](https://www.usevidcut.com)** 提供同一套編輯器,加上
+雲端算繪、儲存與更大的工具面。雲端版當前的工具表在
+**[usevidcut.com/mcp](https://www.usevidcut.com/mcp)**。
 
 ## 接上你的 AI
 
