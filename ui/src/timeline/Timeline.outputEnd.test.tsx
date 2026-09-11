@@ -524,11 +524,8 @@ describe('teardownDrag 的 playhead clamp 只在非 commit 路徑跑（承接 Ta
       fireEvent.pointerUp(right!, { clientX: 180, pointerId: 1, bubbles: true });
     });
 
-    // commit 路徑：確實送出了 updateClip（Plan 14 Task 4：trim-out 也帶 leadPad，
-    // 這裡是 trim-out 手勢、preview.leadPad 沿用 onTrimStart 灌進去的原值＝0）。
-    expect(sent).toEqual([
-      { name: 'updateClip', clipId: 'c2', patch: { in: 0, duration: 6, leadPad: 0 } },
-    ]);
+    // commit 路徑：確實送出了 updateClip（trim-out 也帶 in，沿用原值 0）。
+    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c2', patch: { in: 0, duration: 6 } }]);
     // residue bugfix（2026-08-24）：teardown 仍先把 total 還原到 10（保底機制不變，
     // 由 pointercancel 對照組釘著），但 commit 分支隨後的決定性 seek（邊 12 − 半幀）
     // 超過還原值時會照 scheduleFollow rAF body 同款手法把 total 頂到 seek 目標——

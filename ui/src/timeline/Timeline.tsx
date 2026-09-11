@@ -23,16 +23,9 @@ import { usePlayback } from '../stores/playback.js';
 import { useSelection } from '../stores/selection.js';
 import { useView } from '../stores/view.js';
 import { sendCommand } from '../ws.js';
+import { pxToTime, snapTime, tickLabel, tickPlanFor, timeToPx } from './scale.js';
 import {
-  pxToTime,
-  snapTime,
-  tickLabel,
-  tickPlanFor,
-  timeToPx,
-  SNAP_THRESHOLD_PX,
-} from './scale.js';
-import {
-  trimInPad,
+  trimIn,
   trimOut,
   reorderByDrag,
   layoutByOrder,
@@ -41,6 +34,7 @@ import {
   trimSpanOut,
   trimAudioIn,
   isAtSourceMax,
+  isAtSourceMin,
   trimPlaceholder,
   MIN_CLIP_DURATION,
 } from './dragMath.js';
@@ -252,7 +246,7 @@ export function Timeline() {
         /** trim 落地的新 duration（null＝to-end，未被 out 把手動過） */
         duration: number | null;
       }
-    | { mode: 'clip-trim'; clipId: string; in: number; duration: number; leadPad: number }
+    | { mode: 'clip-trim'; clipId: string; in: number; duration: number }
     | { mode: 'clip-order'; order: string[] }
     | null
   >(null);
@@ -317,19 +311,15 @@ export function Timeline() {
    * 來源覆蓋——與 followTarget 共用同一個 rAF（同一節奏，不逐 pointermove 寫）。
    * 只有 onPointerMove 的 trim-in 分支會寫這個 ref；trim-out／cap／aud／ov 不寫，
    * 所以 rAF 執行時若它是 null 就不動 usePlayback.trimPreview。
-   * Plan 14 Task 4：型別加 `leadPad`——拖曳中每幀都要帶明確值（含 0），省略會讓
-   * player 端沿用 doc 舊的 leadPad（見 plan.ts `TrimPreview` 的省略語意註解），
-   * 在「縮回、黑墊變 0」那一刻會錯誤地繼續顯示黑畫面。
    * Plan 15 終審 fix wave（Critical 1）：型別加 `placeholderHead`——修剪方向拖曳中
    * playhead 被 `scheduleFollow` 帶到「clipStart + 頭端佔位」，`plan.ts` 的
    * `sourceFor` 需要這個數字把 offsetInClip 扣回「相對新內容起點」才能算出正確
-   * sourceTime（見 plan.ts `TrimPreview.placeholderHead` 的註解）。與 `leadPad`
-   * 同款：每幀都要帶明確值（含 0），省略等於 0＝行為不變。
+   * sourceTime（見 plan.ts `TrimPreview.placeholderHead` 的註解）。每幀都要帶明確值
+   * （含 0），省略等於 0＝行為不變。
    */
   const trimPreviewTarget = useRef<{
     clipId: string;
     in: number;
-    leadPad: number;
     placeholderHead: number;
   } | null>(null);
   const scheduleFollow = (edgeSec: number) => {
@@ -796,12 +786,7 @@ export function Timeline() {
           }
           case 'clip-trim': {
             const c = doc.tracks.video.find((x) => x.id === pd.clipId);
-            // Plan 14 Task 4：一併比對 leadPad——echo 抵達時 doc 的 leadPad 缺席
-            // （pad=0）要能對上 pd.leadPad===0（trim-out 或吸附回 0 的 trim-in）。
-            return (
-              !c ||
-              (c.in === pd.in && c.duration === pd.duration && (c.leadPad ?? 0) === pd.leadPad)
-            );
+            return !c || (c.in === pd.in && c.duration === pd.duration);
           }
           case 'clip-order':
             return (
@@ -861,18 +846,6 @@ export function Timeline() {
   };
   const maybeSnap = (t: number): number =>
     useView.getState().snapEnabled ? snapTime(t, snapCandidates(), pps) : t;
-
-  /**
-   * Plan 14 Task 4：主軌 trim-in 的「延伸左座標 x'=0」吸附——來源座標系（`in-leadPad`），
-   * 不是 `maybeSnap` 的時間軸座標系，也不吃 `snapEnabled`（這不是一般對齊輔助，是
-   * 「內容:黑墊」分界本身的觸感，CapCut 同款行為對這個邊界永遠開啟）。閾值沿用既有
-   * 的 `SNAP_THRESHOLD_PX`（`scale.ts`），自己用 pps 換算成秒——與 `snapTime` 的
-   * 換算式一致，只是候選集合永遠只有單一個 0。
-   */
-  const snapExtendedX = (x: number): number => {
-    const thresholdSec = SNAP_THRESHOLD_PX / pps;
-    return Math.abs(x) < thresholdSec ? 0 : x;
-  };
 
   // ---- 絕對時間軌（字幕/overlay）的拖曳啟動 ----
   const capture = (e: PointerEvent) =>
@@ -962,59 +935,16 @@ export function Timeline() {
         // 內容右緣＝這裡算的 `clipStart + dur`，無需改動。
         scheduleFollow(clipStart + dur);
       } else {
-        // Plan 12（範圍裁決 2）：main-track trim-in 不再吸內容座標——舊行為吸的是
-        // 「右緣」，但右緣在補償模型下螢幕靜止、左緣內容座標本來就固定，兩者都沒有
-        // 可吸的意義（見 plan 診斷依據）。
-        // Plan 14 Task 4：改用 `trimInPad`——越過來源起點不再硬停，而是長出 leadPad
-        // （黑墊）。in=0 邊界改成「來源座標吸附」而非舊的硬 clamp：raw 算出的延伸左
-        // 座標 x'=in-leadPad 若換算成螢幕像素落在 SNAP_THRESHOLD_PX 內，就黏住
-        // x'=0（見下方 snapExtendedX），讓「內容:黑墊」的分界有觸感。這個吸附是
-        // dragMath 之外、Timeline.tsx 層自己做（`trimInPad` 保持純函數無吸附，
-        // 與 trimOut/maybeSnap 的既有分工一致——見 dragMath.ts 的 trimInPad 註解）。
-        const raw = trimInPad(clip, deltaSec);
-        const rawX = raw.in - raw.leadPad; // 延伸左座標（可為負）：吸附判斷用這個，不是 in
-        const snappedAtZero = snapExtendedX(rawX) !== rawX; // snapExtendedX 只吸向 0，命中即 x'=0
-        // 吸附命中時在 x'=0 重新落地：leadPad=0、in=0、duration=R（來源右界，拖曳中
-        // 不變，與 dragMath.ts trimInPad 的 x'>=0 分支同一組式子——見其算式註解）。
-        const R = clip.in + (clip.duration - (clip.leadPad ?? 0));
-        const final = snappedAtZero ? { in: 0, leadPad: 0, duration: R } : raw;
-        const dur = final.duration;
-        d.preview = { ...clip, in: final.in, leadPad: final.leadPad, duration: dur };
-        // Plan 15 Task 2（統一拖曳模型接線）：in 把手的螢幕/追隨位置＝頭端佔位右緣
-        // （`clipStart + placeholder`）——修剪方向 clip 的時間軸足跡維持
-        // `orig.duration` 不變，把手不再釘在 `clipStart` 本身，而是跟著佔位黑墊的
-        // 右緣走（＝leadPad／內容左緣＝手指所在位置）；擴張方向 placeholder 恆 0，
-        // `clipStart + 0 === clipStart`，與改動前逐位元組相同。要先算出來才能同時
-        // 交給吸附導線（下方 setSnapLine）、trimPreviewTarget（player 端扣偏移用）與
-        // scheduleFollow（playhead 用）。
+        // Plan 12（範圍裁決 2）：main-track trim-in 不吸內容座標。
+        // 2026-09-11：leadPad 已移除——`trimIn` 在 in=0 硬停（clamp），不再長出黑墊。
+        const next = trimIn(clip, deltaSec);
+        const dur = next.duration;
+        d.preview = { ...clip, in: next.in, duration: dur };
+        // Plan 15：修剪方向以頭端佔位撐住足跡，把手＝佔位右緣（placeholder 恆 >= 0）；
+        // trimPreviewTarget 帶同一個數字讓 player 把 offsetInClip 扣回新內容起點。
         const placeholder = d.origDuration !== undefined ? trimPlaceholder(d.origDuration, dur) : 0;
-        // final-review Minor 1：吸附住 x'=0 時畫吸附導線於「佔位右緣」
-        // （`clipStart + placeholder`），不是 clip 時間軸起點本身（＝佔位**左**緣）。
-        // 吸附語意是「來源 in=0 對齊 clip 內容起點」，內容起點在佔位右緣（見 ClipBlock
-        // 的 `[佔位][leadPad][內容]` 排列）——多數情況下吸附成立時 placeholder=0
-        // （落地成 duration=R>=orig.duration，擴張方向），兩者重合；只有原 clip 帶
-        // leadPad、吸回 0 導致 duration 反而縮短時 placeholder>0，這時導線才會與舊寫法
-        // （`clipStart`）產生可觀察差異。沒吸附住則不畫線（裁決見 task-4-report：這個
-        // 吸附點只有一個候選，不像 maybeSnap 那樣要在多個候選間挑，畫線的訊息量有限，
-        // 且 Plan 12 已定案 trim-in 期間 snapLine 恆 null——這裡刻意維持同一語意，
-        // 只在真正吸附命中的那一幀短暫例外）。
-        setSnapLine(snappedAtZero ? clipStart + placeholder : null);
-        // Plan 12 Task 2（裁決 3）：player 該顯示的新首幀——與 scheduleFollow 同一個
-        // rAF 節流節奏寫入，不逐 pointermove 都寫（見上方 trimPreviewTarget 註解）。
-        // Plan 14 Task 4：一併帶 leadPad——trimPreview 省略 leadPad 時 player 端會
-        // 沿用 doc 舊值（見 plan.ts TrimPreview 註解），拖曳中必須每幀都帶明確值
-        // （包括 0，才能在「縮回、黑墊變 0」那一刻正確清掉黑墊畫面）。
-        // final-review Critical 1：一併帶 `placeholderHead`（＝上面算好的 `placeholder`）
-        // ——playhead 被 scheduleFollow 帶到 `clipStart + placeholder`，plan.ts 的
-        // `sourceFor` 要用同一個數字把 offsetInClip 扣回「相對新內容起點」，否則會多算
-        // 一段等於修剪量的偏移（見 plan.ts `TrimPreview.placeholderHead` 註解、
-        // final-review C1）。
-        trimPreviewTarget.current = {
-          clipId: clip.id,
-          in: final.in,
-          leadPad: final.leadPad,
-          placeholderHead: placeholder,
-        };
+        setSnapLine(null);
+        trimPreviewTarget.current = { clipId: clip.id, in: next.in, placeholderHead: placeholder };
         scheduleFollow(clipStart + placeholder);
 
         // Plan 12（幾何解）：捲動補償——每幀把 scrollLeft 絕對重算成
@@ -1024,7 +954,7 @@ export function Timeline() {
         // >=0——用累加的話，撞底之後再往回拖，累加值會跟真實 scrollLeft 脫勾，
         // 之後的補償量全部算錯；絕對重算每幀都從同一個起點出發，天然免疫這個問題。
         // Plan 15 Task 2（統一拖曳模型裁決）：捲動補償量**只在擴張方向**
-        // （`dur >= d.origDuration`，還原素材或長出真 leadPad；`>=` 與需求書「統一拖曳
+        // （`dur >= d.origDuration`，還原素材；`>=` 與需求書「統一拖曳
         // 模型」的分界一致——`next.duration === orig.duration` 這個邊界歸擴張方向，
         // placeholder 恆為 0）非零——這個方向的內容座標確實在往左長，需要捲動才跟得上
         // 手指，是 Plan 12/14 已驗收、要逐位元組保留的行為。修剪方向
@@ -1156,10 +1086,6 @@ export function Timeline() {
    * 模式（move/cap/aud/ov）都是「preview 與 orig 有差異才送」。定義放在 `if (!doc)
    * return null` 之後（而不是跟 teardownDrag 放一起）：`move` 分支要讀 `doc`/`layout`，
    * 兩者都是早退之後才存在的區域變數。
-   * Plan 14 Task 4：trim-in 分支的送出條件（`return true`，無條件送）本身沒變——
-   * 加 `leadPad` 到 patch 只是多帶一個欄位，不影響「送不送」的判斷，所以這裡不用
-   * 跟著改分支邏輯，只需要這行註解記一筆同步紀律仍然生效（見 onPointerUp 該分支
-   * 的對應註解）。
    */
   const willCommitDrag = (d: DragState): boolean => {
     if (!d) return false;
@@ -1212,18 +1138,9 @@ export function Timeline() {
       // 生命週期現在與這筆剛建立的 pending 綁在一起，交給下方 pending 對帳區塊與
       // 1.2s 保險絲清除（見兩處的對應註解）。trim-out 從不寫 trimPreview，這裡走
       // 到時它本來就是 null，無需特別處理。
-      // Plan 14 Task 4：一併送 leadPad——trim-out 不動 pad，`d.preview.leadPad` 沿用
-      // onTrimStart 灌進去的原值（見其定義處，onTrimStart 用 `{ ...clip }` 起始
-      // preview，所以 trim-out 手勢全程沒動過這個欄位）；trim-in 由本次拖曳算出。
-      // 終審 fix wave Info-1：這裡**必須**顯式送 leadPad（含 0）——updateClip 的 patch
-      // 語意是「省略＝不動」，若拖曳把黑墊縮回 0（snappedAtZero 分支）卻省略這個欄位，
-      // server 會沿用舊的 leadPad>0，黑墊縮不掉（Info-1 討論過的「UI 端只在 >0 才帶」
-      // 修法會壞掉這個功能，故裁定不採，改在 server 端 commands.ts 收斂成省略式落盤：
-      // 顯式 0 照樣落地，只是落地後不是顯式 `leadPad:0` 而是刪鍵）。
       const inSec = Number(d.preview.in.toFixed(3));
       const duration = Number(d.preview.duration.toFixed(3));
-      const leadPad = Number((d.preview.leadPad ?? 0).toFixed(3));
-      setPending({ mode: 'clip-trim', clipId: d.clipId, in: inSec, duration, leadPad });
+      setPending({ mode: 'clip-trim', clipId: d.clipId, in: inSec, duration });
       // bugfix（trim 放手殘留錯位，2026-08-24 使用者回報「從後面往前拉會有殘留」）：
       // 放手後 playhead 的最終位置改為**決定性 seek**，不再依賴拖曳中最後一顆 rAF 有沒有
       // 來得及 flush——`scheduleFollow` 是 rAF 節流的，手勢最後一次 pointerMove 的目標值
@@ -1248,7 +1165,6 @@ export function Timeline() {
           usePlayback.getState().setTrimPreview({
             clipId: d.clipId,
             in: inSec,
-            leadPad,
             placeholderHead: 0, // playhead 收斂到 clipStart（offset 0），佔位量已無意義
           });
           usePlayback.getState().seek(clipStart);
@@ -1261,7 +1177,7 @@ export function Timeline() {
       sendCommand({
         name: 'updateClip',
         clipId: d.clipId,
-        patch: { in: inSec, duration, leadPad },
+        patch: { in: inSec, duration },
       });
     } else if (d.mode === 'move') {
       const order = reorderByDrag(
@@ -1444,7 +1360,7 @@ export function Timeline() {
     if (d && (d.mode === 'trim-in' || d.mode === 'trim-out') && d.clipId === c.id) return d.preview;
     const pd = pending.current;
     if (pd?.mode === 'clip-trim' && pd.clipId === c.id)
-      return { ...c, in: pd.in, duration: pd.duration, leadPad: pd.leadPad };
+      return { ...c, in: pd.in, duration: pd.duration };
     return c;
   });
 
@@ -1510,20 +1426,11 @@ export function Timeline() {
     return isAtSourceMax(d.preview, mediaDur) ? d.clipId : null;
   })();
 
-  /**
-   * Plan 14 Task 4：正在拖 in 把手、preview 的 leadPad（黑墊長度，秒）——
-   * `outAtMaxClipId` 的舊對稱雙生（`inAtMinClipId`/`isAtSourceMin` 的「danger+min
-   * 硬停」語意已廢止：現在拖得過去、長出黑墊，不是「拉不動」的錯誤狀態，見
-   * dragMath.ts `trimInPad` 與 DragBadge.tsx `pad` 欄位的註解）。只在 `trim-in`
-   * 拖曳期間有意義（讀的是拖曳中的 preview），放手後（pending/一般顯示）不會誤留。
-   * 回傳 `{ clipId, pad } | null`——ClipBlock 與 badge 都要黑墊長度本身（畫黑帶寬度／
-   * 文案數字），不是單純的布林。
-   */
-  const inPad: { clipId: string; pad: number } | null = (() => {
+  /** 2026-09-11：正在拖 in 把手、且已頂到來源起點（in=0）的 clip id——`outAtMaxClipId` 的鏡射。 */
+  const inAtMinClipId: string | null = (() => {
     const d = drag.current;
     if (!d || d.mode !== 'trim-in') return null;
-    const pad = d.preview.leadPad ?? 0;
-    return pad > 0 ? { clipId: d.clipId, pad } : null;
+    return isAtSourceMin(d.preview) ? d.clipId : null;
   })();
 
   /**
@@ -1608,9 +1515,8 @@ export function Timeline() {
           kind: 'trim',
           duration: d.preview.duration,
           delta: d.preview.duration - orig.duration,
-          // Plan 14 Task 4：in 拉出黑墊時 badge 附加 `black +X.Xs` 標記
-          // （`inPad` 只在 trim-in 拖曳期間非 null，見其定義處註解）。
-          pad: inPad?.clipId === d.clipId ? inPad.pad : undefined,
+          // 2026-09-11：in 把手頂到來源起點時 badge 附加 ` · min`。
+          atMin: inAtMinClipId === d.clipId,
         },
       };
     } else if (d.mode === 'trim-out') {
@@ -1770,8 +1676,7 @@ export function Timeline() {
   // 2026-09-11 端帽定案：選取恆 -6（12px 跨邊界置中），不再依寬度外推——與
   // ClipBlock／AudioChip 的 overflowOffset 同款（三處手動同步）。
   const SELECTED_HANDLE_W = 12;
-  const handleOffset = (_w: number, isSel: boolean): number =>
-    isSel ? -SELECTED_HANDLE_W / 2 : 0;
+  const handleOffset = (_w: number, isSel: boolean): number => (isSel ? -SELECTED_HANDLE_W / 2 : 0);
 
   /**
    * 軌頭欄的一格。高度與 borderBottom 必須跟右邊對應那一列**逐位元組相同**，
@@ -1989,6 +1894,7 @@ export function Timeline() {
                     onSelect={onSelect}
                     visibleRange={visibleRange ?? undefined}
                     outAtMax={outAtMaxClipId === c.id}
+                    inAtMin={inAtMinClipId === c.id}
                     placeholderHead={
                       dragPlaceholder && dragPlaceholder.clipId === c.id
                         ? dragPlaceholder.head

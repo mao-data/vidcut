@@ -6,7 +6,7 @@ import { useView } from '../stores/view.js';
 import { usePlayback } from '../stores/playback.js';
 import { useProject } from '../stores/project.js';
 import * as ws from '../ws.js';
-import { seedProject, resetStores, demoProject } from '../test/fixtures.js';
+import { seedProject, resetStores } from '../test/fixtures.js';
 
 /**
  * Plan 11 Task 2（裁決 1、2）：trim 拖曳中 playhead 跟隨被拖的邊，rAF 節流；
@@ -278,7 +278,6 @@ describe('trim 即時畫面跟隨（Plan 11 Task 2 裁決 1）', () => {
     expect(usePlayback.getState().time).toBe(0);
     expect(usePlayback.getState().trimPreview).toMatchObject({
       in: 3,
-      leadPad: 0,
       placeholderHead: 0,
     });
   });
@@ -882,20 +881,6 @@ describe('主軌 trim-in 捲動補償——邊釘手指下（Plan 12 Task 1，�
     expect(lines).toHaveLength(0);
   });
 
-  it('主軌 trim-in 期間拖過 in=0：不再硬停，長出 leadPad（Plan 14 Task 4，取代舊的 0 clamp 語意）', () => {
-    const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6，來源右界 R=8
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // 往左拉 3s（120px）：x=2，x'=2-3=-1（遠超 8px/40pps=0.2s 吸附閾值，不吸附）
-      // → in=0, leadPad=1, duration=R+1=9
-      fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
-    });
-    expect(container.textContent).toContain('9.0s (+3.0s) · black +1.0s');
-  });
-
   it('絕對時間軌（audio）的 trim-in 拖曳不觸發任何 scrollLeft 補償', () => {
     const { container } = render(<Timeline />);
     const scrollEl = scroller(container);
@@ -1049,12 +1034,10 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     // rAF 還沒 flush：與 followTarget 同節奏，不該提早寫入
     expect(usePlayback.getState().trimPreview).toBeNull();
     act(() => flushRaf());
-    // Plan 14 Task 4：trimPreview 每幀都帶明確 leadPad（這裡未拖出黑墊，值為 0）。
     // final-review Critical 1：一併帶 placeholderHead（duration 6→5，佔位 1s）。
     expect(usePlayback.getState().trimPreview).toEqual({
       clipId: 'c1',
       in: 3,
-      leadPad: 0,
       placeholderHead: 1,
     });
   });
@@ -1077,7 +1060,6 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     expect(usePlayback.getState().trimPreview).toEqual({
       clipId: 'c1',
       in: 4,
-      leadPad: 0,
       placeholderHead: 2,
     });
   });
@@ -1100,18 +1082,14 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     // 這幾幀會用 doc 的舊 in 映射，畫面閃回舊幀（Important-1 點名的閃爍）。
     // residue bugfix（2026-08-24）：放手時 commit 分支用**最終值**顯式覆蓋 trimPreview
     // ——playhead 已決定性收斂到 clipStart（offset 0），placeholderHead 歸 0（拖曳中
-    // 那個「把手位置」座標修正已無意義）；in/leadPad 與送出的 patch 嚴格同源，
+    // 那個「把手位置」座標修正已無意義）；in 與送出的 patch 嚴格同源，
     // 不再依賴最後一顆 rAF 是否 flush 過（未 flush 時舊值是倒數第二拍的 in）。
     expect(usePlayback.getState().trimPreview).toEqual({
       clipId: 'c1',
       in: 3,
-      leadPad: 0,
       placeholderHead: 0,
     });
-    // Plan 14 Task 4：commit 一併帶 leadPad。
-    expect(sent).toEqual([
-      { name: 'updateClip', clipId: 'c1', patch: { in: 3, duration: 5, leadPad: 0 } },
-    ]);
+    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 3, duration: 5 } }]);
   });
 
   it('doc echo 抵達（pending 的 clip-trim 對上）：trimPreview 隨 pending 一起清空', () => {
@@ -1182,7 +1160,7 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
       fireEvent.pointerUp(left!, { clientX: 140, pointerId: 1, bubbles: true });
     });
     const atRelease = usePlayback.getState().trimPreview;
-    expect(atRelease).toEqual({ clipId: 'c1', in: 3, leadPad: 0, placeholderHead: 0 });
+    expect(atRelease).toEqual({ clipId: 'c1', in: 3, placeholderHead: 0 });
     act(() => flushRaf()); // 已取消的 rAF：不會再改值
     expect(usePlayback.getState().trimPreview).toBe(atRelease);
   });
@@ -1227,9 +1205,7 @@ describe('主軌 trim-in 即時首幀覆蓋（Plan 12 Task 2，裁決 3）', () 
     // main-track trim-in/out 沒有 cap/aud/ov 那種 zero-delta 不送的守門——一律送
     // updateClip（見 Timeline.tsx onPointerUp 的 trim-in/trim-out 分支）；echo 抵達前
     // trimPreview 理論上該綁 pending，但這裡從未被寫入過，維持 null，不需要額外清空。
-    expect(sent).toEqual([
-      { name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 6, leadPad: 0 } },
-    ]);
+    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 6 } }]);
     expect(usePlayback.getState().trimPreview).toBeNull();
   });
 });
@@ -1292,12 +1268,11 @@ describe('badge 邊界 clamp（fix round 1 I3）', () => {
   });
 });
 
-describe('主軌拖出黑墊的視覺語言（Plan 14 Task 4，取代舊的 in=0 danger/min 語意）', () => {
-  // c1：in=2 duration=6，往左拉 2.5s（100px @ 40pps）：x=2, x'=2-2.5=-0.5
-  // （遠超 8px/40pps=0.2s 吸附閾值，不吸附）→ in=0, leadPad=0.5, duration=8.5。
-  const TO_ZERO_PX = 2 * PPS; // 80
+describe('來源起點硬停的視覺語言（2026-09-11，取代 Plan 14 黑墊）', () => {
+  // c1：in=2 duration=6，往左拉超過 2s（80px @ 40pps）就頂到 in=0。
+  const TO_ZERO_PX = 2 * PPS;
 
-  it('trim-in 拖出黑墊：in 把手帶 accent class（不是 danger），out 把手不受影響', () => {
+  it('trim-in 拖到來源起點：in 把手帶 danger class，out 把手不受影響；badge 附 · min', () => {
     const { container } = render(<Timeline />);
     const clip = chipByText(container, 'clip one');
     const [left, right] = handles(clip);
@@ -1305,173 +1280,40 @@ describe('主軌拖出黑墊的視覺語言（Plan 14 Task 4，取代舊的 in=0
       fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
     });
     act(() => {
-      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 40, pointerId: 1, bubbles: true });
     });
-    expect(left!.className).toContain('accent');
-    expect(left!.className).not.toContain('danger');
+    expect(left!.className).toContain('danger');
     expect(right!.className).not.toContain('danger');
-    expect(right!.className).not.toContain('accent');
+    expect(container.textContent).toContain('8.0s (+2.0s) · min');
   });
 
-  it('trim-in 拖出黑墊：badge 附加 black +X.Xs 標記', () => {
+  it('trim-in 未拖到起點：沒有 danger，badge 沒有 min', () => {
     const { container } = render(<Timeline />);
     const [left] = handles(chipByText(container, 'clip one'));
     act(() => {
       fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
     });
     act(() => {
-      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true }); // -1s
     });
-    expect(container.textContent).toContain('8.5s (+2.5s) · black +0.5s');
-  });
-
-  it('trim-in 未拖出黑墊：沒有 accent class，badge 沒有 black 標記', () => {
-    const { container } = render(<Timeline />);
-    const clip = chipByText(container, 'clip one');
-    const [left, right] = handles(clip);
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // 只拖 -1s，遠不到 in=0（還剩 1s 素材，不進黑墊）
-      fireEvent.pointerMove(left!, { clientX: 60, pointerId: 1, bubbles: true });
-    });
-    expect(left!.className).not.toContain('accent');
     expect(left!.className).not.toContain('danger');
-    expect(right!.className).not.toContain('danger');
-    expect(container.textContent).not.toContain('black');
+    expect(container.textContent).not.toContain('· min');
   });
 
-  it('trim-out 拖曳（非 in 把手）：即使同一個 clip，accent 態不觸發（黑墊只約束左緣）', () => {
-    const { container } = render(<Timeline />);
-    const clip = chipByText(container, 'clip one');
-    const [left, right] = handles(clip);
-    act(() => {
-      fireEvent.pointerDown(right!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      fireEvent.pointerMove(right!, { clientX: 140, pointerId: 1, bubbles: true }); // +1s
-    });
-    expect(left!.className).not.toContain('accent');
-    expect(left!.className).not.toContain('danger');
-    expect(right!.className).not.toContain('danger');
-  });
-
-  it('放手後 accent 態與 black 標記一起消失（回到一般顯示，但 ClipBlock 上黑帶仍照 committed leadPad 顯示——見下方 pending 覆蓋測試）', () => {
+  it('放手：送出的 updateClip 只有 in/duration，沒有 leadPad，且 in 夾在 0', () => {
     const { container } = render(<Timeline />);
     const [left] = handles(chipByText(container, 'clip one'));
     act(() => {
       fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
     });
     act(() => {
-      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
-    });
-    expect(left!.className).toContain('accent');
-    act(() => {
-      fireEvent.pointerUp(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
-    });
-    // 放手後 badge（浮動時長標籤）消失，不再顯示帶號增減——但 pending 覆蓋讓 ClipBlock
-    // 本身繼續用新 leadPad 顯示黑帶（下方測試覆蓋這條），accent handle class 是 badge
-    // 拖曳態的一部分，這裡驗證的是「拖曳中專屬的視覺（badge/class）跟著手勢結束」。
-    expect(container.textContent).not.toMatch(/\(\+|\(−/);
-  });
-
-  it('拖出黑墊、放手（pending 尚未被 echo 對帳掉）：ClipBlock 黑帶仍照 pending 的新 leadPad 顯示', () => {
-    const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one'));
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
+      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 40, pointerId: 1, bubbles: true });
     });
     act(() => {
-      fireEvent.pointerMove(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
+      fireEvent.pointerUp(left!, { clientX: 100 - TO_ZERO_PX - 40, pointerId: 1, bubbles: true });
     });
-    act(() => {
-      fireEvent.pointerUp(left!, { clientX: 100 - TO_ZERO_PX - 20, pointerId: 1, bubbles: true });
-    });
-    const band = container.querySelector<HTMLElement>('[data-testid="clip-leadpad"]');
-    expect(band).not.toBeNull();
-    expect(band!.style.width).toBe('20px'); // 0.5s @ 40pps
-  });
-
-  it('拉過界長出黑墊、再縮回：先吃掉黑墊，in 仍為 0（trimInPad 的往返語意，見 dragMath.test.ts 的純函數覆蓋）', () => {
-    const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6，R=8
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // -3s（120px）：x=2, x'=2-3=-1 → in=0 leadPad=1 duration=9
-      fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
-    });
-    expect(container.textContent).toContain('9.0s (+3.0s) · black +1.0s');
-    act(() => {
-      // 縮回 0.5s（+20px）：x'=-1+0.5=-0.5 → 仍 <0，in=0 leadPad=0.5 duration=8.5
-      // （先吃黑墊，in 還沒開始動）
-      fireEvent.pointerMove(left!, { clientX: 0, pointerId: 1, bubbles: true });
-    });
-    expect(container.textContent).toContain('8.5s (+2.5s) · black +0.5s');
-  });
-
-  it('拉過界後完全縮回起點：黑墊吃完、in 開始從 0 回升，回到拖曳前的原值', () => {
-    const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // -3s：in=0 leadPad=1 duration=9
-      fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // 完全縮回起點（+3s，回到 clientX=100）：deltaSec 相對起手點=0 → 原值 duration=6
-      fireEvent.pointerMove(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    expect(container.textContent).toContain('6.0s (+0.0s)');
-    expect(container.textContent).not.toContain('black');
-  });
-
-  it("in=0 邊界來源座標吸附：在 8px 閾值內時黏住 x'=0（leadPad 落地為 0，不進黑墊）", () => {
-    const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one')); // c1 in=2 duration=6，R=8
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // -2s（80px）+ 5px：x=2, 未吸附時 x'=2-2.125=-0.125（0.125s=5px @ 40pps，
-      // 在 8px 閾值內）→ 吸附黏住 x'=0 → in=0 leadPad=0 duration=8
-      fireEvent.pointerMove(left!, { clientX: 100 - 80 - 5, pointerId: 1, bubbles: true });
-    });
-    expect(container.textContent).toContain('8.0s (+2.0s)');
-    expect(container.textContent).not.toContain('black');
-  });
-
-  it('in=0 邊界吸附命中時畫吸附導線於 clipStart（沿用既有 boxShadow 視覺語彙）', () => {
-    const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one'));
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      fireEvent.pointerMove(left!, { clientX: 100 - 80 - 5, pointerId: 1, bubbles: true }); // 吸附命中
-    });
-    const lines = Array.from(container.querySelectorAll('div')).filter(
-      (d) => (d as HTMLElement).style.boxShadow === '0 0 6px var(--accent-glow-strong)',
-    );
-    expect(lines.length).toBeGreaterThan(0);
-  });
-
-  it('超出 8px 閾值：不吸附，正常長出黑墊（對照組，確認吸附有邊界不是全域生效）', () => {
-    const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one'));
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // -2s + 9px：0.225s（9px）超過閾值，不吸附
-      fireEvent.pointerMove(left!, { clientX: 100 - 80 - 9, pointerId: 1, bubbles: true });
-    });
-    expect(container.textContent).not.toContain('8.0s (+2.0s)');
-    expect(container.textContent).toContain('black');
+    const cmd = sent.find((c) => c.name === 'updateClip');
+    expect(cmd).toEqual({ name: 'updateClip', clipId: 'c1', patch: { in: 0, duration: 8 } });
   });
 });
 
@@ -1642,11 +1484,9 @@ describe('trim 拖曳佔位黑墊（Plan 15 Task 2，統一拖曳模型接線）
     act(() => {
       fireEvent.pointerUp(left!, { clientX: 180, pointerId: 1, bubbles: true });
     });
-    // 放手 commit：欄位不變（in/duration/leadPad），版面閉合——佔位消失，
+    // 放手 commit：欄位不變（in/duration），版面閉合——佔位消失，
     // c1 收斂回真實 duration=4（160px），c2 仍在 240px（未受影響)。
-    expect(sent).toEqual([
-      { name: 'updateClip', clipId: 'c1', patch: { in: 4, duration: 4, leadPad: 0 } },
-    ]);
+    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 4, duration: 4 } }]);
     expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
     const c1After = Array.from(container.querySelectorAll('div')).find((d) =>
       (d as HTMLElement).title?.startsWith('clip one'),
@@ -1687,9 +1527,7 @@ describe('trim 拖曳佔位黑墊（Plan 15 Task 2，統一拖曳模型接線）
     act(() => {
       fireEvent.pointerUp(right!, { clientX: 20, pointerId: 1, bubbles: true });
     });
-    expect(sent).toEqual([
-      { name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 4, leadPad: 0 } },
-    ]);
+    expect(sent).toEqual([{ name: 'updateClip', clipId: 'c1', patch: { in: 2, duration: 4 } }]);
     expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
   });
 
@@ -1757,60 +1595,6 @@ describe('trim 拖曳佔位黑墊（Plan 15 Task 2，統一拖曳模型接線）
       container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]')!.style.width,
     ).toBe('80px'); // 2s*40pps
     expect(scrollEl.scrollLeft).toBe(0); // 回退到起手值，不殘留擴張階段的 40
-  });
-
-  it('帶 leadPad 的 clip 往右修：先吃墊（排列 [佔位][餘墊][內容]）', () => {
-    const doc = demoProject();
-    doc.tracks.video[0]!.leadPad = 1; // c1 起手已有 1s 真 leadPad（in=2 leadPad=1）
-    seedProject(doc);
-    const { container } = render(<Timeline />);
-    const [left] = handles(chipByText(container, 'clip one'));
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // 往右拖 0.5s（20px）：x=in-leadPad=2-1=1，x'=1.5，duration 6→5.5（修剪方向，
-      // 佔位 0.5s）——leadPad 先被吃掉一部分（trimInPad 的 x'>=0 分支落地 leadPad=0，
-      // 見 dragMath.ts 註解），不是先動內容。
-      fireEvent.pointerMove(left!, { clientX: 120, pointerId: 1, bubbles: true });
-    });
-    const head = container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]');
-    expect(head).not.toBeNull();
-    expect(head!.style.width).toBe('20px'); // 0.5s*40pps
-    // leadPad 已被吃到 0（trimInPad x'=1.5>=0 分支：leadPad:0, in:1.5）——
-    // 排列此刻是 [佔位 20px][leadPad 0px][內容]，沒有殘留黑帶。
-    expect(container.querySelector('[data-testid="clip-leadpad"]')).toBeNull();
-
-    act(() => flushRaf());
-    act(() => {
-      fireEvent.pointerUp(left!, { clientX: 120, pointerId: 1, bubbles: true });
-    });
-    expect(sent).toEqual([
-      { name: 'updateClip', clipId: 'c1', patch: { in: 1.5, duration: 5.5, leadPad: 0 } },
-    ]);
-  });
-
-  it('回歸釘：擴張方向（trim-in 拉超過來源起點、長出真 leadPad）不畫佔位，捲動補償與現況一致', () => {
-    const { container } = render(<Timeline />);
-    const scrollEl = Array.from(container.querySelectorAll('div')).find(
-      (d) => (d as HTMLElement).style.overflow === 'auto',
-    ) as HTMLDivElement;
-    const [left] = handles(chipByText(container, 'clip one')); // in=2 duration=6，R=8
-    act(() => {
-      fireEvent.pointerDown(left!, { clientX: 100, pointerId: 1, bubbles: true });
-    });
-    act(() => {
-      // 往左拖 3s（120px）：x=2, x'=-1（超過 8px 吸附閾值）→ in=0 leadPad=1 duration=9
-      fireEvent.pointerMove(left!, { clientX: -20, pointerId: 1, bubbles: true });
-    });
-    expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
-    expect(container.querySelector('[data-testid="clip-placeholder-tail"]')).toBeNull();
-    // 既有黑帶（真 leadPad）仍照舊顯示——與佔位是兩回事
-    const pad = container.querySelector<HTMLElement>('[data-testid="clip-leadpad"]');
-    expect(pad).not.toBeNull();
-    expect(pad!.style.width).toBe('40px'); // leadPad=1s*40pps
-    // 捲動補償：deltaPx = timeToPx(9,40) - timeToPx(6,40) = 120（Plan 12 既有行為）
-    expect(scrollEl.scrollLeft).toBe(120);
   });
 
   it('回歸釘：trim-out 擴張方向（拉長）維持現況即時 ripple，不出現尾端佔位', () => {

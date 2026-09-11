@@ -55,24 +55,16 @@ describe('formatDragBadge：來源上限 max 標記（Plan 11 Task 3 裁決 5）
   });
 });
 
-describe('formatDragBadge：黑墊標記（Plan 14 Task 4，取代舊的 atMin/「min」硬停語意）', () => {
-  it('trim + pad>0：附加 " · black +X.Xs"（英文，一位小數）', () => {
-    expect(formatDragBadge({ kind: 'trim', duration: 4, delta: -2, pad: 1.2 })).toBe(
-      '4.0s (−2.0s) · black +1.2s',
+describe('formatDragBadge：來源起點硬停標記（2026-09-11，取代黑墊 black +X.Xs）', () => {
+  it('trim + atMin：附加 " · min"', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 8, delta: 2, atMin: true })).toBe(
+      '8.0s (+2.0s) · min',
     );
   });
-
-  it('trim 不帶 pad（省略）：格式不變，沒有 black 字樣', () => {
-    expect(formatDragBadge({ kind: 'trim', duration: 4, delta: -2 })).toBe('4.0s (−2.0s)');
-  });
-
-  it('trim + pad:0：等同不帶，沒有 black 字樣（黑墊剛好吸附回 0）', () => {
-    expect(formatDragBadge({ kind: 'trim', duration: 4, delta: -2, pad: 0 })).toBe('4.0s (−2.0s)');
-  });
-
-  it('pad 四捨五入到一位小數', () => {
-    expect(formatDragBadge({ kind: 'trim', duration: 4, delta: -2, pad: 1.249 })).toBe(
-      '4.0s (−2.0s) · black +1.2s',
+  it('trim 不帶 atMin／atMin:false：沒有 min 字樣', () => {
+    expect(formatDragBadge({ kind: 'trim', duration: 8, delta: 2 })).toBe('8.0s (+2.0s)');
+    expect(formatDragBadge({ kind: 'trim', duration: 8, delta: 2, atMin: false })).toBe(
+      '8.0s (+2.0s)',
     );
   });
 });

@@ -26,6 +26,7 @@ export const ClipBlock = memo(function ClipBlock({
   fxDelay,
   visibleRange,
   outAtMax = false,
+  inAtMin = false,
   placeholderHead,
   placeholderTail,
 }: {
@@ -49,6 +50,9 @@ export const ClipBlock = memo(function ClipBlock({
    * Timeline.tsx 算好傳下來）。只影響 out 把手（來源上限只約束右緣），in 把手不受影響。
    * 預設 false——多數呼叫端（測試、非拖曳中的一般 render）不必逐個傳。 */
   outAtMax?: boolean;
+  /** 2026-09-11：in 把手已頂到來源起點（`dragMath.isAtSourceMin`，Timeline.tsx 算好傳下來），
+   * 鏡射 `outAtMax`——只影響 in 把手。 */
+  inAtMin?: boolean;
   /** 目前捲動視窗覆蓋的內容座標區間（含 buffer，Timeline 傳下來、已量化）。
    * 缺省＝不裁窗（渲染全部格）——測試與極簡呼叫端不必每次都造一個視窗。 */
   visibleRange?: VisibleRange;
@@ -57,7 +61,7 @@ export const ClipBlock = memo(function ClipBlock({
    * 把手＝手指），trim-out 佔位在尾端（黑墊左緣＝把手）。缺席＝0＝現況渲染
    * **逐位元組不變**（回歸釘見 ClipBlock.test.tsx）——Timeline.tsx 只在拖曳中的
    * clip 才會傳非零值，其餘呼叫端（測試、非拖曳中的一般 render）不必傳。
-   * 頭端排列固定為 `[佔位][leadPad][內容]`，兩種黑墊可同時存在、寬度各自換算。 */
+   * 頭端排列固定為 `[佔位][內容]`。 */
   placeholderHead?: number;
   /** 同上，尾端佔位（trim-out 方向）。排列 `[內容][佔位]`。 */
   placeholderTail?: number;
@@ -67,18 +71,11 @@ export const ClipBlock = memo(function ClipBlock({
   const placeholderTailSec = placeholderTail ?? 0;
   const placeholderHeadPx = timeToPx(placeholderHeadSec, pps);
   const placeholderTailPx = timeToPx(placeholderTailSec, pps);
-  // 統一拖曳模型：chip 的可視寬度＝內容 duration（已含 leadPad）＋頭尾佔位——
+  // 統一拖曳模型：chip 的可視寬度＝內容 duration＋頭尾佔位——
   // 修剪方向「clip 的時間軸足跡維持 orig.duration 不變」正是靠這裡把佔位算進寬度，
   // 而不是讓 clip.duration 本身變動（duration 仍是 next.duration，佔位是純視覺墊）。
   // 無佔位（兩者皆 0）時 w 與改動前的 `timeToPx(clip.duration, pps)` 逐位元組相同。
   const w = timeToPx(clip.duration, pps) + placeholderHeadPx + placeholderTailPx;
-  // Plan 14 Task 4：黑墊（leadPad）視覺——取代舊的 `inAtMin` prop（`isAtSourceMin`
-  // 的「danger+min 硬停」語意已廢止）。`clip.leadPad` 直接讀 props 傳入的 clip
-  // （Timeline.tsx 的 `trimmedClips` 已經把拖曳中的 preview／pending 值攤平進去，
-  // 這裡不必另外接一個拖曳專用的 prop）。padPx 供黑帶寬度與 filmstrip 內容區右移
-  // 共用同一個數字——單一真相來源，不分兩處各自用 `leadPad * pps` 算一次。
-  const pad = clip.leadPad ?? 0;
-  const padPx = timeToPx(pad, pps);
   // 2026-09-11 端帽定案：選取態把手固定跨邊界置中（-6：12px 寬、6 內 6 外），
   // **不再依內容寬外推**——舊的 NARROW_THRESHOLD(28px) 外推讓 0.1s 極窄 clip 的
   // 左把手跑到 0s 左邊（看起來像負寬度）。端帽視覺畫在 chip 內側 6px，
@@ -102,16 +99,9 @@ export const ClipBlock = memo(function ClipBlock({
   // Plan 9 範圍裁決 #5：時間對齊逐格渲染（取代舊的單一 background-image 紋理）+
   // #6 windowing（visibleRange 缺省＝不裁窗）。frozen 或無 filmstrip 維持底色
   // （現行為，見下方 JSX），不生成任何 tile。
-  // Plan 14 Task 4：filmstrip 只覆蓋「內容區」——寬度改吃 `clip.duration - pad`
-  // （黑墊不是素材畫面，沒有 tile 可畫），windowing 的參照原點跟著右移 `padPx`
-  // （`filmstripTilesFor` 內部用 `clipLeftPx` 換算 visibleRange 交集，內容區左緣
-  // 已經不是 clip 左緣本身）。回傳的 tile.x 是「相對內容區左緣」的偏移，渲染時
-  // 再加回 `padPx` 換算成「相對 clip 左緣」（見下方 JSX 的 `left: t.x + padPx`）
-  // ——無 leadPad 時 pad=0/padPx=0，這條路徑與改動前逐位元組相同（回歸釘見
-  // ClipBlock.test.tsx「無 leadPad 渲染輸出不變」）。
-  // Plan 15 Task 1：頭端排列 `[佔位][leadPad][內容]`，內容區左緣再右移
-  // `placeholderHeadPx`——無佔位時為 0，與改動前逐位元組相同（回歸釘同上）。
-  const contentDur = clip.duration - pad;
+  // Plan 15 Task 1：頭端排列 `[佔位][內容]`，內容區左緣右移 `placeholderHeadPx`——無佔位時
+  // 為 0，與改動前逐位元組相同（回歸釘見 ClipBlock.test.tsx）。
+  const contentDur = clip.duration;
   const tiles =
     filmstrip && !clip.frozen && media && contentDur > 0
       ? filmstripTilesFor(
@@ -121,7 +111,7 @@ export const ClipBlock = memo(function ClipBlock({
           frameW,
           secPerTile,
           media.filmstripTiles ?? Math.ceil(media.probe.duration),
-          leftPx + placeholderHeadPx + padPx,
+          leftPx + placeholderHeadPx,
           visibleRange,
         )
       : [];
@@ -202,9 +192,9 @@ export const ClipBlock = memo(function ClipBlock({
             data-testid="filmstrip-content-clip"
             style={{
               position: 'absolute',
-              left: placeholderHeadPx + padPx,
+              left: placeholderHeadPx,
               top: 0,
-              width: contentW - padPx,
+              width: contentW,
               height: '100%',
               overflow: 'hidden',
             }}
@@ -216,7 +206,7 @@ export const ClipBlock = memo(function ClipBlock({
                 style={{
                   position: 'absolute',
                   // t.x 是相對內容區左緣的偏移（見上方 tiles 計算的註解）；裁切框
-                  // 自身已經位在 placeholderHeadPx + padPx，這裡不再加回。
+                  // 自身已經位在 placeholderHeadPx，這裡不再加回。
                   left: t.x,
                   top: 0,
                   width: t.w,
@@ -232,10 +222,10 @@ export const ClipBlock = memo(function ClipBlock({
         )}
         {/* Plan 15 Task 1：頭端佔位黑墊——修剪方向拖曳中，被修掉的區段以「佔位」
             形式停在原地（clip 時間軸足跡維持 orig.duration，不 ripple），放手才真正
-            收斂。黑墊右緣＝leadPad 左緣＝把手／手指所在位置，符合需求書「trim-in
-            的佔位黑墊在頭端」。視覺語彙與 leadPad 黑帶同一組 token（同款 hatch＋
+            收斂。黑墊右緣＝內容左緣＝把手／手指所在位置，符合需求書「trim-in
+            的佔位黑墊在頭端」。視覺語彙與黑尾帶同一組 token（同款 hatch＋
             --panel 底色），但疊加額外透明度（opacity 0.6）區分「將被移除、還沒
-            定案」vs leadPad 的「已經是這樣了」——放手 commit 前使用者應該能一眼
+            定案」vs 黑尾的「已經是這樣了」——放手 commit 前使用者應該能一眼
             分辨這條墊子是暫時的。純視覺、不可互動；<=0 不畫（缺席＝0＝逐位元組
             不變，回歸釘見 ClipBlock.test.tsx）。 */}
         {placeholderHeadSec > 0 && (
@@ -248,32 +238,6 @@ export const ClipBlock = memo(function ClipBlock({
               width: placeholderHeadPx,
               height: '100%',
               opacity: 0.6,
-              background: `repeating-linear-gradient(
-                45deg,
-                var(--clip-band-bg),
-                var(--clip-band-bg) 6px,
-                transparent 6px,
-                transparent 12px
-              ), var(--panel)`,
-              pointerEvents: 'none',
-            }}
-          />
-        )}
-        {/* Plan 14 Task 4：黑墊視覺——clip 左緣起 `leadPad × pps` px 的黑帶，視覺語彙
-            對齊 Plan 13 的黑尾斜紋帶（同一組 --clip-band-bg 斜紋疊 --panel，見
-            Timeline.tsx 的 `tl-blacktail`）。純視覺、不可互動；pad<=0 時不畫（既有
-            專案 / 未拖出黑墊時逐位元組不變，不多渲染一個空 div 的邊界情形也不畫，
-            避免無意義的 DOM 節點）。Plan 15 Task 1：左緣改吃 `placeholderHeadPx`
-            ——頭端排列 `[佔位][leadPad][內容]`，無佔位時為 0，逐位元組不變。 */}
-        {pad > 0 && (
-          <div
-            data-testid="clip-leadpad"
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: placeholderHeadPx,
-              width: padPx,
-              height: '100%',
               background: `repeating-linear-gradient(
                 45deg,
                 var(--clip-band-bg),
@@ -311,9 +275,9 @@ export const ClipBlock = memo(function ClipBlock({
         )}
       </div>
       <div
-        className={'handle in' + (pad > 0 ? ' accent' : '')}
+        className={'handle in' + (inAtMin ? ' danger' : '')}
         // Plan 15 Task 2（Task 1 審查移交的 Important）：in 把手命中區/視覺位置要跟著
-        // 頭端佔位移動——修剪方向拖曳中，佔位黑墊右緣＝leadPad 左緣＝把手／手指所在
+        // 頭端佔位移動——修剪方向拖曳中，佔位黑墊右緣＝內容左緣＝把手／手指所在
         // 位置（見需求書「統一拖曳模型」）。chip 本身的 left/width 已經含佔位（見上方
         // `w` 的算式），但 `.handle` 是相對 chip 自身盒子定位，不會因為盒子變寬而自動
         // 跟著佔位邊界走——`left:0`（overflowOffset≈0）永遠落在 chip 左緣＝佔位左緣，

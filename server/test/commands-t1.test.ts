@@ -314,23 +314,6 @@ describe('setCanvas', () => {
 //
 // 單一 clip、時間軸 0-6（duration 6），leadPad 2（黑墊 0-2，內容時間軸座標 2-6，
 // 對應來源 in=3 → in+contentDur=3+4=7 ≤ srcDur=20）。
-async function seededWithPad() {
-  const dir = await tmpDir('vidcut-leadpad-');
-  const store = await ProjectStore.load(join(dir, 'project.json'));
-  store.mutate('ai', 'seed', (d) => {
-    d.media = [
-      {
-        id: 'm1',
-        path: 'a.mp4',
-        probe: { duration: 20, width: 540, height: 960, fps: 30, hasAudio: true, rotation: 0 },
-      },
-    ];
-    d.tracks.video = [
-      { id: 'p1', mediaId: 'm1', in: 3, duration: 6, leadPad: 2, volume: 1, label: 'Padded' },
-    ];
-  });
-  return store;
-}
 
 describe('leadPad 已移除（2026-09-11）：命令層不再接受、也不再落盤這個欄位', () => {
   it('updateClip 的 patch 帶 leadPad：執行期忽略，不落盤', async () => {

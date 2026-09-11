@@ -17,37 +17,6 @@ export function trimIn(
 }
 
 /**
- * Plan 14 Task 4：拖左 handle（trim-in）的黑墊版——`trimIn` 的替代品，主軌拖曳分支
- * 改用這支。與 `trimIn` 的差異：越過來源起點（`in=0`）不再硬停，而是繼續往左長出
- * `leadPad`（黑墊），`duration` 同步增長以保持時間軸右界不動（黑墊算在 duration 裡，
- * 見 `VideoClip.leadPad` 的裁決）。
- *
- * 式子照 brief 逐字照用：
- *   延伸左座標 x = in − leadPad（pad>0 時為負）
- *   來源右界 R = in + (duration − leadPad)（拖曳中不變）
- *   x' = x + deltaSec，夾制：x' ≤ R − MIN_CLIP_DURATION（內容下限；無下界）
- *   x' ≥ 0 → { in: x', leadPad: 0, duration: R − x' }
- *   x' <  0 → { in: 0, leadPad: −x', duration: R + (−x') }
- *
- * 純函數、不吸附——in=0 邊界的來源座標吸附是 Timeline.tsx 層的事（見其註解），
- * 與 `trimOut`/`maybeSnap` 分工一致。無下界：leadPad 不設上限（與 CapCut 同，
- * 只驗有限性與 ≥0，見裁決；有限性交給呼叫端的浮點輸入本身保證）。
- */
-export function trimInPad(
-  clip: Pick<VideoClip, 'in' | 'duration' | 'leadPad'>,
-  deltaSec: number,
-): { in: number; leadPad: number; duration: number } {
-  const pad = clip.leadPad ?? 0;
-  const x = clip.in - pad; // 延伸左座標（可為負）
-  const rightEdge = clip.in + (clip.duration - pad); // 來源右界 R（拖曳中不變）
-  const nextX = Math.min(x + deltaSec, rightEdge - MIN_CLIP_DURATION);
-  if (nextX >= 0) {
-    return { in: nextX, leadPad: 0, duration: rightEdge - nextX };
-  }
-  return { in: 0, leadPad: -nextX, duration: rightEdge + -nextX };
-}
-
-/**
  * 拖右 handle（out point）：只改 duration。
  * clamp：duration>=MIN、in+duration<=mediaDuration。
  */
@@ -63,7 +32,7 @@ export function trimOut(
 
 /**
  * Plan 15 Task 1（統一拖曳模型核心式子）：修剪方向的佔位量（秒）。一次 trim 手勢內，
- * 以起手時的 `orig.duration` 為基準，每幀由 `trimInPad`/`trimOut` 算出 `next.duration`，
+ * 以起手時的 `orig.duration` 為基準，每幀由 `trimIn`/`trimOut` 算出 `next.duration`，
  * 兩者差即為「clip 的時間軸足跡該墊多少」——修剪方向（`next < orig`）佔位 > 0，
  * clip 足跡維持 `orig.duration` 不變，其他 clip 不 ripple；擴張方向（`next >= orig`）
  * 佔位恆為 0，行為與現況（Plan 12/14 已驗收的即時 ripple）逐位元組相同。
@@ -89,6 +58,14 @@ export function isAtSourceMax(
 ): boolean {
   if (!Number.isFinite(mediaDuration)) return false;
   return clip.in + clip.duration >= mediaDuration;
+}
+
+/**
+ * 2026-09-11（leadPad 移除後的鏡射）：主軌 in 把手是否已頂到來源起點（in<=0）——
+ * `trimIn` 的 clamp 讓 in 縮不了了；供 Timeline.tsx 決定 danger 態把手 + badge ` · min`。
+ */
+export function isAtSourceMin(clip: Pick<VideoClip, 'in'>): boolean {
+  return clip.in <= 0;
 }
 
 /**

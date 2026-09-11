@@ -401,6 +401,28 @@ describe('ClipBlock 把手：選取常駐、恆 -6、不外推（2026-09-11 端�
     expect(right!.className.split(' ')).toContain('out');
   });
 
+  it('inAtMin：in 把手帶 danger class，out 把手不受影響', () => {
+    const p = demoProject();
+    const { container } = render(
+      <ClipBlock
+        p={p}
+        clip={p.tracks.video[0]}
+        leftPx={0}
+        pps={40}
+        selected={true}
+        animate={false}
+        floating={false}
+        inAtMin={true}
+        onTrimStart={noop}
+        onMoveStart={noop}
+        onSelect={noop}
+      />,
+    );
+    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+    expect(left!.className.split(' ')).toContain('danger');
+    expect(right!.className.split(' ')).not.toContain('danger');
+  });
+
   /**
    * review round 1 Critical 1：主軌片段是頭尾相接的（無間隙），窄片選取後外溢的
    * out 把手會伸進「下一個 DOM 序在後的 sibling」的地盤。沒有 z-index 抬升時，
@@ -515,144 +537,11 @@ describe('ClipBlock 把手：來源上限 danger 態（Plan 11 Task 3 裁決 5�
 });
 
 /**
- * Plan 14 Task 4：黑墊（leadPad）視覺——取代舊的 `inAtMin` prop／danger 態
- * （Plan 12 Task 3 裁決 4 的「danger+min 硬停」語意已廢止）。`clip.leadPad`
- * 直接從傳入的 clip 讀（不是獨立 prop，見 ClipBlock.tsx 該欄位的定義處註解），
- * 把手改用 `accent` class，不是 `danger`（黑墊不是錯誤狀態）。
- */
-describe('ClipBlock 黑墊視覺（Plan 14 Task 4）', () => {
-  it('無 leadPad（省略欄位）：不畫黑帶，in 把手沒有 accent class——渲染輸出與改動前逐位元組相同', () => {
-    const p = demoProject();
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={p.tracks.video[0]}
-        leftPx={0}
-        pps={40}
-        selected={true}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-      />,
-    );
-    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.className).not.toContain('accent');
-    expect(left!.className).not.toContain('danger');
-    expect(right!.className).not.toContain('danger');
-    expect(container.querySelector('[data-testid="clip-leadpad"]')).toBeNull();
-  });
-
-  it('leadPad=0（顯式 0）：同無 leadPad，不畫黑帶', () => {
-    const p = demoProject();
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={{ ...p.tracks.video[0], leadPad: 0 }}
-        leftPx={0}
-        pps={40}
-        selected={true}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-      />,
-    );
-    expect(container.querySelector('[data-testid="clip-leadpad"]')).toBeNull();
-  });
-
-  it('leadPad>0：畫黑帶，寬度＝leadPad×pps；in 把手帶 accent class（不是 danger）', () => {
-    const p = demoProject();
-    const clip = { ...p.tracks.video[0], leadPad: 1.5 }; // 1.5s @ 40pps = 60px
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={clip}
-        leftPx={0}
-        pps={40}
-        selected={true}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-      />,
-    );
-    const band = container.querySelector<HTMLElement>('[data-testid="clip-leadpad"]');
-    expect(band).not.toBeNull();
-    expect(band!.style.width).toBe('60px');
-    expect(band!.style.left).toBe('0px');
-    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.className).toContain('accent');
-    expect(left!.className).not.toContain('danger');
-    expect(right!.className).not.toContain('accent');
-  });
-
-  it('leadPad>0 時 filmstrip 內容區右移同寬（裁切框左緣 = padPx，tile 相對框內 >= 0）', () => {
-    const p = demoProject();
-    const clip = { ...p.tracks.video[0], leadPad: 1.5 }; // 60px
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={clip}
-        leftPx={0}
-        pps={40}
-        selected={false}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-      />,
-    );
-    // 右移量現在由「內容區裁切框」承載（tile 的 left 改為相對框內座標）——
-    // 語意不變：filmstrip 畫面整體從 padPx 起畫。
-    const clipBox = container.querySelector<HTMLElement>('[data-testid="filmstrip-content-clip"]')!;
-    expect(clipBox).not.toBeNull();
-    expect(clipBox.style.left).toBe('60px');
-    const tiles = Array.from(
-      container.querySelectorAll<HTMLElement>('[data-testid="filmstrip-tile"]'),
-    );
-    expect(tiles.length).toBeGreaterThan(0);
-    for (const t of tiles) {
-      expect(Number.parseFloat(t.style.left)).toBeGreaterThanOrEqual(0);
-    }
-  });
-
-  it('outAtMax 與 leadPad>0 同時成立：out 把手仍是 danger，in 把手仍是 accent（互不干擾）', () => {
-    const p = demoProject();
-    const clip = { ...p.tracks.video[0], leadPad: 1.5 };
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={clip}
-        leftPx={0}
-        pps={40}
-        selected={true}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-        outAtMax={true}
-      />,
-    );
-    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.className).toContain('accent');
-    expect(left!.className).not.toContain('danger');
-    expect(right!.className).toContain('danger');
-    expect(right!.className).not.toContain('accent');
-  });
-});
-
-/**
  * Plan 15 Task 1：trim 拖曳佔位黑墊——統一拖曳模型的視覺積木。`placeholderHead`／
  * `placeholderTail` 是 Timeline.tsx（Task 2，本任務不接線）拖曳期才會傳非零值的
  * 純視覺 prop；這裡只驗證 ClipBlock 有沒有把它們正確轉成 DOM：缺席時渲染輸出
- * 逐位元組不變（回歸釘），有值時佔位區寬度/位置正確、與 leadPad 黑帶共存時排列
- * 順序正確（頭端 `[佔位][leadPad][內容]`）、filmstrip 對位吃進佔位寬度。
+ * 逐位元組不變（回歸釘），有值時佔位區寬度/位置正確（頭端 `[佔位][內容]`）、
+ * filmstrip 對位吃進佔位寬度。
  */
 describe('ClipBlock trim 佔位黑墊（Plan 15 Task 1）', () => {
   it('缺席（不傳 props）：不畫任何佔位區，chip 寬度＝原本 duration 換算的寬（逐位元組不變回歸釘）', () => {
@@ -755,61 +644,6 @@ describe('ClipBlock trim 佔位黑墊（Plan 15 Task 1）', () => {
     expect(tail.style.width).toBe('60px');
     expect(tail.style.right).toBe('0px');
     expect(container.querySelector('[data-testid="clip-placeholder-head"]')).toBeNull();
-  });
-
-  it('頭端佔位與真 leadPad 同時存在：排列 [佔位][leadPad][內容]，兩條黑帶各自定位不重疊', () => {
-    const p = demoProject();
-    const clip = { ...p.tracks.video[0], leadPad: 1 }; // 1s*40pps=40px
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={clip}
-        leftPx={0}
-        pps={40}
-        selected={false}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-        placeholderHead={0.5} // 0.5s*40pps=20px
-      />,
-    );
-    const head = container.querySelector<HTMLElement>('[data-testid="clip-placeholder-head"]')!;
-    const pad = container.querySelector<HTMLElement>('[data-testid="clip-leadpad"]')!;
-    expect(head.style.left).toBe('0px');
-    expect(head.style.width).toBe('20px');
-    // leadPad 左緣緊接佔位右緣（20px），不是貼齊 chip 左緣（0px）
-    expect(pad.style.left).toBe('20px');
-    expect(pad.style.width).toBe('40px');
-  });
-
-  it('頭端佔位與 leadPad 同時存在時，filmstrip 內容區左緣＝佔位寬＋leadPad 寬', () => {
-    const p = demoProject();
-    const clip = { ...p.tracks.video[0], leadPad: 1 }; // 40px
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={clip}
-        leftPx={0}
-        pps={40}
-        selected={false}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-        placeholderHead={0.5} // 20px
-      />,
-    );
-    // 左緣位置由「內容區裁切框」承載：20（佔位）+ 40（leadPad）= 60。
-    const clipBox = container.querySelector<HTMLElement>('[data-testid="filmstrip-content-clip"]')!;
-    expect(clipBox).not.toBeNull();
-    expect(clipBox.style.left).toBe('60px');
-    const tiles = Array.from(
-      container.querySelectorAll<HTMLElement>('[data-testid="filmstrip-tile"]'),
-    );
-    expect(tiles.length).toBeGreaterThan(0);
   });
 
   it('placeholderTail>0：filmstrip 裁切框寬＝內容寬（最後一格不會穿過切點透進佔位墊）', () => {

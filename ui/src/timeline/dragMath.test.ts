@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   trimIn,
-  trimInPad,
+  isAtSourceMin,
   trimOut,
   trimPlaceholder,
   reorderByDrag,
@@ -68,72 +68,6 @@ describe('isAtSourceMax（Plan 11 Task 3 裁決 5：out 把手拖到來源盡頭
 
   it('false when mediaDuration is unknown (Infinity，無 probe 資料時的既有 fallback)', () => {
     expect(isAtSourceMax({ in: 5, duration: 6 }, Infinity)).toBe(false);
-  });
-});
-
-describe('trimInPad（Plan 14 Task 4：主軌 trim-in 黑墊版，取代主軌拖曳分支的 trimIn）', () => {
-  const clip = { in: 5, duration: 6 }; // 右界 R = 5 + (6-0) = 11，無 leadPad（pad=0）
-
-  it('無 leadPad、拖曳仍落在來源座標內：行為與 trimIn 逐位元組相同（leadPad 恆 0）', () => {
-    expect(trimInPad(clip, 2)).toEqual({ in: 7, leadPad: 0, duration: 4 });
-    expect(trimInPad(clip, -3)).toEqual({ in: 2, leadPad: 0, duration: 9 });
-  });
-
-  it("恰好拖到 in=0（x'=0）：落地 leadPad=0，不進黑墊分支", () => {
-    expect(trimInPad(clip, -5)).toEqual({ in: 0, leadPad: 0, duration: 11 });
-  });
-
-  it('拖過 in=0：長出 leadPad，duration 同步增長（右界 R=11 不變）', () => {
-    // x = in - pad = 5；deltaSec = -7 → x' = -2 → in=0, leadPad=2, duration = 11+2 = 13
-    expect(trimInPad(clip, -7)).toEqual({ in: 0, leadPad: 2, duration: 13 });
-  });
-
-  it('往回縮：先吃掉黑墊，leadPad 減少、in 仍為 0，直到黑墊吃完才開始縮 in', () => {
-    const padded = trimInPad(clip, -7); // in=0 leadPad=2 duration=13
-    // 從這個狀態再位移 +1（縮回 1s）：x = 0-2 = -2，+1 → x'=-1 → in=0, leadPad=1
-    const shrunk = trimInPad(padded, 1);
-    expect(shrunk).toEqual({ in: 0, leadPad: 1, duration: 12 });
-  });
-
-  it('往回縮跨越黑墊：黑墊吃完後繼續縮就開始吃內容（in 從 0 開始增加）', () => {
-    const padded = trimInPad(clip, -7); // in=0 leadPad=2 duration=13
-    // +3：x = -2 +3 = 1 >=0 → in=1, leadPad=0, duration = R-1 = 10
-    const back = trimInPad(padded, 3);
-    expect(back).toEqual({ in: 1, leadPad: 0, duration: 10 });
-  });
-
-  it('跨界往返：拖出黑墊再完全縮回原點，得到與起點等價的結果（leadPad=0, in=起點, duration=起點 duration）', () => {
-    const out = trimInPad(clip, -7); // in=0 leadPad=2 duration=13
-    const back = trimInPad(out, 7); // 抵銷：x' = -2+7 = 5 = 原始 x
-    expect(back).toEqual({ in: 5, leadPad: 0, duration: 6 });
-  });
-
-  it("clamp：內容下限（x' <= R - MIN_CLIP_DURATION），無下界（可持續探入黑墊）", () => {
-    // 拖到底：deltaSec 極大正值，x' 被夾在 R - MIN
-    const r = trimInPad(clip, 100);
-    expect(r.leadPad).toBe(0);
-    expect(r.duration).toBeCloseTo(MIN_CLIP_DURATION);
-    expect(r.in).toBeCloseTo(11 - MIN_CLIP_DURATION);
-  });
-
-  it('leadPad 無上限：deltaSec 極大負值時 leadPad 持續增長，不 clamp', () => {
-    const r = trimInPad(clip, -1000);
-    expect(r.in).toBe(0);
-    expect(r.leadPad).toBeCloseTo(995); // x' = 5 - 1000 = -995 → leadPad=995
-    expect(r.duration).toBeCloseTo(11 + 995);
-  });
-
-  it('浮點：帶入既有 leadPad 的 clip，式子讀 clip.leadPad 而非恆假設 0', () => {
-    const paddedClip = { in: 0, duration: 13, leadPad: 2 }; // x = 0-2 = -2，R = 0+(13-2) = 11
-    const r = trimInPad(paddedClip, -0.3);
-    expect(r.in).toBe(0);
-    expect(r.leadPad).toBeCloseTo(2.3);
-    expect(r.duration).toBeCloseTo(13.3);
-  });
-
-  it('leadPad 缺席（undefined）等同 0（既有 clip 型別是 optional 欄位）', () => {
-    const bare = { in: 5, duration: 6 }; // 型別上沒有 leadPad 欄位
-    expect(trimInPad(bare, -7)).toEqual({ in: 0, leadPad: 2, duration: 13 });
   });
 });
 
@@ -281,3 +215,10 @@ describe('trimAudioIn (音訊左緣：start/in/duration 連動，右緣不動)',
 // 這裡不是「測試被刪」，是「被測數學本身不存在了」：新模型的等價覆蓋在
 // filmstripTiles.test.ts（secPerTileFor 的舊資產回退、zoom-in/out 取樣、
 // windowing、sprite 邊緣 clamp）。
+
+describe('isAtSourceMin（2026-09-11：主軌 in 把手頂到來源起點）', () => {
+  it('in=0 為 true，in>0 為 false', () => {
+    expect(isAtSourceMin({ in: 0 })).toBe(true);
+    expect(isAtSourceMin({ in: 0.5 })).toBe(false);
+  });
+});
