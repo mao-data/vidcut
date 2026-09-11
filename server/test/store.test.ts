@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createEmptyProject } from '@vidcut/shared';
 import { ProjectStore } from '../src/store.js';
 import { tmpDir } from './tmp.js';
 
@@ -78,5 +79,34 @@ describe('ProjectStore', () => {
     }
     expect(store.history()).toHaveLength(200);
     expect(store.history()[0]!.label).toBe('m10');
+  });
+});
+
+describe('載入正規化：舊專案的 leadPad（2026-09-11 移除）', () => {
+  it('leadPad>0 的 clip：duration 扣掉 pad、鍵消失，in 不變；無 pad 的 clip 逐位元組不動', async () => {
+    const dir = await tmpDir('vidcut-leadpad-');
+    const file = join(dir, 'project.json');
+    const doc = createEmptyProject('p', 'p');
+    doc.tracks.video = [
+      { id: 'a', mediaId: 'm', in: 1, duration: 5, volume: 1, leadPad: 2 } as never,
+      { id: 'b', mediaId: 'm', in: 0, duration: 3, volume: 1 },
+    ];
+    await writeFile(file, JSON.stringify({ rev: 7, ...doc }));
+    const store = await ProjectStore.load(file);
+    expect(store.doc.tracks.video[0]).toEqual({
+      id: 'a',
+      mediaId: 'm',
+      in: 1,
+      duration: 3,
+      volume: 1,
+    });
+    expect(store.doc.tracks.video[1]).toEqual({
+      id: 'b',
+      mediaId: 'm',
+      in: 0,
+      duration: 3,
+      volume: 1,
+    });
+    expect(store.version).toBe(7);
   });
 });

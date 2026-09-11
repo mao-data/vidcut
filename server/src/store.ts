@@ -6,6 +6,7 @@ import {
   type JsonPatch,
   type MutationSource,
   type Project,
+  type VideoClip,
 } from '@vidcut/shared';
 
 enablePatches();
@@ -90,6 +91,7 @@ export class ProjectStore {
     try {
       const raw = await readFile(filePath, 'utf8');
       const { rev, ...doc } = JSON.parse(raw) as ProjectFile;
+      stripLegacyLeadPad(doc as Project);
       return new ProjectStore(filePath, doc as Project, rev ?? 0);
     } catch {
       const name = basename(dirname(filePath)) || 'untitled';
@@ -280,5 +282,22 @@ export class ProjectStore {
       this.#saveTimer = null;
     }
     await this.#save();
+  }
+}
+
+/**
+ * 2026-09-11：`leadPad`（Plan 14 前把手黑墊）已從資料模型移除。舊專案檔若還帶著它，
+ * 載入時就地正規化：黑墊從時間軸長度扣掉、鍵刪除——內容照舊從 `in` 播、後面的 clip
+ * 往前靠。只在載入期做一次、不進 history、不 bump rev；下一次任何 mutate 落盤時自然
+ * 以正規化後的形狀寫回。
+ */
+function stripLegacyLeadPad(doc: Project): void {
+  const clips = doc.tracks?.video as Array<VideoClip & { leadPad?: number }> | undefined;
+  if (!clips) return;
+  for (const c of clips) {
+    if (typeof c.leadPad === 'number') {
+      if (c.leadPad > 0) c.duration = Math.max(0, c.duration - c.leadPad);
+      delete c.leadPad;
+    }
   }
 }
