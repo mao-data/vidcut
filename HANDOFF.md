@@ -155,8 +155,8 @@ spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/s
     **白蠟筆** chalk #e8e4da 做主文字/描邊/主鈕（`--on-accent` 是炭黑字）；
     **紅蠟筆 #c94f42 只做標記**（playhead 實心、時間碼進行值、當前字幕列左標
     `.cap-current`、字幕／overlay chip 選中 `--select-edge` 紅框、chip 紅描邊），絕不當底色；
-    **主軌 clip 選中例外**（2026-09-10 使用者定案 CapCut 式）：2px 外框＋左右實心
-    圓角方塊把手同吃 `--select-frame`（暗房＝白蠟筆、紙上＝ink），紅蠟筆不填塊；
+    **主軌 clip 選中例外**（2026-09-11 使用者定案）：2px 外框＋左右 6px 端帽把手同吃
+    `--select-frame`（暗房＝白蠟筆、紙上＝ink），紅蠟筆不填塊；
     音訊軌降飽和藍灰；`--who-ai`=蠟筆白/`--who-you`=紅蠟筆（Two-Hands 鏡像）；
     AgentStrip 琥珀終端不動（暗房裡唯一一盞終端小燈）。紫/青在暗版全面退場。
   - **亮版=分鏡紙桌面**（08-14 craft 落地）：紙底+ink 描邊+紅鉛筆標記+non-photo blue
@@ -255,9 +255,9 @@ filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（
 - **把手升級**（Task 1，變更 2026-08-16 hover-only 幾何定案）：選取的項目把手常駐
   可見（不再 hover 才現）,命中區 6px→**選取項 12px、跨在片段邊界正中央**（chip 內
   6px＋chip 外溢 6px,不是舊版「純向內長滿 12px」——那樣窄片可移動帶會被壓到只剩
-  ~4px）,中央疊 2px grip 紋提示可抓（2026-09-10 起視覺改為 `--select-frame` 實心
-  圓角方塊＋`--card` 短刻痕,幾何不變）;窄片（chip 寬 <28px）選取後兩把手向外溢出、
-  互不重疊;選取 chip 同時抬升到 `zIndex: 15`,讓外溢的把手蓋在鄰近 chip 之上。
+  ~4px）,中央疊 2px grip 紋提示可抓（2026-09-11 起視覺改為 6px **端帽**（外圓角同
+  chip）＋2×14 `--card` 刻痕,`in`/`out` class 分左右）;**窄片外推已移除**（2026-09-11,
+  舊的 28px 外推讓 0.1s 極窄 clip 的左把手跑到 0s 左邊）,選取恆 -6;選取 chip 同時抬升到 `zIndex: 15`,讓外溢的把手蓋在鄰近 chip 之上。
   未選取項維持原 hover-only 行為不動。完整定案細節與 CSS 落點見
   `ui/DESIGN.md`「Chips → Trim handles」——那裡是這條規則的權威來源。
 - **overlay 補 trim 把手**（Task 1）：與 caption chip 同款,沿用既有
@@ -471,7 +471,13 @@ video 正確變黑、Timecode 讀數換算基準統一;時間軸不再對「其�
 `get_project.total` 與這三層同步换算基準,AI 讀到的數字與人在瀏覽器裡看到的
 是同一個「輸出長度」。
 
-## Plan 14：clip 前把手黑墊——leadPad(2026-08-23)
+## Plan 14：clip 前把手黑墊——leadPad(2026-08-23；**2026-09-11 整組移除**)
+
+> **2026-09-11 移除**：使用者定案「不要用拖把手加空白時長」。leadPad 六層（型別、命令層、
+> MCP、render/frame、播放器、時間軸 UI）全部拿掉；前把手回到 `trimIn` 在 in=0 硬停、把手
+> `danger`、badge ` · min`（鏡射 out 把手的 atMax）。舊專案檔的 `leadPad` 由
+> `ProjectStore.load` 的 `stripLegacyLeadPad` 一次性清掉（duration 扣墊、刪鍵）。
+> 下面的內容保留作歷史脈絡，**不再描述現況**。
 
 目標：主軌 clip 的前（in）把手拉過來源起點時,CapCut 等競品是「長出一段黑畫面
 （黑墊）」,vidcut 之前是硬停（Plan 12 的 `isAtSourceMin`/`danger+min`）。這批把
@@ -549,6 +555,9 @@ ${pad}:color=black`,把這個 input 的輸出長度墊回 `clip.duration`;音訊
   **單一 clip** 自己的尾端黑墊,是不同粒度的功能。
 
 ## Plan 15：trim 拖曳佔位黑墊——修剪方向不再即時 ripple（2026-08-24）
+
+（2026-09-11：leadPad 移除後，本批的佔位機制**保留**；「擴張方向＝還原素材」，不再有
+「長 leadPad」這個分支。）
 
 純 UI 批（`shared/`/`server/`/命令層/MCP 全程零改動,`dragMath.trimPlaceholder`
 是唯一新函數,不進 doc）。修剪方向（拖窄）拖曳中不再即時 ripple 後續 clip:

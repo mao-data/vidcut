@@ -120,7 +120,7 @@ overlay 由 `npm run verify:wysiwyg` 守著。**現在是直式與橫式雙基�
 - **`pro` remote 是私有 repo，這台機器 keychain 預設的 github 帳號看不到它**（`git fetch pro`
   回 `Repository not found`，2026-09-11 實測）。別改 keychain，用 gh 裡 `mao-data` 帳號的 token
   當單次憑證：`T=$(gh auth token --user mao-data)` 後 `git -c credential.helper= -c
-  "credential.helper=!f(){ echo username=mao-data; echo password=$T; }; f" push pro <br>:main`。
+"credential.helper=!f(){ echo username=mao-data; echo password=$T; }; f" push pro <br>:main`。
   Pro 主幹是 `pro/main`（default branch）；本地 `cloud-upload` worktree 追蹤它，開源→商業同步
   在那裡 `git merge main` 後 `git push pro cloud-upload:main`。
 - **不要 `git add -A`**：這個工作區常有多個 session 同時進行，全加會把別人改到一半的

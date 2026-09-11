@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript、React 19、vitest（jsdom）、zod（MCP schema）、ffmpeg filtergraph 字串（render.ts）。驗證用 `npm run typecheck`／`npm run lint`／各 workspace `npx vitest run`；視覺用真瀏覽器截圖（見 Task 1 步驟）。
 
 **Spec:** 本計畫即定案（使用者於 2026-09-10／11 對話中四次確認）：
+
 1. 把手＝方案 1：端帽 6px（外圓角同 chip）＋刻痕 2px 寬 14px 高（`--card` 色）＋上下框維持 2px `--select-frame`；四種 chip（主軌 clip／音訊／字幕／overlay）都套。
 2. 窄片不外推：選取時把手固定 `-6px`（12px 跨邊界置中），端帽永遠畫在 chip 內；命中區仍保留 6px 外溢。
 3. 拿掉 `leadPad` 六層；Plan 15 拖曳中佔位（`trimPlaceholder`／`placeholderHead`／`placeholderTail`）**保留**。
@@ -30,6 +31,7 @@
 ### Task 1：環境 ＋ 端帽把手視覺 ＋ 拿掉窄片外推（線 A、B）
 
 **Files:**
+
 - Modify: `ui/src/theme.css:2142-2240`（`.handle` 系列規則）
 - Modify: `ui/src/timeline/ClipBlock.tsx:91-97`（`overflowOffset`）、`:322-347`（兩個把手 JSX）
 - Modify: `ui/src/timeline/AudioChip.tsx:44-48`、`:96-110`
@@ -37,6 +39,7 @@
 - Test: `ui/src/timeline/ClipBlock.test.tsx:340-434`、`ui/src/timeline/AudioChip.peaksAbsent.test.tsx`（只需確認仍綠）
 
 **Interfaces:**
+
 - Produces: 每個 `.handle` 元素多一個方向 class：左把手 `handle in`、右把手 `handle out`（既有 `danger`／`accent` class 照舊疊加）。CSS 端帽靠 `.clipblk.selected .handle.in::before` / `.handle.out::before` 畫。
 
 - [ ] **Step 1: 裝依賴、確認 symlink**
@@ -54,69 +57,69 @@ npm run typecheck                   # 起點必須綠
 把 `ui/src/timeline/ClipBlock.test.tsx` 裡這三個 `it`（340「選取且窄片（<28px）：兩把手向外溢出，互不重疊」、365「未選取窄片…不外溢」、386「final-review Minor 4 回歸釘…」）**整個刪掉**，換成下面三個（放在同一個 `describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）'` 裡；describe 名稱改成 `'ClipBlock 把手：選取常駐、恆 -6、不外推（2026-09-11 端帽定案）'`）：
 
 ```tsx
-  it('選取且窄片（<28px）：把手不再外推，偏移恆為 -6px（端帽永遠在 chip 內）', () => {
-    const p = demoProject();
-    // duration 0.1s * pps 40 = 4px：極窄（舊算式會外推到 -18px，左把手跑到 0s 左邊）
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={{ ...p.tracks.video[0], duration: 0.1 }}
-        leftPx={0}
-        pps={40}
-        selected={true}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-      />,
-    );
-    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.style.left).toBe('-6px');
-    expect(right!.style.right).toBe('-6px');
-  });
+it('選取且窄片（<28px）：把手不再外推，偏移恆為 -6px（端帽永遠在 chip 內）', () => {
+  const p = demoProject();
+  // duration 0.1s * pps 40 = 4px：極窄（舊算式會外推到 -18px，左把手跑到 0s 左邊）
+  const { container } = render(
+    <ClipBlock
+      p={p}
+      clip={{ ...p.tracks.video[0], duration: 0.1 }}
+      leftPx={0}
+      pps={40}
+      selected={true}
+      animate={false}
+      floating={false}
+      onTrimStart={noop}
+      onMoveStart={noop}
+      onSelect={noop}
+    />,
+  );
+  const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+  expect(left!.style.left).toBe('-6px');
+  expect(right!.style.right).toBe('-6px');
+});
 
-  it('未選取窄片：把手貼齊邊緣（0px），與寬片相同', () => {
-    const p = demoProject();
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={{ ...p.tracks.video[0], duration: 0.5 }}
-        leftPx={0}
-        pps={40}
-        selected={false}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-      />,
-    );
-    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.style.left).toBe('0px');
-    expect(right!.style.right).toBe('0px');
-  });
+it('未選取窄片：把手貼齊邊緣（0px），與寬片相同', () => {
+  const p = demoProject();
+  const { container } = render(
+    <ClipBlock
+      p={p}
+      clip={{ ...p.tracks.video[0], duration: 0.5 }}
+      leftPx={0}
+      pps={40}
+      selected={false}
+      animate={false}
+      floating={false}
+      onTrimStart={noop}
+      onMoveStart={noop}
+      onSelect={noop}
+    />,
+  );
+  const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+  expect(left!.style.left).toBe('0px');
+  expect(right!.style.right).toBe('0px');
+});
 
-  it('把手帶方向 class：左＝handle in、右＝handle out（端帽 CSS 靠這個分左右）', () => {
-    const p = demoProject();
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={p.tracks.video[0]}
-        leftPx={0}
-        pps={40}
-        selected={true}
-        animate={false}
-        floating={false}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-      />,
-    );
-    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.className.split(' ')).toContain('in');
-    expect(right!.className.split(' ')).toContain('out');
-  });
+it('把手帶方向 class：左＝handle in、右＝handle out（端帽 CSS 靠這個分左右）', () => {
+  const p = demoProject();
+  const { container } = render(
+    <ClipBlock
+      p={p}
+      clip={p.tracks.video[0]}
+      leftPx={0}
+      pps={40}
+      selected={true}
+      animate={false}
+      floating={false}
+      onTrimStart={noop}
+      onMoveStart={noop}
+      onSelect={noop}
+    />,
+  );
+  const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+  expect(left!.className.split(' ')).toContain('in');
+  expect(right!.className.split(' ')).toContain('out');
+});
 ```
 
 `436` 那個「相鄰窄片：選取的那個 z-index 抬升」測試**保留**（z-index 抬升邏輯不動）。
@@ -126,6 +129,7 @@ npm run typecheck                   # 起點必須綠
 ```bash
 cd ui && npx vitest run src/timeline/ClipBlock.test.tsx
 ```
+
 Expected: 上面三個 FAIL（`-18px` ≠ `-6px`；className 沒有 `in`／`out`）。
 
 - [ ] **Step 4: ClipBlock.tsx——偏移恆 -6、把手加方向 class**
@@ -133,12 +137,12 @@ Expected: 上面三個 FAIL（`-18px` ≠ `-6px`；className 沒有 `in`／`out`
 `ui/src/timeline/ClipBlock.tsx:88-97` 整段（從 `const NARROW_THRESHOLD = 28;` 到 `: 0;`）換成：
 
 ```ts
-  // 2026-09-11 端帽定案：選取態把手固定跨邊界置中（-6：12px 寬、6 內 6 外），
-  // **不再依內容寬外推**——舊的 NARROW_THRESHOLD(28px) 外推讓 0.1s 極窄 clip 的
-  // 左把手跑到 0s 左邊（看起來像負寬度）。端帽視覺畫在 chip 內側 6px，
-  // 極窄時兩個端帽貼在一起就是整個 chip，不需要外推來保留移動帶。
-  const SELECTED_HANDLE_W = 12;
-  const overflowOffset = selected ? -SELECTED_HANDLE_W / 2 : 0;
+// 2026-09-11 端帽定案：選取態把手固定跨邊界置中（-6：12px 寬、6 內 6 外），
+// **不再依內容寬外推**——舊的 NARROW_THRESHOLD(28px) 外推讓 0.1s 極窄 clip 的
+// 左把手跑到 0s 左邊（看起來像負寬度）。端帽視覺畫在 chip 內側 6px，
+// 極窄時兩個端帽貼在一起就是整個 chip，不需要外推來保留移動帶。
+const SELECTED_HANDLE_W = 12;
+const overflowOffset = selected ? -SELECTED_HANDLE_W / 2 : 0;
 ```
 
 同檔上方 `contentW` 那行（`const contentW = w - placeholderHeadPx - placeholderTailPx;`）**保留**（filmstrip 裁切框仍用它）。
@@ -151,9 +155,9 @@ Expected: 上面三個 FAIL（`-18px` ≠ `-6px`；className 沒有 `in`／`out`
 `ui/src/timeline/AudioChip.tsx:44-48` 換成：
 
 ```ts
-  // 2026-09-11 端帽定案：同 ClipBlock，選取恆 -6、不外推。
-  const SELECTED_HANDLE_W = 12;
-  const overflowOffset = selected ? -SELECTED_HANDLE_W / 2 : 0;
+// 2026-09-11 端帽定案：同 ClipBlock，選取恆 -6、不外推。
+const SELECTED_HANDLE_W = 12;
+const overflowOffset = selected ? -SELECTED_HANDLE_W / 2 : 0;
 ```
 
 `:97` `className="handle"` → `className="handle in"`；`:105` `className={'handle' + (outAtMax ? ' danger' : '')}` → `className={'handle out' + (outAtMax ? ' danger' : '')}`。
@@ -163,11 +167,10 @@ Expected: 上面三個 FAIL（`-18px` ≠ `-6px`；className 沒有 `in`／`out`
 `ui/src/timeline/Timeline.tsx:1770-1777` 換成（上方那段長註解改成兩行）：
 
 ```ts
-  // 2026-09-11 端帽定案：選取恆 -6（12px 跨邊界置中），不再依寬度外推——與
-  // ClipBlock／AudioChip 的 overflowOffset 同款（三處手動同步）。
-  const SELECTED_HANDLE_W = 12;
-  const handleOffset = (_w: number, isSel: boolean): number =>
-    isSel ? -SELECTED_HANDLE_W / 2 : 0;
+// 2026-09-11 端帽定案：選取恆 -6（12px 跨邊界置中），不再依寬度外推——與
+// ClipBlock／AudioChip 的 overflowOffset 同款（三處手動同步）。
+const SELECTED_HANDLE_W = 12;
+const handleOffset = (_w: number, isSel: boolean): number => (isSel ? -SELECTED_HANDLE_W / 2 : 0);
 ```
 
 `:2097` overlay 左把手 `className="handle"` → `className="handle in"`；`:2105` 右把手 → `className="handle out"`；`:2164` 字幕左把手 → `className="handle in"`；`:2172` 右把手 → `className="handle out"`。
@@ -257,6 +260,7 @@ accent 同款（`.clipblk.selected .handle.accent::before { background: var(--ac
 ```bash
 cd ui && npx vitest run src/timeline && cd .. && npm run typecheck && npm run lint && npm run build -w @vidcut/ui
 ```
+
 Expected: 全綠（`Timeline.test.tsx` 有「selected class」測試，不受影響）。
 
 - [ ] **Step 9: 真瀏覽器截圖驗收**
@@ -264,6 +268,7 @@ Expected: 全綠（`Timeline.test.tsx` 有「selected class」測試，不受影
 ```bash
 VIDCUT_PORT=3846 npx tsx server/src/index.ts projects/demo &   # 第二台 server
 ```
+
 用 `/private/tmp/claude-501/-Users-maohua-Desktop-gi--repo/e212e66c-8cbd-4307-a968-fd442fda0626/scratchpad/shot.mjs` 的做法（CDP 點選主軌第一段 clip、截 dark＋paper），把網址改成 `http://127.0.0.1:3846/`。要看到：白色 6px 端帽貼齊 clip 圓角、刻痕置中、2px 白框；紙色是 ink 版。再用 `repro-trim.mjs`（同目錄，改 port）把右把手拖到底：`after` 的兩個 handle `x` 必須落在 clip 兩緣（left `styleL` 為 `-6px`、right `styleR` 為 `-6px`），左把手 `x >= clip.x - 6`。
 
 - [ ] **Step 10: Commit**
@@ -278,10 +283,12 @@ git commit -m "feat(ui): trim 把手改端帽（6px＋2×14 刻痕）並拿掉�
 ### Task 2：server 命令層拿掉 leadPad
 
 **Files:**
+
 - Modify: `server/src/commands.ts:222-245`（numericError）、`:636-683`（updateClip）、`:725-758`（addClip）、`:783-816`（setTimeline）、`:1047-1085`（splitAt）、`:1087-1165`（deleteSide）、`:1166-1238`（freezeFrame）、`:1240-1270`（extractAudio）
 - Test: `server/test/commands-t1.test.ts:335-800`
 
 **Interfaces:**
+
 - Consumes: 目前 `shared` 仍匯出 `clipSourceTime`／`clipContentDuration`，本 task 後 `commands.ts` **不再 import 它們**（Task 8 才刪 helper）。
 - Produces: 命令層對 `leadPad` 完全不認識（型別在 Task 8 刪除；本 task 先把讀寫全拿掉，typecheck 仍過因為欄位是 optional）。
 
@@ -328,6 +335,7 @@ describe('leadPad 已移除（2026-09-11）：命令層不再接受、也不再�
 ```bash
 cd server && npx vitest run test/commands-t1.test.ts
 ```
+
 Expected: 第一個新測試 FAIL（目前 `leadPad: 1` 會落盤）。
 
 - [ ] **Step 3: commands.ts——拿掉全部 leadPad 讀寫**
@@ -336,43 +344,46 @@ Expected: 第一個新測試 FAIL（目前 `leadPad: 1` 會落盤）。
 - `updateClip`：`:646-660` 換成
 
 ```ts
-  const nextIn = cmd.patch.in ?? clip.in;
-  const nextDur = cmd.patch.duration ?? clip.duration;
-  if (nextIn < 0) return { ok: false, error: 'in must be >= 0' };
-  if (nextDur < MIN_CLIP_DURATION)
-    return { ok: false, error: `duration (${nextDur}) must be >= ${MIN_CLIP_DURATION}` };
-  if (nextIn + nextDur > srcDur + 1e-6) {
-    return { ok: false, error: `in+duration (${nextIn + nextDur}) exceeds source ${srcDur}` };
-  }
+const nextIn = cmd.patch.in ?? clip.in;
+const nextDur = cmd.patch.duration ?? clip.duration;
+if (nextIn < 0) return { ok: false, error: 'in must be >= 0' };
+if (nextDur < MIN_CLIP_DURATION)
+  return { ok: false, error: `duration (${nextDur}) must be >= ${MIN_CLIP_DURATION}` };
+if (nextIn + nextDur > srcDur + 1e-6) {
+  return { ok: false, error: `in+duration (${nextIn + nextDur}) exceeds source ${srcDur}` };
+}
 ```
-  並刪掉 mutate 裡 `if (cmd.patch.leadPad !== undefined) { ... }` 那段（含註解）。
+
+並刪掉 mutate 裡 `if (cmd.patch.leadPad !== undefined) { ... }` 那段（含註解）。
 
 - `addClip`：`:733-742` 換成
 
 ```ts
-  if (cmd.duration < MIN_CLIP_DURATION) {
-    return { ok: false, error: `duration (${cmd.duration}) must be >= ${MIN_CLIP_DURATION}` };
-  }
-  if (cmd.in + cmd.duration > media.probe.duration + 1e-6) {
-    return { ok: false, error: `clip out of bounds for ${cmd.mediaId}` };
-  }
+if (cmd.duration < MIN_CLIP_DURATION) {
+  return { ok: false, error: `duration (${cmd.duration}) must be >= ${MIN_CLIP_DURATION}` };
+}
+if (cmd.in + cmd.duration > media.probe.duration + 1e-6) {
+  return { ok: false, error: `clip out of bounds for ${cmd.mediaId}` };
+}
 ```
-  刪 push 物件裡的 `...(cmd.leadPad ? { leadPad: cmd.leadPad } : {}),`。
+
+刪 push 物件裡的 `...(cmd.leadPad ? { leadPad: cmd.leadPad } : {}),`。
 
 - `setTimeline`：`:783-795` 換成
 
 ```ts
-    if (c.duration < MIN_CLIP_DURATION) {
-      return {
-        ok: false,
-        error: `duration (${c.duration}) must be >= ${MIN_CLIP_DURATION} for ${c.mediaId}`,
-      };
-    }
-    if (c.in + c.duration > media.probe.duration + 1e-6) {
-      return { ok: false, error: `clip out of bounds for ${c.mediaId}` };
-    }
+if (c.duration < MIN_CLIP_DURATION) {
+  return {
+    ok: false,
+    error: `duration (${c.duration}) must be >= ${MIN_CLIP_DURATION} for ${c.mediaId}`,
+  };
+}
+if (c.in + c.duration > media.probe.duration + 1e-6) {
+  return { ok: false, error: `clip out of bounds for ${c.mediaId}` };
+}
 ```
-  刪 map 物件裡的 `...(c.leadPad ? { leadPad: c.leadPad } : {}),`。
+
+刪 map 物件裡的 `...(c.leadPad ? { leadPad: c.leadPad } : {}),`。
 
 - `splitAt`：函式改成
 
@@ -401,32 +412,33 @@ function splitAt(store: ProjectStore, source: MutationSource, time: number): Com
 - `deleteSide` 的 forEach 本體換成
 
 ```ts
-  clips.forEach((c, i) => {
-    const s = starts[i]!;
-    const e = s + c.duration;
-    if (side === 'before') {
-      if (e <= time) return; // 整段在左側 → 丟掉
-      if (s < time) {
-        const cut = time - s;
-        const nextDur = c.duration - cut;
-        if (nextDur < MIN_CLIP_DURATION) return;
-        kept.push({ ...c, in: c.in + cut, duration: nextDur });
-        return;
-      }
-      kept.push(c);
-    } else {
-      if (s >= time) return; // 整段在右側 → 丟掉
-      if (e > time) {
-        const rest = time - s;
-        if (rest < MIN_CLIP_DURATION) return;
-        kept.push({ ...c, duration: rest });
-        return;
-      }
-      kept.push(c);
+clips.forEach((c, i) => {
+  const s = starts[i]!;
+  const e = s + c.duration;
+  if (side === 'before') {
+    if (e <= time) return; // 整段在左側 → 丟掉
+    if (s < time) {
+      const cut = time - s;
+      const nextDur = c.duration - cut;
+      if (nextDur < MIN_CLIP_DURATION) return;
+      kept.push({ ...c, in: c.in + cut, duration: nextDur });
+      return;
     }
-  });
+    kept.push(c);
+  } else {
+    if (s >= time) return; // 整段在右側 → 丟掉
+    if (e > time) {
+      const rest = time - s;
+      if (rest < MIN_CLIP_DURATION) return;
+      kept.push({ ...c, duration: rest });
+      return;
+    }
+    kept.push(c);
+  }
+});
 ```
-  函式上方那段 leadPad 語意註解刪掉，保留前兩行說明。
+
+函式上方那段 leadPad 語意註解刪掉，保留前兩行說明。
 
 - `freezeFrame`：`const pad = clip.leadPad ?? 0;` 與 `atSource === null` 判斷刪掉，改 `const atSource = clip.in + hit.offset;`；`if (hit.offset < pad + MIN_CLIP_DURATION)` → `if (hit.offset < MIN_CLIP_DURATION)`；中段分支 `second` 的 `in: atSource` 不變、刪 `delete second.leadPad;`。上方長註解縮成「time 貼近頭尾不切、中間切兩段夾定格」。
 
@@ -439,6 +451,7 @@ function splitAt(store: ProjectStore, source: MutationSource, time: number): Com
 ```bash
 cd server && npx vitest run test/commands-t1.test.ts test/commands.test.ts 2>/dev/null; cd .. && npm run typecheck
 ```
+
 Expected: 綠。（`commands.test.ts` 若不存在忽略；跑 `npx vitest run test/commands` 涵蓋所有同名前綴。）
 
 - [ ] **Step 5: Commit**
@@ -453,6 +466,7 @@ git commit -m "refactor(server): 命令層拿掉 leadPad——split/delete/freez
 ### Task 3：render.ts ＋ frame.ts 拿掉 leadPad
 
 **Files:**
+
 - Modify: `server/src/render.ts:10-11`（import）、`:312-330`、`:377-390`、`:413-420`、`:819-826`
 - Modify: `server/src/frame.ts:4`、`:49-54`
 - Delete: `server/test/render-leadpad.test.ts`
@@ -463,6 +477,7 @@ git commit -m "refactor(server): 命令層拿掉 leadPad——split/delete/freez
 ```bash
 git rm server/test/render-leadpad.test.ts
 ```
+
 `server/test/render.test.ts`：刪 `describe('leadPad 前把手黑墊（Plan 14 Task 2）'` 整塊。
 
 - [ ] **Step 2: render.ts**
@@ -473,9 +488,11 @@ git rm server/test/render-leadpad.test.ts
 - cover：`:819-826` 換成
 
 ```ts
-  const sourceTime = loc.clip.frozen ? loc.clip.in : loc.clip.in + loc.offsetInClip;
+const sourceTime = loc.clip.frozen ? loc.clip.in : loc.clip.in + loc.offsetInClip;
 ```
-  並把後面 `if (sourceTime === null) { ...黑幀... }` 分支整段刪掉（黑尾仍由上方 `output > total` 邏輯處理，不在這裡）。開檔確認該分支只服務 leadPad（註解寫「墊內回 null」）。
+
+並把後面 `if (sourceTime === null) { ...黑幀... }` 分支整段刪掉（黑尾仍由上方 `output > total` 邏輯處理，不在這裡）。開檔確認該分支只服務 leadPad（註解寫「墊內回 null」）。
+
 - import 刪 `clipContentDuration,`、`clipSourceTime,`。
 
 - [ ] **Step 3: frame.ts**
@@ -487,6 +504,7 @@ git rm server/test/render-leadpad.test.ts
 ```bash
 cd server && npx vitest run test/render test/frame 2>&1 | tail -8; cd .. && npm run typecheck
 ```
+
 Expected: 綠（`render-blacktail` 等黑尾測試不受影響）。
 
 - [ ] **Step 5: Commit**
@@ -501,6 +519,7 @@ git commit -m "refactor(server): render/frame 拿掉 leadPad 的 tpad/adelay 與
 ### Task 4：MCP 工具面拿掉 leadPad
 
 **Files:**
+
 - Modify: `server/src/mcp.ts:130-132`、`:225-232`、`:408-415`、`:548-550`、`:853-854`、`:1251-1254`、`:1268-1270`
 - Test: `server/test/mcp-tools.test.ts:472-560`、`server/test/mcp-surface-snapshot.test.ts`（`-u`）
 
@@ -527,6 +546,7 @@ git diff --stat test/__snapshots__/
 git diff test/__snapshots__/ | grep "^[-+]" | grep -v "^[-+][-+]" | grep -vi "leadpad\|black, silent lead\|content length" ; echo "(上面應該沒有任何一行)"
 npx vitest run test/mcp
 ```
+
 Expected: 綠；snapshot diff 只有 leadPad 相關文字消失。
 
 - [ ] **Step 4: typecheck + commit**
@@ -542,10 +562,12 @@ git commit -m "refactor(mcp): 工具面拿掉 leadPad 參數與描述，snapshot
 ### Task 5：既有專案檔載入時清掉 leadPad
 
 **Files:**
+
 - Modify: `server/src/store.ts:89-98`
 - Test: `server/test/store.test.ts`（檔尾加 describe）
 
 **Interfaces:**
+
 - Produces: `ProjectStore.load()` 讀到 `tracks.video[i].leadPad > 0` 時就地正規化：`duration -= leadPad`、刪 `leadPad` 鍵；其他欄位不動。純載入期一次性，不進 history、不 bump rev。
 
 - [ ] **Step 1: 寫失敗測試**
@@ -564,12 +586,25 @@ describe('載入正規化：舊專案的 leadPad（2026-09-11 移除）', () => 
     ];
     await writeFile(file, JSON.stringify({ rev: 7, ...doc }));
     const store = await ProjectStore.load(file);
-    expect(store.doc.tracks.video[0]).toEqual({ id: 'a', mediaId: 'm', in: 1, duration: 3, volume: 1 });
-    expect(store.doc.tracks.video[1]).toEqual({ id: 'b', mediaId: 'm', in: 0, duration: 3, volume: 1 });
+    expect(store.doc.tracks.video[0]).toEqual({
+      id: 'a',
+      mediaId: 'm',
+      in: 1,
+      duration: 3,
+      volume: 1,
+    });
+    expect(store.doc.tracks.video[1]).toEqual({
+      id: 'b',
+      mediaId: 'm',
+      in: 0,
+      duration: 3,
+      volume: 1,
+    });
     expect(store.version).toBe(7);
   });
 });
 ```
+
 （import 對齊該檔既有：`mkdtemp`/`writeFile` 來自 `node:fs/promises`、`tmpdir` 來自 `node:os`、`createEmptyProject` 來自 `@vidcut/shared`；若檔內已 import 就不要重複。）
 
 - [ ] **Step 2: 跑測試確認紅**
@@ -577,6 +612,7 @@ describe('載入正規化：舊專案的 leadPad（2026-09-11 移除）', () => 
 ```bash
 cd server && npx vitest run test/store.test.ts
 ```
+
 Expected: FAIL（`duration` 仍是 5、`leadPad` 仍在）。
 
 - [ ] **Step 3: store.ts**
@@ -615,6 +651,7 @@ function stripLegacyLeadPad(doc: Project): void {
   }
 }
 ```
+
 （`VideoClip` 若尚未 import，從 `@vidcut/shared` 加 type import。Task 8 刪掉型別後這裡靠交叉型別 `& { leadPad?: number }` 仍能編譯。）
 
 - [ ] **Step 4: 綠 + commit**
@@ -630,10 +667,12 @@ git commit -m "feat(server): 載入舊專案時清掉 leadPad（duration 扣墊�
 ### Task 6：播放器 plan.ts 拿掉 leadPad
 
 **Files:**
+
 - Modify: `ui/src/player/plan.ts:2`、`:78-175`（`TrimPreview`、`effectivePadFor`、`sourceFor`）與 `planAt` 內對 `effectivePadFor` 的用法
 - Test: `ui/src/player/plan.test.ts:269-400`（刪 describe）、`ui/src/stores/playback.test.ts`（3 處提到 leadPad，改為不帶）
 
 **Interfaces:**
+
 - Produces: `export type TrimPreview = { clipId: string; in: number; placeholderHead?: number } | null;`（`leadPad` 欄位移除；`placeholderHead` 保留——Plan 15）。
 
 - [ ] **Step 1: 刪測試、修 fixture（先紅）**
@@ -661,6 +700,7 @@ git commit -m "refactor(ui): 播放器 plan 拿掉 leadPad（TrimPreview 只剩 
 ### Task 7：時間軸 UI 拿掉 leadPad、前把手硬停＋danger
 
 **Files:**
+
 - Modify: `ui/src/timeline/dragMath.ts:19-49`（刪 `trimInPad`）
 - Modify: `ui/src/timeline/Timeline.tsx:35`、`:255`、`:799-803`、`:866-876`（刪 `snapExtendedX`）、`:960-1030`（trim-in 分支）、`:1514-1528`（`inPad`→`inAtMinClipId`）、`:1611-1614`（badge）、`:1990-1995`（`ClipBlock` props）、commit 段（`const leadPad = ...`、`setPending` 的 `leadPad`、`setTrimPreview` 的 `leadPad`）
 - Modify: `ui/src/timeline/ClipBlock.tsx`（`pad`/`padPx`、`clip-leadpad` 黑帶、`accent` class → `inAtMin` prop + `danger`）
@@ -670,6 +710,7 @@ git commit -m "refactor(ui): 播放器 plan 拿掉 leadPad（TrimPreview 只剩 
 - Test: `dragMath.test.ts:74-135`、`ClipBlock.test.tsx:540-672`（黑墊 describe）、`Timeline.trimFollow.test.tsx:1295-1477`、`DragBadge.test.tsx:58-80`
 
 **Interfaces:**
+
 - Consumes: Task 6 的 `TrimPreview`（無 `leadPad`）。
 - Produces: `ClipBlock` 新 prop `inAtMin?: boolean`（in 把手 `danger`）；`DragBadgeContent` trim 變體 `{ kind: 'trim'; duration; delta; atMax?: boolean; atMin?: boolean }`，`atMin` → 附加 ` · min`。
 
@@ -697,29 +738,30 @@ describe('formatDragBadge：來源起點硬停標記（2026-09-11，取代黑墊
 3. `ClipBlock.test.tsx`：刪 `describe('ClipBlock 黑墊視覺（Plan 14 Task 4）'` 整塊；在「把手」describe 加：
 
 ```tsx
-  it('inAtMin：in 把手帶 danger class，out 把手不受影響', () => {
-    const p = demoProject();
-    const { container } = render(
-      <ClipBlock
-        p={p}
-        clip={p.tracks.video[0]}
-        leftPx={0}
-        pps={40}
-        selected={true}
-        animate={false}
-        floating={false}
-        inAtMin={true}
-        onTrimStart={noop}
-        onMoveStart={noop}
-        onSelect={noop}
-      />,
-    );
-    const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    expect(left!.className.split(' ')).toContain('danger');
-    expect(right!.className.split(' ')).not.toContain('danger');
-  });
+it('inAtMin：in 把手帶 danger class，out 把手不受影響', () => {
+  const p = demoProject();
+  const { container } = render(
+    <ClipBlock
+      p={p}
+      clip={p.tracks.video[0]}
+      leftPx={0}
+      pps={40}
+      selected={true}
+      animate={false}
+      floating={false}
+      inAtMin={true}
+      onTrimStart={noop}
+      onMoveStart={noop}
+      onSelect={noop}
+    />,
+  );
+  const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
+  expect(left!.className.split(' ')).toContain('danger');
+  expect(right!.className.split(' ')).not.toContain('danger');
+});
 ```
-   `describe('ClipBlock trim 佔位黑墊（Plan 15 Task 1）'` 裡凡是帶 `leadPad` 的 case（777「頭端佔位與真 leadPad 同時存在」、804）刪掉，其餘保留。
+
+`describe('ClipBlock trim 佔位黑墊（Plan 15 Task 1）'` 裡凡是帶 `leadPad` 的 case（777「頭端佔位與真 leadPad 同時存在」、804）刪掉，其餘保留。
 
 4. `Timeline.trimFollow.test.tsx`：`describe('主軌拖出黑墊的視覺語言（Plan 14 Task 4…）'`（1295 起到 1477）整塊換成：
 
@@ -773,13 +815,15 @@ describe('來源起點硬停的視覺語言（2026-09-11，取代 Plan 14 黑墊
   });
 });
 ```
-   同檔其他 describe 若有 `leadPad`（grep），把該欄位刪掉。
+
+同檔其他 describe 若有 `leadPad`（grep），把該欄位刪掉。
 
 - [ ] **Step 2: 跑測試確認紅**
 
 ```bash
 cd ui && npx vitest run src/timeline/dragMath.test.ts src/timeline/DragBadge.test.tsx src/timeline/ClipBlock.test.tsx src/timeline/Timeline.trimFollow.test.tsx 2>&1 | tail -15
 ```
+
 Expected: FAIL（`atMin`／`inAtMin` 不存在、trim-in 仍長黑墊）。
 
 - [ ] **Step 3: dragMath.ts**
@@ -792,7 +836,8 @@ export function isAtSourceMin(clip: Pick<VideoClip, 'in'>): boolean {
   return clip.in <= 0;
 }
 ```
-   並在 `dragMath.test.ts` 加：
+
+並在 `dragMath.test.ts` 加：
 
 ```ts
 describe('isAtSourceMin', () => {
@@ -834,17 +879,20 @@ describe('isAtSourceMin', () => {
         trimPreviewTarget.current = { clipId: clip.id, in: next.in, placeholderHead: placeholder };
         scheduleFollow(clipStart + placeholder);
 ```
-  （後面的捲動補償區塊不動。）
+
+（後面的捲動補償區塊不動。）
+
 - `inPad`（`:1514-1528`）換成：
 
 ```ts
-  /** 正在拖 in 把手、且已頂到來源起點（in=0）的 clip id——`outAtMaxClipId` 的鏡射。 */
-  const inAtMinClipId: string | null = (() => {
-    const d = drag.current;
-    if (!d || d.mode !== 'trim-in') return null;
-    return isAtSourceMin(d.preview) ? d.clipId : null;
-  })();
+/** 正在拖 in 把手、且已頂到來源起點（in=0）的 clip id——`outAtMaxClipId` 的鏡射。 */
+const inAtMinClipId: string | null = (() => {
+  const d = drag.current;
+  if (!d || d.mode !== 'trim-in') return null;
+  return isAtSourceMin(d.preview) ? d.clipId : null;
+})();
 ```
+
 - badge（`:1611-1614`）：`pad: inPad?.clipId === d.clipId ? inPad.pad : undefined,` → `atMin: inAtMinClipId === d.clipId,`。
 - `ClipBlock` JSX：`outAtMax={outAtMaxClipId === c.id}` 下一行加 `inAtMin={inAtMinClipId === c.id}`。
 - commit 段：刪 `const leadPad = Number((d.preview.leadPad ?? 0).toFixed(3));`；`setPending({ mode: 'clip-trim', clipId: d.clipId, in: inSec, duration })`；`sendCommand` 的 `patch` 只留 `{ in: inSec, duration }`（trim-out 只 `{ duration }` 照舊——開檔對照既有分支）；`setTrimPreview({...})` 刪 `leadPad`。
@@ -860,6 +908,7 @@ describe('isAtSourceMin', () => {
 cd ui && npx vitest run 2>&1 | tail -6; cd .. && npm run typecheck && npm run lint && npm run build -w @vidcut/ui
 grep -rn "leadPad\|trimInPad\|effectivePadFor\|snapExtendedX" ui/src server/src | grep -v "store.ts" ; echo "(只允許 store.ts 的正規化那幾行)"
 ```
+
 Expected: 全綠；grep 只剩 `server/src/store.ts`。
 
 - [ ] **Step 9: 真瀏覽器：前把手拖到底**
@@ -878,6 +927,7 @@ git commit -m "feat(ui): 前把手回到來源起點硬停（danger＋· min）�
 ### Task 8：shared 刪型別與 helper，全套驗證
 
 **Files:**
+
 - Modify: `shared/src/types.ts:99-106`、`:336-340`、`:349`、`:360`
 - Modify: `shared/src/timeline.ts:55-74`
 - Test: `shared/src/timeline.test.ts:192-225`（刪 describe）
@@ -898,6 +948,7 @@ npm run typecheck && npm run lint && npm run format:check
 cd shared && npx vitest run; cd ../ui && npx vitest run 2>&1 | tail -4; cd ../server && npx vitest run 2>&1 | tail -6; cd ..
 grep -rn "leadPad" shared/src server/src ui/src | grep -v "server/src/store.ts"; echo "(必須空)"
 ```
+
 Expected: 三 workspace 全綠（server 全套含真 ffmpeg/whisper，約 70–120 秒）。`store.ts` 若用了 `VideoClip & { leadPad?: number }` 交叉型別，typecheck 仍過。
 
 - [ ] **Step 4: Commit**
@@ -912,6 +963,7 @@ git commit -m "refactor(shared): 刪 VideoClip.leadPad 與 clipSourceTime/clipCo
 ### Task 9：文件同步、併回 main、推 origin、併進 pro
 
 **Files:**
+
 - Modify: `HANDOFF.md:253-257`（把手段落）、`:474-550`（Plan 14 節）、`:551-598`（Plan 15 節開頭一句）、`:157-159`（顏色段落）
 - Modify: `CLAUDE.md`（無新增；確認沒有過期句）
 
@@ -926,6 +978,7 @@ git commit -m "refactor(shared): 刪 VideoClip.leadPad 與 clipSourceTime/clipCo
 > `ProjectStore.load` 的 `stripLegacyLeadPad` 一次性清掉（duration 扣墊、刪鍵）。
 > 下面的內容保留作歷史脈絡，**不再描述現況**。
 ```
+
 - Plan 15 節首加一句：「（2026-09-11：leadPad 移除後，本批的佔位機制**保留**；『擴張方向＝還原素材』，不再有『長 leadPad』這個分支。）」
 - `:253-257` 把手段落：把「2026-09-10 起視覺改為 `--select-frame` 實心圓角方塊＋`--card` 短刻痕，幾何不變」改成「2026-09-11 起視覺改為 6px 端帽（外圓角同 chip）＋2×14 `--card` 刻痕；**窄片外推已移除**，選取恆 -6」。
 - `:157-159`：「主軌 clip 選中例外…實心圓角方塊把手」改成「…2px 外框＋6px 端帽把手同吃 `--select-frame`」。
@@ -948,6 +1001,7 @@ git merge main            # 衝突就照「開源側較新且 Pro 有同樣程�
 npm run typecheck && (cd ui && npx vitest run 2>&1 | tail -3) && (cd server && npx vitest run test/mcp-surface-snapshot.test.ts test/commands 2>&1 | tail -3)
 T=$(gh auth token --user mao-data) && git -c credential.helper= -c "credential.helper=!f(){ echo username=mao-data; echo password=$T; }; f" push pro cloud-upload:main
 ```
+
 ⚠️ Pro 的 `server/src/toolRegistry.ts`（不是 `mcp.ts`）持有工具描述——若 Pro 側的 leadPad 描述住在那裡，合併後要在 Pro 側再刪一次並 `-u` 更新 Pro 的 snapshot；Pro 的 `preflight_check`／ripple 若讀 `leadPad`，grep 後一併清掉。
 
 - [ ] **Step 4: 收 worktree**
