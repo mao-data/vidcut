@@ -79,22 +79,14 @@ export const ClipBlock = memo(function ClipBlock({
   // 共用同一個數字——單一真相來源，不分兩處各自用 `leadPad * pps` 算一次。
   const pad = clip.leadPad ?? 0;
   const padPx = timeToPx(pad, pps);
-  // Plan 11 Task 1（範圍裁決 3b/3c，review round 1 Important 1 修正）：算式與
-  // Timeline.tsx 的 `handleOffset` 同款（三處手動同步——ClipBlock／AudioChip／
-  // Timeline 的 caption+overlay chip，改一處記得改另外兩處）：選取態命中區 12px
-  // 跨邊界置中（基準 -6），窄片（<28px）再疊加向外推的量，讓移動帶維持 [6, w-6]
-  // 不縮水。未選取維持貼齊（inline `left:0`/`right:0`，行為不變）。
-  // final-review Minor 4（承 Plan 15 Task 1 review Minor）：窄片判斷吃「內容寬」
-  // （`w` 扣掉頭尾佔位），不是含佔位的 `w` 本身——「內容很窄但被佔位撐大」的 clip
-  // 不該因為佔位撐出的視覺寬度就被判定成「不窄」而少推一段外推量，否則把手命中區
-  // 會略窄於預期（無佔位時 `contentW === w`，逐位元組不變）。
-  const NARROW_THRESHOLD = 28;
+  // 2026-09-11 端帽定案：選取態把手固定跨邊界置中（-6：12px 寬、6 內 6 外），
+  // **不再依內容寬外推**——舊的 NARROW_THRESHOLD(28px) 外推讓 0.1s 極窄 clip 的
+  // 左把手跑到 0s 左邊（看起來像負寬度）。端帽視覺畫在 chip 內側 6px，
+  // 極窄時兩個端帽貼在一起就是整個 chip，不需要外推來保留移動帶。
+  // `contentW` 仍供 filmstrip 裁切框使用（Plan 15 尾端佔位不透出最後一格）。
   const SELECTED_HANDLE_W = 12;
   const contentW = w - placeholderHeadPx - placeholderTailPx;
-  const overflowOffset = selected
-    ? -SELECTED_HANDLE_W / 2 +
-      (contentW < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - contentW) / 2) : 0)
-    : 0;
+  const overflowOffset = selected ? -SELECTED_HANDLE_W / 2 : 0;
   // 2026-08-16 使用者定案:主軌**不顯示**波形帶,filmstrip 吃滿列高。
   // 波形機制(clipWave 查表/--wave-clip-* token/繪製器)完整保留——音訊軌仍用,
   // 要復原只需掛回 canvas+draw effect(參考 AudioChip.tsx 的現行寫法)。
@@ -319,7 +311,7 @@ export const ClipBlock = memo(function ClipBlock({
         )}
       </div>
       <div
-        className={'handle' + (pad > 0 ? ' accent' : '')}
+        className={'handle in' + (pad > 0 ? ' accent' : '')}
         // Plan 15 Task 2（Task 1 審查移交的 Important）：in 把手命中區/視覺位置要跟著
         // 頭端佔位移動——修剪方向拖曳中，佔位黑墊右緣＝leadPad 左緣＝把手／手指所在
         // 位置（見需求書「統一拖曳模型」）。chip 本身的 left/width 已經含佔位（見上方
@@ -335,7 +327,7 @@ export const ClipBlock = memo(function ClipBlock({
         }}
       />
       <div
-        className={'handle' + (outAtMax ? ' danger' : '')}
+        className={'handle out' + (outAtMax ? ' danger' : '')}
         // 對稱：out 把手要跟著尾端佔位——佔位黑墊左緣＝內容右緣＝把手所在位置。
         // `right:0`（overflowOffset≈0）落在 chip 右緣＝佔位右緣，加上
         // `placeholderTailPx`（`right` 是從盒子右緣往左量，加值＝往左推）把它推到

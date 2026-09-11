@@ -1767,14 +1767,11 @@ export function Timeline() {
    * 上，不是疊加在 0 上）——這樣「移動帶＝chip 內側 [6, w-6]」永遠不變，跟未選取時
    * 的 [6, w-6] 完全同尺寸，符合「move band 回到今天的大小」的裁決。
    */
-  const NARROW_THRESHOLD = 28;
+  // 2026-09-11 端帽定案：選取恆 -6（12px 跨邊界置中），不再依寬度外推——與
+  // ClipBlock／AudioChip 的 overflowOffset 同款（三處手動同步）。
   const SELECTED_HANDLE_W = 12;
-  const handleOffset = (w: number, isSel: boolean): number => {
-    if (!isSel) return 0;
-    const centered = -SELECTED_HANDLE_W / 2; // 邊界跨中：一半在內、一半在外
-    const narrowPush = w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0;
-    return centered + narrowPush;
-  };
+  const handleOffset = (_w: number, isSel: boolean): number =>
+    isSel ? -SELECTED_HANDLE_W / 2 : 0;
 
   /**
    * 軌頭欄的一格。高度與 borderBottom 必須跟右邊對應那一列**逐位元組相同**，
@@ -2094,7 +2091,7 @@ export function Timeline() {
                       }}
                     >
                       <div
-                        className="handle"
+                        className="handle in"
                         style={{ left: ovOffset }}
                         onPointerDown={(e) => {
                           e.stopPropagation();
@@ -2102,7 +2099,7 @@ export function Timeline() {
                         }}
                       />
                       <div
-                        className="handle"
+                        className="handle out"
                         style={{ right: ovOffset }}
                         onPointerDown={(e) => {
                           e.stopPropagation();
@@ -2161,7 +2158,7 @@ export function Timeline() {
                     }}
                   >
                     <div
-                      className="handle"
+                      className="handle in"
                       style={{ left: capOffset }}
                       onPointerDown={(e) => {
                         e.stopPropagation();
@@ -2169,7 +2166,7 @@ export function Timeline() {
                       }}
                     />
                     <div
-                      className="handle"
+                      className="handle out"
                       style={{ right: capOffset }}
                       onPointerDown={(e) => {
                         e.stopPropagation();

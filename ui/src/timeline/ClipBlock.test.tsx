@@ -246,7 +246,7 @@ describe('ClipBlock filmstrip：windowing（視窗外格不進 DOM）', () => {
  * 這裡只驗證 ClipBlock 有沒有把 `selected` prop 正確轉成那個 class、以及窄片時
  * 有沒有算出外溢座標。
  */
-describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', () => {
+describe('ClipBlock 把手：選取常駐、恆 -6、不外推（2026-09-11 端帽定案）', () => {
   it('未選取：chip 沒有 selected class（維持現行 hover-only 行為）', () => {
     const p = demoProject();
     const { container } = render(
@@ -337,13 +337,13 @@ describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', (
     expect(rightInnerEdge).toBe(w - 6);
   });
 
-  it('選取且窄片（<28px）：兩把手向外溢出，互不重疊', () => {
+  it('選取且窄片（<28px）：把手不再外推，偏移恆為 -6px（端帽永遠在 chip 內）', () => {
     const p = demoProject();
-    // duration 0.5s * pps 40 = 20px < 28px
+    // duration 0.1s * pps 40 = 4px：極窄（舊算式會外推到 -18px，左把手跑到 0s 左邊）
     const { container } = render(
       <ClipBlock
         p={p}
-        clip={{ ...p.tracks.video[0], duration: 0.5 }}
+        clip={{ ...p.tracks.video[0], duration: 0.1 }}
         leftPx={0}
         pps={40}
         selected={true}
@@ -355,14 +355,11 @@ describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', (
       />,
     );
     const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    // 外溢＝負偏移（不再是貼齊的 0px）
-    const leftPx = parseFloat(left!.style.left);
-    const rightPx = parseFloat(right!.style.right);
-    expect(leftPx).toBeLessThan(0);
-    expect(rightPx).toBeLessThan(0);
+    expect(left!.style.left).toBe('-6px');
+    expect(right!.style.right).toBe('-6px');
   });
 
-  it('未選取窄片：即使寬度 <28px 也不外溢（外溢只在選取時發生）', () => {
+  it('未選取窄片：把手貼齊邊緣（0px），與寬片相同', () => {
     const p = demoProject();
     const { container } = render(
       <ClipBlock
@@ -383,39 +380,25 @@ describe('ClipBlock 把手：選取常駐 + 窄片外溢（Plan 11 Task 1）', (
     expect(right!.style.right).toBe('0px');
   });
 
-  it('final-review Minor 4 回歸釘：內容窄但佔位撐大總寬——窄片外推吃內容寬，不吃含佔位的總寬', () => {
+  it('把手帶方向 class：左＝handle in、右＝handle out（端帽 CSS 靠這個分左右）', () => {
     const p = demoProject();
-    // 內容 duration 0.5s*40pps=20px（<28px 門檻，本身該外推），但頭端佔位 1s*40pps=40px
-    // 把總寬 w 撐到 60px（>28px 門檻）。修法前：外推判斷吃含佔位的 w=60px，判定「不窄」，
-    // overflowOffset 只有 -6（SELECTED_HANDLE_W/2），把手命中區比預期窄。
-    // 修法後：判斷吃 contentW = w - placeholderHeadPx - placeholderTailPx = 20px，
-    // 仍 <28px，照樣觸發外推。
     const { container } = render(
       <ClipBlock
         p={p}
-        clip={{ ...p.tracks.video[0], duration: 0.5 }}
+        clip={p.tracks.video[0]}
         leftPx={0}
         pps={40}
         selected={true}
         animate={false}
         floating={false}
-        placeholderHead={1}
         onTrimStart={noop}
         onMoveStart={noop}
         onSelect={noop}
       />,
     );
     const [left, right] = Array.from(container.querySelectorAll<HTMLElement>('.handle'));
-    // left handle 的 style.left = overflowOffset + placeholderHeadPx（40px，這裡的
-    // placeholderHead=1s*40pps）——外推觸發與否要看 overflowOffset 本身，不能直接拿
-    // leftPx 跟純 -6 比（那會被 +40 的頭端佔位偏移蓋過）。right handle 沒有頭端佔位，
-    // style.right 就是 overflowOffset 本身，直接比對即可。
-    const leftPx = parseFloat(left!.style.left);
-    const rightPx = parseFloat(right!.style.right);
-    const overflowOffsetFromLeft = leftPx - 40; // 扣掉 placeholderHeadPx
-    // 外推觸發：偏移比純 -6（SELECTED_HANDLE_W/2）更負（外溢量 > 0）。
-    expect(overflowOffsetFromLeft).toBeLessThan(-6);
-    expect(rightPx).toBeLessThan(-6);
+    expect(left!.className.split(' ')).toContain('in');
+    expect(right!.className.split(' ')).toContain('out');
   });
 
   /**

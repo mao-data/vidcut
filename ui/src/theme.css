@@ -2192,28 +2192,57 @@ a {
  * 背景用 --tint-28（與 hover 淡入同一階，不發明新色）；中央疊一條 grip 紋
  * （--tint-50，比背景更亮一階）表示「這是可以抓的把手」，不是裝飾線——寬度固定
  * 2px、`left:5px` 相對 handle 自身置中，與 handle 的絕對頁面位置無關。 */
-/* 2026-09-10 使用者定案：選取態把手改成 CapCut 式**實心圓角方塊**（--select-frame，
- * 暗房白／紙上 ink），不再是半透明帶；grip 紋改成**短的深色刻痕**（--card，
- * 上下各留 30%），讀成「方塊上的凹槽」而不是一條貫穿線。寬 12px／跨邊界置中的
- * 幾何**一個像素都不動**（命中區契約見上）；hover 不再變色——實心塊已經夠亮，
- * 游標 ew-resize 足以提示。 */
+/* 2026-09-11 使用者定案（方案 1）：選取態把手＝**端帽**——chip 左右各 6px 的實色帽
+ * （--select-frame，暗房白／紙上 ink），外側圓角跟著 chip 走（border-radius: inherit
+ * 再把內側兩角歸零），上下框仍是 chip 上 2px 的 inset 環，框＋端帽讀成一個「框框」。
+ * 中央一道 2px×14px 的 --card 刻痕標示可抓。把手本身（12px、跨邊界置中）維持透明，
+ * 只當命中區；端帽畫在 `::before` 的 chip 內側那 6px（left/right: 6px 起）。
+ * 左右由使用端加的 `in`／`out` class 分（ClipBlock／AudioChip／Timeline 字幕＋overlay
+ * 八個站點）。 */
+.handle {
+  border-radius: inherit;
+}
 .clipblk.selected .handle {
   width: 12px;
-  border-radius: 4px;
+  background: transparent;
+}
+.clipblk.selected .handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
   background: var(--select-frame);
+  border-radius: inherit;
+}
+.clipblk.selected .handle.in::before {
+  left: 6px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.clipblk.selected .handle.out::before {
+  right: 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 .clipblk.selected .handle::after {
   content: '';
   position: absolute;
-  top: 30%;
-  bottom: 30%;
-  left: 5px;
+  top: 50%;
+  height: 14px;
   width: 2px;
+  transform: translateY(-50%);
   border-radius: 1px;
   background: var(--card);
 }
+.clipblk.selected .handle.in::after {
+  left: 8px; /* 6（帽左緣）+ (6−2)/2 */
+}
+.clipblk.selected .handle.out::after {
+  right: 8px;
+}
 .clipblk.selected .handle:hover {
-  background: var(--select-frame);
+  background: transparent;
 }
 
 /* Plan 11 Task 3（裁決 5）：來源長度上限的視覺語言——主軌 out 把手拖到
@@ -2228,9 +2257,12 @@ a {
 .clipblk .handle.danger:hover {
   background: color-mix(in srgb, var(--danger) 50%, transparent);
 }
-/* 選取態是實心方塊（見上），danger 就是**整塊**換成 --danger，刻痕維持 --card。 */
+/* 選取態端帽整塊換 --danger（畫在 ::before），刻痕維持 --card；把手本身仍透明。 */
 .clipblk.selected .handle.danger,
 .clipblk.selected .handle.danger:hover {
+  background: transparent;
+}
+.clipblk.selected .handle.danger::before {
   background: var(--danger);
 }
 
@@ -2246,9 +2278,12 @@ a {
 .clipblk .handle.accent:hover {
   background: color-mix(in srgb, var(--accent-bright) 50%, transparent);
 }
-/* 同 danger：選取態整塊換色，刻痕維持 --card。 */
+/* 同 danger：選取態端帽換色（::before），刻痕維持 --card。 */
 .clipblk.selected .handle.accent,
 .clipblk.selected .handle.accent:hover {
+  background: transparent;
+}
+.clipblk.selected .handle.accent::before {
   background: var(--accent-bright);
 }
 

@@ -41,11 +41,9 @@ export const AudioChip = memo(function AudioChip({
   // Plan 11 Task 1（範圍裁決 3b/3c，review round 1 Important 1 修正）：同
   // ClipBlock／Timeline 的 `handleOffset` 算式（三處手動同步，見 ClipBlock.tsx
   // 同名常數旁的註解）——選取態命中區 12px 跨邊界置中，窄片再疊加外推量。
-  const NARROW_THRESHOLD = 28;
+  // 2026-09-11 端帽定案：同 ClipBlock，選取恆 -6、不外推。
   const SELECTED_HANDLE_W = 12;
-  const overflowOffset = selected
-    ? -SELECTED_HANDLE_W / 2 + (w < NARROW_THRESHOLD ? -Math.ceil((NARROW_THRESHOLD - w) / 2) : 0)
-    : 0;
+  const overflowOffset = selected ? -SELECTED_HANDLE_W / 2 : 0;
   // 理由同 ClipBlock：canvas 不吃 CSS 變數，主題換了要自己重畫
   const theme = useTheme((s) => s.theme);
 
@@ -94,7 +92,7 @@ export const AudioChip = memo(function AudioChip({
         }}
       />
       <div
-        className="handle"
+        className="handle in"
         style={{ left: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();
@@ -102,7 +100,7 @@ export const AudioChip = memo(function AudioChip({
         }}
       />
       <div
-        className={'handle' + (outAtMax ? ' danger' : '')}
+        className={'handle out' + (outAtMax ? ' danger' : '')}
         style={{ right: overflowOffset }}
         onPointerDown={(e) => {
           e.stopPropagation();
