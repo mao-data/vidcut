@@ -127,9 +127,6 @@ function projectSummary(store: ProjectStore) {
       in: c.in,
       duration: c.duration,
       label: c.label,
-      // 選填欄位無意義值（這裡是 leadPad===0，即「沒有黑墊」）不主動帶進摘要，
-      // 免得每個 clip 都多一個恆為 0 的噪音欄位——只有真的有黑墊時才曝光。
-      ...(c.leadPad ? { leadPad: c.leadPad } : {}),
     })),
     overlays: d.tracks.overlays.length,
     captions: d.tracks.captions.map((c) => ({
@@ -222,14 +219,6 @@ const clipPatchSchema = z
     duration: z.number().optional(),
     volume: z.number().min(0).max(2).optional(),
     label: z.string().optional(),
-    leadPad: z
-      .number()
-      .optional()
-      .describe(
-        "Seconds of black, silent lead before the clip's content — duration is unchanged and already includes " +
-          'it (content length = duration − leadPad); omit to leave the current value alone. Content must still be ' +
-          '>= 0.1s and in + (duration − leadPad) must not exceed the source length.',
-      ),
   })
   .strict();
 
@@ -405,14 +394,6 @@ const timelineClipSchema = z.object({
   duration: z.number(),
   label: z.string().optional(),
   volume: z.number().min(0).max(2).optional(),
-  leadPad: z
-    .number()
-    .optional()
-    .describe(
-      "Seconds of black, silent lead before the clip's content — duration is unchanged and already includes it " +
-        '(content length = duration − leadPad); omitting it means 0, same as every other field here (set_timeline ' +
-        'is a whole-track replace, so it never carries an old value forward).',
-    ),
   meta: z.record(z.unknown()).optional(),
 });
 
@@ -545,9 +526,6 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'The exported length (get_project total) is whichever track reaches furthest, not just the main track — ' +
         'captions, audio or overlays that run past the main track extend the export, with the picture past the ' +
         'main track rendered black while that content still plays.' +
-        'A clip can also carry leadPad: seconds of black, silent lead before its content, included in duration ' +
-        '(content length = duration − leadPad) — update_clip / set_timeline / add_clip all take it, and get_frame ' +
-        'returns a plain black frame for a time inside the pad, the same as the black tail past the main track.' +
         'After render, export_publish_package turns the finished video into a manual-upload package ' +
         '(output/publish/<stamp>/: video + cover + .srt + one metadata text file per platform + manifest with ' +
         'upload URLs and duration/size warnings) — write the platform captions/hashtags yourself and pass them in. ' +
@@ -850,8 +828,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         '(see get_project total), which can extend past the main track when captions/audio/overlays run longer. ' +
         'A time past the main track but within output duration returns a plain black frame (no overlays/captions ' +
         'composited there either) instead of an error; only a genuinely empty main track (no clips and nothing ' +
-        "extending output duration) still returns an error. A time inside a clip's leadPad (its black, silent lead) " +
-        'also returns a plain black frame, same as the black tail past the main track. ⚠️ get_frame succeeding at a ' +
+        'extending output duration) still returns an error. ⚠️ get_frame succeeding at a ' +
         'given time does not mean render will succeed there — render additionally requires at least one clip on the ' +
         'main track.',
       outputSchema: {
@@ -1247,11 +1224,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'to only append, use add_clip, which leaves existing clips alone. ' +
         'Every item is validated and **one bad item rejects the whole batch, leaving the document untouched**: ' +
         'mediaId must exist, audio-only media is refused (use set_audio for BGM/voiceover), in >= 0 and duration > 0, ' +
-        'in+duration must not exceed the source length, volume within 0–2, and ids you supply must not repeat. ' +
-        "leadPad puts a black, silent lead before the clip's content — duration already includes it, so content " +
-        'length = duration − leadPad, and that content length must still be >= 0.1s with in + content length not ' +
-        'exceeding the source length. Omitting leadPad means 0 for every item — this is a whole-track replace, so ' +
-        "an existing clip's pad is not carried forward unless you resend it.",
+        'in+duration must not exceed the source length, volume within 0–2, and ids you supply must not repeat.',
       outputSchema: clipTrackOutput,
       inputSchema: { clips: z.array(timelineClipSchema), ifVersion: z.number().optional() },
     },
@@ -1265,27 +1238,18 @@ export function createMcpServer(deps: McpDeps): McpServer {
       description:
         'Append already-imported media to the end of the main track (existing clips are untouched — good for adding ' +
         'one file at a time). Audio-only media is rejected: use set_audio for BGM/voiceover. Returns the new clipId. ' +
-        "leadPad puts a black, silent lead before the clip's content — duration already includes it, so content " +
-        'length = duration − leadPad, and that content length must still be >= 0.1s with in + content length not ' +
-        'exceeding the source length; omit for no pad (0).',
+        'duration must be >= 0.1s and in + duration must not exceed the source length.',
       outputSchema: { clipId: z.string(), version: z.number() },
       inputSchema: {
         mediaId: z.string(),
         in: z.number(),
         duration: z.number(),
         label: z.string().optional(),
-        leadPad: z
-          .number()
-          .optional()
-          .describe(
-            "Seconds of black, silent lead before the clip's content; omit for no pad (0). See the tool " +
-              'description for how it interacts with duration and the source-length bound.',
-          ),
         ifVersion: z.number().optional(),
       },
     },
-    async ({ mediaId, in: clipIn, duration, label, leadPad, ifVersion }) => {
-      const cmd = { name: 'addClip', mediaId, in: clipIn, duration, label, leadPad } as const;
+    async ({ mediaId, in: clipIn, duration, label, ifVersion }) => {
+      const cmd = { name: 'addClip', mediaId, in: clipIn, duration, label } as const;
       const r = aiWrite(store, cmd, ifVersion);
       if (!r.ok) return err(writeResultText(r));
       // addClip 的語意就是 append，所以新 clip 必為尾端那一個。
@@ -1299,13 +1263,10 @@ export function createMcpServer(deps: McpDeps): McpServer {
     'update_clip',
     {
       description:
-        "Change one clip's in/duration/volume/label/leadPad (its position in the main track is untouched). " +
+        "Change one clip's in/duration/volume/label (its position in the main track is untouched). " +
         'Bounds are checked against the **post-patch** shape: in >= 0, duration >= 0.1s, ' +
-        'in + (duration − leadPad) must not exceed the source length, volume within 0–2. ' +
-        "leadPad puts a black, silent lead before the clip's content — duration is unchanged and already includes " +
-        'it, so content length = duration − leadPad, which must still be >= 0.1s with in + content length not ' +
-        'exceeding the source length; omitting leadPad in the patch leaves the current value alone (unlike ' +
-        'set_timeline, this is a partial patch, not a whole-track replace). ' +
+        'in + duration must not exceed the source length, volume within 0–2. Omitting a field in the patch ' +
+        'leaves the current value alone (unlike set_timeline, this is a partial patch, not a whole-track replace). ' +
         '⚠️ The main track is magnetic, so changing duration shifts every clip after it, while captions and audio use ' +
         'absolute time and do NOT move with it — fix them yourself with update_caption / update_audio.',
       outputSchema: writeOutput,
@@ -1747,11 +1708,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         'with update_caption / update_audio. (Same semantics as CapCut; not a bug.) Also, when a whole clip ' +
         'disappears, overlays anchored to it break and the reply lists which ones. ' +
         "split's cut point must fall strictly inside a clip, leaving at least 0.1s on each side — too close to an " +
-        'edge is rejected. When the clip has a leadPad, a point inside that black lead is also rejected for split ' +
-        'and freeze, even if it clears the 0.1s edge buffer — the error names the pad boundary (the lead has no ' +
-        'source frame to cut or freeze at). deleteBefore/deleteAfter handle the pad gracefully instead of ' +
-        'rejecting: a cut landing inside the lead just shortens it (or, for deleteAfter, drops the whole clip when ' +
-        'nothing but pad would be left). A freeze inserts a **silent** frozen clip (it occupies timeline length, ' +
+        'edge is rejected. A freeze inserts a **silent** frozen clip (it occupies timeline length, ' +
         'so everything after it shifts right).',
       outputSchema: clipTrackOutput,
       inputSchema: {
