@@ -95,15 +95,6 @@ export interface VideoClip {
   volume: number;
   /** 定格幀：畫面凍結在 in 這一刻，持續 duration（渲染時抽單幀成靜圖） */
   frozen?: boolean;
-  /**
-   * 前把手黑墊（秒，≥0，缺席＝0）：clip 開頭插一段黑畫面無聲，`duration` 不變
-   * （`duration` 仍是時間軸長度，含黑墊）。內容長度＝`duration − leadPad`，內容從
-   * 來源 `in` 開始——這是唯一真相來源，換算一律走 `shared/src/timeline.ts` 的
-   * `clipSourceTime`/`clipContentDuration`，不得各自手算 `in + offset`。
-   * `frozen` clip 也可以帶（黑墊之後才開始定格畫面）。無上限，只驗有限性與 ≥0（與
-   * CapCut 同）。
-   */
-  leadPad?: number;
   /** 峰值來源 audio|motion、rank 等 */
   meta?: Record<string, unknown>;
 }
@@ -333,11 +324,6 @@ export interface TimelineClipSpec {
   duration: number;
   label?: string;
   volume?: number;
-  /**
-   * 前把手黑墊（秒），語意與 `VideoClip.leadPad` 相同。**setTimeline 是整組替換**，
-   * 沒帶＝0，不沿用舊值——與其他欄位（如 `volume`）同語意。
-   */
-  leadPad?: number;
   meta?: Record<string, unknown>;
 }
 
@@ -346,7 +332,7 @@ export type Command =
   | {
       name: 'updateClip';
       clipId: string;
-      patch: Partial<Pick<VideoClip, 'in' | 'duration' | 'volume' | 'label' | 'leadPad'>>;
+      patch: Partial<Pick<VideoClip, 'in' | 'duration' | 'volume' | 'label'>>;
     }
   | { name: 'reorderClips'; order: string[] }
   | { name: 'removeClip'; clipId: string }
@@ -357,7 +343,6 @@ export type Command =
       in: number;
       duration: number;
       label?: string;
-      leadPad?: number;
     }
   /**
    * 整組替換影片主軌（初次排片）。以前這是 MCP 工具**自己 store.mutate** 的，是唯一
