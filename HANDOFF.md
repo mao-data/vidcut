@@ -154,7 +154,9 @@ spec：[`docs/superpowers/specs/2026-07-30-vidcut-ui-redesign-design.md`](docs/s
     #2a2a2e，`--bg-stage` #131315 恆為全 UI 最暗（影片顏色判斷優先，亮版同樣成立）；
     **白蠟筆** chalk #e8e4da 做主文字/描邊/主鈕（`--on-accent` 是炭黑字）；
     **紅蠟筆 #c94f42 只做標記**（playhead 實心、時間碼進行值、當前字幕列左標
-    `.cap-current`、時間軸選中 `--select-edge` 紅框、chip 紅描邊），絕不當底色；
+    `.cap-current`、字幕／overlay chip 選中 `--select-edge` 紅框、chip 紅描邊），絕不當底色；
+    **主軌 clip 選中例外**（2026-09-10 使用者定案 CapCut 式）：2px 外框＋左右實心
+    圓角方塊把手同吃 `--select-frame`（暗房＝白蠟筆、紙上＝ink），紅蠟筆不填塊；
     音訊軌降飽和藍灰；`--who-ai`=蠟筆白/`--who-you`=紅蠟筆（Two-Hands 鏡像）；
     AgentStrip 琥珀終端不動（暗房裡唯一一盞終端小燈）。紫/青在暗版全面退場。
   - **亮版=分鏡紙桌面**（08-14 craft 落地）：紙底+ink 描邊+紅鉛筆標記+non-photo blue
@@ -253,7 +255,8 @@ filmstripTiles.ts` 新檔 + `ClipBlock.tsx` 消費）：舊模型的 tile 寬（
 - **把手升級**（Task 1，變更 2026-08-16 hover-only 幾何定案）：選取的項目把手常駐
   可見（不再 hover 才現）,命中區 6px→**選取項 12px、跨在片段邊界正中央**（chip 內
   6px＋chip 外溢 6px,不是舊版「純向內長滿 12px」——那樣窄片可移動帶會被壓到只剩
-  ~4px）,中央疊 2px grip 紋提示可抓;窄片（chip 寬 <28px）選取後兩把手向外溢出、
+  ~4px）,中央疊 2px grip 紋提示可抓（2026-09-10 起視覺改為 `--select-frame` 實心
+  圓角方塊＋`--card` 短刻痕,幾何不變）;窄片（chip 寬 <28px）選取後兩把手向外溢出、
   互不重疊;選取 chip 同時抬升到 `zIndex: 15`,讓外溢的把手蓋在鄰近 chip 之上。
   未選取項維持原 hover-only 行為不動。完整定案細節與 CSS 落點見
   `ui/DESIGN.md`「Chips → Trim handles」——那裡是這條規則的權威來源。

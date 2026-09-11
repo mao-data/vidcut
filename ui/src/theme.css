@@ -142,6 +142,14 @@
    * 所以 `[data-theme='paper']` 區塊把這個 token 指回 ink 的字面值，
    * 紙上的 computed 一個像素都不變。 */
   --select-edge: #c94f42;
+  /* 主軌 clip 選取態的**框＋把手**顏色（2026-09-10 使用者定案：主軌 clip 的選取改成
+   * CapCut 式「實心圓角方塊把手＋外框」，取代上面「紅框」那條在主軌的適用範圍）。
+   * 暗房是白（與 --text-1 同值）：把手是**填**不是描，紅蠟筆填一整塊會讀成按鈕；
+   * 而且 `.handle.accent` 已經吃 --accent-bright（＝同一個紅），把手若也紅，
+   * 「in 把手拖出黑墊」那個狀態就分不出來了。
+   * 消費者：ClipBlock 的選取環／拖曳浮起環、`.clipblk.selected .handle`（四端共用）。
+   * 字幕／overlay chip 的選取環**仍是** --select-edge，不動。 */
+  --select-frame: #e8e4da;
   /* playhead 直線漸層的**收尾端**（起點是 --accent-bright）。
    * 以前這裡直接吃 `--accent-2`（那時它是紫，跟 --accent-bright 同族所以成立）。
    * 暗房的 --accent-2 已改嫁白蠟筆（主鈕漸層），playhead 若還吃它就會**從紅漸層
@@ -451,6 +459,9 @@
    * 刻意寫字面值而不是 `var(--accent)`：紙上的選取框與主鈕本來就沒有連動關係，
    * 用 var 會製造一個假的依賴（改主鈕會默默改到選取框）。 */
   --select-edge: #26231d;
+  /* 紙上框與把手都是 ink：與 --select-edge 同字面值，所以主軌 clip 選取環的
+   * computed 顏色不變（只有粗細 1.5→2px 與把手形狀變）。 */
+  --select-frame: #26231d;
   /* playhead 漸層收尾端。值＝紙版 `--accent-2` 的字面值（#3d382e），與收編前
    * 直接吃 `var(--accent-2)` 的 computed **逐字元相同**。理由同 --select-edge：
    * 寫字面值避免製造「改主鈕漸層會動到 playhead」的假依賴。 */
@@ -2181,22 +2192,28 @@ a {
  * 背景用 --tint-28（與 hover 淡入同一階，不發明新色）；中央疊一條 grip 紋
  * （--tint-50，比背景更亮一階）表示「這是可以抓的把手」，不是裝飾線——寬度固定
  * 2px、`left:5px` 相對 handle 自身置中，與 handle 的絕對頁面位置無關。 */
+/* 2026-09-10 使用者定案：選取態把手改成 CapCut 式**實心圓角方塊**（--select-frame，
+ * 暗房白／紙上 ink），不再是半透明帶；grip 紋改成**短的深色刻痕**（--card，
+ * 上下各留 30%），讀成「方塊上的凹槽」而不是一條貫穿線。寬 12px／跨邊界置中的
+ * 幾何**一個像素都不動**（命中區契約見上）；hover 不再變色——實心塊已經夠亮，
+ * 游標 ew-resize 足以提示。 */
 .clipblk.selected .handle {
   width: 12px;
-  background: var(--tint-28);
+  border-radius: 4px;
+  background: var(--select-frame);
 }
 .clipblk.selected .handle::after {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 30%;
+  bottom: 30%;
   left: 5px;
   width: 2px;
   border-radius: 1px;
-  background: var(--tint-50);
+  background: var(--card);
 }
 .clipblk.selected .handle:hover {
-  background: var(--tint-50);
+  background: var(--select-frame);
 }
 
 /* Plan 11 Task 3（裁決 5）：來源長度上限的視覺語言——主軌 out 把手拖到
@@ -2205,15 +2222,15 @@ a {
  * 不動，這批只加顏色）：背景與 grip 紋改吃 `--danger`，不新增任何幾何規則——
  * 命中區大小、外溢偏移仍由選取態那條規則決定，這裡只覆蓋顏色。`danger` 這個
  * class 只加在 out 把手本身（ClipBlock.tsx 的 `outAtMax` prop），in 把手不受影響。 */
-.clipblk .handle.danger,
-.clipblk.selected .handle.danger {
+.clipblk .handle.danger {
   background: color-mix(in srgb, var(--danger) 28%, transparent);
 }
-.clipblk .handle.danger:hover,
-.clipblk.selected .handle.danger:hover {
+.clipblk .handle.danger:hover {
   background: color-mix(in srgb, var(--danger) 50%, transparent);
 }
-.clipblk.selected .handle.danger::after {
+/* 選取態是實心方塊（見上），danger 就是**整塊**換成 --danger，刻痕維持 --card。 */
+.clipblk.selected .handle.danger,
+.clipblk.selected .handle.danger:hover {
   background: var(--danger);
 }
 
@@ -2223,15 +2240,15 @@ a {
  * 疊法與 `.handle.danger` 同款：只覆蓋顏色，命中區幾何仍由選取態那條規則決定。
  * `accent` class 只加在 in 把手本身，由 `clip.leadPad > 0` 就地推導（ClipBlock.tsx 的
  * `pad` 區域變數），out 把手不受影響——與 `danger` 只加在 out 把手互為鏡射。 */
-.clipblk .handle.accent,
-.clipblk.selected .handle.accent {
+.clipblk .handle.accent {
   background: color-mix(in srgb, var(--accent-bright) 28%, transparent);
 }
-.clipblk .handle.accent:hover,
-.clipblk.selected .handle.accent:hover {
+.clipblk .handle.accent:hover {
   background: color-mix(in srgb, var(--accent-bright) 50%, transparent);
 }
-.clipblk.selected .handle.accent::after {
+/* 同 danger：選取態整塊換色，刻痕維持 --card。 */
+.clipblk.selected .handle.accent,
+.clipblk.selected .handle.accent:hover {
   background: var(--accent-bright);
 }
 
