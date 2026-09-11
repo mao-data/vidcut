@@ -67,6 +67,14 @@ export function createApp(
   extras?: { fonts?: FontEntry[]; textCards?: TextCardService; library?: LibraryStore },
 ): express.Express {
   const app = express();
+  // 所有回應標 noindex:自架綁 127.0.0.1 時無害(爬蟲到不了),但同一份程式
+  // 部署在雲端(studio.usevidcut.com 與每人一台的 <slug>.studio 子網域)時公開
+  // 可達——編輯器殼頁被收錄會跟行銷站搶品牌詞。刻意用 header 而非 robots.txt:
+  // Disallow 只擋抓取不擋收錄,且會讓爬蟲看不到這個 header。詳見 noindex.test.ts。
+  app.use((_req, res, next) => {
+    res.setHeader('X-Robots-Tag', 'noindex');
+    next();
+  });
   app.use(express.json());
   app.get('/api/project', (_req, res) => {
     res.json({ version: store.version, doc: store.doc });
