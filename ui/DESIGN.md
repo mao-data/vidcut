@@ -620,26 +620,32 @@ accident. Two states:
   white bar at every clip boundary read as broken UI), 6px hit-width, fades in on
   `.clipblk:hover` (`--tint-28`) and brightens further on direct `.handle:hover`
   (`--tint-50`). This is the CapCut convention: hover the clip, then the edge.
-- **Selected — persistent, not hover-gated.** Selecting a clip means the user is
+- **Selected — persistent, not hover-gated.** Selecting a chip means the user is
   actively working it, so its handles are visible and grabbable immediately: 12px
-  hit-width **straddling the boundary**, not sitting inside it — 6px inside the chip,
-  6px overflowing outward. (A first cut grew the 12px entirely inward from the
-  boundary; on a narrow chip that crushed the remaining draggable body to ~4px, so
-  the outward-straddling split replaced it.) The overflow is computed at the call
-  site (`Timeline.tsx`'s `handleOffset`, mirrored in `ClipBlock.tsx`/`AudioChip.tsx`)
-  as an inline negative offset — the shared `.handle` rule only owns width and paint,
-  never position. A 2px grip mark (`--tint-50`, one step brighter than the `--tint-28`
-  handle fill) sits centered in the handle to read as "grabbable," not decorative.
-  **Narrow-clip overflow:** below 28px chip width, both selected handles overflow
-  outward and clear each other — they used to overlap and fight for the pointer.
-  **Selected chips also raise to `zIndex: 15`** (`ClipBlock.tsx`/`AudioChip.tsx`) so
-  the overflowing handles paint over neighboring chips instead of going underneath
-  them.
+  hit-width **straddling the boundary** — 6px inside the chip, 6px overflowing outward
+  — computed at the call site (`Timeline.tsx`'s `handleOffset`, mirrored in
+  `ClipBlock.tsx`/`AudioChip.tsx`) as a constant inline `-6px` offset; the shared
+  `.handle` rule only owns width and paint, never position. **End-cap look
+  (2026-09-11, supersedes the 2026-09-10 solid-block handles):** the handle box itself
+  is transparent; a 6px **end cap** (`::before`, `--select-frame` — the same token as
+  the chip's 2px selection frame, so cap and frame read as one enclosure) fills the
+  inner half of the hit-box, flush with the chip edge, its outer corners inheriting
+  the chip radius (`border-radius: inherit`, inner corners squared) so the cap reads as
+  part of the chip's outline rather than a bar laid on top. A 2×14px grip notch
+  (`::after`, `--card`, i.e. the panel ground) is centered in the cap. `.handle.in` /
+  `.handle.out` pick the side; all four chip kinds share the rule. **No narrow-clip
+  push-out:** the old rule that pushed both selected handles further outward below
+  28px chip width is gone — it let a 0.1s clip's in-handle land left of 0s and read
+  as negative time. Caps always stay inside the clip's own footprint; a very narrow
+  chip simply shows two caps and nothing between them. **Selected chips still raise
+  to `zIndex: 15`** (`ClipBlock.tsx`/`AudioChip.tsx`) so the 6px overflow paints over
+  neighboring chips instead of going underneath them.
 - **Danger (source-limit) state:** when a main-track out-handle is dragged to the
   clip's source-media limit (`probe.duration`, via `dragMath`'s max check), the
-  handle repaints in `--danger` — same geometry, only the fill and grip color change
-  (`.handle.danger`: `--tint-28`/`--tint-50` swapped for `color-mix(--danger, ...)`
-  at the same two alpha stops). Pairs with the DragBadge showing `max` (below) so
+  handle repaints in `--danger` — same geometry, only the paint changes (unselected:
+  `.handle.danger` swaps the `--tint-28`/`--tint-50` fill for `color-mix(--danger, ...)`
+  at the same two alpha stops; selected: the end cap's `::before` fills `--danger`
+  instead of `--select-frame`, the notch stays `--card`). Pairs with the DragBadge showing `max` (below) so
   "can't pull this further" has both a color and a text signal instead of silently
   clamping. **Plan 12 Task 3** added the symmetric case: the main-track **in**-handle
   repaints the same way when dragged to `in <= 0` (source start, material exhausted —
